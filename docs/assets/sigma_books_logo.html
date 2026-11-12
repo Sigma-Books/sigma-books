@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Sigma Books — Logo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #F7F6F2;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 60px;
+    padding: 60px 40px;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+ 
+  .section-title {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #888780;
+    margin-bottom: 28px;
+    text-align: center;
+  }
+ 
+  .logo-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+ 
+  /* ── Fond blanc ── */
+  .bg-white { background: #ffffff; border-radius: 16px; padding: 48px 64px; }
+  /* ── Fond vert ── */
+  .bg-green { background: #0B5E48; border-radius: 16px; padding: 48px 64px; }
+  /* ── Fond noir ── */
+  .bg-dark  { background: #1A1A18; border-radius: 16px; padding: 48px 64px; }
+ 
+  .variant-row {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+ 
+  .label {
+    font-size: 11px;
+    color: #888780;
+    margin-top: 12px;
+    text-align: center;
+    letter-spacing: 0.06em;
+  }
+ 
+  /* ── Favicon / icône seule ── */
+  .icon-only-row {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: center;
+  }
+</style>
+</head>
+<body>
+ 
+<!-- ═══════════════════════════════════ -->
+<!--  LOGO PRINCIPAL — fond clair       -->
+<!-- ═══════════════════════════════════ -->
+<div class="logo-group">
+  <div class="section-title">Logo principal</div>
+  <div class="bg-white">
+    <svg width="280" height="60" viewBox="0 0 280 60" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sigma Books logo">
+ 
+      <!-- Icône : Σ stylisé avec ligne d'équilibre -->
+      <g>
+        <!-- Corps du Sigma -->
+        <path d="M8 6 L36 6 L20 30 L36 54 L8 54" stroke="#0B5E48" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <!-- Barre supérieure -->
+        <line x1="8" y1="6" x2="36" y2="6" stroke="#0B5E48" stroke-width="3" stroke-linecap="round"/>
+        <!-- Barre inférieure -->
+        <line x1="8" y1="54" x2="36" y2="54" stroke="#0B5E48" stroke-width="3" stroke-linecap="round"/>
+        <!-- Barre médiane — la ligne d'équilibre, légèrement plus courte -->
+        <line x1="13" y1="30" x2="33" y2="30" stroke="#C8E8DF" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- Point central d'équilibre -->
+        <circle cx="43" cy="30" r="3" fill="#0B5E48" opacity="0.25"/>
+      </g>
+ 
+      <!-- Séparateur vertical discret -->
+      <line x1="58" y1="12" x2="58" y2="48" stroke="#E0DED8" stroke-width="1"/>
+ 
+      <!-- Wordmark -->
+      <text x="72" y="26" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="400" fill="#1A1A18" letter-spacing="-0.3">Sigma</text>
+      <text x="72" y="48" font-family="-apple-system, 'Helvetica Neue', sans-serif" font-size="15" font-weight="300" fill="#0B5E48" letter-spacing="3.5">BOOKS</text>
+ 
+    </svg>
+  </div>
+  <div class="label">Fond clair · usage principal</div>
+</div>
+ 
+<!-- ═══════════════════════════════════ -->
+<!--  VARIANTES                         -->
+<!-- ═══════════════════════════════════ -->
+<div class="logo-group">
+  <div class="section-title">Variantes de fond</div>
+  <div class="variant-row">
+ 
+    <!-- Fond vert -->
+    <div>
+      <div class="bg-green">
+        <svg width="220" height="48" viewBox="0 0 220 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sigma Books logo fond vert">
+          <path d="M6 4 L28 4 L16 24 L28 44 L6 44" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <line x1="6"  y1="4"  x2="28" y2="4"  stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+          <line x1="6"  y1="44" x2="28" y2="44" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+          <line x1="10" y1="24" x2="26" y2="24" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round"/>
+          <line x1="44" y1="10" x2="44" y2="38" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+          <text x="56" y="21" font-family="Georgia, serif" font-size="18" font-weight="400" fill="#ffffff" letter-spacing="-0.3">Sigma</text>
+          <text x="56" y="38" font-family="-apple-system, sans-serif" font-size="12" font-weight="300" fill="rgba(255,255,255,0.7)" letter-spacing="3">BOOKS</text>
+        </svg>
+      </div>
+      <div class="label">Fond vert · usage marketing</div>
+    </div>
+ 
+    <!-- Fond noir -->
+    <div>
+      <div class="bg-dark">
+        <svg width="220" height="48" viewBox="0 0 220 48" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sigma Books logo fond sombre">
+          <path d="M6 4 L28 4 L16 24 L28 44 L6 44" stroke="#4DC9A8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          <line x1="6"  y1="4"  x2="28" y2="4"  stroke="#4DC9A8" stroke-width="2.5" stroke-linecap="round"/>
+          <line x1="6"  y1="44" x2="28" y2="44" stroke="#4DC9A8" stroke-width="2.5" stroke-linecap="round"/>
+          <line x1="10" y1="24" x2="26" y2="24" stroke="rgba(77,201,168,0.35)" stroke-width="2" stroke-linecap="round"/>
+          <line x1="44" y1="10" x2="44" y2="38" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+          <text x="56" y="21" font-family="Georgia, serif" font-size="18" font-weight="400" fill="#F7F6F2" letter-spacing="-0.3">Sigma</text>
+          <text x="56" y="38" font-family="-apple-system, sans-serif" font-size="12" font-weight="300" fill="#4DC9A8" letter-spacing="3">BOOKS</text>
+        </svg>
+      </div>
+      <div class="label">Fond sombre · usage dark mode</div>
+    </div>
+ 
+  </div>
+</div>
+ 
+<!-- ═══════════════════════════════════ -->
+<!--  ICÔNE SEULE — favicon / app       -->
+<!-- ═══════════════════════════════════ -->
+<div class="logo-group">
+  <div class="section-title">Icône seule · favicon · app icon</div>
+  <div class="icon-only-row">
+ 
+    <!-- 48px fond blanc -->
+    <div style="background:#fff;border-radius:10px;padding:8px;box-shadow:0 1px 4px rgba(0,0,0,0.08)">
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sigma Books icône">
+        <path d="M6 4 L28 4 L16 20 L28 36 L6 36" stroke="#0B5E48" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <line x1="8" y1="20" x2="24" y2="20" stroke="#C8E8DF" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+ 
+    <!-- 48px fond vert -->
+    <div style="background:#0B5E48;border-radius:10px;padding:8px">
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sigma Books icône fond vert">
+        <path d="M6 4 L28 4 L16 20 L28 36 L6 36" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <line x1="8" y1="20" x2="24" y2="20" stroke="rgba(255,255,255,0.4)" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+ 
+    <!-- 48px fond noir -->
+    <div style="background:#1A1A18;border-radius:10px;padding:8px">
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sigma Books icône fond sombre">
+        <path d="M6 4 L28 4 L16 20 L28 36 L6 36" stroke="#4DC9A8" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <line x1="8" y1="20" x2="24" y2="20" stroke="rgba(77,201,168,0.35)" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+ 
+    <!-- Grand carré app store -->
+    <div style="background:#0B5E48;border-radius:18px;padding:16px;box-shadow:0 4px 20px rgba(11,94,72,0.3)">
+      <svg width="64" height="64" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sigma Books app icon">
+        <path d="M6 4 L28 4 L16 20 L28 36 L6 36" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <line x1="8" y1="20" x2="24" y2="20" stroke="rgba(255,255,255,0.45)" stroke-width="2.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+ 
+  </div>
+  <div class="label">Favicon 40px · App icon 96px</div>
+</div>
+ 
+<!-- ═══════════════════════════════════ -->
+<!--  PALETTE COULEURS                  -->
+<!-- ═══════════════════════════════════ -->
+<div class="logo-group">
+  <div class="section-title">Palette de marque</div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+ 
+    <div style="text-align:center">
+      <div style="width:64px;height:64px;background:#0B5E48;border-radius:12px;margin-bottom:6px"></div>
+      <div style="font-size:10px;color:#444;font-family:monospace">#0B5E48</div>
+      <div style="font-size:10px;color:#888">Vert primaire</div>
+    </div>
+    <div style="text-align:center">
+      <div style="width:64px;height:64px;background:#4DC9A8;border-radius:12px;margin-bottom:6px"></div>
+      <div style="font-size:10px;color:#444;font-family:monospace">#4DC9A8</div>
+      <div style="font-size:10px;color:#888">Vert clair</div>
+    </div>
+    <div style="text-align:center">
+      <div style="width:64px;height:64px;background:#C8E8DF;border-radius:12px;margin-bottom:6px"></div>
+      <div style="font-size:10px;color:#444;font-family:monospace">#C8E8DF</div>
+      <div style="font-size:10px;color:#888">Vert pâle</div>
+    </div>
+    <div style="text-align:center">
+      <div style="width:64px;height:64px;background:#1A1A18;border-radius:12px;margin-bottom:6px"></div>
+      <div style="font-size:10px;color:#444;font-family:monospace">#1A1A18</div>
+      <div style="font-size:10px;color:#888">Noir texte</div>
+    </div>
+    <div style="text-align:center">
+      <div style="width:64px;height:64px;background:#F7F6F2;border-radius:12px;border:1px solid #E0DED8;margin-bottom:6px"></div>
+      <div style="font-size:10px;color:#444;font-family:monospace">#F7F6F2</div>
+      <div style="font-size:10px;color:#888">Fond</div>
+    </div>
+ 
+  </div>
+</div>
+ 
+<!-- ═══════════════════════════════════ -->
+<!--  CONCEPT                           -->
+<!-- ═══════════════════════════════════ -->
+<div style="max-width:480px;text-align:center;padding:24px;background:#fff;border-radius:12px;border:1px solid #E0DED8">
+  <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#888780;margin-bottom:12px">Note de concept</div>
+  <p style="font-size:13px;color:#5f5e5a;line-height:1.7">
+    Le <strong style="color:#1A1A18">Σ</strong> est tracé à la main — deux diagonales qui se rejoignent au centre, 
+    symbolisant la convergence de deux flux opposés (débits et crédits) vers un point d'équilibre parfait. 
+    La barre médiane horizontale représente cette ligne d'équilibre — 
+    <strong style="color:#0B5E48">∑D = ∑C</strong>. 
+    La typographie mêle serif (Sigma) et sans-serif léger (BOOKS), 
+    alliant rigueur comptable et modernité.
+  </p>
+</div>
+ 
+</body>
+</html>
+ 

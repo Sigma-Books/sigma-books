@@ -1,0 +1,36 @@
+name: Bug
+description: Un comportement incorrect du logiciel
+title: "[Bug] "
+labels: ["type:bug", "statut:à-préciser"]
+body:
+  - type: markdown
+    attributes:
+      value: "⚠️ S'il s'agit d'une faille de sécurité, utilisez le signalement privé (onglet Security), pas une issue."
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Ce qui se passe, et ce qui aurait dû se passer.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      placeholder: "1. …\n2. …\n3. …"
+    validations:
+      required: true
+  - type: textarea
+    id: comptable
+    attributes:
+      label: Impact comptable
+      description: Écritures, soldes ou états financiers concernés (sans données réelles de client).
+  - type: input
+    id: version
+    attributes:
+      label: Version ou commit
+  - type: dropdown
+    id: zone
+    attributes:
+      label: Zone
+      options: [compta-core, syscohada, fiscal-sn, formats, integrite, ia, authz, api, worker, web, site, ci, je ne sais pas]

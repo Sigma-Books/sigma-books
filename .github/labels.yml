@@ -1,0 +1,29 @@
+# nom | couleur | description
+type:bug|d73a4a|Comportement incorrect
+type:fonctionnalité|0e8a16|Nouvelle fonctionnalité ou évolution
+type:tâche|1d76db|Tâche d'un lot de développement
+type:sécurité|b60205|Durcissement ou correction de sécurité (non sensible)
+type:documentation|0075ca|Documentation, ADR, spécification
+type:dette|fbca04|Dette technique
+zone:compta-core|5319e7|Moteur comptable
+zone:syscohada|5319e7|Référentiel SYSCOHADA
+zone:fiscal-sn|5319e7|Paramètres fiscaux Sénégal
+zone:formats|5319e7|Formats d'échange
+zone:integrite|5319e7|Chaîne de hachage et vérification
+zone:ia|5319e7|Pipeline IA
+zone:authz|5319e7|Autorisation Cedar
+zone:api|5319e7|Serveur applicatif
+zone:worker|5319e7|Worker documents
+zone:web|5319e7|Interface
+zone:site|5319e7|Site public
+zone:ci|5319e7|Intégration continue
+priorité:critique|b60205|À traiter immédiatement
+priorité:haute|d93f0b|Prochaine itération
+priorité:normale|fbca04|Planifiée
+priorité:basse|c2e0c6|Quand possible
+statut:à-préciser|ededed|Besoin de précisions avant d'être prête
+statut:bloqué|000000|Bloquée par une dépendance externe
+statut:besoin-expert-comptable|e99695|Validation comptable ou fiscale requise (spec §26)
+ia:généré|bfdadc|PR produite par un agent IA
+good first issue|7057ff|Adaptée à une première contribution
+help wanted|008672|Contribution externe bienvenue

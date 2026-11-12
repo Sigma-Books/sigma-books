@@ -1,0 +1,31 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / SvelteKit / Astro
+node_modules/
+.svelte-kit/
+build/
+dist/
+.astro/
+
+# Environnement et secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Éditeurs et systèmes
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Documents de tiers : jamais dans le dépôt
+references/
+*.pdf
+
+# Notes locales (jamais commitées)
+*.local.md

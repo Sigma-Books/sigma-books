@@ -1,0 +1,37 @@
+name: Tâche
+description: Une tâche d'un lot de développement (mainteneurs)
+title: "[Lx] "
+labels: ["type:tâche"]
+body:
+  - type: input
+    id: lot
+    attributes:
+      label: Lot
+      placeholder: "L1"
+    validations:
+      required: true
+  - type: input
+    id: spec
+    attributes:
+      label: Référence spécification / ADR
+      placeholder: "spec §6.2, ADR 0007"
+    validations:
+      required: true
+  - type: textarea
+    id: objectif
+    attributes:
+      label: Objectif
+    validations:
+      required: true
+  - type: textarea
+    id: acceptation
+    attributes:
+      label: Critères d'acceptation
+      placeholder: "- [ ] …"
+    validations:
+      required: true
+  - type: dropdown
+    id: taille
+    attributes:
+      label: Taille estimée
+      options: [XS, S, M, L, XL]

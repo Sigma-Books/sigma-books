@@ -1,0 +1,26 @@
+name: Fonctionnalité
+description: Proposer une fonctionnalité ou une évolution
+title: "[Fonctionnalité] "
+labels: ["type:fonctionnalité", "statut:à-préciser"]
+body:
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Besoin
+      description: Quel problème cela résout, pour quel utilisateur (comptable, cabinet, client, auditeur) ?
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: Proposition
+  - type: textarea
+    id: regles
+    attributes:
+      label: Règles comptables ou fiscales concernées
+      description: Références SYSCOHADA, AUDCIF, CGI (article, page) si applicable.
+  - type: textarea
+    id: acceptation
+    attributes:
+      label: Critères d'acceptation
+      placeholder: "- [ ] …"

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Signaler une vulnérabilité
+    url: https://github.com/Sigma-Books/sigma-books/security/advisories/new
+    about: Ne signalez jamais une vulnérabilité dans une issue publique.
+  - name: Poser une question
+    url: https://github.com/Sigma-Books/sigma-books/discussions
+    about: Questions d'utilisation ou de conception.

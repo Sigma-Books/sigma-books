@@ -1,0 +1,16 @@
+# Relecteurs par défaut
+*                              @Sigma-Books/core
+
+# Zones sensibles : revue de l'équipe core obligatoire (ruleset)
+/crates/compta-core/           @Sigma-Books/core
+/crates/integrite/             @Sigma-Books/core
+/crates/authz/                 @Sigma-Books/core
+/crates/api/                   @Sigma-Books/core
+/crates/syscohada/             @Sigma-Books/core
+/crates/fiscal-sn/             @Sigma-Books/core
+/.github/                      @Sigma-Books/core
+/docs/specification.md         @Sigma-Books/core
+/docs/fondations.md            @Sigma-Books/core
+/docs/adr/                     @Sigma-Books/core
+/CLAUDE.md                     @Sigma-Books/core
+/deny.toml                     @Sigma-Books/core
