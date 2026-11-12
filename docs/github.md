@@ -55,7 +55,7 @@ Tous ces réglages sont déjà constatés en place (§1) : relancer `--appliquer
 
 ## 3. Checks requis (étape g)
 
-Noms exacts, relevés sur les PR du lot L0 (pile #15 → #25). Tous sont produits à chaque PR, sans filtre `paths`, pour qu'aucun ne reste « en attente ».
+Noms exacts, relevés sur les PR du lot L0 (pile #40 → #50). Tous sont produits à chaque PR, sans filtre `paths`, pour qu'aucun ne reste « en attente ».
 
 | Check | Workflow | Source |
 |---|---|---|
