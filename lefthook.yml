@@ -13,4 +13,4 @@ pre-commit:
 commit-msg:
   commands:
     conventional-commits:
-      run: scripts/verifier-message-commit.sh --fichier {1}
+      run: bash scripts/verifier-message-commit.sh --fichier {1}

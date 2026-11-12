@@ -28,4 +28,4 @@ jobs:
       - name: Vérifier le titre
         env:
           TITRE: ${{ github.event.pull_request.title }}
-        run: scripts/verifier-message-commit.sh --texte "$TITRE"
+        run: bash scripts/verifier-message-commit.sh --texte "$TITRE"
