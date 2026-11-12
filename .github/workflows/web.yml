@@ -1,0 +1,51 @@
+# Contrôles de l'interface (web/) et du site public (site/) :
+# lint, vérification de types, build, audit des dépendances.
+# docs/lots/L0.md §4 — checks requis sur main (docs/github.md).
+name: Web
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Télémétrie de la CLI Astro désactivée (aucun traceur, site/CLAUDE.md).
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  verifier:
+    name: ${{ matrix.projet }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        projet: [web, site]
+    defaults:
+      run:
+        working-directory: ${{ matrix.projet }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Version de pnpm lue dans le champ packageManager de package.json.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: ${{ matrix.projet }}/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ${{ matrix.projet }}/.node-version
+          cache: pnpm
+          cache-dependency-path: ${{ matrix.projet }}/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check
+      - run: pnpm build
+      - run: pnpm audit --audit-level high
