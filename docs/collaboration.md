@@ -17,7 +17,7 @@ Ce document fixe **comment** on travaille sur `github.com/Sigma-Books/sigma-book
 | Qui | Compte | Rôle |
 |---|---|---|
 | Mainteneur(s) | Comptes personnels, membres de l'équipe `@Sigma-Books/core` | Revue, approbation, fusion, publication |
-| Claude Code | **Compte machine dédié** (ex. `sigma-books-bot`) | Branches, commits signés, PR |
+| Claude Code | **Compte machine dédié** `fhdiop-ccode` | Branches, commits signés, PR |
 
 Pourquoi un compte dédié pour l'agent : GitHub interdit d'approuver sa propre PR. Si l'agent poussait avec le compte du mainteneur, celui-ci ne pourrait plus approuver les PR. Le compte dédié rend aussi visible ce qui a été produit par l'IA.
 

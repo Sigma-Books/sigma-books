@@ -78,7 +78,7 @@ cat <<'FIN'
  c. Organisation > Settings > Actions > General : autoriser uniquement les actions de GitHub et les actions
     épinglées par hash (« Require actions to be pinned to a full-length commit SHA ») ;
     « Require approval for all outside collaborators » pour les PR de forks.
- d. Ajouter le compte machine de Claude Code (ex. sigma-books-bot) avec le rôle « Write » sur le dépôt
+ d. Ajouter le compte machine de Claude Code (fhdiop-ccode) avec le rôle « Write » sur le dépôt
     (pas membre de l'équipe core), clé SSH de signature déclarée.
  e. Installer l'application CLA Assistant sur le dépôt.
  f. Créer le tableau GitHub Projects « Sigma Books » (colonnes et champs : docs/collaboration.md §5).
