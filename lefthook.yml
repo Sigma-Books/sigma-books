@@ -1,0 +1,16 @@
+# Crochets Git locaux (docs/collaboration.md §4). Installation : CONTRIBUTING.md.
+# Ils évitent des allers-retours ; la CI reste la référence.
+
+pre-commit:
+  parallel: true
+  commands:
+    secrets:
+      run: gitleaks git --pre-commit --staged --redact --no-banner .
+    format-rust:
+      glob: "*.rs"
+      run: cargo fmt --all --check
+
+commit-msg:
+  commands:
+    conventional-commits:
+      run: scripts/verifier-message-commit.sh --fichier {1}
