@@ -29,3 +29,7 @@ references/
 
 # Notes locales (jamais commitées)
 *.local.md
+
+# SBOM générés (cargo cyclonedx)
+*.cdx.json
+*.cdx.xml
