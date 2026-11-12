@@ -1,0 +1,6 @@
+# Politique de divulgation de Sigma Books (RFC 9116).
+# Ne signalez jamais une vulnérabilité dans une issue publique.
+Contact: https://github.com/Sigma-Books/sigma-books/security/advisories/new
+Policy: https://github.com/Sigma-Books/sigma-books/blob/main/SECURITY.md
+Preferred-Languages: fr, en
+Expires: 2027-11-12T00:00:00.000Z
