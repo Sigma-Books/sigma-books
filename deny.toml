@@ -1,0 +1,50 @@
+# Politique de dépendances (cargo-deny) — docs/lots/L0.md §2, ADR 0009.
+# Toute modification passe par la revue de l'équipe core (CODEOWNERS).
+
+[graph]
+all-features = true
+
+# Avis de sécurité RustSec : toute vulnérabilité, crate retirée (yanked)
+# ou non maintenue signalée par un avis fait échouer la vérification.
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+# Licences : liste blanche, tout le reste est refusé
+# (notamment GPL-2.0-only, incompatible avec l'AGPL-3.0).
+[licenses]
+version = 2
+confidence-threshold = 0.93
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "AGPL-3.0-only",
+    "AGPL-3.0-or-later",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+]
+exceptions = []
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Les dépendances internes du workspace (chemins, non publiées) sont permises.
+allow-wildcard-paths = true
+
+# Sources : crates.io uniquement.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
