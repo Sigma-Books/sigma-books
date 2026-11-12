@@ -1,0 +1,47 @@
+# SBOM CycloneDX des crates Rust, publié en artefact.
+# docs/lots/L0.md §4 ; Fondations §8.
+name: SBOM
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: sbom
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CYCLONEDX_VERSION: "0.5.10"
+      CYCLONEDX_SHA256: 2e4ef64a53c0a38d4b7d805c593b5f47ecd29821e98d81e484d03abaa0edb95f
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Installer cargo-cyclonedx (binaire officiel, somme SHA-256 vérifiée)
+        run: |
+          archive="cargo-cyclonedx-x86_64-unknown-linux-gnu.tar.xz"
+          curl --proto '=https' --tlsv1.2 -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-${CYCLONEDX_VERSION}/${archive}"
+          echo "${CYCLONEDX_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          install -m 755 "$RUNNER_TEMP/cargo-cyclonedx-x86_64-unknown-linux-gnu/cargo-cyclonedx" "$HOME/.cargo/bin/"
+      - name: Générer le SBOM
+        run: |
+          cargo cyclonedx --format json --all-features --describe crate
+          mkdir -p sbom && find crates -name '*.cdx.json' -exec mv {} sbom/ \;
+          ls sbom
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 30
