@@ -1,0 +1,31 @@
+# Le titre de la PR devient le message du commit squashé sur main :
+# il doit respecter Conventional Commits (docs/collaboration.md §4, §6).
+# docs/lots/L0.md §5 — check requis sur main.
+name: Titre de PR
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  titre:
+    name: pr-titre
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Le titre passe par une variable d'environnement, jamais interpolé dans le
+      # script (protection contre l'injection de commandes).
+      - name: Vérifier le titre
+        env:
+          TITRE: ${{ github.event.pull_request.title }}
+        run: scripts/verifier-message-commit.sh --texte "$TITRE"
