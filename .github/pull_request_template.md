@@ -1,7 +1,8 @@
 ## Objet
 <!-- Ce que fait cette PR, en une ou deux phrases. -->
 
-Ferme #
+<!-- « Closes #N » : seul format reconnu par GitHub pour fermer l'issue à la fusion (« Ferme » est sans effet). -->
+Closes #
 
 ## Références
 - Spécification : §

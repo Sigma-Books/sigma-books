@@ -65,7 +65,7 @@ Compte machine de Claude Code :
 ## 6. Pull requests
 - Ouvrir tôt en **brouillon** si le travail est long ; passer en « prête » quand la CI est verte.
 - **Titre = message de commit final** (Conventional Commits), car on fusionne en *squash*.
-- Corps : modèle `.github/pull_request_template.md` (`Ferme #N`, référence spec/ADR, liste de contrôle sécurité, tests).
+- Corps : modèle `.github/pull_request_template.md` (`Closes #N`, seul mot-clé qui ferme l'issue à la fusion ; référence spec/ADR, liste de contrôle sécurité, tests).
 - Une PR ne mélange pas refactorisation et changement de comportement.
 - Mise à jour par **rebase** sur `main`, pas par fusion de `main` dans la branche.
 - **Fusion : squash uniquement**, suppression automatique de la branche. Auto-merge autorisé une fois l'approbation et la CI acquises.
