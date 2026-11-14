@@ -85,9 +85,13 @@ Compte machine de Claude Code :
 | Force-push et suppression de `main` | interdits |
 | Contournement (bypass) | personne, y compris les administrateurs |
 
-Les tags `v*` sont protégés par un second ruleset (création réservée à l'équipe `core`, ni suppression ni modification).
+Les tags `v*` sont protégés par deux rulesets :
+- **« Protection des tags de version »** : ni suppression, ni modification, ni force-push ; signature exigée ; aucun contournement ;
+- **« Création des tags de version »** : création réservée à l'équipe `core`, seule autorisée à contourner cette règle. Un ruleset distinct, pour que ce contournement ne s'étende pas à la suppression ni à la modification.
 
-Les rulesets sont versionnés dans `scripts/github/ruleset-main.json` et `ruleset-tags.json`, et appliqués par l'administrateur avec `scripts/github/configurer-depot.sh`.
+La publication elle-même (`publication.yml`) passe par l'environnement protégé **`publication`** : approbation par `core`, auto-approbation interdite, aucun contournement par les administrateurs, tags `v*` uniquement.
+
+Les rulesets sont versionnés dans `scripts/github/` (`ruleset-main.json`, `ruleset-tags.json`, `ruleset-tags-creation.json`) et créés par l'administrateur avec `scripts/github/configurer-depot.sh`. Le script ne modifie jamais un ruleset existant : il signale les écarts avec les fichiers. L'état réel est consigné dans `docs/github.md`.
 
 🧍 **Urgence** (compte machine indisponible, CI cassée par un service externe) : l'administrateur peut désactiver temporairement le ruleset. C'est journalisé par GitHub ; il le réactive immédiatement après et le signale dans la PR concernée. Aucun bypass permanent n'est configuré.
 

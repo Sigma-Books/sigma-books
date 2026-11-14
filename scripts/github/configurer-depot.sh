@@ -59,14 +59,41 @@ for j in "L0 — Fondations" "L1 — Noyau comptable" "L2 — Socle applicatif" 
   fi
 done
 
-echo "== 7. Rulesets (main et tags)"
-existants="$(gh api "repos/$R/rulesets" --jq '.[].name' 2>/dev/null || true)"
-for f in ruleset-main.json ruleset-tags.json; do
+echo "== 7. Rulesets (main, tags : modification/suppression, tags : création)"
+# Les acteurs de contournement de type « Team » sont écrits avec actor_id 0 dans les
+# fichiers JSON : l'identifiant réel de l'équipe core est résolu ici, à l'exécution.
+core_id="$(gh api "orgs/$ORG/teams/core" --jq '.id' 2>/dev/null || true)"
+if [[ ! "$core_id" =~ ^[0-9]+$ ]]; then
+  [[ $APPLIQUER -eq 1 ]] && { echo "✖ identifiant de l'équipe core illisible (droits administrateur requis)" >&2; exit 1; }
+  core_id="<id-equipe-core>"
+fi
+existants="$(gh api "repos/$R/rulesets" --jq '.[] | "\(.id)\t\(.name)"' 2>/dev/null || true)"
+for f in ruleset-main.json ruleset-tags.json ruleset-tags-creation.json; do
   nom="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['name'])" "$DIR/$f")"
-  if grep -Fxq "$nom" <<<"$existants"; then
-    echo "   ruleset « $nom » déjà présent — à mettre à jour depuis l'interface si besoin"
+  id="$(awk -F'\t' -v n="$nom" '$2==n{print $1}' <<<"$existants")"
+  if [[ -n "$id" ]]; then
+    # Le script ne modifie jamais un ruleset existant : il signale seulement les écarts de règles.
+    attendu="$(python3 -c "import json,sys;print(' '.join(sorted(r['type'] for r in json.load(open(sys.argv[1]))['rules'])))" "$DIR/$f")"
+    reel="$(gh api "repos/$R/rulesets/$id" --jq '[.rules[].type] | sort | join(" ")' 2>/dev/null || echo "?")"
+    if [[ "$attendu" == "$reel" ]]; then
+      echo "   ruleset « $nom » présent, règles conformes au fichier ($attendu)"
+    else
+      echo "   ⚠ ruleset « $nom » présent mais différent du fichier : attendu [$attendu], réel [$reel] — à corriger dans l'interface"
+    fi
   else
-    run gh api -X POST "repos/$R/rulesets" --input "$DIR/$f"
+    entree="$(mktemp)"
+    python3 -c "
+import json, sys
+d = json.load(open(sys.argv[1]))
+for a in d.get('bypass_actors', []):
+    if a['actor_type'] == 'Team' and a['actor_id'] == 0:
+        a['actor_id'] = int(sys.argv[2]) if sys.argv[2].isdigit() else sys.argv[2]
+json.dump(d, open(sys.argv[3], 'w'), ensure_ascii=False)
+" "$DIR/$f" "$core_id" "$entree"
+    echo "   création du ruleset « $nom » (équipe core en contournement : $core_id)"
+    [[ $APPLIQUER -eq 0 ]] && python3 -m json.tool "$entree" | sed 's/^/     /'
+    run gh api -X POST "repos/$R/rulesets" --input "$entree"
+    rm -f "$entree"
   fi
 done
 
@@ -82,7 +109,7 @@ cat <<'FIN'
     (pas membre de l'équipe core), clé SSH de signature déclarée.
  e. Installer l'application CLA Assistant sur le dépôt.
  f. Créer le tableau GitHub Projects « Sigma Books » (colonnes et champs : docs/collaboration.md §5).
- g. À la fin du lot L0 : ajouter les checks de CI requis au ruleset « Protection de main »
-    (Settings > Rules > Rulesets > Require status checks, option « require branches to be up to date »).
+ g. Checks de CI requis : versionnés dans ruleset-main.json, appliqués à la création du ruleset.
+    Sur un ruleset existant, l'étape 7 signale tout écart ; corriger alors dans Settings > Rules > Rulesets.
  h. Dès qu'un second mainteneur humain rejoint l'équipe core : passer les approbations requises à 2.
 FIN

@@ -1,7 +1,10 @@
 # Publication d'une version : build reproductible, SBOM, signature Sigstore,
-# provenance SLSA. PRÉPARÉ, INACTIF tant qu'aucun tag v* n'est poussé
-# (création de tags réservée à l'équipe core par le ruleset « Protection des
-# tags de version »). docs/lots/L0.md §4 ; docs/collaboration.md §11.
+# provenance SLSA. PRÉPARÉ, INACTIF tant qu'aucun tag v* n'est poussé.
+# Création des tags v* réservée à l'équipe core (ruleset « Création des tags de
+# version ») ; tags ni modifiables ni supprimables (ruleset « Protection des tags
+# de version ») ; job « publier » soumis à l'approbation de core via
+# l'environnement protégé « publication ». docs/lots/L0.md §4 ;
+# docs/collaboration.md §7, §11 ; état réel : docs/github.md.
 name: Publication
 
 on:
