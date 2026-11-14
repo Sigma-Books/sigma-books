@@ -1,6 +1,6 @@
 # Modèle de menaces — Sigma Books
 
-- **Version :** 0.1 (initiale, lot L0) — **Date :** 2026-11-12
+- **Version :** 0.2 (en cours : partie 1/2, #72) — **Date :** 2026-11-14
 - **Statut :** à relire par le mainteneur
 - **Méthode :** STRIDE par flux de données ; LINDDUN (vie privée) à compléter en L2 (§8)
 - **Références :** `docs/fondations.md` §3 (architecture), §8 (cycle de développement) ; `docs/specification.md` §6, §8, §19 à §21 ; ADR 0003 à 0008
@@ -24,6 +24,7 @@ Ce document est **public**, comme le reste du dépôt (Fondations §3.2, princip
 | A7 | Journal d'audit | Intégrité, disponibilité | Traçabilité (spec §21) |
 | A8 | Code, CI, binaires et images publiés | Intégrité, provenance | Une compromission de la chaîne touche toutes les instances, y compris auto-hébergées |
 | A9 | Disponibilité du service et budget IA | Disponibilité, coût | Échéances fiscales ; coût réel par appel IA (spec §8.10) |
+| A10 | Comptes et jetons de développement : mainteneur (administrateur de l'organisation), compte machine de l'agent | Authenticité, confidentialité | Leur compromission permet de désactiver les protections du dépôt ou d'y introduire du code |
 
 ## 2. Sources de menace
 
@@ -37,6 +38,8 @@ Ce document est **public**, comme le reste du dépôt (Fondations §3.2, princip
 | M6 | Fournisseur IA ou proxy compromis, ou fuite chez lui | Voit les images de pièces transmises ; peut renvoyer une réponse arbitraire |
 | M7 | Dépendance ou action CI compromise ; contributeur malveillant | Code exécuté en CI ou embarqué dans les binaires |
 | M8 | Opérateur interne du SaaS | Accès à l'infrastructure, aux sauvegardes |
+| M9 | Tiers écrivant dans le dépôt public (issue, commentaire, PR, discussion) ou dans une dépendance | Texte libre lu par l'agent de développement ; peut contenir des instructions déguisées |
+| M10 | Administrateur de cabinet malveillant ou compromis | Tous les droits de son cabinet : utilisateurs, rôles, paramétrage, exports |
 
 ## 3. Composants et zones de confiance
 
@@ -50,7 +53,7 @@ Zones de la Fondations §3.3, numérotées pour ce document :
 | **Z3 Données** | PostgreSQL (RLS, rôles séparés, tables en ajout seul) ; stockage objet WORM chiffré par cabinet ; KMS/OpenBao | Confiance forte |
 | **Z4 Non fiable** | Worker documents en bac à sable (gVisor/nsjail, seccomp, sans réseau, sans base, FS éphémère) | **Hostile par hypothèse** |
 | **Z5 Sortante** | Proxy en liste blanche → API IA ; autorité d'horodatage RFC 3161 | Tiers, réponses non fiables |
-| **Z6 Chaîne d'approvisionnement** | GitHub, Actions, registres crates.io et npm, artefacts publiés | Tiers, vérifiée |
+| **Z6 Chaîne d'approvisionnement** | GitHub, Actions, registres crates.io et npm, artefacts publiés ; poste du mainteneur et agent de développement (Claude Code, compte machine) | Tiers, vérifiée ; l'agent est traité comme un contributeur non fiable dont tout le travail est relu |
 | **Z7 Hors ligne** | Outil `sigma-verifier` chez l'auditeur | Indépendante de l'instance |
 
 ## 4. Flux de données
@@ -79,6 +82,8 @@ Zones de la Fondations §3.3, numérotées pour ce document :
        Z3               Z3                                   └───────────────┘
  F8 : contributeurs/agents → GitHub → CI → artefacts signés (Z6)
  F9 : opérateurs → infrastructure, KMS, sauvegardes
+ F11 : imports du cabinet (reprise, FEC, relevés) → API → formats (Z0 → Z2)
+ F12 : API → courriels sortants (invitations, alertes) (Z2 → Z0)
 ```
 
 | Flux | De → vers | Données | Franchit |
@@ -93,6 +98,8 @@ Zones de la Fondations §3.3, numérotées pour ce document :
 | F8 | Contributeurs → dépôt → CI → publication | Code, dépendances, binaires, SBOM, signatures | Z6 → toutes |
 | F9 | Opérateurs → infrastructure | Déploiement, secrets, sauvegardes, restauration | hors bande → Z2/Z3 |
 | F10 | Messagerie → API (adresse de dépôt par dossier) | Courriels et pièces jointes non fiables | Z0 → Z2 → Z4 |
+| F11 | Cabinet → API (reprise de données, FEC, relevés CSV et mobile money, Excel) | Fichiers structurés non fiables → écritures au brouillard | Z0 → Z2 |
+| F12 | API → destinataires (invitations, alertes de sécurité, notifications) | Courriels émis au nom de Sigma Books | Z2 → Z0 |
 
 ## 5. Analyse STRIDE par flux
 
@@ -113,6 +120,11 @@ Légende : **S** usurpation, **T** altération, **R** répudiation, **I** divulg
 | D | Inondation de requêtes, de connexions ou de téléversements | Limitation de débit au proxy et par utilisateur ; quotas par cabinet ; tailles maximales de corps | L2 / L4 |
 | E | Un collaborateur obtient des droits de valideur ou d'administrateur (M4) | Rôles dérivés jamais plus larges que l'administrateur (spec §20) ; changement de droits ré-authentifié et alerté ; politiques Cedar testées (cas autorisés **et** refusés) | L2 |
 | E | Contournement de l'interface (appel direct de l'API) | Chaque requête autorisée côté serveur ; l'interface ne fait que masquer (spec §21) | L2 |
+| S | **Récupération de compte détournée** (perte de passkey ou de TOTP) : maillon faible habituel | Pas de récupération par e-mail seul ; codes de récupération à usage unique remis à l'enrôlement ; plusieurs passkeys encouragées ; sinon réinitialisation par un administrateur du cabinet avec vérification hors bande, délai et notification ; pour un administrateur, procédure de support avec vérification d'identité ; tout journalisé et alerté | L2 |
+| S | Lien d'invitation du portail intercepté ou réutilisé | Lien à usage unique, de courte durée, lié à l'adresse invitée, révocable ; enrôlement d'un facteur fort à l'activation | L4 |
+| I / E | Utilisateur membre de plusieurs cabinets : confusion de contexte (action ou lecture dans le mauvais cabinet) | Cabinet et dossier explicites dans chaque requête, revérifiés par Cedar et la RLS ; aucun cache partagé entre contextes ; changement de cabinet visible dans l'interface ; tests d'isolation avec un utilisateur multi-cabinets | L2 |
+| E / R | Administrateur de cabinet malveillant ou compromis (M10) : s'attribue des droits, désactive la séparation des tâches, exporte tout | Actions d'administration ré-authentifiées, journalisées dans l'audit chaîné et notifiées aux autres administrateurs du cabinet ; deux administrateurs recommandés ; **aucun rôle ne peut modifier une écriture validée** (intégrité indépendante des droits) ; export complet alerté. Risque résiduel : voir §9 | L2 |
+| T | Collusion entre un saisisseur et un valideur | La séparation des tâches (spec §20) n'arrête pas la collusion ; audit chaîné, contre-passations visibles, contrôles de cohérence. Risque résiduel : voir §9 | L2 |
 
 ### F2 — API ↔ PostgreSQL
 
@@ -121,11 +133,14 @@ Légende : **S** usurpation, **T** altération, **R** répudiation, **I** divulg
 | T | Injection SQL | Requêtes vérifiées à la compilation (`sqlx::query!`), aucune concaténation (ADR 0004) | L2 |
 | T | Modification ou suppression d'une écriture validée (M4, M8, bogue) | Rôle applicatif sans `UPDATE`/`DELETE` sur les écritures validées ni sur l'audit ; type `EcritureEquilibree` seul enregistrable ; correction par contre-passation ; chaîne de hachage SHA-256 (ADR 0007) | L1 / L2 |
 | T | Trou ou doublon de numérotation | Numérotation continue attribuée à la validation, dans la transaction ; vérifiée par `sigma-verifier` | L1 |
+| T | **Troncature ou retour arrière de la chaîne** : suppression des dernières écritures, restauration d'une sauvegarde ancienne (M8). La chaîne et la numérotation restent cohérentes : ni l'une ni l'autre ne le détecte | Horodatage externe régulier du hash de tête (borne ce qui peut disparaître sans trace) ; **témoin externe** : hash de tête et dernier numéro remis au cabinet (écran Intégrité, exports, envoi périodique), que `sigma-verifier` compare à l'export ; toute restauration journalisée et signalée aux cabinets. Forme du témoin : §9 | L1 / L9 |
+| T | Réécriture des écritures validées depuis le dernier horodatage (fenêtre d'un jour au plus) | Horodatage plus fréquent (à chaque validation par lot, ou chaque heure) ; témoin externe ; rôle applicatif sans `UPDATE`/`DELETE`. Fréquence : §9 | L1 |
 | R | Altération du journal d'audit pour masquer une fraude | Audit en ajout seul et chaîné ; rôle de lecture d'audit séparé | L2 |
 | I | Fuite inter-tenant par oubli de filtre dans une requête | RLS sur **toutes** les tables multi-tenant, contexte posé par `SET LOCAL` dans chaque transaction ; test d'isolation automatique | L2 |
 | I | Vol de sauvegarde ou de disque | Chiffrement au repos ; clé de données par cabinet (chiffrement d'enveloppe) ; sauvegardes chiffrées | L2 / L9 |
 | D | Requête coûteuse ou file de tâches saturée | Pagination imposée, délais d'expiration de requête, priorités dans la file (`SKIP LOCKED`) | L2 |
 | E | Compromission du rôle de migration utilisé à l'exécution | Rôles séparés (migration, application, audit) ; l'application n'utilise jamais le rôle de migration | L2 |
+| I | Données sensibles dans les journaux techniques et les rapports d'erreur | Journaux structurés sans montants, libellés, pièces, jetons ni corps de requête ; masquage par liste blanche de champs ; rapports d'erreur sans données client ; durée de conservation définie | L2 |
 
 ### F3 — API ↔ stockage objet
 
@@ -134,7 +149,9 @@ Légende : **S** usurpation, **T** altération, **R** répudiation, **I** divulg
 | T | Remplacement d'une pièce après comptabilisation | Verrouillage WORM ; hash SHA-256 à l'ingestion, rattaché à l'écriture (spec §6.5) | L4 |
 | I | Lecture des pièces d'un autre cabinet | Chiffrement par cabinet ; clés d'objet non devinables ; accès uniquement via l'API après décision Cedar (pas d'URL publique durable) | L4 |
 | I | Suppression cryptographique non effective à la résiliation | Destruction de la clé du cabinet ; procédure testée | L9 |
-| D | Saturation du stockage | Quotas par cabinet et par dossier ; doublon exact refusé par hash (spec §8.1) | L4 |
+| D | Saturation du stockage | Quotas par cabinet et par dossier ; doublon exact refusé par hash, **dans le dossier** (spec §8.1) | L4 |
+| I | **Déduplication par hash comme canal de fuite** : refuser un doublon révèle qu'un autre cabinet détient la même pièce ; un stockage unique entre cabinets contredit en outre le chiffrement par cabinet | Détection des doublons et stockage unique (spec §6.5, §8.1) **limités au dossier** ; aucune réponse ne dépend du contenu d'un autre dossier. Précision de la spec : §9 | L4 |
+| D | **Perte d'une clé de cabinet** : dix ans d'archives légales illisibles (la suppression cryptographique joue contre nous) | Clés maîtresses en KMS/OpenBao répliquées et sauvegardées ; clés de données chiffrées sauvegardées avec les données ; restauration testée **clés comprises** ; suppression cryptographique seulement par procédure à double validation, après la durée légale de conservation et la remise des archives au client | L2 / L9 |
 
 ### F4 — API ↔ worker documents (zone non fiable)
 
@@ -168,7 +185,7 @@ Voir aussi le §6 (menaces propres à l'IA).
 | D | TSA indisponible | Horodatage différé et rejoué ; la chaîne de hachage reste valide ; alerte si retard > 24 h | L1 |
 | I | — | Seul un hash part : aucune donnée comptable | — |
 
-### F7 — Export → `sigma-verifier` (auditeur)
+### F7 — Exports et vérification (`sigma-verifier`, cabinet, auditeur)
 
 | | Menace | Mesures prévues | Lot |
 |---|---|---|---|
@@ -177,20 +194,28 @@ Voir aussi le §6 (menaces propres à l'IA).
 | T | Ambiguïté de sérialisation exploitée (deux écritures, même hash) | Sérialisation canonique documentée et versionnée ; vecteurs de test figés (`crates/integrite/CLAUDE.md`) | L1 |
 | I | Export complet diffusé à tort | Export complet ré-authentifié, réservé aux rôles autorisés, alerté à l'administrateur (spec §21) | L2 / L8 |
 | D | Export malformé faisant planter l'outil | Analyseur traité comme hostile, cible de fuzzing | L1 |
+| T | **Injection de formules** dans les exports CSV et Excel : un libellé commençant par `=`, `+`, `-`, `@`, une tabulation ou un retour chariot s'exécute à l'ouverture dans un tableur | Exports CSV et Excel : neutralisation des **champs texte** uniquement (jamais des montants, où `-` est légitime). **FEC** : format légal, données jamais altérées ; contrôle et alerte à la saisie et à l'import des libellés concernés. Règle à préciser : §9 | L7 / L8 |
+| T | Chaînes non fiables insérées dans les PDF générés (Typst) | Données échappées avant insertion dans les modèles : un libellé n'est jamais interprété comme du code de modèle ; aucun lien actif issu d'une donnée | L7 |
 
 ### F8 — Chaîne d'approvisionnement (dépôt, CI, publication)
 
-| | Menace | Mesures | Lot |
+> **Correction (v0.2)** : la v0.1 présentait comme acquises la réservation de la création des tags `v*` à `core` et la protection de l'environnement `publication`. Aucune n'existait à la fin du lot L0 : l'environnement a été créé le 2026-11-14 et le ruleset « Création des tags de version » le même jour (#74). La colonne indique désormais l'état réel.
+
+| | Menace | Mesures (état réel au 2026-11-14) | Lot |
 |---|---|---|---|
 | T | Dépendance malveillante ou vulnérable (M7) | `cargo deny` (licences, RustSec, sources crates.io uniquement), `pnpm audit`, Dependabot groupé, justification de toute dépendance en PR ; `cargo-vet` prévu | **L0** (en place) / L9 (`cargo-vet`) |
 | T | Action GitHub compromise | Actions **épinglées par hash** ; `GITHUB_TOKEN` en lecture seule par défaut ; permissions élargies job par job ; `persist-credentials: false` ; outils binaires vérifiés par SHA-256 | **L0** |
 | T | Injection de commande via un titre ou une branche de PR | Données d'événement passées par variables d'environnement, jamais interpolées dans les scripts (`pr-titre.yml`) ; analyse CodeQL des workflows | **L0** |
 | T | Code malveillant poussé directement sur `main` ou PR auto-approuvée par un agent IA | Ruleset : PR obligatoire, revue CODEOWNERS, approbation du dernier push par un tiers, commits signés, aucun contournement ; compte machine dédié sans droit d'approbation (`docs/collaboration.md` §2, §7) | **L0** |
-| T | Binaire publié différent du code source | Build reproductible vérifié (deux builds comparés), SBOM CycloneDX, signature Sigstore, provenance SLSA ; création de tags `v*` réservée à `core` | **L0** (préparé) |
+| T | Binaire publié différent du code source, ou version publiée sans revue | Build reproductible vérifié (deux builds comparés), SBOM CycloneDX, signature Sigstore, provenance SLSA (`publication.yml`, inactif tant qu'aucun tag n'existe) ; création des tags `v*` réservée à `core` (ruleset « Création des tags de version », depuis le 2026-11-14) ; tags ni modifiables ni supprimables ; job de publication soumis à l'approbation de `core` dans l'environnement `publication` (auto-approbation et contournement par les administrateurs interdits, depuis le 2026-11-14) | **L0** |
 | R | Origine d'un commit contestée | Commits signés vérifiés par GitHub ; étiquette `ia:généré` | **L0** |
 | I | Secret commité | gitleaks en crochet local et en CI sur tout l'historique ; secret scanning et push protection GitHub | **L0** |
 | I | Données réelles de clients ou documents de tiers dans le dépôt public | `.gitignore` (`references/`, `*.pdf`) ; règles absolues 8 et 10 de `CLAUDE.md` ; revue | **L0** |
-| E | Workflow de PR venant d'un fork accédant aux secrets | Aucun secret de dépôt ; approbation manuelle des workflows des forks ; publication dans l'environnement protégé `publication` | **L0** |
+| E | Workflow de PR venant d'un fork accédant aux secrets | Aucun secret de dépôt ; approbation manuelle des workflows des forks ; la publication s'exécute dans l'environnement protégé `publication`, limité aux tags `v*` | **L0** |
+| T / E | **Injection d'instructions visant l'agent de développement** (M9) : issue, commentaire, PR externe, contenu d'une dépendance ou d'un document, rédigés pour lui faire pousser du code, affaiblir la CI ou divulguer un secret | L'agent n'agit que sur instruction du mainteneur ; tout contenu externe est traité comme une donnée, jamais comme une instruction ; compte machine en `Write` seulement : ni approbation, ni fusion, ni création de tag `v*` ; toute PR relue par un humain (CODEOWNERS) et soumise aux 13 checks ; modification de `.github/`, `scripts/github/`, `CLAUDE.md` et des Fondations interdite sans instruction explicite. La revue humaine reste le dernier rempart | **L0** |
+| S / I | **Vol du jeton du compte machine** ou de sa clé de signature (stockés en clair sur le poste) | Jeton *fine-grained* limité au dépôt et aux permissions utiles, expiration ≤ 90 jours ; le compte ne peut ni approuver, ni fusionner, ni publier ; révocation immédiate en cas de doute. Prévu : stockage dans le trousseau du système, phrase de passe sur la clé SSH | **L0** (portée) / §9 |
+| E | **Identifiants du mainteneur accessibles à l'agent sur le même poste**. Incident du 2026-11-12 : l'agent a ouvert des PR avec le compte du mainteneur, la séparation ne reposant que sur une variable d'environnement | Vérification de l'identité avant toute écriture GitHub (consigne de l'agent) ; PR concernées recréées avec le compte machine. Mesure structurelle à décider : retirer le compte du mainteneur de l'environnement de l'agent, ou exécuter l'agent sous un utilisateur système dédié (§9) | **L0** / §9 |
+| E | **Compromission du compte de l'unique mainteneur**, administrateur de l'organisation, qui peut désactiver les rulesets | 2FA obligatoire dans l'organisation (depuis le 2026-11-14) ; aucun contournement permanent ; désactivation d'un ruleset journalisée par GitHub. Recommandé : passkey ou clé matérielle, compte d'administration distinct du compte quotidien, second mainteneur (`docs/collaboration.md` §15) | **L0** / §9 |
 
 ### F9 — Exploitation
 
@@ -208,6 +233,21 @@ Voir aussi le §6 (menaces propres à l'IA).
 | S | Usurpation de l'expéditeur pour injecter des pièces dans un dossier | Adresse unique et non devinable par dossier ; vérification SPF/DKIM/DMARC ; pièces reçues par e-mail **toujours** marquées comme telles et soumises au même pipeline | L4 |
 | T / E | Pièce jointe malveillante | Même traitement que F4 (bac à sable) ; le corps du courriel est une donnée non fiable, jamais une instruction (§6) | L4 |
 | D | Inondation de courriels | Limites par dossier et par expéditeur ; doublons refusés par hash | L4 |
+
+### F11 — Imports du cabinet (reprise de données, FEC, relevés)
+
+| | Menace | Mesures prévues | Lot |
+|---|---|---|---|
+| T / D | Fichier d'import malformé ou piégé (CSV, FEC, Excel, relevés mobile money) | Analyseurs de `formats` traités comme hostiles : limites de taille, de lignes et d'encodage, erreurs explicites, aucune panique, **cible de fuzzing par analyseur** ; Excel lu sans macros ni évaluation de formules | L3 / L8 |
+| T | Import introduisant des écritures frauduleuses ou en masse | Tout import arrive au **brouillard** ; aperçu, contrôles d'équilibre et de comptes, validation humaine ; reprise de données contrôlée par la balance d'ouverture ; import journalisé | L3 / L8 |
+| I | Import rattaché au mauvais dossier | Dossier cible explicite, décision Cedar, journalisation | L3 |
+
+### F12 — Courriels sortants
+
+| | Menace | Mesures prévues | Lot |
+|---|---|---|---|
+| S | **Usurpation de la marque** : faux courriels « Sigma Books » (fausse invitation, fausse alerte) pour hameçonner les comptables | SPF, DKIM et DMARC `p=reject` sur le domaine d'envoi ; courriels sans lien de connexion avec jeton, ou liens vers un seul domaine connu ; modèles sobres et constants | L2 / L4 |
+| I | Données comptables divulguées par courriel | Notifications génériques, sans montants, pièces ni noms de tiers : le détail reste dans l'application | L2 |
 
 ## 6. Menaces propres à l'IA
 
@@ -228,14 +268,19 @@ Principe directeur (ADR 0008) : **l'IA propose, l'humain valide**. L'IA écrit u
 | IA11 | Prompts modifiés silencieusement | Changement de prompt qui dégrade la détection d'injection | Prompts versionnés et publics ; toute modification relance les évaluations (spec §22.2) ; revue CODEOWNERS | L4 |
 | IA12 | Données d'évaluation réelles publiées | Jeu de test constitué de vraies pièces de clients | Données d'évaluation réelles **toujours hors dépôt** ; jeux publics synthétiques ou anonymisés avec accord (Fondations §7) | L4 |
 
-## 7. Mesures déjà en place à la fin de L0
+## 7. Mesures en place (état réel au 2026-11-14)
+
+> **Correction (v0.2)** : la v0.1 laissait entendre que la création des tags `v*` était réservée à `core` et que l'environnement `publication` était protégé dès la fin de L0. Ces deux protections datent du 2026-11-14 (#74 et réglage manuel).
 
 - CI : `rust.yml` (fmt, clippy `-D warnings`, tests, `cargo deny`), `web.yml` (lint, typecheck, build, `pnpm audit` pour `web/` et `site/`), `secrets.yml` (gitleaks sur tout l'historique), `codeql.yml` (Rust, JS/TS, Actions), `sbom.yml`, `pr-titre.yml`, `scorecard.yml`, `publication.yml` (préparé).
 - Actions épinglées par hash ; jeton en lecture seule par défaut.
 - `#![forbid(unsafe_code)]` et lints stricts dans toutes les crates ; `unwrap`/`expect` interdits hors tests.
 - Politique de dépendances (`deny.toml`) ; Dependabot.
 - CSP stricte et Trusted Types dans `web/` ; CSP stricte et `security.txt` dans `site/`.
-- Crochets locaux (gitleaks, format, messages) ; règles de collaboration et rulesets (`docs/collaboration.md`).
+- Crochets locaux (gitleaks, format, messages) ; règles de collaboration (`docs/collaboration.md`).
+- Rulesets : « Protection de main » (PR, revue CODEOWNERS, 13 checks requis, signatures, historique linéaire, aucun contournement) ; « Protection des tags de version » (ni suppression, ni modification) ; « Création des tags de version » (réservée à `core`). Versionnés dans `scripts/github/`, état relevé dans `docs/github.md`.
+- Environnement `publication` : approbation par `core`, auto-approbation et contournement par les administrateurs interdits, tags `v*` uniquement.
+- Organisation : 2FA obligatoire ; création de dépôts réservée aux administrateurs ; actions GitHub limitées à une liste et épinglées par hash.
 
 ## 8. Vie privée (LINDDUN) — à compléter en L2
 
@@ -257,9 +302,16 @@ Points identifiés, analyse détaillée à faire avec le schéma de données (L2
 | Q5 | Autorité d'horodatage retenue et sa confiance (racine, disponibilité) | L1 |
 | Q6 | Service des fichiers statiques et en-têtes HTTP (`frame-ancestors`, HSTS, COOP/COEP) par le backend | L2 |
 | Q7 | Contrôle automatisé de la CSP dans un navigateur en CI (aujourd'hui vérifiée manuellement) | Issue à ouvrir |
+| Q8 | Témoin externe de la chaîne : forme (écran, export, envoi périodique au cabinet, publication) et fréquence d'horodatage (quotidienne, par lot, horaire) | ADR en L1 |
+| Q9 | Séparation des identifiants du mainteneur et de l'agent sur le poste de développement (utilisateur système dédié, conteneur, ou compte du mainteneur retiré de `gh`) ; jeton du compte machine dans un trousseau | Décision du mainteneur, avant L1 |
+| Q10 | Risques résiduels acceptés ou non : administrateur de cabinet malveillant (M10) et collusion saisie/validation | Décision produit, L2 |
+| Q11 | Libellés commençant par `=`, `+`, `-`, `@` : refus ou simple alerte à la saisie, compte tenu du FEC | Règle à fixer, L1 (saisie) / L8 (FEC) |
+| Q12 | Périmètre de la déduplication et du stockage unique des pièces (spec §6.5, §8.1) : limiter explicitement au dossier | Modification de la spec, sur instruction du mainteneur |
+| Q13 | Compromission du compte du mainteneur unique : compte d'administration distinct, clé matérielle, second mainteneur | Décision du mainteneur |
 
 ## 10. Historique
 
 | Version | Date | Changement |
 |---|---|---|
 | 0.1 | 2026-11-12 | Version initiale (lot L0) |
+| 0.2 (1/2) | 2026-11-14 | Revue du 2026-11-14 : correction de l'état réel des protections de publication (F8, §7) ; acteurs M9, M10, actif A10 ; flux F11 (imports) et F12 (courriels sortants) ; agent de développement, jeton du compte machine, identifiants du mainteneur, compte du mainteneur ; troncature et retour arrière de la chaîne ; injection de formules et chaînes dans les PDF ; déduplication ; récupération de compte, invitations, multi-cabinets ; administrateur de cabinet, collusion ; disponibilité des clés ; journaux. Questions Q8 à Q13 (#72) |
