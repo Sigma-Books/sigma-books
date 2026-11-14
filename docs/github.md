@@ -2,7 +2,7 @@
 
 Ce document suit l'application des réglages décrits dans `docs/collaboration.md` (§5, §7, §12) au dépôt `Sigma-Books/sigma-books` et à l'organisation `Sigma-Books`. Les réglages automatisables sont dans `scripts/github/configurer-depot.sh` ; les autres sont manuels et réservés à un administrateur.
 
-- **Dernier relevé :** 2026-11-12, par lecture de l'API GitHub avec le compte machine (droits `Write`). Les réglages de l'organisation qui exigent `admin:org` n'ont pas pu être lus : ils sont marqués « à vérifier ».
+- **Dernier relevé :** 2026-11-14, par lecture de l'API GitHub avec le compte machine (droits `Write`). Les réglages de l'organisation et la politique Actions ne lui sont pas lisibles : ils sont marqués « déclaré » quand le mainteneur a confirmé les avoir appliqués.
 - **Mise à jour :** à chaque exécution du script ou changement manuel, mettre à jour le tableau du §1 (et la date).
 
 ## 1. État des réglages
@@ -23,8 +23,8 @@ Ce document suit l'application des réglages décrits dans `docs/collaboration.m
 | Jalons L0 à L9 | présents | présents | ✅ |
 | Ruleset « Protection de main » | actif | actif : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request` | ✅ |
 | Ruleset « Protection des tags de version » | actif | actif | ✅ |
-| **Checks requis** dans « Protection de main » | liste du §3 | aucun | ❌ étape g |
-| Actions autorisées | GitHub + actions épinglées par hash | toutes (`allowed_actions: all`, épinglage non exigé) | ❌ étape c |
+| **Checks requis** dans « Protection de main » | liste du §3 | les 13 checks, sources fixées, branche à jour exigée | ✅ |
+| Actions autorisées | GitHub + actions épinglées par hash | politique de l'organisation (voir ci-dessous) | ✅ déclaré |
 | Environnement `publication` | approbation requise, tags `v*` | absent | ❌ étape i |
 | Catégories Discussions | §4 | catégories par défaut de GitHub | ❌ étape j |
 | Code scanning « configuration par défaut » | **désactivée** (analyse avancée via `codeql.yml`) | `not-configured` | ✅ (à laisser ainsi) |
@@ -33,10 +33,10 @@ Ce document suit l'application des réglages décrits dans `docs/collaboration.m
 ### Organisation
 | Réglage | Attendu | Constaté | État |
 |---|---|---|---|
-| 2FA obligatoire | oui | **non** | ❌ étape a |
+| 2FA obligatoire | oui | appliqué le 2026-11-14 | ✅ déclaré |
 | Permission de base | `read` | `read` | ✅ |
-| Création de dépôts | réservée aux admins | **ouverte aux membres** | ❌ étape b |
-| Politique Actions de l'organisation | GitHub + épinglage par hash | non lisible (droits) | à vérifier, étape c |
+| Création de dépôts | réservée aux admins | appliqué le 2026-11-14 | ✅ déclaré |
+| Politique Actions de l'organisation | GitHub + 4 actions tierces listées + épinglage par hash | appliqué le 2026-11-14 | ✅ déclaré |
 | CLA Assistant installé | oui | non lisible | à vérifier, étape e |
 | Tableau Projects « Sigma Books » | présent | non lisible (le jeton n'a pas `read:project`) | à vérifier, étape f |
 
@@ -123,13 +123,13 @@ Supprimer « General », « Polls » et « Show and tell ». Rappel dans la desc
 
 Les lettres a à h reprennent celles du script ; i à k sont ajoutées par le lot L0.
 
-- [ ] **a.** Organisation → Settings → Authentication security : exiger la 2FA.
-- [ ] **b.** Organisation → Settings → Member privileges : création de dépôts réservée aux admins.
-- [ ] **c.** Organisation (ou dépôt) → Settings → Actions → General : autoriser les actions de GitHub et une liste explicite d'actions tierces, et cocher « Require actions to be pinned to a full-length commit SHA ». Actions tierces utilisées : `Swatinem/rust-cache`, `pnpm/action-setup`, `ossf/scorecard-action`, `sigstore/cosign-installer`. Garder « Require approval for all outside collaborators » pour les PR de forks.
+- [x] **a.** Organisation → Settings → Authentication security : exiger la 2FA.
+- [x] **b.** Organisation → Settings → Member privileges : création de dépôts réservée aux admins.
+- [x] **c.** Organisation (ou dépôt) → Settings → Actions → General : autoriser les actions de GitHub et une liste explicite d'actions tierces, et cocher « Require actions to be pinned to a full-length commit SHA ». Actions tierces utilisées : `Swatinem/rust-cache`, `pnpm/action-setup`, `ossf/scorecard-action`, `sigstore/cosign-installer`. Garder « Require approval for all outside collaborators » pour les PR de forks.
 - [x] **d.** Compte machine `fhdiop-ccode` en `Write`, hors `core`.
 - [ ] **e.** Installer CLA Assistant sur le dépôt (à vérifier).
 - [ ] **f.** Tableau Projects « Sigma Books » (colonnes et champs : `docs/collaboration.md` §5), à vérifier.
-- [ ] **g.** Checks requis : §3, une fois les PR du lot L0 fusionnées.
+- [x] **g.** Checks requis : §3, une fois les PR du lot L0 fusionnées.
 - [ ] **h.** Second mainteneur : approbations requises à 2 (`docs/collaboration.md` §15).
 - [ ] **i.** Settings → Environments → créer **`publication`** : *Required reviewers* = `@Sigma-Books/core`, *Prevent self-review*, *Deployment branches and tags* = tags `v*` uniquement. Utilisé par `publication.yml`.
 - [ ] **j.** Catégories Discussions : §4.
