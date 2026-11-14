@@ -43,10 +43,8 @@ Les règles complètes sont dans **`docs/collaboration.md`**. L'essentiel :
 12. **Ne jamais désactiver, contourner ou affaiblir un contrôle de la CI** (lint, test, audit, licence, secrets) pour faire passer une PR.
 
 ## Références locales (jamais dans le dépôt)
-Textes officiels et documents de travail, en lecture seule, dans le dossier `references/` de la copie de travail principale. Ce dossier est **ignoré par Git** (`.gitignore`) : ne jamais le forcer (`git add -f`), ne jamais en copier un fichier ailleurs dans le dépôt.
-- WSL : `/mnt/d/Main/_Earn/sigma-books/references/`
-- Windows : `D:\Main\_Earn\sigma-books\references\`
-(Dans un worktree ou un autre clone, utiliser ce chemin absolu.)
+Textes officiels et documents de travail, en lecture seule, dans un dossier `references/` **hors dépôt**. Son emplacement sur le poste du mainteneur est indiqué dans sa configuration personnelle de Claude Code (`~/.claude/CLAUDE.md`, non versionnée), valable depuis tout worktree ou clone. S'il est introuvable, demande-le au mainteneur.
+Le nom `references/` est **ignoré par Git** (`.gitignore`) : ne jamais le forcer (`git add -f`), ne jamais en copier un fichier dans le dépôt.
 Lire d'abord son `README.md` (ordre d'autorité, erreurs connues). La liste officielle des comptes est extraite dans `references/extraits/`.
 
 ## Dépendances
