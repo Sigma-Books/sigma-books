@@ -21,6 +21,28 @@
         "required_review_thread_resolution": true,
         "allowed_merge_methods": ["squash"]
       }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "rust-fmt", "integration_id": 15368 },
+          { "context": "rust-clippy", "integration_id": 15368 },
+          { "context": "rust-test", "integration_id": 15368 },
+          { "context": "rust-deny", "integration_id": 15368 },
+          { "context": "web", "integration_id": 15368 },
+          { "context": "site", "integration_id": 15368 },
+          { "context": "gitleaks", "integration_id": 15368 },
+          { "context": "codeql (rust)", "integration_id": 15368 },
+          { "context": "codeql (javascript-typescript)", "integration_id": 15368 },
+          { "context": "codeql (actions)", "integration_id": 15368 },
+          { "context": "CodeQL", "integration_id": 57789 },
+          { "context": "sbom", "integration_id": 15368 },
+          { "context": "pr-titre", "integration_id": 15368 }
+        ]
+      }
     }
   ]
 }

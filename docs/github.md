@@ -21,8 +21,9 @@ Ce document suit l'application des réglages décrits dans `docs/collaboration.m
 | Compte machine `fhdiop-ccode` | rôle `Write`, hors `core` | `write` | ✅ |
 | Étiquettes (`.github/labels.yml`) | présentes | présentes | ✅ |
 | Jalons L0 à L9 | présents | présents | ✅ |
-| Ruleset « Protection de main » | actif | actif : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request` | ✅ |
-| Ruleset « Protection des tags de version » | actif | actif | ✅ |
+| Ruleset « Protection de main » | actif, conforme à `ruleset-main.json` | actif : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request`, `required_status_checks` (13 checks) | ✅ |
+| Ruleset « Protection des tags de version » | actif, conforme à `ruleset-tags.json` | actif : `deletion`, `non_fast_forward`, `update`, `required_signatures` ; **ne restreint pas la création** | ✅ |
+| Ruleset « Création des tags de version » | actif : `creation` sur `refs/tags/v*`, contournement `core` (`ruleset-tags-creation.json`) | **absent** : tout compte en écriture peut créer un tag `v*` | ❌ étape l |
 | **Checks requis** dans « Protection de main » | liste du §3 | les 13 checks, sources fixées, branche à jour exigée | ✅ |
 | Actions autorisées | GitHub + actions épinglées par hash | politique de l'organisation (voir ci-dessous) | ✅ déclaré |
 | Environnement `publication` | approbation requise, tags `v*` | relecteurs `core`, auto-approbation interdite, contournement par les admins interdit, tags `v*` seulement | ✅ |
@@ -49,9 +50,9 @@ Ce document suit l'application des réglages décrits dans `docs/collaboration.m
 4. le droit `maintain` de `core` ;
 5. les 28 étiquettes (`--force`, idempotent) ;
 6. rien pour les jalons, qui existent déjà ;
-7. rien pour les rulesets, qui existent déjà.
+7. pour les rulesets : vérifie que « Protection de main » et « Protection des tags de version » sont conformes à leurs fichiers, et crée « Création des tags de version », absent (simulation du 2026-11-14).
 
-Tous ces réglages sont déjà constatés en place (§1) : relancer `--appliquer` est sans effet nuisible. **Le script ne met pas à jour un ruleset existant** : l'ajout des checks requis se fait par l'interface ou par l'API (§3).
+Relancer `--appliquer` est sans effet nuisible sur ce qui existe. **Le script ne modifie jamais un ruleset existant** : il compare ses règles au fichier versionné et signale les écarts. Il crée seulement les rulesets absents, dont « Création des tags de version » (étape l).
 
 ## 3. Checks requis (étape g)
 
@@ -79,7 +80,7 @@ Option « Require branches to be up to date before merging » : **activée**.
 
 Pour l'interface : Settings → Rules → Rulesets → « Protection de main » → *Require status checks to pass* → ajouter les 13 noms ci-dessus.
 
-Équivalent à ajouter dans `scripts/github/ruleset-main.json` (`rules`), si vous préférez versionner la règle. Le fichier relève de `scripts/github/` : il ne sera modifié que sur instruction explicite.
+Cette règle est versionnée dans `scripts/github/ruleset-main.json` (`rules`), identique au ruleset réel (vérifié par l'API le 2026-11-14) :
 
 ```json
 {
@@ -129,6 +130,7 @@ Les lettres a à h reprennent celles du script ; i à k sont ajoutées par le lo
 - [x] **i.** Settings → Environments → créer **`publication`** : *Required reviewers* = `@Sigma-Books/core`, *Prevent self-review*, *Deployment branches and tags* = tags `v*` uniquement. Utilisé par `publication.yml`.
 - [x] **j.** Catégories Discussions : catégories par défaut conservées (§4).
 - [ ] **k.** (Facultatif) Settings → Code security : activer les motifs génériques du secret scanning (*non-provider patterns*).
+- [ ] **l.** Créer le ruleset « Création des tags de version » : `scripts/github/configurer-depot.sh --appliquer` avec le compte administrateur (le script résout l'identifiant de l'équipe `core`). Le compte machine vérifie ensuite par l'API.
 
 ## 6. Rappels périodiques
 
