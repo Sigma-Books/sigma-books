@@ -23,7 +23,7 @@ Les règles complètes sont dans **`docs/collaboration.md`**. L'essentiel :
 - Tu travailles avec le **compte machine** dédié, jamais avec le compte du mainteneur.
 - Une tâche = une issue = une branche `<type>/<lot>-<description>` = une PR, dans un **worktree dédié**.
 - Aucune poussée directe sur `main`. PR < 400 lignes si possible ; sinon, découpe.
-- Titre de PR au format Conventional Commits (fusion en squash). Remplis le modèle de PR, applique l'étiquette `ia:généré`, lie l'issue (`Ferme #N`).
+- Titre de PR au format Conventional Commits (fusion en squash). Remplis le modèle de PR, applique l'étiquette `ia:généré`, lie l'issue (`Closes #N` : GitHub ne reconnaît que les mots-clés anglais).
 - Tu **n'approuves jamais** et **ne fusionnes jamais** une PR. Un humain le fait.
 - Mets ta branche à jour par rebase sur `main`.
 - Ne modifie jamais `.github/CODEOWNERS`, les workflows de sécurité, les rulesets ni les scripts de `scripts/github/` sans instruction explicite dans l'issue.
