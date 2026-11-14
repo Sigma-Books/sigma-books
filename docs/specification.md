@@ -105,6 +105,7 @@
 
 **Sécurité** (détail : Fondations §3)
 11. Refus par défaut ; triple isolation entre tenants ; documents traités en bac à sable ; intégrité prouvable par chaîne de hachage.
+12. **Cloisonnement** : chaque cabinet, et dans un cabinet chaque dossier, est un espace étanche. Aucune donnée d'un dossier (pièces, empreintes, écritures, tiers, règles apprises, contexte transmis à l'IA) n'est lue, comparée ni utilisée pour un autre dossier. Notamment, la recherche de doublons et le stockage des pièces se font **dans le dossier seulement**.
 
 ---
 
@@ -251,7 +252,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 - Écran « Intégrité » dans le dossier : état de la chaîne, derniers horodatages, bouton de vérification.
 
 ### 6.5 Pièces justificatives
-- Stockées une fois, hachées (SHA-256), immuables (WORM).
+- Stockées une fois **par dossier**, jamais partagées entre dossiers ni entre cabinets (§2, principe 12), hachées (SHA-256), immuables (WORM).
 - Relation **N-N** entre pièces et écritures (une écriture de banque peut s'appuyer sur le relevé **et** sur la facture ; un relevé alimente des dizaines d'écritures).
 - Rôle de la pièce dans l'écriture : principale / complémentaire.
 
@@ -289,7 +290,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 ### 8.1 Étapes
 ```
 Pièce reçue (portail, e-mail, téléversement cabinet)
-  │  hash SHA-256 → doublon exact → refus avec message
+  │  hash SHA-256 → doublon exact dans le dossier → avertissement, ajout possible (§9.3)
   ▼
 Worker en bac à sable : type réel, antivirus, limites, rasterisation PDF → images
   ▼
@@ -409,7 +410,7 @@ Chaque compte bancaire, portefeuille mobile money et caisse est déclaré avec :
 ### 9.3 Règles de déduplication
 | Situation | Règle |
 |---|---|
-| Même fichier reçu deux fois | Hash identique → refus |
+| Même fichier reçu deux fois | Hash identique **dans le même dossier** → **avertissement**, sans blocage : la pièce déjà reçue est affichée ; si l'utilisateur juge les pièces différentes, il peut confirmer l'ajout (choix journalisé). Jamais de comparaison avec un autre dossier |
 | Même facture sous deux formes (photo + PDF) | Même émetteur + n° + montant → fusion proposée : une écriture, deux pièces |
 | Avis de virement + ligne de relevé | Une seule écriture de trésorerie ; l'avis devient pièce complémentaire |
 | Avis de virement reçu avant le relevé | Mouvement « provisoire » ; confirmé au rapprochement avec le relevé, sans nouvelle écriture |
