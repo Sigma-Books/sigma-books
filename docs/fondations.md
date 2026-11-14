@@ -363,8 +363,8 @@ Règles :
 |---|---|
 | Conception | Modèle de menaces mis à jour pour chaque fonctionnalité ; ADR pour chaque décision structurante |
 | Code | `clippy` en mode strict (avertissements bloquants), `#![forbid(unsafe_code)]` dans toutes les crates métier, Semgrep |
-| Dépendances | `cargo-deny` (vulnérabilités, licences, sources), `cargo-vet` (audit des dépendances), politique de dépendances minimales, Renovate |
-| Revue | Branches protégées, commits signés, **deux relecteurs** sur `compta-core`, `integrite`, `authz` et `api` (CODEOWNERS) |
+| Dépendances | `cargo-deny` (vulnérabilités, licences, sources), `cargo-vet` (audit des dépendances), politique de dépendances minimales, Dependabot |
+| Revue | Branches protégées, commits signés, **revue obligatoire des CODEOWNERS** sur `compta-core`, `integrite`, `authz` et `api` (une approbation en solo, deux dès le passage en équipe, cf. `docs/collaboration.md` §7 et §15) |
 | Tests | Unitaires, propriétés, fuzzing des analyseurs, tests d'isolation entre tenants à chaque build, tests de politiques Cedar |
 | Build | GitHub Actions épinglées par hash ; builds reproductibles ; **SBOM** (CycloneDX) ; signature des artefacts (Sigstore) ; provenance SLSA |
 | Livraison | Images minimales (distroless), sans shell ; scan des images ; déploiement progressif |
