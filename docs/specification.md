@@ -153,7 +153,10 @@ Cabinet (tenant)
 | `en_cloture` | Travaux de fin d'exercice ; saisie limitée aux journaux d'OD et d'inventaire |
 | `cloture` | Irréversible. Aucune écriture possible. |
 
-- Dates libres (exercice de 12 mois par défaut ; premier exercice plus court ou plus long autorisé dans les limites légales — paramètre à valider).
+- L'exercice **coïncide avec l'année civile** : du 1er janvier au 31 décembre (AUDCIF art. 7, JO OHADA du 15/02/2017, p. 15).
+- **Premier exercice** : il commence à la date de début d'activité. S'il débute au premier semestre, il se termine le 31 décembre de la même année. S'il débute au second semestre, il peut se terminer le 31 décembre de l'année suivante (choix fait à la création du dossier) (même article).
+- Un exercice est désigné par son **année de clôture**, reprise dans la numérotation (§6.3).
+- Cessation d'activité : la durée des opérations de liquidation compte pour un seul exercice, avec des situations annuelles provisoires (même article).
 - Deux exercices peuvent être ouverts simultanément (N clôture en cours, N+1 courant).
 
 ### 4.3 Période
@@ -242,7 +245,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 7. Le journal accepte ce type d'écriture (ex. une écriture du journal BQ1 mouvemente le compte de trésorerie associé).
 
 ### 6.3 Numérotation
-- Format : `{journal}-{exercice}-{séquence sur 6 chiffres}` (ex. `AC-2026-000231`).
+- Format : `{journal}-{exercice}-{séquence sur 6 chiffres}` (ex. `AC-2026-000231`), `{exercice}` étant l'année de clôture (§4.2).
 - Séquence continue sans trou par journal et par exercice, attribuée dans la même transaction que la validation (verrou sur la séquence).
 
 ### 6.4 Chaîne de hachage
@@ -879,7 +882,7 @@ Ces points touchent à l'exactitude comptable et fiscale. Ils doivent être conf
 | 6 | Comptes d'écarts de change et de conversion ; provision pour perte de change | L6 |
 | 7 | Compte de reprise du résultat à l'ouverture (130, 131/139) | L6 |
 | 8 | Référence d'article et champ d'application de la réserve légale (AUSCGIE) | L6 |
-| 9 | Durée minimale et maximale d'un premier exercice | L1 |
+| 9 | ~~Durée minimale et maximale d'un premier exercice~~ **Tranché** par le texte (AUDCIF art. 7, JO OHADA du 15/02/2017, p. 15) : voir §4.2 | L1 |
 | 10 | Impôt minimum forfaitaire et modalités de l'impôt sur le résultat | L6 |
 | 11 | Reclassements des soldes inversés selon les tableaux de correspondance | L7 |
 
