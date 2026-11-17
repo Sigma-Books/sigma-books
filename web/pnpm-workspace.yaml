@@ -10,3 +10,13 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/utils@8.73.0'
   - '@typescript-eslint/visitor-keys@8.73.0'
   - typescript-eslint@8.73.0
+
+# Exception d'audit — décision du mainteneur à la revue de la PR (issue liée).
+# GHSA-fc5q-39xc-vjpf (picomatch <= 4.0.7, ReDoS, gravité élevée) : aucune version
+# corrigée publiée au 2026-11-17. picomatch n'est utilisé qu'à la construction
+# (vite, svelte-check, typescript-eslint, astro), sur des motifs écrits par nous ;
+# il n'est pas livré dans les fichiers statiques. À retirer dès qu'un correctif
+# existe (rappel dans docs/github.md §6).
+auditConfig:
+  ignoreGhsas:
+    - GHSA-fc5q-39xc-vjpf
