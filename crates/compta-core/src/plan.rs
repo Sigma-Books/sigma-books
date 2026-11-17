@@ -7,9 +7,14 @@
 //!
 //! - Un compte **de regroupement** a au moins un compte enfant dans le plan ; un compte
 //!   **de mouvement** n'en a aucun. Seuls les comptes de mouvement actifs reçoivent des
-//!   écritures (spec §6.2, invariant 3).
+//!   écritures (spec §6.2, invariant 3). Créer un sous-compte sous un compte **déjà
+//!   mouvementé** est autorisé (décision du mainteneur, 2026-11-17, `docs/lots/L1.md`) : le
+//!   compte devient un compte de regroupement, ses écritures passées restent telles quelles et
+//!   les nouvelles vont sur ses sous-comptes.
 //! - Un compte est **collectif** si lui-même ou l'un de ses ascendants officiels est marqué
 //!   collectif dans le référentiel (401, 411, 421… : la liste vient des données).
+//!   Ce caractère n'est modifiable par aucune fonction : il ne peut donc pas changer une fois
+//!   le compte mouvementé.
 //! - Un compte ayant des écritures ne peut être supprimé, seulement désactivé. Le plan ne
 //!   connaît pas les écritures : l'appelant lui indique l'[`Usage`] du compte.
 
@@ -537,6 +542,30 @@ pub(crate) mod tests {
         plan.supprimer(&n("6052-01"), Usage::SansEcriture).unwrap();
         assert!(plan.compte(&n("6052-01")).is_none());
         assert!(plan.compte_de_mouvement_actif(&n("6052")).is_ok());
+    }
+
+    #[test]
+    fn sous_compte_sous_un_compte_deja_mouvemente() {
+        // Autorisé (décision du mainteneur, 2026-11-17) : le compte devient un compte de
+        // regroupement ; il reste dans le plan avec ses écritures passées, ne peut plus en
+        // recevoir et ne peut pas être supprimé.
+        let mut plan = plan_de_test();
+        plan.ajouter_sous_compte(n("521-BICIS"), t("Banque"))
+            .unwrap();
+        assert!(plan.compte_de_mouvement_actif(&n("521-BICIS")).is_ok());
+        plan.ajouter_sous_compte(n("521-BICIS-EUR"), t("Banque, compte en euros"))
+            .unwrap();
+        assert_eq!(
+            plan.compte_de_mouvement_actif(&n("521-BICIS")),
+            Err(ErreurPlan::Regroupement(n("521-BICIS")))
+        );
+        assert!(plan.compte(&n("521-BICIS")).is_some());
+        assert!(plan.compte_de_mouvement_actif(&n("521-BICIS-EUR")).is_ok());
+        assert!(plan.supprimer(&n("521-BICIS"), Usage::Mouvemente).is_err());
+        assert!(
+            plan.supprimer(&n("521-BICIS"), Usage::SansEcriture)
+                .is_err()
+        );
     }
 
     proptest! {

@@ -3,6 +3,10 @@
 //! Les journaux par défaut sont des **données** (`data/journaux-par-defaut.txt`), pas du
 //! code. Un journal de trésorerie est associé à son compte de trésorerie, qui doit être un
 //! compte de mouvement actif du plan ; les autres journaux n'ont pas de compte associé.
+//!
+//! Le **type** d'un journal et son compte de trésorerie ne sont modifiables par aucune
+//! fonction ; seul le code peut changer, tant qu'aucune écriture n'utilise le journal (il
+//! figure dans les numéros définitifs).
 
 use std::collections::BTreeMap;
 use std::fmt;

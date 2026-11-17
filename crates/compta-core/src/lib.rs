@@ -15,8 +15,8 @@ pub mod texte;
 
 pub use compte::{ErreurNumeroCompte, NumeroCompte};
 pub use exercice::{
-    CodeExercice, Deverrouillage, ErreurExercice, Exercice, Exercices, Periode,
-    ReglesPremierExercice, StatutExercice, StatutPeriode,
+    CodeExercice, Deverrouillage, ErreurExercice, Exercice, Exercices, FinPremierExercice, Periode,
+    StatutExercice, StatutPeriode,
 };
 pub use journal::{
     CodeJournal, ErreurJournal, Journal, Journaux, ModeleJournal, TypeJournal, journaux_par_defaut,
