@@ -23,7 +23,7 @@ Ce document suit l'application des réglages décrits dans `docs/collaboration.m
 | Jalons L0 à L9 | présents | présents | ✅ |
 | Ruleset « Protection de main » | actif, conforme à `ruleset-main.json` | actif : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request`, `required_status_checks` (13 checks) | ✅ |
 | Ruleset « Protection des tags de version » | actif, conforme à `ruleset-tags.json` | actif : `deletion`, `non_fast_forward`, `update`, `required_signatures` ; **ne restreint pas la création** | ✅ |
-| Ruleset « Création des tags de version » | actif : `creation` sur `refs/tags/v*`, contournement `core` (`ruleset-tags-creation.json`) | **absent** : tout compte en écriture peut créer un tag `v*` | ❌ étape l |
+| Ruleset « Création des tags de version » | actif : `creation` sur `refs/tags/v*`, contournement `core` (`ruleset-tags-creation.json`) | actif depuis le 2026-11-14 (id 27275387) : `creation`, contournement équipe `core` (id 20664322) | ✅ |
 | **Checks requis** dans « Protection de main » | liste du §3 | les 13 checks, sources fixées, branche à jour exigée | ✅ |
 | Actions autorisées | GitHub + actions épinglées par hash | politique de l'organisation (voir ci-dessous) | ✅ déclaré |
 | Environnement `publication` | approbation requise, tags `v*` | relecteurs `core`, auto-approbation interdite, contournement par les admins interdit, tags `v*` seulement | ✅ |
@@ -130,7 +130,7 @@ Les lettres a à h reprennent celles du script ; i à k sont ajoutées par le lo
 - [x] **i.** Settings → Environments → créer **`publication`** : *Required reviewers* = `@Sigma-Books/core`, *Prevent self-review*, *Deployment branches and tags* = tags `v*` uniquement. Utilisé par `publication.yml`.
 - [x] **j.** Catégories Discussions : catégories par défaut conservées (§4).
 - [ ] **k.** (Facultatif) Settings → Code security : activer les motifs génériques du secret scanning (*non-provider patterns*).
-- [ ] **l.** Créer le ruleset « Création des tags de version » : `scripts/github/configurer-depot.sh --appliquer` avec le compte administrateur (le script résout l'identifiant de l'équipe `core`). Le compte machine vérifie ensuite par l'API.
+- [x] **l.** Créer le ruleset « Création des tags de version » : `scripts/github/configurer-depot.sh --appliquer` avec le compte administrateur (le script résout l'identifiant de l'équipe `core`). Le compte machine vérifie ensuite par l'API.
 
 ## 6. Rappels périodiques
 
