@@ -416,7 +416,7 @@ Chaque compte bancaire, portefeuille mobile money et caisse est déclaré avec :
 | Avis de virement reçu avant le relevé | Mouvement « provisoire » ; confirmé au rapprochement avec le relevé, sans nouvelle écriture |
 | Reçu + facture d'un achat payé comptant | Écriture d'achat (facture) + écriture de caisse (reçu comme preuve du règlement) — jamais deux achats |
 | Virement banque → Wave | Une écriture par relevé, chacune contre 585 ; alerte si 585 ne revient pas à zéro |
-| Même relevé importé deux fois | Lignes identiques ignorées |
+| Même relevé importé deux fois | Lignes identiques **dans le même dossier** → **avertissement**, sans blocage : les lignes déjà importées sont affichées ; si l'utilisateur juge les lignes différentes, il peut confirmer leur import (choix journalisé) |
 
 ### 9.4 Rapprochement mouvement ↔ engagement
 1. Référence de facture présente dans le libellé → **certain**.
