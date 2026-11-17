@@ -56,4 +56,4 @@ Une PR qui porte du code coche « code porté » dans sa description, lie l'entr
 ## Registre
 | Projet | Fichier du registre | Reprises |
 |---|---|---|
-| Tryton | [`tryton.md`](tryton.md) | `move-cancel` (scénario de contre-passation, tests) |
+| Tryton | [`tryton.md`](tryton.md) | `move-cancel` (scénario de contre-passation, tests, PR des écritures) ; `syscohada-collectifs` (comptes collectifs et intitulés du plan SYSCOHADA, données, PR du référentiel) |
