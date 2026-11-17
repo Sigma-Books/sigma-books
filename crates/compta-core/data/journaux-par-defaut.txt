@@ -1,0 +1,13 @@
+# Journaux par défaut d'un dossier — source : docs/specification.md §5.2.
+# Format : code;type;intitulé (une ligne par journal ; « # » ouvre un commentaire).
+# Types : achats, ventes, tresorerie, operations_diverses, a_nouveaux.
+# Les journaux BQx (un par compte bancaire) et MMx (un par portefeuille mobile money) ne sont
+# pas des journaux par défaut : ils sont créés avec leur compte de trésorerie.
+# Un journal de trésorerie (CA) reçoit son compte à la création du dossier.
+AC;achats;Achats
+VT;ventes;Ventes
+CA;tresorerie;Caisse
+PA;operations_diverses;Paie
+OD;operations_diverses;Opérations diverses
+IN;operations_diverses;Inventaire
+AN;a_nouveaux;À-nouveaux
