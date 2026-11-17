@@ -151,4 +151,5 @@ Les lettres a à h reprennent celles du script ; i à l sont ajoutées par le lo
 | Rotation du jeton fine-grained du compte machine | ≤ 90 jours (`docs/collaboration.md` §2) |
 | Champ `Expires` de `site/public/.well-known/security.txt` | avant le 2027-11-12, puis chaque année |
 | Revue des membres, équipes, jetons et applications installées | chaque trimestre (`docs/collaboration.md` §12) |
+| Exception d'audit `GHSA-fc5q-39xc-vjpf` (picomatch, `web/` et `site/`, `auditConfig.ignoreGhsas`) | dès qu'une version corrigée existe : mettre à jour et retirer l'exception ; sinon revoir avant le 2026-12-17 |
 | Mise à jour des versions épinglées des outils de CI (cargo-deny, gitleaks, cargo-cyclonedx) | avec les PR Dependabot ; ces binaires sont épinglés par version et SHA-256 dans les workflows, Dependabot ne les voit pas |
