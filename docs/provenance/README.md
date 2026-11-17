@@ -54,6 +54,6 @@ Les avis de licence et de copyright d'origine exigés par la licence (notamment 
 Une PR qui porte du code coche « code porté » dans sa description, lie l'entrée du registre et passe la revue CODEOWNERS. Le relecteur vérifie la licence **dans le fichier d'origine**, au commit cité.
 
 ## Registre
-| Projet | Entrées |
-|---|---|
-| Tryton | [`tryton.md`](tryton.md) : `syscohada-collectifs` (comptes collectifs et intitulés du plan SYSCOHADA, données) |
+| Projet | Fichier du registre | Reprises |
+|---|---|---|
+| Tryton | [`tryton.md`](tryton.md) | `move-cancel` (scénario de contre-passation, tests, PR des écritures) ; `syscohada-collectifs` (comptes collectifs et intitulés du plan SYSCOHADA, données, PR du référentiel) |
