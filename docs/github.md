@@ -21,10 +21,10 @@ Ce document suit l'application des réglages décrits dans `docs/collaboration.m
 | Compte machine `fhdiop-ccode` | rôle `Write`, hors `core` | `write` | ✅ |
 | Étiquettes (`.github/labels.yml`) | présentes | présentes | ✅ |
 | Jalons L0 à L9 | présents | présents | ✅ |
-| Ruleset « Protection de main » | actif, conforme à `ruleset-main.json` (avec `merge_queue` et `code_scanning`, #88) | actif : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request`, `required_status_checks` (13 checks) | ⏳ étape m |
+| Ruleset « Protection de main » | actif, conforme à `ruleset-main.json` (avec `merge_queue` et `code_scanning`, #88) | actif depuis le 2026-11-17 : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request`, `required_status_checks` (12 checks), `merge_queue`, `code_scanning` | ✅ |
 | Ruleset « Protection des tags de version » | actif, conforme à `ruleset-tags.json` | actif : `deletion`, `non_fast_forward`, `update`, `required_signatures` ; **ne restreint pas la création** | ✅ |
 | Ruleset « Création des tags de version » | actif : `creation` sur `refs/tags/v*`, contournement `core` (`ruleset-tags-creation.json`) | actif depuis le 2026-11-14 (id 27275387) : `creation`, contournement équipe `core` (id 20664322) | ✅ |
-| **Checks requis** dans « Protection de main » | liste du §3 (12 checks), file de fusion à la place de « branche à jour » | les 13 checks, sources fixées, branche à jour exigée | ⏳ étape m |
+| **Checks requis** dans « Protection de main » | liste du §3 (12 checks), file de fusion à la place de « branche à jour » | les 12 checks, sources fixées, « branche à jour » désactivée | ✅ |
 | Actions autorisées | GitHub + actions épinglées par hash | politique de l'organisation (voir ci-dessous) | ✅ déclaré |
 | Environnement `publication` | approbation requise, tags `v*` | relecteurs `core`, auto-approbation interdite, contournement par les admins interdit, tags `v*` seulement | ✅ |
 | Catégories Discussions | §4 | catégories par défaut de GitHub (décision : les garder) | ✅ |
@@ -138,7 +138,7 @@ Les lettres a à h reprennent celles du script ; i à l sont ajoutées par le lo
 - [x] **j.** Catégories Discussions : catégories par défaut conservées (§4).
 - [ ] **k.** (Facultatif) Settings → Code security : activer les motifs génériques du secret scanning (*non-provider patterns*).
 - [x] **l.** Créer le ruleset « Création des tags de version » : `scripts/github/configurer-depot.sh --appliquer` avec le compte administrateur (le script résout l'identifiant de l'équipe `core`). Le compte machine vérifie ensuite par l'API.
-- [ ] **m.** (#88) **Après la fusion de la PR de #88**, sinon cette PR resterait bloquée dans la file, appliquer `ruleset-main.json` au ruleset existant « Protection de main » (id 27145400). Le script ne modifie pas un ruleset existant ; depuis un clone à jour de `main`, avec le compte administrateur :
+- [x] **m.** (#88) **Après la fusion de la PR de #88**, sinon cette PR resterait bloquée dans la file, appliquer `ruleset-main.json` au ruleset existant « Protection de main » (id 27145400). Le script ne modifie pas un ruleset existant ; depuis un clone à jour de `main`, avec le compte administrateur :
   ```
   gh api -X PUT repos/Sigma-Books/sigma-books/rulesets/27145400 --input scripts/github/ruleset-main.json
   ```
