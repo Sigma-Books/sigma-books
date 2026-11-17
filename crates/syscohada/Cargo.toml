@@ -10,3 +10,12 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+compta-core = { path = "../compta-core" }
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
