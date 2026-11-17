@@ -22,6 +22,11 @@ updates:
     groups:
       npm-mineures:
         update-types: ["minor", "patch"]
+    ignore:
+      # Les types de Node suivent la version majeure de Node fixée dans .node-version :
+      # elle se change explicitement, avec le runtime, jamais par Dependabot seul.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
