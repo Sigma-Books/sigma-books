@@ -133,6 +133,18 @@ impl Compteur {
         self.dernier
     }
 
+    /// Journal du compteur.
+    #[must_use]
+    pub fn journal(&self) -> &CodeJournal {
+        &self.journal
+    }
+
+    /// Exercice du compteur.
+    #[must_use]
+    pub fn exercice(&self) -> &CodeExercice {
+        &self.exercice
+    }
+
     /// Attribue le numéro suivant et renvoie le compteur à enregistrer à sa place.
     /// Le compteur d'origine n'est pas modifié (fonction pure).
     ///
