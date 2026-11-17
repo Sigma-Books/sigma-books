@@ -21,11 +21,12 @@ Ne modifie **jamais** `docs/specification.md` ni `docs/fondations.md` sans instr
 ## Flux de travail Git et GitHub
 Les règles complètes sont dans **`docs/collaboration.md`**. L'essentiel :
 - Tu travailles avec le **compte machine** dédié, jamais avec le compte du mainteneur.
-- Une tâche = une issue = une branche `<type>/<lot>-<description>` = une PR, dans un **worktree dédié**.
-- Aucune poussée directe sur `main`. PR < 400 lignes si possible ; sinon, découpe.
+- Une PR = une intention = une branche `<type>/<lot>-<description>`, dans un **worktree dédié**. Une PR peut fermer plusieurs issues d'un même lot.
+- Aucune poussée directe sur `main`. PR < 400 lignes si possible ; au-delà, guide la relecture dans la description.
+- Rythme (`docs/collaboration.md` §6) : seul le plan du lot attend une validation ; ensuite, enchaîne les PR. Tranche toi-même les choix techniques courants (note-les dans la PR) ; regroupe les vraies questions (§ « Quand s'arrêter ») en un seul message.
 - Titre de PR au format Conventional Commits (fusion en squash). Remplis le modèle de PR, applique l'étiquette `ia:généré`, lie l'issue (`Closes #N` : GitHub ne reconnaît que les mots-clés anglais).
 - Tu **n'approuves jamais** et **ne fusionnes jamais** une PR. Un humain le fait.
-- Mets ta branche à jour par rebase sur `main`.
+- La fusion passe par la **file de fusion** ; ne rebase sur `main` qu'en cas de conflit.
 - Ne modifie jamais `.github/CODEOWNERS`, les workflows de sécurité, les rulesets ni les scripts de `scripts/github/` sans instruction explicite dans l'issue.
 
 ## Règles absolues (une PR qui en enfreint une est refusée)

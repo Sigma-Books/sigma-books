@@ -21,7 +21,7 @@ Avant la fusion de votre première PR, le bot CLA Assistant vous demandera de si
    cargo test --all
    cargo deny check
    ```
-5. Ouvrez la PR en remplissant le modèle ; une PR = une intention, idéalement < 400 lignes.
+5. Ouvrez la PR en remplissant le modèle ; une PR = une intention, idéalement < 400 lignes ; elle peut fermer plusieurs issues liées.
 6. Un mainteneur relit ; la PR est fusionnée en *squash*. Le **titre de la PR** devient le message du commit : il doit respecter Conventional Commits (vérifié par la CI).
 
 ## Crochets Git locaux (lefthook)

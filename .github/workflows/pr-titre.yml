@@ -6,12 +6,16 @@ name: Titre de PR
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize]
+  # File de fusion : le check est requis, il doit donc répondre aussi pour le groupe.
+  # Le titre a déjà été vérifié sur la PR (condition d'entrée dans la file) ; un
+  # titre modifié relance la vérification (événement « edited »).
+  merge_group:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,12 +24,17 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Groupe de la file de fusion
+        if: github.event_name == 'merge_group'
+        run: echo "Titre déjà vérifié sur la PR avant son entrée dans la file."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
       # Le titre passe par une variable d'environnement, jamais interpolé dans le
       # script (protection contre l'injection de commandes).
       - name: Vérifier le titre
+        if: github.event_name == 'pull_request'
         env:
           TITRE: ${{ github.event.pull_request.title }}
         run: bash scripts/verifier-message-commit.sh --texte "$TITRE"

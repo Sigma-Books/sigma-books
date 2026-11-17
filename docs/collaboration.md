@@ -8,7 +8,7 @@ Ce document fixe **comment** on travaille sur `github.com/Sigma-Books/sigma-book
 
 ## 1. Principes
 1. **`main` est toujours livrable** : tout ce qui y entre a passé la CI et une revue humaine.
-2. **Petites PR, souvent** : une PR = une intention, idéalement moins de 400 lignes modifiées hors fichiers générés.
+2. **PR cohérentes, souvent** : une PR = une intention, qui peut fermer plusieurs issues d'un même lot. Viser moins de 400 lignes modifiées hors fichiers générés et données ; au-delà, la description indique l'ordre de lecture et les points sensibles.
 3. **Tout passe par une PR**, y compris pour les mainteneurs. Aucune poussée directe sur `main`.
 4. **Rien n'est fusionné sans revue humaine.** Un agent IA peut ouvrir une PR, jamais l'approuver ni la fusionner.
 5. **La trace écrite fait foi** : décisions dans les ADR, discussions dans les issues et les PR.
@@ -67,8 +67,14 @@ Compte machine de Claude Code :
 - **Titre = message de commit final** (Conventional Commits), car on fusionne en *squash*.
 - Corps : modèle `.github/pull_request_template.md` (`Closes #N`, seul mot-clé qui ferme l'issue à la fusion ; référence spec/ADR, liste de contrôle sécurité, tests).
 - Une PR ne mélange pas refactorisation et changement de comportement.
-- Mise à jour par **rebase** sur `main`, pas par fusion de `main` dans la branche.
-- **Fusion : squash uniquement**, suppression automatique de la branche. Auto-merge autorisé une fois l'approbation et la CI acquises.
+- Mise à jour par **rebase** sur `main`, pas par fusion de `main` dans la branche. Ce n'est utile qu'en cas de conflit : la **file de fusion** (§7) teste elle-même la PR combinée au dernier `main`.
+- **Fusion : squash uniquement, par la file de fusion** : le relecteur approuve puis clique *Merge when ready*. Suppression automatique de la branche.
+- 🧍 Le mainteneur ne clique jamais *Update branch* : il deviendrait l'auteur du dernier push et ne pourrait plus approuver. En cas de conflit, l'agent rebase (ou `@dependabot rebase` pour Dependabot).
+
+### Rythme de travail 🧍
+- **Une seule validation préalable par lot** : le plan `docs/lots/Lx.md` (périmètre, découpage en PR, critères de fin). Ensuite, l'agent enchaîne les PR sans attendre de feu vert.
+- **Relecture groupée** : l'agent prépare plusieurs PR indépendantes en parallèle ; le mainteneur les relit en une séance et les met dans la file.
+- **Questions regroupées** : l'agent tranche lui-même les choix techniques courants et les note dans la PR. Il ne s'arrête que pour une règle comptable ou fiscale non tranchée (spec §26), une licence incertaine ou une décision d'architecture sans ADR, et pose ces questions en un seul message.
 
 ## 7. Protection de `main` (ruleset)
 | Règle | Valeur |
@@ -79,7 +85,9 @@ Compte machine de Claude Code :
 | Approbations périmées à chaque nouveau commit | oui |
 | Approbation du dernier push par quelqu'un d'autre que son auteur | oui |
 | Toutes les conversations résolues | oui |
-| Checks de CI requis, branche à jour | oui (liste fixée à la fin du lot L0) |
+| Checks de CI requis | oui (liste fixée à la fin du lot L0, `docs/github.md` §3) |
+| File de fusion (*merge queue*) | oui : squash, chaque groupe repasse les checks requis sur la PR combinée au dernier `main` ; remplace l'exigence « branche à jour » |
+| Analyse de code (CodeQL) | aucune nouvelle alerte de sécurité élevée ou critique, ni erreur (règle `code_scanning`) |
 | Historique linéaire | oui |
 | Commits signés | oui |
 | Force-push et suppression de `main` | interdits |
@@ -136,7 +144,7 @@ Les rulesets sont versionnés dans `scripts/github/` (`ruleset-main.json`, `rule
 - Travaille **uniquement** sur une branche dédiée, dans un worktree dédié, avec le compte machine.
 - Ouvre la PR, applique l'étiquette `ia:généré`, demande la revue ; **ne fusionne jamais**, n'approuve jamais.
 - Ne modifie jamais `.github/CODEOWNERS`, `scripts/github/`, les workflows de sécurité, `docs/specification.md` ni `docs/fondations.md` sans instruction explicite du mainteneur dans l'issue.
-- Une PR par tâche ; au-delà d'environ 400 lignes, découper.
+- Une PR par intention, qui peut fermer plusieurs issues d'un même lot (§1, §6) ; au-delà d'environ 400 lignes, guider la relecture dans la description.
 - En cas de doute (règle comptable, licence, sécurité) : commenter l'issue avec `statut:à-préciser` et s'arrêter.
 
 ## 15. Passage en équipe (à l'arrivée d'un deuxième mainteneur)
@@ -145,5 +153,4 @@ Les rulesets sont versionnés dans `scripts/github/` (`ruleset-main.json`, `rule
 - [ ] Lever la règle 🧍 « tout passe par le compte machine » : chaque mainteneur peut ouvrir ses propres PR, relues par un autre.
 - [ ] Vérifier que CODEOWNERS désigne l'équipe sur toutes les zones sensibles.
 - [ ] Revoir les accès : comptes, jetons, applications installées.
-- [ ] Activer la *merge queue* si plusieurs PR se croisent régulièrement.
 - [ ] Mettre à jour ce document (retirer les mentions 🧍).
