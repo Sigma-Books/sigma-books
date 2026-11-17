@@ -10,6 +10,14 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/Sigma-Books/sigma-books"
 publish = false
 
+# Versions communes du workspace. Toute ajout est justifié dans la PR
+# (besoin, alternatives, licence, maintenance) et autorisé par le CLAUDE.md du crate.
+[workspace.dependencies]
+rust_decimal = { version = "1.43.0", default-features = false, features = ["std"] }
+thiserror = "2.0.21"
+time = { version = "0.3.55", default-features = false, features = ["std"] }
+proptest = "1.12.0"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
