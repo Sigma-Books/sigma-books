@@ -4,6 +4,8 @@ name: SBOM
 
 on:
   pull_request:
+  # File de fusion : les checks requis doivent aussi tourner sur le groupe à fusionner.
+  merge_group:
   push:
     branches: [main]
 
