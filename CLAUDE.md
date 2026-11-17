@@ -44,7 +44,8 @@ Les règles complètes sont dans **`docs/collaboration.md`**. L'essentiel :
 12. **Ne jamais désactiver, contourner ou affaiblir un contrôle de la CI** (lint, test, audit, licence, secrets) pour faire passer une PR.
 
 ## Références locales (jamais dans le dépôt)
-Textes officiels et documents de travail, en lecture seule, dans un dossier `references/` **hors dépôt**. Son emplacement sur le poste du mainteneur est indiqué dans sa configuration personnelle de Claude Code (`~/.claude/CLAUDE.md`, non versionnée), valable depuis tout worktree ou clone. S'il est introuvable, demande-le au mainteneur.
+Textes officiels, documents de travail et moteurs comptables de référence (`references/moteurs_compta/`, Fondations §6.2), en lecture seule, dans le dossier `references/` **à la racine du clone principal**, jamais versionné. Depuis un worktree de `.worktrees/`, il se trouve deux niveaux au-dessus (`../../references/`). S'il est introuvable, demande-le au mainteneur.
+**Tout le travail reste dans le dossier du dépôt** : worktrees sous `.worktrees/`, références sous `references/`, rien ailleurs sur le disque.
 Le nom `references/` est **ignoré par Git** (`.gitignore`) : ne jamais le forcer (`git add -f`), ne jamais en copier un fichier dans le dépôt.
 Lire d'abord son `README.md` (ordre d'autorité, erreurs connues). La liste officielle des comptes est extraite dans `references/extraits/`.
 

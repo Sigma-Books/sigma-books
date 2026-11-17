@@ -27,6 +27,9 @@ Thumbs.db
 references/
 *.pdf
 
+# Worktrees Git des agents, gardés dans le dossier du dépôt (docs/collaboration.md §3)
+.worktrees/
+
 # Notes locales (jamais commitées)
 *.local.md
 
