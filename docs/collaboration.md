@@ -37,7 +37,7 @@ Compte machine de Claude Code :
 - Nommage : `<type>/<lot>-<description-courte>`, en minuscules, mots séparés par des tirets.
   - Exemples : `feat/l1-ecriture-equilibree`, `fix/l3-lettrage-partiel`, `docs/adr-0010-devises`, `ci/l0-codeql`.
   - Types : `feat`, `fix`, `refactor`, `perf`, `test`, `docs`, `ci`, `build`, `chore`, `security`.
-- Plusieurs agents en parallèle : **un worktree Git par branche** (`git worktree add ../sigma-l1-ecritures feat/l1-ecritures`).
+- Plusieurs agents en parallèle : **un worktree Git par branche**, toujours **dans** le dossier du dépôt, sous `.worktrees/` (ignoré par Git) : `git worktree add .worktrees/l1-ecritures -b feat/l1-ecritures main`. Rien du projet ne vit hors du dossier du dépôt ; les références locales sont dans `references/` (ignoré par Git).
 
 ## 4. Commits
 - **Conventional Commits en français** : `type(portée): description à l'impératif`.
