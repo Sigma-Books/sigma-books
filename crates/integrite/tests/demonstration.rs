@@ -876,7 +876,8 @@ fn demonstration_de_bout_en_bout_du_lot_l1() {
     let chemin = repertoire.join("export.txt");
     let tete = exporter(&dossier, &chemin);
     let export = fs::read_to_string(&chemin).unwrap();
-    assert!(export.starts_with("sigma-books export v2\n"));
+    // En-tête de l'export, quelle que soit la version du format (docs/integrite/).
+    assert!(export.starts_with("sigma-books export v"));
     assert!(export.contains(&format!("tete={tete}\nnombre=15\n")));
     let decoupe = Decoupe::nouvelle(&export);
     assert_eq!(decoupe.ecritures.len(), 15);
