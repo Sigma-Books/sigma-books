@@ -140,6 +140,14 @@ fn suppression_reforgee_detectee_par_la_numerotation() {
             .any(|a| matches!(a, Anomalie::OrigineInconnue { .. })),
         "{rapport}"
     );
+    // Le rapport montre le trou dans la plage de numéros : VT 2026 commence au rang 2.
+    let vt = rapport.sequences.values().find(|p| p.premier == 2).unwrap();
+    assert_eq!((vt.dernier, vt.nombre), (2, 1));
+    assert!(!vt.est_complete());
+    assert!(
+        rapport.to_string().contains("numérotation incomplète"),
+        "{rapport}"
+    );
 }
 
 #[test]
@@ -148,6 +156,20 @@ fn inversion_reforgee_detectee() {
     c.swap(0, 3);
     let rapport = verifier_octets(&forger(&dossier_id(), &c), &Options::default());
     assert!(!rapport.est_integre(), "{rapport}");
+    // La plage affichée reste celle des rangs lus (1 à 2, deux écritures), quel que soit
+    // l'ordre : l'inversion est signalée par les anomalies, pas masquée dans le résumé.
+    let texte = rapport.to_string();
+    assert!(
+        texte.contains("VT 2026 : 000001 à 000002, 2 écriture(s)\n"),
+        "{texte}"
+    );
+    assert!(
+        rapport
+            .anomalies
+            .iter()
+            .any(|a| matches!(a, Anomalie::NumerotationDiscontinue { .. })),
+        "{rapport}"
+    );
 }
 
 #[test]

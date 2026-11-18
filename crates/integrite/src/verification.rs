@@ -172,13 +172,24 @@ impl fmt::Display for Anomalie {
     }
 }
 
-/// Plage de numéros vus pour un journal et un exercice.
+/// Numéros vus pour un journal et un exercice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plage {
-    /// Premier rang.
+    /// Plus petit rang lu.
     pub premier: u32,
-    /// Dernier rang.
+    /// Plus grand rang lu.
     pub dernier: u32,
+    /// Nombre d'écritures lues. Une numérotation continue donne `dernier - premier + 1`.
+    pub nombre: u64,
+}
+
+impl Plage {
+    /// Vrai si les rangs lus vont de 1 à `dernier` sans trou ni doublon (dans l'ordre ou
+    /// non : l'ordre est contrôlé à part, écriture par écriture).
+    #[must_use]
+    pub fn est_complete(&self) -> bool {
+        self.premier == 1 && u64::from(self.dernier) == self.nombre
+    }
 }
 
 /// Horodatage vérifié : les `nombre` premières écritures existaient à la date du jeton.
@@ -278,6 +289,8 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
     let mut recalculee = genese(&dossier);
     let mut precedente_declaree = recalculee;
     let mut vus: BTreeSet<NumeroEcriture> = BTreeSet::new();
+    // Dernier rang lu par journal et exercice : la continuité se juge dans l'ordre de l'export.
+    let mut derniers_lus: BTreeMap<(CodeJournal, CodeExercice), u32> = BTreeMap::new();
     loop {
         let element = match lecteur.suivant() {
             Ok(Some(element)) => element,
@@ -303,7 +316,7 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
                     });
                 }
                 precedente_declaree = empreinte;
-                controler_numero(&mut rapport, &numero, ligne);
+                controler_numero(&mut rapport, &mut derniers_lus, &numero, ligne);
                 if !ecriture.est_equilibree() {
                     rapport.signaler(Anomalie::Desequilibre {
                         numero: numero.clone(),
@@ -390,26 +403,37 @@ fn date(jeton: &JetonVerifie) -> String {
     )
 }
 
-fn controler_numero(rapport: &mut Rapport, numero: &NumeroEcriture, ligne: u64) {
+fn controler_numero(
+    rapport: &mut Rapport,
+    derniers_lus: &mut BTreeMap<(CodeJournal, CodeExercice), u32>,
+    numero: &NumeroEcriture,
+    ligne: u64,
+) {
     let cle = (numero.journal().clone(), numero.exercice().clone());
-    let attendu = rapport
-        .sequences
+    let rang = numero.sequence();
+    let attendu = derniers_lus
         .get(&cle)
-        .map_or(1, |p| p.dernier.saturating_add(1));
-    if numero.sequence() != attendu {
+        .map_or(1, |dernier| dernier.saturating_add(1));
+    if rang != attendu {
         rapport.signaler(Anomalie::NumerotationDiscontinue {
             numero: numero.clone(),
             attendu,
             ligne,
         });
     }
+    derniers_lus.insert(cle.clone(), rang);
     rapport
         .sequences
         .entry(cle)
-        .and_modify(|p| p.dernier = numero.sequence())
+        .and_modify(|p| {
+            p.premier = p.premier.min(rang);
+            p.dernier = p.dernier.max(rang);
+            p.nombre += 1;
+        })
         .or_insert(Plage {
-            premier: numero.sequence(),
-            dernier: numero.sequence(),
+            premier: rang,
+            dernier: rang,
+            nombre: 1,
         });
 }
 
@@ -444,11 +468,15 @@ impl fmt::Display for Rapport {
         if !self.sequences.is_empty() {
             writeln!(f, "Numérotation       :")?;
             for ((journal, exercice), plage) in &self.sequences {
-                writeln!(
+                write!(
                     f,
-                    "  {journal} {exercice} : {:06} à {:06}",
-                    plage.premier, plage.dernier
+                    "  {journal} {exercice} : {:06} à {:06}, {} écriture(s)",
+                    plage.premier, plage.dernier, plage.nombre
                 )?;
+                if !plage.est_complete() {
+                    write!(f, " — numérotation incomplète (trou ou doublon)")?;
+                }
+                writeln!(f)?;
             }
         }
         if let Some(tete) = &self.tete {
