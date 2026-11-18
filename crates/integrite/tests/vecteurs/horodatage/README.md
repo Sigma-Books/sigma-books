@@ -9,5 +9,6 @@ Réponses et jetons **réels**, obtenus le 2026-11-18 auprès de DigiCert (`time
 | `digicert.tsr`, `sectigo.tsr` | réponses des deux autorités à cette requête |
 | `jeton-sectigo-3.tst` | jeton Sectigo du dossier de référence des tests, après 3 écritures |
 | `jeton-digicert-5.tst` | jeton DigiCert du même dossier, après ses 5 écritures |
+| `reference-sectigo-3.tst`, `reference-digicert-5.tst` | jetons du dossier de référence actuel (`export-v2-reference.txt`, où l'écriture « sans pièce » s'appuie sur une pièce interne), après 3 et 5 écritures |
 
 Contre-vérification avec OpenSSL 3.0 (`openssl ts -verify -partial_chain`) : les jetons DigiCert sont acceptés. Les jetons Sectigo sont refusés par OpenSSL (« ess cert id not found ») : leur attribut `signingCertificate` désigne aussi la version **contresignée** de la racine R46, absente de la chaîne qu'OpenSSL construit avec la racine auto-signée. La RFC 2634 (§5.4) n'impose que le premier identifiant, celui du certificat signataire, que `integrite` contrôle.

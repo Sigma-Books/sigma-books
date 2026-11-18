@@ -13,8 +13,8 @@
 use std::fmt::Write as _;
 
 use compta_core::{
-    Cours, Devise, EcritureValidee, IdTiers, Justification, Ligne, Montant, NumeroCompte,
-    NumeroEcriture, ReferencePiece, Sens, TexteCourt, VersionParametres,
+    Cours, Devise, EcritureValidee, IdTiers, Ligne, Montant, NumeroCompte, NumeroEcriture,
+    ReferencePiece, Sens, TexteCourt, VersionParametres,
 };
 use rust_decimal::Decimal;
 use time::{Date, Month};
@@ -63,6 +63,18 @@ pub enum ErreurCanonique {
     NonCanonique,
 }
 
+/// Justification telle qu'elle figure au format canonique.
+///
+/// `sans-piece=` n'existe que dans des exports v1 et v2 anciens : le moteur ne produit plus
+/// d'écriture sans pièce (AUDCIF art. 17 et 22), mais ces exports figés restent vérifiables.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JustificationCanonique {
+    /// Une ou plusieurs pièces.
+    Pieces(Vec<ReferencePiece>),
+    /// Motif « sans pièce » (lecture seule).
+    SansPiece(TexteCourt),
+}
+
 /// Contenu d'une écriture validée tel qu'il entre dans la chaîne de hachage.
 ///
 /// Se construit depuis une [`EcritureValidee`] ([`EcritureCanonique::depuis`]) ou par lecture
@@ -75,7 +87,7 @@ pub struct EcritureCanonique {
     libelle: TexteCourt,
     origine: Option<NumeroEcriture>,
     parametres: Option<VersionParametres>,
-    justification: Justification,
+    justification: JustificationCanonique,
     lignes: Vec<Ligne>,
 }
 
@@ -90,7 +102,9 @@ impl EcritureCanonique {
             libelle: ecriture.libelle().clone(),
             origine: ecriture.origine().cloned(),
             parametres: ecriture.version_parametres().cloned(),
-            justification: ecriture.justification().clone(),
+            justification: JustificationCanonique::Pieces(
+                ecriture.justification().references().to_vec(),
+            ),
             lignes: ecriture.lignes().to_vec(),
         }
     }
@@ -140,12 +154,12 @@ impl EcritureCanonique {
             cle("parametres", &parametres.as_str());
         }
         match &self.justification {
-            Justification::Pieces(pieces) => {
+            JustificationCanonique::Pieces(pieces) => {
                 for piece in pieces {
                     cle("piece", &piece.as_str());
                 }
             }
-            Justification::SansPiece(motif) => cle("sans-piece", motif),
+            JustificationCanonique::SansPiece(motif) => cle("sans-piece", motif),
         }
         let mut corps = String::new();
         for ligne in &self.lignes {
@@ -370,19 +384,30 @@ impl<'a> Lecteur<'a> {
         })
     }
 
-    fn justification(&mut self) -> Result<Justification, ErreurCanonique> {
+    fn justification(&mut self) -> Result<JustificationCanonique, ErreurCanonique> {
         if let Some(motif) = self.valeur_optionnelle("sans-piece", TexteCourt::parse)? {
-            return Ok(Justification::SansPiece(motif));
+            return Ok(JustificationCanonique::SansPiece(motif));
         }
         let rang = self.rang_courant();
         let mut pieces = Vec::new();
         while let Some(piece) = self.valeur_optionnelle("piece", ReferencePiece::parse)? {
             pieces.push(piece);
         }
-        Justification::pieces(pieces).map_err(|_| ErreurCanonique::Attendu {
-            ligne: rang,
-            attendu: "piece",
-        })
+        if pieces.is_empty() {
+            return Err(ErreurCanonique::Attendu {
+                ligne: rang,
+                attendu: "piece",
+            });
+        }
+        // Une pièce en double n'a pas de forme canonique (le moteur retire les doublons).
+        if pieces
+            .iter()
+            .enumerate()
+            .any(|(i, p)| pieces[..i].contains(p))
+        {
+            return Err(ErreurCanonique::NonCanonique);
+        }
+        Ok(JustificationCanonique::Pieces(pieces))
     }
 
     fn ligne(&mut self) -> Result<Ligne, ErreurCanonique> {

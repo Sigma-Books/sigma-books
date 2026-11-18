@@ -91,7 +91,7 @@
 
 **Comptables (AUDCIF)**
 1. Partie double : ∑Débit = ∑Crédit pour chaque écriture, vérifié par le moteur (type `EcritureEquilibree`, cf. Fondations §2.4).
-2. Pièce justificative : toute écriture validée référence au moins une pièce, ou porte le motif explicite « sans pièce » (écritures d'inventaire générées : la pièce est alors l'état de calcul produit par Sigma Books).
+2. Pièce justificative : toute écriture validée référence au moins une pièce (AUDCIF art. 17 3° et 5°, art. 22 7° : aucune écriture sans pièce). La pièce peut être **interne**, émise par l'entité (art. 16) : état de calcul produit par Sigma Books pour les écritures d'inventaire générées (tableau d'amortissement, état des stocks, des provisions, des charges à payer…), balance de clôture N-1 pour les à-nouveaux, note d'opérations diverses datée et motivée, état de rapprochement.
 3. Chronologie et numérotation : numérotation continue, sans trou, par journal et par exercice, attribuée **à la validation**.
 4. Caractère définitif : une écriture validée n'est ni modifiable ni supprimable. Correction = contre-passation + nouvelle écriture.
 5. Périodicité : exercice, périodes mensuelles, verrouillage de période, clôture d'exercice irréversible.
@@ -241,7 +241,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 3. Tous les comptes existent, sont actifs et sont des comptes de **mouvement** (pas un compte de regroupement).
 4. Une ligne sur un compte collectif porte un tiers.
 5. La date est dans une période `ouverte` d'un exercice `ouvert` (ou `en_cloture` pour les journaux OD/IN).
-6. Au moins une pièce rattachée, ou un motif « sans pièce » autorisé pour ce journal.
+6. Au moins une pièce rattachée, externe ou interne (§2, principe 2), quel que soit le journal.
 7. Le journal accepte ce type d'écriture (ex. une écriture du journal BQ1 mouvemente le compte de trésorerie associé).
 
 ### 6.3 Numérotation
@@ -436,7 +436,7 @@ Le rapprochement produit une écriture de règlement **dans le brouillard**, et 
 - État de rapprochement figé et archivé à chaque fin de mois et à la clôture.
 
 ### 9.6 Mouvements à justifier
-Tableau par dossier et par période ; demande groupée au client via le portail (§19) ; réponse par pièce ou par texte libre ; une réponse sans pièce produit une écriture marquée « sans pièce » que le comptable doit valider explicitement.
+Tableau par dossier et par période ; demande groupée au client via le portail (§19) ; réponse par pièce ou par texte libre ; une réponse par texte libre est archivée comme **pièce interne** (texte, auteur, date), sur laquelle s'appuie l'écriture que le comptable valide explicitement.
 
 ---
 

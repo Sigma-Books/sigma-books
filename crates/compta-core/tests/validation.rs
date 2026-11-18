@@ -6,8 +6,8 @@ mod commun;
 
 use commun::*;
 use compta_core::{
-    CodeExercice, Compteur, EcritureBrouillon, ErreurPlan, ErreurValidation, Justification,
-    NumeroEcriture, Sens, Usage,
+    CodeExercice, Compteur, EcritureBrouillon, ErreurPlan, ErreurValidation, NumeroEcriture, Sens,
+    Usage,
 };
 use time::macros::date;
 
@@ -189,29 +189,25 @@ fn invariant_5_date_periode_et_exercice() {
 }
 
 #[test]
-fn invariant_6_piece_ou_motif_sans_piece_admis() {
+fn invariant_6_piece_obligatoire() {
+    // AUDCIF art. 17 et 22 : aucune écriture sans pièce, quel que soit le journal.
     let mut d = Dossier::nouveau();
-    let mut sans_justification =
-        EcritureBrouillon::nouvelle(j("OD"), date!(2026 - 03 - 10), t("x"));
-    sans_justification.ajouter_ligne(ligne("6052", Sens::Debit, "1"));
-    sans_justification.ajouter_ligne(ligne("7011", Sens::Credit, "1"));
-    let mut sans_piece_ac = sans_justification.clone();
-    let mut sans_piece_od = sans_justification.clone();
-    assert_eq!(
-        d.valider(sans_justification.valider_equilibre().unwrap()),
-        Err(ErreurValidation::JustificationManquante)
-    );
-    sans_piece_ac.changer_journal(j("AC"));
-    sans_piece_ac.justifier(Justification::sans_piece(t("Régularisation")));
-    assert_eq!(
-        d.valider(sans_piece_ac.valider_equilibre().unwrap()),
-        Err(ErreurValidation::SansPieceInterdit(j("AC")))
-    );
-    sans_piece_od.justifier(Justification::sans_piece(t("Régularisation")));
-    assert!(
-        d.valider(sans_piece_od.valider_equilibre().unwrap())
-            .is_ok()
-    );
+    for journal in ["OD", "IN", "AC"] {
+        let mut sans_justification =
+            EcritureBrouillon::nouvelle(j(journal), date!(2026 - 03 - 10), t("x"));
+        sans_justification.ajouter_ligne(ligne("6052", Sens::Debit, "1"));
+        sans_justification.ajouter_ligne(ligne("7011", Sens::Credit, "1"));
+        assert_eq!(
+            d.valider(sans_justification.clone().valider_equilibre().unwrap()),
+            Err(ErreurValidation::JustificationManquante),
+            "{journal}"
+        );
+        sans_justification.justifier(piece());
+        assert!(
+            d.valider(sans_justification.valider_equilibre().unwrap())
+                .is_ok()
+        );
+    }
 }
 
 #[test]
@@ -277,12 +273,10 @@ fn compteur_inadapte_ou_desynchronise() {
     let ctx_plan = d.plan.clone();
     let ctx_journaux = d.journaux.clone();
     let ctx_exercices = d.exercices.clone();
-    let ctx_regles = d.regles.clone();
     let contexte = compta_core::Contexte {
         plan: &ctx_plan,
         journaux: &ctx_journaux,
         exercices: &ctx_exercices,
-        regles: &ctx_regles,
     };
     let refus = d
         .livre

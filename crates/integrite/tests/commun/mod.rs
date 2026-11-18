@@ -10,8 +10,7 @@ use compta_core::{
     CodeExercice, CodeJournal, CompteReference, Compteur, Contexte, Cours, Devise,
     EcritureBrouillon, EcritureValidee, Exercices, FinPremierExercice, IdTiers, Journal, Journaux,
     Justification, Ligne, Livre, Montant, NumeroCompte, NumeroEcriture, PlanComptes,
-    ReferencePiece, ReglesJustification, Sens, SensNormal, TexteCourt, TypeJournal,
-    VersionParametres,
+    ReferencePiece, Sens, SensNormal, TexteCourt, TypeJournal, VersionParametres,
 };
 use integrite::IdDossier;
 use time::Date;
@@ -46,7 +45,6 @@ pub struct Dossier {
     plan: PlanComptes,
     journaux: Journaux,
     exercices: Exercices,
-    regles: ReglesJustification,
     pub livre: Livre,
     compteurs: BTreeMap<(CodeJournal, CodeExercice), Compteur>,
 }
@@ -88,7 +86,6 @@ impl Dossier {
             plan,
             journaux,
             exercices,
-            regles: ReglesJustification::sans_piece_admis([j("OD")]),
             livre: Livre::new(),
             compteurs: BTreeMap::new(),
         }
@@ -143,7 +140,6 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
-            regles: &self.regles,
         };
         let (numero, suivant) = self
             .livre
@@ -163,7 +159,6 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
-            regles: &self.regles,
         };
         let (numero, suivant) = self
             .livre
@@ -233,7 +228,7 @@ pub fn dossier_de_reference() -> Dossier {
             xof(Sens::Debit, "605", "2500"),
             xof(Sens::Credit, "521", "2500"),
         ],
-        Justification::sans_piece(t("Régularisation interne")),
+        piece("4e"),
     );
     d.contre_passer(&vente, date!(2026 - 04 - 01));
     d.valider(
@@ -263,19 +258,19 @@ pub fn export_avec_jetons(jetons: &[integrite::JetonExporte]) -> Vec<u8> {
 }
 
 /// Jetons réels du dossier de référence (obtenus le 2026-11-18) : `Sectigo` sur les 3 premières
-/// écritures, `DigiCert` sur les 5.
+/// écritures, `DigiCert` sur les 5 (vecteur `export-v2-reference.txt`).
 pub fn jetons_de_reference() -> Vec<integrite::JetonExporte> {
     let tete = |e: &str| integrite::Empreinte::parse(e).unwrap();
     vec![
         integrite::JetonExporte {
             nombre: 3,
-            tete: tete("7ad8a78204d7b061fc9970084dbd53db80a2e3b245f17efab8d4ddfc89e00cda"),
-            der: include_bytes!("../vecteurs/horodatage/jeton-sectigo-3.tst").to_vec(),
+            tete: tete("44c5d55be80588e6fe3616a3678ad23098dfb178a5ffe3dcaf94e5bdca0120e3"),
+            der: include_bytes!("../vecteurs/horodatage/reference-sectigo-3.tst").to_vec(),
         },
         integrite::JetonExporte {
             nombre: 5,
-            tete: tete("13b4cf3aa80611d5f46d9bdb6fdc110d1adcc51f9ce1be0a737146af7b6a9e62"),
-            der: include_bytes!("../vecteurs/horodatage/jeton-digicert-5.tst").to_vec(),
+            tete: tete("116649fdda079968b86eb09e4e5f165e5f6215da22ab559dc00060c95e6a3c35"),
+            der: include_bytes!("../vecteurs/horodatage/reference-digicert-5.tst").to_vec(),
         },
     ]
 }
