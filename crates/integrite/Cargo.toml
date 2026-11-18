@@ -31,4 +31,5 @@ x509-tsp.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+syscohada = { path = "../syscohada" }
 time = { workspace = true, features = ["macros"] }
