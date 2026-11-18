@@ -25,6 +25,7 @@ use std::collections::BTreeMap;
 
 use time::Date;
 
+use crate::centralisateur::MoisCivil;
 use crate::exercice::Exercices;
 use crate::journal::CodeJournal;
 
@@ -58,17 +59,16 @@ pub struct AlerteBrouillard {
 }
 
 /// Bornes de la période de rattachement : celle de l'exercice qui contient la date, sinon le
-/// mois civil de la date. `None` seulement si la fin du mois n'est pas représentable.
-fn periode_de_rattachement(date: Date, exercices: &Exercices) -> Option<(Date, Date)> {
+/// mois civil de la date ([`MoisCivil`]).
+fn periode_de_rattachement(date: Date, exercices: &Exercices) -> (Date, Date) {
     if let Some(periode) = exercices
         .exercice_contenant(date)
         .and_then(|e| e.periode_contenant(date))
     {
-        return Some((periode.debut(), periode.fin()));
+        return (periode.debut(), periode.fin());
     }
-    let debut = date.replace_day(1).ok()?;
-    let fin = date.replace_day(date.month().length(date.year())).ok()?;
-    Some((debut, fin))
+    let mois = MoisCivil::de(date);
+    (mois.premier_jour(), mois.dernier_jour())
 }
 
 /// Retard de validation d'une écriture au brouillard datée de `date`, ou `None` si elle n'est
@@ -79,7 +79,7 @@ pub fn retard_de_validation(
     exercices: &Exercices,
     date_du_jour: Date,
 ) -> Option<RetardValidation> {
-    let (debut_periode, fin_periode) = periode_de_rattachement(date, exercices)?;
+    let (debut_periode, fin_periode) = periode_de_rattachement(date, exercices);
     (date_du_jour > fin_periode).then(|| RetardValidation {
         debut_periode,
         fin_periode,

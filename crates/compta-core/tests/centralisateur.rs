@@ -11,6 +11,8 @@ use compta_core::{
     FinPremierExercice, Ligne, Mode, MoisCivil, Montant, Regroupement, RubriqueCentralisateur,
     Sens,
 };
+use std::collections::BTreeMap;
+
 use proptest::prelude::*;
 use rust_decimal::Decimal;
 use time::macros::date;
@@ -235,6 +237,108 @@ fn filtres_de_journaux_de_comptes_et_de_dates() {
     assert_eq!(c.a_nouveaux().lignes(), []);
 }
 
+/// La rubrique des à-nouveaux ne retient que ceux datés dans les bornes, comme l'édition des
+/// journaux ; la balance, elle, les range dans sa colonne d'ouverture. Les deux ne coïncident
+/// que pour un filtre qui part du début de l'exercice.
+#[test]
+fn a_nouveaux_hors_bornes_absents_de_la_rubrique() {
+    let mut dos = Dossier::nouveau();
+    dos.valider(equilibree(
+        "AC",
+        date!(2026 - 02 - 10),
+        "Achat",
+        vec![
+            ligne("6052", Sens::Debit, "100"),
+            ligne("521", Sens::Credit, "100"),
+        ],
+    ))
+    .unwrap();
+    let brouillard = [equilibree(
+        "AN",
+        date!(2026 - 01 - 01),
+        "À-nouveaux",
+        vec![
+            ligne("521", Sens::Debit, "1000"),
+            ligne_tiers("4011", Sens::Credit, "1000", "F1"),
+        ],
+    )];
+    let exercice = dos
+        .exercices
+        .exercice(&CodeExercice::parse("2026").unwrap())
+        .unwrap();
+    let filtre = Filtre::nouveau(
+        exercice,
+        &dos.journaux,
+        date!(2026 - 02 - 01),
+        date!(2026 - 03 - 31),
+    )
+    .unwrap();
+    let c = Centralisateur::calculer(
+        dos.livre.ecritures(),
+        &brouillard,
+        Mode::Provisoire,
+        &filtre,
+    )
+    .unwrap();
+    assert_eq!(c.a_nouveaux().lignes(), []);
+    assert_eq!(c.a_nouveaux().total(), (Decimal::ZERO, Decimal::ZERO));
+    assert_eq!(c.mouvements().total(), (d("100"), d("100")));
+    assert_eq!(
+        (c.du(), c.au()),
+        (date!(2026 - 02 - 01), date!(2026 - 03 - 31))
+    );
+    // La balance du même filtre, elle, porte l'à-nouveau en ouverture.
+    let balance = Balance::calculer(
+        &dos.livre,
+        &brouillard,
+        Mode::Provisoire,
+        &filtre,
+        Regroupement::ParCompte,
+    )
+    .unwrap();
+    let banque = balance.lignes().iter().find(|l| l.cle() == "521").unwrap();
+    assert_eq!(
+        banque.solde_ouverture().unwrap(),
+        (d("1000"), Decimal::ZERO)
+    );
+}
+
+/// Bornes en milieu de mois : la première et la dernière ligne sont des mois partiels.
+#[test]
+fn mois_partiels_aux_bornes() {
+    let (dos, brouillard) = dossier_a_cheval();
+    let exercice = dos
+        .exercices
+        .exercice(&CodeExercice::parse("2027").unwrap())
+        .unwrap();
+    let filtre = Filtre::nouveau(
+        exercice,
+        &dos.journaux,
+        date!(2026 - 08 - 15),
+        date!(2026 - 09 - 10),
+    )
+    .unwrap();
+    let c = Centralisateur::calculer(
+        dos.livre.ecritures(),
+        &brouillard,
+        Mode::Provisoire,
+        &filtre,
+    )
+    .unwrap();
+    assert_eq!(
+        (c.du(), c.au()),
+        (date!(2026 - 08 - 15), date!(2026 - 09 - 10))
+    );
+    // Août : seule la vente du 20 ; l'achat du 10 est avant la borne.
+    assert_eq!(
+        resume(c.mouvements()),
+        [
+            (2026, Month::August, "VT", d("300"), d("300")),
+            (2026, Month::September, "AC", d("50"), d("50")),
+        ]
+    );
+}
+
 // --- Propriétés ------------------------------------------------------------------------------
 
 const COMPTES: [&str; 6] = ["4011", "4111", "521", "571", "6052", "7011"];
@@ -259,11 +363,14 @@ struct Modele {
     lignes: Vec<(usize, usize, Decimal)>,
 }
 
+/// Nombre de jours de l'exercice à cheval (1er juillet 2026 au 31 décembre 2027).
+const JOURS_A_CHEVAL: u16 = 549;
+
 fn modele() -> impl Strategy<Value = Modele> {
     let montant = (1i64..1_000_000_000_000, 0u32..=2).prop_map(|(m, e)| Decimal::new(m, e));
     (
         0..JOURNAUX.len(),
-        1u16..=365,
+        0..JOURS_A_CHEVAL,
         any::<bool>(),
         proptest::collection::vec((0..COMPTES.len(), 0..COMPTES.len(), montant), 1..5),
     )
@@ -275,14 +382,52 @@ fn modele() -> impl Strategy<Value = Modele> {
         })
 }
 
-fn date_de(jour: u16) -> Date {
-    Date::from_ordinal_date(2026, jour).unwrap()
+/// Exercice des propriétés : l'année civile 2026, ou un premier exercice du 1er juillet 2026
+/// au 31 décembre 2027 (AUDCIF art. 7), où chaque mois de juillet à décembre revient deux fois.
+#[derive(Debug, Clone, Copy)]
+struct Calendrier {
+    a_cheval: bool,
 }
 
-/// Dossier 2026 : écritures validées, sauf celles marquées au brouillard et celles du journal
-/// d'à-nouveaux (jamais saisies).
-fn construire(modeles: &[Modele]) -> (Dossier, Vec<EcritureEquilibree>) {
-    let mut dos = Dossier::nouveau();
+impl Calendrier {
+    fn debut(self) -> Date {
+        if self.a_cheval {
+            date!(2026 - 07 - 01)
+        } else {
+            date!(2026 - 01 - 01)
+        }
+    }
+
+    fn longueur(self) -> u16 {
+        if self.a_cheval { JOURS_A_CHEVAL } else { 365 }
+    }
+
+    fn code(self) -> CodeExercice {
+        CodeExercice::parse(if self.a_cheval { "2027" } else { "2026" }).unwrap()
+    }
+
+    /// Jour `rang` de l'exercice (à partir de 0, ramené dans l'exercice).
+    fn date(self, rang: u16) -> Date {
+        self.debut() + time::Duration::days(i64::from(rang % self.longueur()))
+    }
+
+    fn dossier(self) -> Dossier {
+        let mut dos = Dossier::nouveau();
+        if self.a_cheval {
+            let mut exercices = Exercices::new();
+            exercices
+                .ouvrir_premier(self.debut(), FinPremierExercice::AnneeSuivante)
+                .unwrap();
+            dos.exercices = exercices;
+        }
+        dos
+    }
+}
+
+/// Écritures validées, sauf celles marquées au brouillard et celles du journal d'à-nouveaux
+/// (jamais saisies).
+fn construire(cal: Calendrier, modeles: &[Modele]) -> (Dossier, Vec<EcritureEquilibree>) {
+    let mut dos = cal.dossier();
     let mut brouillard = Vec::new();
     for m in modeles {
         let mut lignes = Vec::new();
@@ -291,8 +436,8 @@ fn construire(modeles: &[Modele]) -> (Dossier, Vec<EcritureEquilibree>) {
             lignes.push(ligne_test(*credit, Sens::Credit, *montant));
         }
         let journal = JOURNAUX[m.journal];
-        let e = equilibree(journal, date_de(m.jour), "Écriture générée", lignes);
-        if m.au_brouillard || journal == "AN" {
+        let e = equilibree(journal, cal.date(m.jour), "Écriture générée", lignes);
+        if au_brouillard(m) {
             brouillard.push(e);
         } else {
             dos.valider(e).unwrap();
@@ -301,19 +446,58 @@ fn construire(modeles: &[Modele]) -> (Dossier, Vec<EcritureEquilibree>) {
     (dos, brouillard)
 }
 
-fn filtre(dos: &Dossier, du: u16, au: u16, journaux: &[usize]) -> Filtre {
-    let exercice = dos
-        .exercices
-        .exercice(&CodeExercice::parse("2026").unwrap())
-        .unwrap();
-    Filtre::nouveau(
-        exercice,
-        &dos.journaux,
-        date_de(du.min(au)),
-        date_de(du.max(au)),
-    )
-    .unwrap()
-    .journaux(journaux.iter().map(|i| j(JOURNAUX[*i])))
+fn au_brouillard(m: &Modele) -> bool {
+    m.au_brouillard || JOURNAUX[m.journal] == "AN"
+}
+
+fn filtre(dos: &Dossier, cal: Calendrier, du: u16, au: u16, journaux: &[usize]) -> Filtre {
+    let exercice = dos.exercices.exercice(&cal.code()).unwrap();
+    let (du, au) = (cal.date(du), cal.date(au));
+    Filtre::nouveau(exercice, &dos.journaux, du.min(au), du.max(au))
+        .unwrap()
+        .journaux(journaux.iter().map(|i| j(JOURNAUX[*i])))
+}
+
+/// Oracle indépendant de la ventilation du centralisateur : total de chaque (année, mois,
+/// journal), recalculé directement depuis les modèles d'écritures.
+fn oracle(
+    cal: Calendrier,
+    modeles: &[Modele],
+    filtre_journaux: &[usize],
+    bornes: (Date, Date),
+    mode: Mode,
+    a_nouveaux: bool,
+) -> BTreeMap<(i32, u8, &'static str), Decimal> {
+    let mut attendu = BTreeMap::new();
+    for m in modeles {
+        let date = cal.date(m.jour);
+        let journal = JOURNAUX[m.journal];
+        let retenu = (filtre_journaux.is_empty() || filtre_journaux.contains(&m.journal))
+            && bornes.0 <= date
+            && date <= bornes.1
+            && (mode == Mode::Provisoire || !au_brouillard(m))
+            && (journal == "AN") == a_nouveaux;
+        if retenu {
+            let total: Decimal = m.lignes.iter().map(|(_, _, montant)| *montant).sum();
+            *attendu
+                .entry((date.year(), u8::from(date.month()), journal))
+                .or_insert(Decimal::ZERO) += total;
+        }
+    }
+    attendu
+}
+
+fn obtenu(rubrique: &RubriqueCentralisateur) -> BTreeMap<(i32, u8, &str), Decimal> {
+    rubrique
+        .lignes()
+        .iter()
+        .map(|l| {
+            (
+                (l.mois.annee(), u8::from(l.mois.mois()), l.journal.as_str()),
+                l.debit,
+            )
+        })
+        .collect()
 }
 
 fn mode(provisoire: bool) -> Mode {
@@ -378,14 +562,16 @@ proptest! {
     #[test]
     fn centralisateur_egale_les_mouvements_de_la_balance(
         modeles in proptest::collection::vec(modele(), 1..25),
-        du in 1u16..=365,
-        au in 1u16..=365,
+        a_cheval in any::<bool>(),
+        du in 0..JOURS_A_CHEVAL,
+        au in 0..JOURS_A_CHEVAL,
         journaux in proptest::collection::btree_set(0..JOURNAUX.len(), 0..3),
         provisoire in any::<bool>(),
     ) {
-        let (dos, brouillard) = construire(&modeles);
+        let cal = Calendrier { a_cheval };
+        let (dos, brouillard) = construire(cal, &modeles);
         let journaux: Vec<usize> = journaux.into_iter().collect();
-        let filtre = filtre(&dos, du, au, &journaux);
+        let filtre = filtre(&dos, cal, du, au, &journaux);
         let mode = mode(provisoire);
         let c = Centralisateur::calculer(dos.livre.ecritures(), &brouillard, mode, &filtre).unwrap();
         let balance = Balance::calculer(&dos.livre, &brouillard, mode, &filtre, Regroupement::ParCompte).unwrap();
@@ -403,16 +589,50 @@ proptest! {
         prop_assert!(c.a_nouveaux().lignes().iter().all(|l| l.journal.as_str() == "AN"));
     }
 
-    /// (c) Depuis le début de l'exercice, la rubrique des à-nouveaux donne, compte par compte,
-    /// le solde d'ouverture de la balance.
+    /// Oracle : pour chaque (année, mois, journal), la ligne égale la somme recalculée
+    /// directement depuis les écritures, dans les deux modes et les deux rubriques, sur un
+    /// exercice civil ou à cheval sur deux années civiles.
+    #[test]
+    fn lignes_egalent_l_oracle_par_annee_mois_et_journal(
+        modeles in proptest::collection::vec(modele(), 1..25),
+        a_cheval in any::<bool>(),
+        du in 0..JOURS_A_CHEVAL,
+        au in 0..JOURS_A_CHEVAL,
+        journaux in proptest::collection::btree_set(0..JOURNAUX.len(), 0..3),
+    ) {
+        let cal = Calendrier { a_cheval };
+        let (dos, brouillard) = construire(cal, &modeles);
+        let journaux: Vec<usize> = journaux.into_iter().collect();
+        let filtre = filtre(&dos, cal, du, au, &journaux);
+        for mode in [Mode::Definitif, Mode::Provisoire] {
+            let c = Centralisateur::calculer(dos.livre.ecritures(), &brouillard, mode, &filtre).unwrap();
+            let bornes = (c.du(), c.au());
+            prop_assert_eq!(
+                obtenu(c.mouvements()),
+                oracle(cal, &modeles, &journaux, bornes, mode, false),
+                "mouvements, {:?}", mode
+            );
+            prop_assert_eq!(
+                obtenu(c.a_nouveaux()),
+                oracle(cal, &modeles, &journaux, bornes, mode, true),
+                "à-nouveaux, {:?}", mode
+            );
+        }
+    }
+
+    /// (c) Depuis le début de l'exercice ([`Filtre::exercice`]), la rubrique des à-nouveaux
+    /// donne, compte par compte, le solde d'ouverture de la balance.
     #[test]
     fn a_nouveaux_egalent_l_ouverture_de_la_balance(
         modeles in proptest::collection::vec(modele(), 1..25),
-        au in 1u16..=365,
+        a_cheval in any::<bool>(),
+        au in 0..JOURS_A_CHEVAL,
         provisoire in any::<bool>(),
     ) {
-        let (dos, brouillard) = construire(&modeles);
-        let filtre = filtre(&dos, 1, au, &[]);
+        let cal = Calendrier { a_cheval };
+        let (dos, brouillard) = construire(cal, &modeles);
+        let exercice = dos.exercices.exercice(&cal.code()).unwrap();
+        let filtre = Filtre::exercice(exercice, &dos.journaux, cal.date(au)).unwrap();
         let mode = mode(provisoire);
         let c = Centralisateur::calculer(dos.livre.ecritures(), &brouillard, mode, &filtre).unwrap();
         let balance = Balance::calculer(&dos.livre, &brouillard, mode, &filtre, Regroupement::ParCompte).unwrap();

@@ -19,10 +19,17 @@
 //! **Règles.**
 //! - Mouvements : écritures des journaux autres que d'à-nouveaux, datées dans `[du, au]` du
 //!   [`Filtre`] ; une ligne par (mois civil, journal), triée par mois puis par code de journal
-//!   (ordre du livre-journal), avec sous-totaux par mois et total général.
+//!   (ordre du livre-journal), avec sous-totaux par mois et total général. Quand les bornes ne
+//!   tombent pas sur un début ou une fin de mois, la première et la dernière ligne ne couvrent
+//!   qu'une partie du mois : les bornes sont rendues par [`Centralisateur::du`] et
+//!   [`Centralisateur::au`].
 //! - **À-nouveaux** : les écritures des journaux d'à-nouveaux datées dans `[du, au]` forment
 //!   une rubrique distincte ; elles ne sont jamais mêlées aux mouvements des mois ni comptées
-//!   dans leur total, comme dans la balance (colonne d'ouverture).
+//!   dans leur total. Comme l'édition des journaux, la rubrique ne retient que les à-nouveaux
+//!   datés dans les bornes, alors que la balance range dans sa colonne d'ouverture tous ceux
+//!   datés du début de l'exercice à `au` : les deux ne coïncident que pour un filtre qui part
+//!   du début de l'exercice ([`Filtre::exercice`]). Un centralisateur de mars ne reprend donc
+//!   pas les à-nouveaux de janvier, déjà centralisés dans le mois de janvier.
 //! - Le filtre de journaux s'applique ; le filtre de comptes **ne s'applique pas** : comme dans
 //!   l'édition des journaux, une écriture est centralisée en entier.
 //! - [`Mode`] : définitif (écritures validées) ou provisoire (avec le brouillard équilibré).
@@ -42,44 +49,61 @@ use crate::livre::EcritureValidee;
 
 /// Mois civil, avec son année : deux janviers d'un même exercice restent distincts. L'ordre
 /// est chronologique.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MoisCivil {
-    annee: i32,
-    mois: Month,
+    // Le premier jour détermine le dernier : l'ordre dérivé est chronologique.
+    premier_jour: Date,
+    dernier_jour: Date,
 }
 
 impl MoisCivil {
+    /// Mois civil donné par son année et son mois ; `None` si l'un de ses jours sort de la
+    /// plage des dates représentables (seule cause d'échec).
+    #[must_use]
+    pub fn nouveau(annee: i32, mois: Month) -> Option<Self> {
+        let premier_jour = Date::from_calendar_date(annee, mois, 1).ok()?;
+        let dernier_jour = Date::from_calendar_date(annee, mois, mois.length(annee)).ok()?;
+        Some(Self {
+            premier_jour,
+            dernier_jour,
+        })
+    }
+
     /// Mois civil contenant la date.
     #[must_use]
     pub fn de(date: Date) -> Self {
+        // Le premier et le dernier jour du mois d'une date valide sont toujours représentables :
+        // le repli sur `date` ne se produit pas.
         Self {
-            annee: date.year(),
-            mois: date.month(),
+            premier_jour: date.replace_day(1).unwrap_or(date),
+            dernier_jour: date
+                .replace_day(date.month().length(date.year()))
+                .unwrap_or(date),
         }
     }
 
     /// Année civile.
     #[must_use]
     pub fn annee(&self) -> i32 {
-        self.annee
+        self.premier_jour.year()
     }
 
     /// Mois.
     #[must_use]
     pub fn mois(&self) -> Month {
-        self.mois
+        self.premier_jour.month()
     }
-}
 
-impl Ord for MoisCivil {
-    fn cmp(&self, autre: &Self) -> std::cmp::Ordering {
-        (self.annee, u8::from(self.mois)).cmp(&(autre.annee, u8::from(autre.mois)))
+    /// Premier jour du mois.
+    #[must_use]
+    pub fn premier_jour(&self) -> Date {
+        self.premier_jour
     }
-}
 
-impl PartialOrd for MoisCivil {
-    fn partial_cmp(&self, autre: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(autre))
+    /// Dernier jour du mois.
+    #[must_use]
+    pub fn dernier_jour(&self) -> Date {
+        self.dernier_jour
     }
 }
 
@@ -162,6 +186,8 @@ impl RubriqueCentralisateur {
 /// Centralisateur des journaux : mouvements des mois et, à part, les à-nouveaux.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Centralisateur {
+    du: Date,
+    au: Date,
     mouvements: RubriqueCentralisateur,
     a_nouveaux: RubriqueCentralisateur,
 }
@@ -252,7 +278,8 @@ impl Cumul {
 
 impl Centralisateur {
     /// Centralise les écritures validées et, en mode provisoire, le brouillard équilibré, sur
-    /// la période et les journaux du filtre (voir la documentation du module).
+    /// la période et les journaux du filtre (voir la documentation du module, notamment pour
+    /// les à-nouveaux et les mois partiels aux bornes).
     ///
     /// # Errors
     /// Dépassement de capacité.
@@ -286,10 +313,25 @@ impl Centralisateur {
             };
             cumul.ajouter(journal, date, lignes)?;
         }
+        let (du, au) = filtre.bornes();
         Ok(Self {
+            du,
+            au,
             mouvements: mouvements.rubrique()?,
             a_nouveaux: a_nouveaux.rubrique()?,
         })
+    }
+
+    /// Premier jour centralisé : la première ligne peut ne couvrir qu'une partie de son mois.
+    #[must_use]
+    pub fn du(&self) -> Date {
+        self.du
+    }
+
+    /// Dernier jour centralisé : la dernière ligne peut ne couvrir qu'une partie de son mois.
+    #[must_use]
+    pub fn au(&self) -> Date {
+        self.au
     }
 
     /// Mouvements des mois, hors à-nouveaux.
@@ -298,9 +340,49 @@ impl Centralisateur {
         &self.mouvements
     }
 
-    /// Rubrique des à-nouveaux, distincte des mouvements.
+    /// Rubrique des à-nouveaux datés dans `[du, au]`, distincte des mouvements. Elle égale la
+    /// part à-nouveaux de la colonne d'ouverture de la balance seulement si le filtre part du
+    /// début de l'exercice ([`Filtre::exercice`]).
     #[must_use]
     pub fn a_nouveaux(&self) -> &RubriqueCentralisateur {
         &self.a_nouveaux
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::macros::date;
+
+    #[test]
+    fn mois_civil_bornes_et_ordre() {
+        let fevrier = MoisCivil::nouveau(2028, Month::February).unwrap();
+        assert_eq!(
+            (fevrier.premier_jour(), fevrier.dernier_jour()),
+            (date!(2028 - 02 - 01), date!(2028 - 02 - 29))
+        );
+        assert_eq!(
+            MoisCivil::nouveau(2026, Month::February)
+                .unwrap()
+                .dernier_jour(),
+            date!(2026 - 02 - 28)
+        );
+        assert_eq!(
+            MoisCivil::nouveau(2100, Month::February)
+                .unwrap()
+                .dernier_jour(),
+            date!(2100 - 02 - 28)
+        );
+        assert_eq!(MoisCivil::de(date!(2028 - 02 - 17)), fevrier);
+        assert_eq!((fevrier.annee(), fevrier.mois()), (2028, Month::February));
+        assert_eq!(
+            MoisCivil::de(date!(2026 - 12 - 31)).dernier_jour(),
+            date!(2026 - 12 - 31)
+        );
+        // Hors de la plage représentable.
+        assert_eq!(MoisCivil::nouveau(10_000, Month::January), None);
+        // Ordre chronologique : l'année avant le mois.
+        assert!(MoisCivil::de(date!(2026 - 12 - 01)) < MoisCivil::de(date!(2027 - 01 - 31)));
+        assert!(MoisCivil::de(date!(2026 - 08 - 01)) < MoisCivil::de(date!(2027 - 07 - 01)));
     }
 }

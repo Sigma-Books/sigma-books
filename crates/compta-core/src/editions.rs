@@ -182,6 +182,11 @@ impl Filtre {
         self.du <= date && date <= self.au
     }
 
+    /// Bornes `(du, au)` de la période.
+    pub(crate) fn bornes(&self) -> (Date, Date) {
+        (self.du, self.au)
+    }
+
     /// Vrai pour un journal d'à-nouveaux du dossier (toujours rangé en ouverture).
     pub(crate) fn est_a_nouveaux(&self, journal: &CodeJournal) -> bool {
         self.a_nouveaux.contains(journal)
