@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dossier (cabinet_id, id, nom) VALUES ($1, $2, $3) RETURNING cree_le",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6068c5f25645b0c9e4b36777500f52f9e8d6a7bc7895b0962a4e7693a8cb9b30"
+}
