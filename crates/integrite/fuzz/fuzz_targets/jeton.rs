@@ -22,5 +22,6 @@ fuzz_target!(|octets: &[u8]| {
     let temoin = Temoin::nouveau(dossier, tete, 1);
     // Un jeton forgé ne peut pas être accepté : l'empreinte de ce témoin n'a jamais été signée.
     assert!(verifier_jeton(octets, &temoin, &ANCRES).is_err());
-    assert!(verifier_reponse(octets, &temoin, 7, &ANCRES).is_err());
+    let nonce = octets.iter().take(8).fold(0u64, |n, &b| (n << 8) | u64::from(b));
+    assert!(verifier_reponse(octets, &temoin, nonce, &ANCRES).is_err());
 });

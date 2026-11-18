@@ -11,8 +11,16 @@ const TEMOIN: &str = include_str!("vecteurs/horodatage/temoin.txt");
 const REQUETE_OPENSSL: &[u8] = include_bytes!("vecteurs/horodatage/requete-openssl.tsq");
 const DIGICERT: &[u8] = include_bytes!("vecteurs/horodatage/digicert.tsr");
 const SECTIGO: &[u8] = include_bytes!("vecteurs/horodatage/sectigo.tsr");
-/// Nonce de la requête envoyée aux deux autorités.
-const NONCE: u64 = 0xB17F_41C7_83A6_60D7;
+/// Nonce de la requête envoyée aux deux autorités, lu dans la requête enregistrée.
+fn nonce_du_vecteur() -> u64 {
+    use der::Decode;
+    let requete = x509_tsp::TimeStampReq::from_der(REQUETE_OPENSSL).unwrap();
+    let octets = requete.nonce.unwrap();
+    octets
+        .as_bytes()
+        .iter()
+        .fold(0u64, |n, &b| (n << 8) | u64::from(b))
+}
 
 fn temoin(nombre: u64) -> Temoin {
     Temoin::nouveau(
@@ -24,16 +32,24 @@ fn temoin(nombre: u64) -> Temoin {
 }
 
 fn jeton(reponse: &[u8]) -> Vec<u8> {
-    verifier_reponse(reponse, &temoin(0), NONCE, &ancres_par_defaut().unwrap())
-        .unwrap()
-        .0
+    verifier_reponse(
+        reponse,
+        &temoin(0),
+        nonce_du_vecteur(),
+        &ancres_par_defaut().unwrap(),
+    )
+    .unwrap()
+    .0
 }
 
 #[test]
 fn temoin_et_requete_conformes_aux_vecteurs() {
     assert_eq!(temoin(0).contenu(), TEMOIN);
     // Octet pour octet, la requête produite par `openssl ts -query -sha256 -cert`.
-    assert_eq!(requete(&temoin(0), NONCE).unwrap(), REQUETE_OPENSSL);
+    assert_eq!(
+        requete(&temoin(0), nonce_du_vecteur()).unwrap(),
+        REQUETE_OPENSSL
+    );
 }
 
 #[test]
@@ -43,7 +59,8 @@ fn reponses_reelles_verifiees() {
         (DIGICERT, "DigiCert", "DigiCert Trusted Root G4"),
         (SECTIGO, "Sectigo", "Sectigo Public Time Stamping Root R46"),
     ] {
-        let (jeton, verifie) = verifier_reponse(reponse, &temoin(0), NONCE, &ancres).unwrap();
+        let (jeton, verifie) =
+            verifier_reponse(reponse, &temoin(0), nonce_du_vecteur(), &ancres).unwrap();
         assert_eq!(
             verifie.date.unix_timestamp(),
             1_795_000_288,
@@ -63,11 +80,17 @@ fn reponses_reelles_verifiees() {
 fn autre_temoin_ou_autre_nonce_refuses() {
     let ancres = ancres_par_defaut().unwrap();
     assert_eq!(
-        verifier_reponse(DIGICERT, &temoin(1), NONCE, &ancres),
+        verifier_reponse(DIGICERT, &temoin(1), nonce_du_vecteur(), &ancres),
         Err(ErreurJeton::EmpreinteDifferente)
     );
     assert_eq!(
-        verifier_reponse(SECTIGO, &temoin(0), NONCE + 1, &ancres).map(|_| ()),
+        verifier_reponse(
+            SECTIGO,
+            &temoin(0),
+            nonce_du_vecteur().wrapping_add(1),
+            &ancres
+        )
+        .map(|_| ()),
         Err(ErreurJeton::NonceDifferent)
     );
 }
@@ -128,7 +151,7 @@ fn ancres_integrees_et_pem() {
 fn reponse_trop_volumineuse_ou_illisible() {
     let ancres = ancres_par_defaut().unwrap();
     assert!(matches!(
-        verifier_reponse(&vec![0u8; 70_000], &temoin(0), NONCE, &ancres),
+        verifier_reponse(&vec![0u8; 70_000], &temoin(0), nonce_du_vecteur(), &ancres),
         Err(ErreurJeton::TropVolumineux(_))
     ));
     assert!(matches!(

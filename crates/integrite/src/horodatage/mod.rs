@@ -178,10 +178,16 @@ mod tests {
         }
     }
 
+    /// Nonce de test tiré d'une graine (en production, il vient d'un générateur aléatoire).
+    fn nonce(graine: &[u8]) -> u64 {
+        let empreinte = Sha256::digest(graine);
+        u64::from_be_bytes(empreinte[..8].try_into().unwrap())
+    }
+
     #[test]
     fn requete_par_nonce() {
-        let a = requete(&temoin(), 1).unwrap();
-        let b = requete(&temoin(), 2).unwrap();
+        let a = requete(&temoin(), nonce(b"a")).unwrap();
+        let b = requete(&temoin(), nonce(b"b")).unwrap();
         assert_ne!(a, b);
         assert!(TimeStampReq::from_der(&a).unwrap().cert_req);
     }
