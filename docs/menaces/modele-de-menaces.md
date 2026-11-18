@@ -1,9 +1,9 @@
 # Modèle de menaces — Sigma Books
 
-- **Version :** 0.2 — **Date :** 2026-11-17
-- **Statut :** v0.2, issue de la revue de la v0.1 du 2026-11-14 (transmise par le mainteneur) ; décisions du mainteneur intégrées (§9)
-- **Méthode :** STRIDE par flux de données ; LINDDUN (vie privée) à compléter en L2 (§8)
-- **Références :** `docs/fondations.md` §3 (architecture), §8 (cycle de développement) ; `docs/specification.md` §6, §8, §19 à §21 ; ADR 0003 à 0008
+- **Version :** 0.3 — **Date :** 2026-11-18
+- **Statut :** v0.3, mise à jour du lot L2 (issue L2-07) ; décisions du mainteneur du 2026-11-18 intégrées (chiffrement ; Q3, Q5, Q8 et Q10 au §9)
+- **Méthode :** STRIDE par flux de données ; LINDDUN pour la vie privée (§8)
+- **Références :** `docs/fondations.md` §3 (architecture), §8 (cycle de développement) ; `docs/specification.md` §2, §6, §8, §19 à §21 ; `docs/lots/L2.md` ; ADR 0003 à 0008, 0010 et 0013
 
 Ce document est **public**, comme le reste du dépôt (Fondations §3.2, principe 7). Il décrit des menaces et les mesures **prévues** : la plupart ne sont pas encore implémentées. La colonne « Lot » indique où chaque mesure doit être livrée et vérifiée.
 
@@ -32,16 +32,16 @@ Classés par gravité puis vraisemblance ; les lignes détaillées sont citées 
 | 4 | **Fichier piégé** : exécution de code lors du traitement d'un PDF ou d'une image (F4.1, F10.2) | É | É | Rendu uniquement dans le worker en bac à sable, sans réseau ni base | L4 | Fuzzing et corpus de fichiers hostiles |
 | 5 | **Compromission du compte du mainteneur unique**, qui peut désactiver les protections (F8.13) | É | M | 2FA obligatoire, passkey adoptée, aucun contournement permanent | **L0 (en place)** | Journal d'audit de l'organisation |
 | 6 | **Dépendance ou action CI compromise** (F8.1, F8.2) | É | M | `cargo deny`, `pnpm audit`, actions épinglées par hash, Dependabot | **L0 (en place)** | Checks `rust-deny`, `web`, `site`, `codeql (actions)` |
-| 7 | **Altération du grand livre** : écriture validée modifiée, chaîne tronquée ou ramenée en arrière, export retouché (F2.2, F2.4, F2.5, F7.1) | É | M | Ajout seul, chaîne de hachage, horodatage, témoin externe, `sigma-verifier` | L1 | Tests de `sigma-verifier` (octet modifié, export tronqué) |
-| 8 | **Perte de données** : rançongiciel, perte d'une clé de cabinet (F9.3, F3.6) | É | M | Sauvegardes immuables, clés sauvegardées, restauration testée | L2 / L9 | Restauration mensuelle testée, clés comprises |
+| 7 | **Altération du grand livre** : écriture validée modifiée, chaîne tronquée ou ramenée en arrière, export retouché (F2.2, F2.4, F2.5, F7.1) | É | M | Ajout seul, chaîne de hachage, horodatage quotidien et à chaque verrouillage ou clôture (ADR 0010), témoin externe remis au cabinet, `sigma-verifier` | L1 / L2 | Tests de `sigma-verifier` (octet modifié, export tronqué) |
+| 8 | **Perte de données** : rançongiciel, perte des clés de chiffrement des disques ou des sauvegardes (F9.3) ; perte d'une clé de cabinet si l'option de chiffrement par cabinet est activée (F3.6) | É | M | Sauvegardes chiffrées et immuables, restauration testée clés comprises ; aucun chiffrement applicatif par défaut, donc aucune clé de cabinet à perdre (ADR 0013) | L9 | Restauration mensuelle testée, clés comprises |
 | 9 | **Imputation frauduleuse provoquée par un document** (injection d'instructions) (IA1, IA3) | M | É | Document traité comme donnée, schéma, comptes candidats, validation humaine | L4 | Jeu d'évaluations anti-injection bloquant |
-| 10 | **Fraude interne** : administrateur de cabinet malveillant, collusion saisie/validation (F1.15, F1.16) | É | F | Écritures validées intouchables, audit chaîné, notifications ; risque résiduel (Q10) | L2 | Test : aucune API ne modifie une écriture validée |
+| 10 | **Fraude interne** : administrateur de cabinet malveillant, collusion saisie/validation (F1.15, F1.16) | É | F | Écritures validées intouchables, audit chaîné (changements de droits compris), notification aux autres administrateurs ; risque résiduel **accepté** (Q10, 2026-11-18) | L2 | Test : aucune API ne modifie une écriture validée |
 
 ## Hypothèses et hors périmètre
 
 **Hypothèses** (confiance accordée, à réexaminer si elles tombent) :
 - **GitHub** (code, Actions, rulesets, vérification des signatures) fonctionne comme documenté ; une compromission de GitHub lui-même est hors périmètre.
-- **L'hébergeur** (grand fournisseur cloud, région Europe, Fondations §10) et son KMS respectent l'isolation qu'ils annoncent ; l'opérateur interne de Sigma Books (M8) reste, lui, dans le périmètre.
+- **L'hébergeur** (à choisir, Q3) respecte l'isolation qu'il annonce et chiffre ses volumes comme convenu ; l'opérateur interne de Sigma Books (M8) reste, lui, dans le périmètre.
 - **Les postes** des comptables, des clients et du mainteneur ne sont pas compromis. Un logiciel malveillant sur un poste agit avec les droits de la session ouverte : les mesures en limitent la portée (ré-authentification, alertes, écritures validées intouchables) sans pouvoir l'empêcher.
 - **Registres et autorités** (crates.io, npm, autorité d'horodatage, Sigstore) sont dignes de confiance dans la limite des contrôles décrits (sommes de contrôle, signatures, `cargo deny`).
 - **Le fournisseur IA** respecte son contrat (pas d'entraînement sur les données, rétention limitée, Q4).
@@ -63,7 +63,7 @@ Classés par gravité puis vraisemblance ; les lignes détaillées sont citées 
 | A3 | Données personnelles (tiers, salariés via la paie, utilisateurs) | Confidentialité | Loi sénégalaise n° 2008-12 (CDP) |
 | A4 | Identités, sessions, facteurs d'authentification | Authenticité | Toute action comptable est imputée à une personne |
 | A5 | Politiques d'autorisation (Cedar) et contexte de tenant | Intégrité | Une erreur ici casse l'isolation entre cabinets |
-| A6 | Clés : données par cabinet (KMS/OpenBao), signature, API IA | Confidentialité | Leur fuite rend les autres mesures inopérantes |
+| A6 | Clés : chiffrement des disques et des sauvegardes (exploitation), signature, API IA ; clés de cabinet si l'option de chiffrement par cabinet est activée (ADR 0013) | Confidentialité, disponibilité | Leur fuite rend les autres mesures inopérantes ; leur perte rend illisibles les sauvegardes ou les archives |
 | A7 | Journal d'audit | Intégrité, disponibilité | Traçabilité (spec §21) |
 | A8 | Code, CI, binaires et images publiés | Intégrité, provenance | Une compromission de la chaîne touche toutes les instances, y compris auto-hébergées |
 | A9 | Disponibilité du service et budget IA | Disponibilité, coût | Échéances fiscales ; coût réel par appel IA (spec §8.10) |
@@ -93,7 +93,7 @@ Zones de la Fondations §3.3, numérotées pour ce document :
 | **Z0 Internet** | Navigateur cabinet, portail client (PWA), messagerie entrante, attaquants | Aucune |
 | **Z1 Périmètre** | Reverse proxy / WAF (TLS 1.3, HSTS, limitation de débit) | Filtre, ne décide rien |
 | **Z2 Applicative** | Monolithe Rust (axum) : authentification, autorisation Cedar, `compta-core` (pur), orchestrateur IA (propositions seulement), service des fichiers statiques de `web/` | Confiance, moindre privilège |
-| **Z3 Données** | PostgreSQL (RLS, rôles séparés, tables en ajout seul) ; stockage objet WORM chiffré par cabinet ; KMS/OpenBao | Confiance forte |
+| **Z3 Données** | PostgreSQL (RLS, rôles séparés, tables en ajout seul) ; stockage objet WORM ; sauvegardes ; disques chiffrés (ADR 0013) | Confiance forte |
 | **Z4 Non fiable** | Worker documents en bac à sable (gVisor/nsjail, seccomp, sans réseau, sans base, FS éphémère) | **Hostile par hypothèse** |
 | **Z5 Sortante** | Proxy en liste blanche → API IA ; autorité d'horodatage RFC 3161 | Tiers, réponses non fiables |
 | **Z6 Chaîne d'approvisionnement** | GitHub, Actions, registres crates.io et npm, artefacts publiés ; poste du mainteneur et agent de développement (Claude Code, compte machine) | Tiers, vérifiée ; l'agent est traité comme un contributeur non fiable dont tout le travail est relu |
@@ -124,7 +124,7 @@ Zones de la Fondations §3.3, numérotées pour ce document :
  └─────────────┘ └───────────────┘ └──────────────────────┘ │  ligne)       │
        Z3               Z3                                   └───────────────┘
  F8 : contributeurs/agents → GitHub → CI → artefacts signés (Z6)
- F9 : opérateurs → infrastructure, KMS, sauvegardes
+ F9 : opérateurs → infrastructure, clés des disques, sauvegardes
  F11 : imports du cabinet (reprise, FEC, relevés) → API → formats (Z0 → Z2)
  F12 : API → courriels sortants (invitations, alertes) (Z2 → Z0)
 ```
@@ -133,13 +133,13 @@ Zones de la Fondations §3.3, numérotées pour ce document :
 |---|---|---|---|
 | F1 | Navigateur / portail → API | Identifiants, saisies, pièces téléversées, réponses du client | Z0 → Z2 |
 | F2 | API → PostgreSQL | Écritures, tiers, audit, file de tâches, contexte de tenant (`SET LOCAL`) | Z2 → Z3 |
-| F3 | API → stockage objet | Pièces originales et images rasterisées, chiffrées par cabinet | Z2 → Z3 |
+| F3 | API → stockage objet | Pièces originales et images rasterisées, sur disques chiffrés (chiffrement par cabinet : option, ADR 0013) | Z2 → Z3 |
 | F4 | API ↔ worker documents | Fichier non fiable → images et métadonnées | Z2 ↔ Z4 |
 | F5 | Orchestrateur IA → API IA | Images de pièce, contexte minimal (candidats de comptes) → propositions JSON | Z2 → Z5 |
-| F6 | API → autorité d'horodatage | Hash de tête de chaîne → jeton horodaté | Z2 → Z5 |
+| F6 | API (tâche de la file exécutée par `api`) → autorité d'horodatage | Empreinte SHA-256 du témoin (`docs/integrite/format-v2.md` §4) → jeton horodaté (ADR 0010) | Z2 → Z5 |
 | F7 | Export → auditeur → `sigma-verifier` | Écritures sérialisées, chaîne de hachage, jetons d'horodatage | Z2 → Z7 |
 | F8 | Contributeurs → dépôt → CI → publication | Code, dépendances, binaires, SBOM, signatures | Z6 → toutes |
-| F9 | Opérateurs → infrastructure | Déploiement, secrets, sauvegardes, restauration | hors bande → Z2/Z3 |
+| F9 | Opérateurs → infrastructure | Déploiement, secrets, clés de chiffrement des disques, sauvegardes, restauration | hors bande → Z2/Z3 |
 | F10 | Messagerie → API (adresse de dépôt par dossier) | Courriels et pièces jointes non fiables | Z0 → Z2 → Z4 |
 | F11 | Cabinet → API (reprise de données, FEC, relevés CSV et mobile money, Excel) | Fichiers structurés non fiables → écritures au brouillard | Z0 → Z2 |
 | F12 | API → destinataires (invitations, alertes de sécurité, notifications) | Courriels émis au nom de Sigma Books | Z2 → Z0 |
@@ -158,7 +158,7 @@ Légende : **S** usurpation, **T** altération, **R** répudiation, **I** divulg
 | F1.4 | T | Requête forgée (CSRF) ou modification de paramètres pour viser un autre dossier | É | M | `SameSite=Strict`, jeton anti-CSRF sur les mutations ; identifiant de dossier toujours **revérifié** par Cedar et la RLS, jamais cru sur parole | Tests d'isolation par route (dossier d'autrui refusé) ; test anti-CSRF | L2 |
 | F1.5 | T | Injection de script (XSS) dans l'interface | É | M | CSP stricte sans `'unsafe-inline'`, Trusted Types (posés en L0, `web/vite.config.ts`) ; pas de `{@html}` sur une donnée non maîtrisée ; en-têtes de sécurité posés par le backend | Contrôle de la CSP dans un navigateur (Q7) ; lint Svelte ; DAST (L9) | L0 (CSP) / L2 (en-têtes) |
 | F1.6 | R | Un utilisateur nie avoir validé, contre-passé ou exporté | M | M | Journal d'audit chaîné (qui, quoi, quand, avant/après) ; ré-authentification sur les actions sensibles (validation par lot, clôture, déverrouillage, export complet, droits) | Test : toute action sensible crée une entrée d'audit chaînée et exige une ré-authentification | L2 |
-| F1.7 | I | Accès aux données d'un autre cabinet (M2) en devinant des identifiants | É | É | Trois niveaux d'isolation : Cedar (refus par défaut) + filtre de tenant dans la requête + RLS ; **test d'isolation entre tenants pour chaque route** (`crates/api/CLAUDE.md`) | **Test d'isolation entre tenants pour chaque route** (check `rust-test`) ; tests Cedar | L2 puis chaque lot |
+| F1.7 | I | Accès aux données d'un autre cabinet (M2) en devinant des identifiants | É | É | Trois niveaux d'isolation : Cedar (refus par défaut) + filtre de tenant dans la requête + RLS ; **test d'isolation entre tenants pour chaque route** (`crates/api/CLAUDE.md`) ; dans un cabinet, un collaborateur n'accède qu'aux dossiers qui lui sont **affectés** (`AccesDossier`, décision du 2026-11-18, question 5 du plan L2) | **Test d'isolation entre tenants pour chaque route** (check `rust-test`) ; tests Cedar, dont le refus d'un dossier non affecté | L2 puis chaque lot |
 | F1.8 | I | Énumération de comptes ou de dossiers | F | M | Messages d'erreur uniformes ; identifiants non séquentiels exposés ; limitation de débit | Test : réponses identiques pour une ressource existante ou inexistante | L2 |
 | F1.9 | D | Inondation de requêtes, de connexions ou de téléversements | M | É | Limitation de débit au proxy et par utilisateur ; quotas par cabinet ; tailles maximales de corps | Tests de limitation de débit ; test de charge (L9) | L2 / L4 |
 | F1.10 | E | Un collaborateur obtient des droits de valideur ou d'administrateur (M4) | É | M | Rôles dérivés jamais plus larges que l'administrateur (spec §20) ; changement de droits ré-authentifié et alerté ; politiques Cedar testées (cas autorisés **et** refusés) | Tests Cedar des élévations refusées ; test d'alerte sur changement de droits | L2 |
@@ -166,8 +166,8 @@ Légende : **S** usurpation, **T** altération, **R** répudiation, **I** divulg
 | F1.12 | S | **Récupération de compte détournée** (perte de passkey ou de TOTP) : maillon faible habituel | É | M | Pas de récupération par e-mail seul ; codes de récupération à usage unique remis à l'enrôlement ; plusieurs passkeys encouragées ; sinon réinitialisation par un administrateur du cabinet avec vérification hors bande, délai et notification ; pour un administrateur, procédure de support avec vérification d'identité ; tout journalisé et alerté | Tests du parcours de récupération (le facteur fort n'est jamais contourné) ; pentest (L9) | L2 |
 | F1.13 | S | Lien d'invitation du portail intercepté ou réutilisé | M | M | Lien à usage unique, de courte durée, lié à l'adresse invitée, révocable ; enrôlement d'un facteur fort à l'activation | Tests : lien expiré, réutilisé ou d'une autre adresse refusé | L4 |
 | F1.14 | I / E | Utilisateur membre de plusieurs cabinets : confusion de contexte (action ou lecture dans le mauvais cabinet) | É | M | Cabinet et dossier explicites dans chaque requête, revérifiés par Cedar et la RLS ; aucun cache partagé entre contextes ; changement de cabinet visible dans l'interface ; tests d'isolation avec un utilisateur multi-cabinets | Tests d'isolation avec un utilisateur membre de deux cabinets | L2 |
-| F1.15 | E / R | Administrateur de cabinet malveillant ou compromis (M10) : s'attribue des droits, désactive la séparation des tâches, exporte tout | É | F | Actions d'administration ré-authentifiées, journalisées dans l'audit chaîné et notifiées aux autres administrateurs du cabinet ; deux administrateurs recommandés ; **aucun rôle ne peut modifier une écriture validée** (intégrité indépendante des droits) ; export complet alerté. Risque résiduel : voir §9 | Test : aucune API ne modifie une écriture validée, quel que soit le rôle ; test des notifications d'administration | L2 |
-| F1.16 | T | Collusion entre un saisisseur et un valideur | É | F | La séparation des tâches (spec §20) n'arrête pas la collusion ; audit chaîné, contre-passations visibles, contrôles de cohérence. Risque résiduel : voir §9 | Revue des contrôles de cohérence ; risque résiduel (Q10) | L2 |
+| F1.15 | E / R | Administrateur de cabinet malveillant ou compromis (M10) : s'attribue des droits, désactive la séparation des tâches, exporte tout | É | F | Actions d'administration ré-authentifiées, journalisées dans l'audit chaîné (changements de droits compris) et notifiées aux autres administrateurs du cabinet ; deux administrateurs recommandés ; **aucun rôle ne peut modifier une écriture validée** (intégrité indépendante des droits) ; export complet alerté. Risque résiduel **accepté** (Q10, 2026-11-18) | Test : aucune API ne modifie une écriture validée, quel que soit le rôle ; test des notifications d'administration | L2 |
+| F1.16 | T | Collusion entre un saisisseur et un valideur | É | F | Séparation des tâches (spec §20) **activée par défaut** (décision du 2026-11-18, question 5 du plan L2), qui n'arrête pas la collusion ; audit chaîné, contre-passations visibles, contrôles de cohérence. Risque résiduel **accepté** (Q10, 2026-11-18) | Test : un utilisateur ne valide pas sa propre saisie quand la séparation est active ; revue des contrôles de cohérence | L2 |
 
 ### F2 — API ↔ PostgreSQL
 
@@ -176,11 +176,11 @@ Légende : **S** usurpation, **T** altération, **R** répudiation, **I** divulg
 | F2.1 | T | Injection SQL | É | F | Requêtes vérifiées à la compilation (`sqlx::query!`), aucune concaténation (ADR 0004) | `sqlx::query!` vérifié à la compilation (check `rust-clippy`) ; revue : aucune requête construite par concaténation | L2 |
 | F2.2 | T | Modification ou suppression d'une écriture validée (M4, M8, bogue) | É | M | Rôle applicatif sans `UPDATE`/`DELETE` sur les écritures validées ni sur l'audit ; type `EcritureEquilibree` seul enregistrable ; correction par contre-passation ; chaîne de hachage SHA-256 (ADR 0007) | Test : `UPDATE`/`DELETE` refusés au rôle applicatif ; propriétés de `compta-core` ; `sigma-verifier` | L1 / L2 |
 | F2.3 | T | Trou ou doublon de numérotation | É | M | Numérotation continue attribuée à la validation, dans la transaction ; vérifiée par `sigma-verifier` | Proptest de numérotation continue ; `sigma-verifier` | L1 |
-| F2.4 | T | **Troncature ou retour arrière de la chaîne** : suppression des dernières écritures, restauration d'une sauvegarde ancienne (M8). La chaîne et la numérotation restent cohérentes : ni l'une ni l'autre ne le détecte | É | F | Horodatage externe régulier du hash de tête (borne ce qui peut disparaître sans trace) ; **témoin externe** : hash de tête et dernier numéro remis au cabinet (écran Intégrité, exports, envoi périodique), que `sigma-verifier` compare à l'export ; toute restauration journalisée et signalée aux cabinets. Forme du témoin : §9 | Test : `sigma-verifier` détecte un export tronqué face au témoin externe | L1 / L9 |
-| F2.5 | T | Réécriture des écritures validées depuis le dernier horodatage (fenêtre d'un jour au plus) | É | F | Horodatage plus fréquent (à chaque validation par lot, ou chaque heure) ; témoin externe ; rôle applicatif sans `UPDATE`/`DELETE`. Fréquence : §9 | Test : écart entre jeton d'horodatage et chaîne détecté | L1 |
+| F2.4 | T | **Troncature ou retour arrière de la chaîne** : suppression des dernières écritures, restauration d'une sauvegarde ancienne (M8). La chaîne et la numérotation restent cohérentes : ni l'une ni l'autre ne le détecte | É | F | Horodatage externe du témoin (F2.5, ADR 0010), qui borne ce qui peut disparaître sans trace ; **témoin externe** (`sigma-books temoin v1` : dossier, empreinte de tête, nombre d'écritures ; `docs/integrite/format-v2.md` §4) **affiché** sur l'écran Intégrité, **joint** à chaque export d'intégrité et **envoyé** au cabinet à chaque verrouillage de période et à chaque clôture (Q8, tranché le 2026-11-18), que `sigma-verifier` compare à l'export ; toute restauration journalisée et signalée aux cabinets | Test : `sigma-verifier` détecte un export tronqué face au témoin externe | L1 / L2 (témoin) / L9 (restauration) |
+| F2.5 | T | Réécriture des écritures validées depuis le dernier horodatage (fenêtre d'un jour au plus) | É | F | **Horodatage RFC 3161 du témoin** (ADR 0010) : autorités essayées dans l'ordre, DigiCert puis Sectigo en secours ; **chaque jour** si la chaîne a changé depuis le dernier jeton, et **le jour même de chaque verrouillage de période et de chaque clôture d'exercice** ; **rejeu différé** si l'autorité est injoignable (la demande suivante porte sur la tête du moment et couvre les écritures restées sans jeton), alerte au-delà de 24 h (F6.2). Requêtes envoyées par une **tâche de la file PostgreSQL exécutée par le binaire `api`**, jamais par `worker-documents`, qui n'a pas de réseau ; sortie réseau limitée à la liste des autorités. Témoin externe (F2.4) ; rôle applicatif sans `UPDATE`/`DELETE`. Fenêtre résiduelle : écritures postérieures au dernier jeton (un jour au plus en régime normal) ; horodatage après chaque lot écarté (ADR 0010) | Test : écart entre jeton d'horodatage et chaîne détecté (L1) ; tests de la tâche avec une autorité simulée : déclenchement quotidien et au verrouillage, rejeu après échec, alerte au-delà de 24 h (L2) | L1 / L2 |
 | F2.6 | R | Altération du journal d'audit pour masquer une fraude | É | F | Audit en ajout seul et chaîné ; rôle de lecture d'audit séparé | Test : rôle applicatif sans `UPDATE`/`DELETE` sur l'audit ; vérification de la chaîne d'audit | L2 |
 | F2.7 | I | Fuite inter-tenant par oubli de filtre dans une requête | É | M | RLS sur **toutes** les tables multi-tenant, contexte posé par `SET LOCAL` dans chaque transaction ; test d'isolation automatique | Test d'isolation automatique ; test : table multi-tenant sans RLS = échec de la CI | L2 |
-| F2.8 | I | Vol de sauvegarde ou de disque | É | F | Chiffrement au repos ; clé de données par cabinet (chiffrement d'enveloppe) ; sauvegardes chiffrées | Test de restauration d'une sauvegarde chiffrée | L2 / L9 |
+| F2.8 | I | Vol de sauvegarde ou de disque | É | F | **Chiffrement obligatoire des disques des serveurs** (base de données et WAL, stockage des pièces, volumes temporaires des exports) **et des sauvegardes** : BitLocker ou équivalent (LUKS/dm-crypt, chiffrement des volumes de l'hébergeur) ; clés gérées par l'exploitation, séquestrées séparément des données et des sauvegardes ; exigence de déploiement (Fondations §3.7, ADR 0013). Un vol logique (accès SQL avec des identifiants) relève des rôles et de la RLS (F2.7, F2.10). Aucun chiffrement applicatif par défaut ; le chiffrement par cabinet, option future au choix du client, ajouterait une protection | Contrôle de déploiement : volumes et sauvegardes chiffrés ; test de restauration d'une sauvegarde chiffrée | L9 |
 | F2.9 | D | Requête coûteuse ou file de tâches saturée | M | M | Pagination imposée, délais d'expiration de requête, priorités dans la file (`SKIP LOCKED`) | Tests de pagination et de délai d'expiration | L2 |
 | F2.10 | E | Compromission du rôle de migration utilisé à l'exécution | É | F | Rôles séparés (migration, application, audit) ; l'application n'utilise jamais le rôle de migration | Test : le rôle applicatif n'a aucun droit de modification du schéma | L2 |
 | F2.11 | I | Données sensibles dans les journaux techniques et les rapports d'erreur | M | M | Journaux structurés sans montants, libellés, pièces, jetons ni corps de requête ; masquage par liste blanche de champs ; rapports d'erreur sans données client ; durée de conservation définie | Test : journaux d'un scénario complet sans montant, libellé ni jeton | L2 |
@@ -190,11 +190,11 @@ Légende : **S** usurpation, **T** altération, **R** répudiation, **I** divulg
 | Id | | Menace | G | V | Mesures prévues | Preuve | Lot |
 |---|---|---|:-:|:-:|---|---|---|
 | F3.1 | T | Remplacement d'une pièce après comptabilisation | É | F | Verrouillage WORM ; hash SHA-256 à l'ingestion, rattaché à l'écriture (spec §6.5) | Test : réécriture d'un objet WORM refusée ; hash vérifié à la lecture | L4 |
-| F3.2 | I | Lecture des pièces d'un autre cabinet | É | M | Chiffrement par cabinet ; clés d'objet non devinables ; accès uniquement via l'API après décision Cedar (pas d'URL publique durable) | Test d'isolation sur le téléchargement de pièces | L4 |
-| F3.3 | I | Suppression cryptographique non effective à la résiliation | M | F | Destruction de la clé du cabinet ; procédure testée | Test de la procédure de résiliation (données illisibles) | L9 |
+| F3.2 | I | Lecture des pièces d'un autre cabinet | É | M | Cloisonnement (spec §2, principe 12) ; clés d'objet non devinables ; accès uniquement via l'API après décision Cedar (pas d'URL publique durable) ; pas de chiffrement par cabinet par défaut (option, ADR 0013) | Test d'isolation sur le téléchargement de pièces | L4 |
+| F3.3 | I | Données d'un cabinet résilié non effacées (base, pièces, sauvegardes) | M | F | **Remise des archives** au cabinet (export complet et `sigma-verifier` ; la conservation de dix ans lui incombe ensuite), puis **effacement réel** des lignes et des objets par une procédure d'exploitation à double validation, via des rôles d'exploitation dédiés et journalisés (le rôle applicatif ne peut ni supprimer une écriture validée ni lever le verrou WORM), et **expiration des sauvegardes** au terme de leur durée de rétention, fixée en L9 et annoncée au contrat (ADR 0013 §3, Q14). Pas de suppression cryptographique | Test de la procédure de résiliation (plus aucune donnée du cabinet hors des sauvegardes en cours d'expiration) | L9 |
 | F3.4 | D | Saturation du stockage (les doublons ne sont plus bloqués, spec §9.3) | M | M | Quotas par cabinet et par dossier ; doublon exact du dossier signalé avant ajout | Tests de quotas | L4 |
-| F3.5 | I | **Déduplication par hash comme canal de fuite** : signaler un doublon révélerait qu'un autre cabinet détient la même pièce ; un stockage unique entre cabinets contredirait le chiffrement par cabinet | É | M | **Cloisonnement** (spec §2, principe 12) : doublons recherchés et pièces stockées **dans le dossier seulement** (spec §6.5, §8.1, §9.3, décision du 2026-11-14) ; aucune réponse ne dépend du contenu d'un autre dossier | Test : un doublon d'un autre dossier ou cabinet n'est jamais signalé ni comparé | L4 |
-| F3.6 | D | **Perte d'une clé de cabinet** : dix ans d'archives légales illisibles (la suppression cryptographique joue contre nous) | É | F | Clés maîtresses en KMS/OpenBao répliquées et sauvegardées ; clés de données chiffrées sauvegardées avec les données ; restauration testée **clés comprises** ; suppression cryptographique seulement par procédure à double validation, après la durée légale de conservation et la remise des archives au client | Restauration mensuelle testée, **clés comprises** (L9) | L2 / L9 |
+| F3.5 | I | **Déduplication par hash comme canal de fuite** : signaler un doublon révélerait qu'un autre cabinet détient la même pièce ; un stockage unique entre cabinets contredirait le cloisonnement | É | M | **Cloisonnement** (spec §2, principe 12) : doublons recherchés et pièces stockées **dans le dossier seulement** (spec §6.5, §8.1, §9.3, décision du 2026-11-14) ; aucune réponse ne dépend du contenu d'un autre dossier | Test : un doublon d'un autre dossier ou cabinet n'est jamais signalé ni comparé | L4 |
+| F3.6 | D | **Perte d'une clé de cabinet** : dix ans d'archives légales illisibles (la suppression cryptographique joue contre nous) | É | F | **Sans objet tant que l'option de chiffrement par cabinet n'est pas activée** : aucune clé de cabinet par défaut (décision du 2026-11-18, ADR 0013). **Si l'option est activée**, s'appliquent : clés maîtresses répliquées et sauvegardées ; clés de données chiffrées sauvegardées avec les données ; restauration testée **clés comprises** ; suppression cryptographique seulement par procédure à double validation, après la durée légale de conservation et la remise des archives au client ; client averti du risque à l'activation (Fondations §3.7) | Si l'option est activée : restauration mensuelle testée, **clés comprises** | Option future (non développée en L2) |
 
 ### F4 — API ↔ worker documents (zone non fiable)
 
@@ -225,8 +225,8 @@ Voir aussi le §6 (menaces propres à l'IA).
 | Id | | Menace | G | V | Mesures prévues | Preuve | Lot |
 |---|---|---|:-:|:-:|---|---|---|
 | F6.1 | S / T | Faux jeton d'horodatage | É | F | Vérification de la signature et de la chaîne de certificats de la TSA ; empreinte du hash envoyé contrôlée dans la réponse | Vecteurs de jetons valides et falsifiés en test | L1 |
-| F6.2 | D | TSA indisponible | F | M | Horodatage différé et rejoué ; la chaîne de hachage reste valide ; alerte si retard > 24 h | Test de rejeu de l'horodatage différé | L1 |
-| F6.3 | I | — | — | — | Seul un hash part : aucune donnée comptable | — | — |
+| F6.2 | D | TSA indisponible | F | M | Seconde autorité en secours (Sectigo après DigiCert, ADR 0010) ; horodatage différé et rejoué ; la chaîne de hachage reste valide ; alerte si retard > 24 h | Test de rejeu de l'horodatage différé (L1) ; rejeu réel par la tâche de la file et alerte (L2) | L1 / L2 |
+| F6.3 | I | — | — | — | Seule l'empreinte SHA-256 du témoin part : aucune donnée comptable ni identifiant de dossier en clair | — | — |
 
 ### F7 — Exports et vérification (`sigma-verifier`, cabinet, auditeur)
 
@@ -265,8 +265,8 @@ Voir aussi le §6 (menaces propres à l'IA).
 | Id | | Menace | G | V | Mesures prévues | Preuve | Lot |
 |---|---|---|:-:|:-:|---|---|---|
 | F9.1 | S / E | Vol des accès d'un opérateur (M8, M1) | É | M | MFA forte, accès nominatifs et journalisés, identifiants à durée courte, déploiement par OIDC (aucune clé cloud longue durée) | Revue des accès ; pentest (L9) | L2 / L9 |
-| F9.2 | I | Opérateur lisant les données d'un cabinet | É | F | Chiffrement par cabinet avec clés en KMS/OpenBao ; accès aux clés journalisé ; supervision par le SOC | Revue du journal d'accès aux clés | L2 / L9 |
-| F9.3 | D | Rançongiciel, perte de données | É | M | Sauvegardes chiffrées, **immuables**, restauration testée chaque mois ; RPO/RTO définis | Restauration testée chaque mois, avec procès-verbal | L9 |
+| F9.2 | I | Opérateur lisant les données d'un cabinet | É | F | **Risque accepté par défaut** (décision du 2026-11-18) : sans chiffrement applicatif, un opérateur qui accède à la base, aux pièces ou aux sauvegardes peut les lire ; le chiffrement des disques ne protège pas d'un accès au système en marche. **Réduit** par le contrôle d'accès à l'infrastructure (accès nominatifs, MFA forte, identifiants à durée courte, F9.1), des rôles de base distincts, la journalisation de ces accès et la supervision par le SOC. **Éliminé**, pour les données au repos, si le cabinet active l'option de chiffrement par cabinet (ADR 0013) | Revue du journal des accès à l'infrastructure ; si l'option est activée, revue du journal d'accès aux clés | L9 |
+| F9.3 | D | Rançongiciel, perte de données, perte des clés de chiffrement des disques ou des sauvegardes | É | M | Sauvegardes chiffrées, **immuables**, restauration testée chaque mois, **clés de chiffrement comprises** ; clés des disques et des sauvegardes séquestrées par l'exploitation (ADR 0013) ; RPO/RTO définis | Restauration testée chaque mois, avec procès-verbal | L9 |
 | F9.4 | R | Action d'exploitation non tracée | M | M | Journaux structurés centralisés ; plan de réponse aux incidents | Exercice de réponse à incident | L9 |
 
 ### F10 — Messagerie de dépôt
@@ -325,14 +325,37 @@ Principe directeur (ADR 0008) : **l'IA propose, l'humain valide**. L'IA écrit u
 - Environnement `publication` : approbation par `core`, auto-approbation et contournement par les administrateurs interdits, tags `v*` uniquement.
 - Organisation : 2FA obligatoire ; création de dépôts réservée aux administrateurs ; actions GitHub limitées à une liste et épinglées par hash.
 
-## 8. Vie privée (LINDDUN) — à compléter en L2
+## 8. Vie privée (LINDDUN)
 
-Points identifiés, analyse détaillée à faire avec le schéma de données (L2) et la paie (L5) :
-- **Liaison / identification** : bulletins de paie et notes de frais (L5) contiennent des données de salariés ; minimisation à l'import du récapitulatif de paie.
-- **Non-conformité** : déclaration à la CDP, registre des traitements, contrat de sous-traitance avec les cabinets, transfert hors du Sénégal pour l'hébergement en Europe (Fondations §10).
-- **Divulgation** : envoi au fournisseur IA (F5) limité aux pièces et au contexte nécessaire ; durée de conservation chez le fournisseur.
-- **Détectabilité** : messages d'erreur et délais qui révéleraient l'existence d'un dossier ou d'un utilisateur.
-- **Droits des personnes** : concilier effacement et conservation légale de 10 ans (AUDCIF).
+Cadre : loi sénégalaise n° 2008-12 sur les données personnelles, contrôlée par la CDP (Fondations §3.13). L'analyse porte sur le schéma du lot L2 ; elle sera reprise avec le portail (L4) et la paie (L5).
+
+### 8.1 Données personnelles traitées
+
+| Personnes | Données | Source | Lot |
+|---|---|---|---|
+| **Utilisateurs** des cabinets | Adresse électronique (invitation, alertes), appartenance et rôle, accès aux dossiers, clés publiques des passkeys, sessions ; actions dans le journal d'audit (qui, quoi, quand, avant/après) | Spec §21, §23 | L2 |
+| **Clients** des cabinets (portail) | Mêmes données d'utilisateur ; pièces et réponses déposées | Spec §19 | L4 |
+| **Tiers** des dossiers (clients, fournisseurs, associés…) | Tiers minimal en L2 : identifiant, nom, type, compte collectif. En L3 : NINEA, RCCM, adresse, contacts, conditions | Spec §5.3 ; plan L2, question 6 | L2 / L3 |
+| **Salariés** des clients des cabinets | Récapitulatif de paie (rubriques, montants), notes de frais, tiers de type « salarié » ; bulletins éventuellement déposés comme pièces | Spec §5.3, §12 | L5 (pièces : dès leur dépôt) |
+| Personnes citées dans les **pièces** | Tout ce que porte une facture, un relevé ou un justificatif | Spec §6.5 | L2 (dépôt) / L4 (IA) |
+
+**Minimisation** : Sigma Books ne calcule pas la paie et n'en reçoit qu'un récapitulatif (spec §12.1) ; le tiers minimal de L2 se limite à quatre champs ; seules les images de la pièce et le contexte strictement nécessaire partent vers l'IA (F5.3) ; seule l'empreinte du témoin part vers l'autorité d'horodatage (F6.3) ; les journaux techniques sont en **liste blanche** de champs (F2.11).
+
+### 8.2 Analyse
+
+Légende : **L** liaison, **I** identification, **Nr** non-répudiation, **Dt** détectabilité, **Dv** divulgation, **U** ignorance (information et maîtrise des personnes), **Nc** non-conformité.
+
+| Id | | Menace | G | V | Mesures prévues | Preuve | Lot |
+|---|---|---|:-:|:-:|---|---|---|
+| VP1 | L | Croisement des données d'une même personne (tiers, salarié) entre dossiers ou cabinets, qui reconstituerait son profil à partir de plusieurs clients | É | M | **Cloisonnement** (spec §2, principe 12) : aucune donnée d'un dossier lue, comparée ni utilisée pour un autre ; doublons limités au dossier (F3.5) ; règles apprises et contexte IA limités au dossier (IA6, IA7) | Tests d'isolation entre tenants (F1.7, F2.7) ; tests de F3.5 et IA7 | L2 / L4 |
+| VP2 | I | Données de salariés (identité, rémunérations) accessibles au-delà du nécessaire | M | M | Accès limité aux dossiers affectés (F1.7) ; récapitulatif de paie plutôt que bulletins ; minimisation à l'import du récapitulatif : règle à fixer (Q15) | Tests d'isolation ; règle de minimisation (L5) | L2 / L5 |
+| VP3 | I / Dv | Données personnelles dans les journaux techniques, les rapports d'erreur et les courriels | M | M | Journaux en liste blanche de champs : aucun montant, libellé, pièce, jeton ni corps de requête ; rapports d'erreur sans données client (F2.11) ; courriels génériques, sans nom de tiers (F12.2) | Test : journaux d'un scénario complet sans montant, libellé ni jeton ; revue des modèles de courriel | L2 |
+| VP4 | Nr | Traçabilité durable des utilisateurs : l'audit chaîné impute chaque action à une personne et ne s'efface pas | F | É | **Voulue** (spec §21, AUDCIF) et conservée. Minimisation (ADR 0014) : seuls les champs modifiés dans avant/après, acteur désigné par son UUID, **aucune adresse IP** ni jeton ; lecture par un rôle d'audit séparé, sous Cedar et RLS ; deux portées de chaîne (dossier, cabinet), pour qu'un export d'audit d'un dossier ne révèle rien d'un autre | Test : l'export d'audit d'un dossier ne contient aucune entrée d'un autre dossier | L2 |
+| VP5 | Dt | Existence d'un utilisateur, d'un dossier ou d'une activité déduite des réponses ou des sorties | M | M | Réponses uniformes et identifiants aléatoires (F1.8) ; horodatage par la seule empreinte du témoin (F6.3) ; témoin remis au seul cabinet, jamais publié : la publication révélerait l'activité de chaque dossier (Q8) | Test : réponses identiques pour une ressource existante ou inexistante | L2 |
+| VP6 | Dv | Divulgation hors du cabinet : fournisseur IA, opérateur du service, export complet | É | F | F5.3 (minimisation, contrat sans entraînement, Q4) ; F7.4 (export complet ré-authentifié et alerté) ; F9.2 (opérateur : risque accepté par défaut, réduit par la journalisation et le contrôle d'accès) | Preuves de F5.3, F7.4 et F9.2 | L2 / L4 / L9 |
+| VP7 | U | Tiers et salariés ignorent que leurs données sont traitées : le cabinet les saisit sans qu'ils soient en contact avec Sigma Books | M | M | Contrat de sous-traitance avec les cabinets prévu (Fondations §3.13) ; utilisateurs : sessions visibles et révocables (spec §21). Répartition des rôles (responsable du traitement, sous-traitant) et information des personnes : ouvertes (Q15) | — | Avant le premier client |
+| VP8 | Nc | Traitement non conforme à la loi n° 2008-12 : déclaration à la CDP, registre des traitements, contrat de sous-traitance, transfert hors du Sénégal | É | M | Déclaration CDP, registre et contrat de sous-traitance (Fondations §3.13) ; lieu d'hébergement non choisi (Q3) : un hébergement hors du Sénégal impose un transfert déclaré à la CDP et se heurte, pour les factures, à l'art. 640 du CGI | Déclaration et registre (documents) | Avant le premier client |
+| VP9 | Nc | Droits des personnes (accès, rectification, effacement) face à la conservation légale de dix ans et au caractère définitif des écritures (spec §2, principes 4 et 6) | M | M | Écriture validée jamais modifiée : une rectification passe par une contre-passation ; à la résiliation, remise des archives puis effacement réel (F3.3, Q14) ; une pièce déposée par erreur reste stockée jusqu'au terme de sa rétention WORM, à mentionner au registre des traitements (ADR 0015). Conciliation des droits avec la conservation légale et durées de conservation (journaux techniques, audit, comptes d'utilisateurs) : ouvertes (Q15) | — | Ouvert (Q15) |
 
 ## 9. Risques ouverts et questions
 
@@ -340,17 +363,19 @@ Points identifiés, analyse détaillée à faire avec le schéma de données (L2
 |---|---|---|
 | Q1 | Mécanisme de remise des tâches au worker sans accès à la base (§5, F4) | ADR en L4 |
 | Q2 | Moment du caractère définitif d'une écriture (spec §26, point 1) : conditions de la chaîne de hachage | Avis d'un expert-comptable ; ADR 0007 |
-| Q3 | Choix du fournisseur KMS / OpenBao et de l'hébergeur (région Europe) : modèle de menace opérateur (M8) | Lot L2 / L9 |
+| Q3 | Choix de l'hébergeur de l'offre Cloud et modèle de menace opérateur (M8). L'hypothèse « grand fournisseur cloud, région Europe » (Fondations §10) contredit l'**art. 640 du CGI du Sénégal** (factures émises et reçues stockées sur le territoire sénégalais ; CGI consolidé DGID, janvier 2025, p. 311) et la décision Q12c du 2026-11-18 (code neutre, hébergeur à choisir). **KMS / OpenBao : sans objet par défaut** (aucun chiffrement applicatif) ; à choisir seulement pour l'option de chiffrement par cabinet | Choix de l'hébergeur ; Fondations §10 à mettre à jour ; L9 |
 | Q4 | Fournisseur et contrat IA : rétention des données, région de traitement | Avant L4 |
-| Q5 | Autorité d'horodatage retenue et sa confiance (racine, disponibilité) | L1 |
+| Q5 | Autorité d'horodatage retenue et sa confiance (racine, disponibilité) | **Tranché (2026-11-18)** : ADR 0010 acceptée. DigiCert, puis Sectigo en secours ; racines intégrées au vérificateur, `sigma-verifier --ancre` pour en ajouter. Restent : révocation non contrôlée (limite connue) ; valeur probante d'une autorité étrangère, à soumettre à l'expert-comptable et à un juriste |
 | Q6 | Service des fichiers statiques et en-têtes HTTP (`frame-ancestors`, HSTS, COOP/COEP) par le backend | L2 |
 | Q7 | Contrôle automatisé de la CSP dans un navigateur en CI (aujourd'hui vérifiée manuellement) | Issue à ouvrir |
-| Q8 | Témoin externe de la chaîne : forme (écran, export, envoi périodique au cabinet, publication) et fréquence d'horodatage (quotidienne, par lot, horaire) | ADR en L1 |
+| Q8 | Témoin externe de la chaîne : forme (écran, export, envoi périodique au cabinet, publication) et fréquence d'horodatage (quotidienne, par lot, horaire) | **Tranché (2026-11-18)** : témoin affiché sur l'écran Intégrité, joint à chaque export d'intégrité et envoyé au cabinet à chaque verrouillage de période et à chaque clôture ; pas de publication (question 9b du plan L2). Fréquence : chaque jour si la chaîne a changé, et à chaque verrouillage et clôture (ADR 0010) |
 | Q9 | Séparation des identifiants du mainteneur et de l'agent sur le poste de développement ; jeton du compte machine dans un trousseau | **Tranché (2026-11-17)** : risque accepté, aucune mesure |
-| Q10 | Risques résiduels acceptés ou non : administrateur de cabinet malveillant (M10) et collusion saisie/validation | Décision produit, L2 |
+| Q10 | Risques résiduels acceptés ou non : administrateur de cabinet malveillant (M10) et collusion saisie/validation | **Tranché (2026-11-18)** : risques résiduels F1.15 et F1.16 **acceptés**, avec audit chaîné incluant les changements de droits et notification des actions d'administration aux autres administrateurs (question 10a du plan L2) |
 | Q11 | Libellés commençant par `=`, `+`, `-`, `@` : refus ou simple alerte à la saisie, compte tenu du FEC | Règle à fixer, L1 (saisie) / L8 (FEC) |
 | Q12 | Périmètre de la déduplication et du stockage unique des pièces | **Tranché (2026-11-14)** : cloisonnement par dossier, doublons signalés sans blocage (spec §2 principe 12, §6.5, §8.1, §9.3 ; #78) |
 | Q13 | Compromission du compte du mainteneur unique | **Tranché (2026-11-17)** : passkey adoptée ; compte d'administration distinct et second mainteneur restent recommandés |
+| Q14 | Effacement réel à la résiliation (F3.3) face au verrouillage WORM des pièces (rétention de dix ans au moins) et à la rétention des sauvegardes | Proposé (ADR 0013 §3, ADR 0015) : verrou en mode « gouvernance », que seule la procédure de résiliation de l'exploitation, à double validation, peut lever. Restent : durée de rétention des sauvegardes (L9) ; point de départ de la rétention des pièces (ADR 0015) |
+| Q15 | Vie privée (§8) : répartition des rôles CDP (responsable du traitement, sous-traitant) et information des personnes ; minimisation du récapitulatif de paie ; durées de conservation (journaux techniques, audit, comptes d'utilisateurs) ; droits des personnes face à la conservation légale de dix ans | Avant le premier client ; L5 (paie) |
 
 ## 10. Historique
 
@@ -359,3 +384,4 @@ Points identifiés, analyse détaillée à faire avec le schéma de données (L2
 | 0.1 | 2026-11-12 | Version initiale (lot L0) |
 | 0.2 (partie 1) | 2026-11-14 | Revue du 2026-11-14 : correction de l'état réel des protections de publication (F8, §7) ; acteurs M9, M10, actif A10 ; flux F11 (imports) et F12 (courriels sortants) ; agent de développement, jeton du compte machine, identifiants du mainteneur, compte du mainteneur ; troncature et retour arrière de la chaîne ; injection de formules et chaînes dans les PDF ; déduplication ; récupération de compte, invitations, multi-cabinets ; administrateur de cabinet, collusion ; disponibilité des clés ; journaux. Questions Q8 à Q13 (#72) |
 | 0.2 (partie 2) | 2026-11-17 | Lecture des tableaux, dix risques principaux, hypothèses et hors périmètre ; identifiant, gravité, vraisemblance et preuve pour chaque menace ; décisions du mainteneur : Q9 (risque accepté), Q12 (cloisonnement par dossier, #78), Q13 (passkey) (#73) |
+| 0.3 | 2026-11-18 | Lot L2 (L2-07) : décisions du mainteneur du 2026-11-18 sur le chiffrement (disques des serveurs et sauvegardes chiffrés obligatoirement, aucun chiffrement applicatif par défaut, chiffrement par cabinet en option) : risque 8, A6, Z3, F2.8, F3.2, F3.3, F3.6, F9.2, F9.3 ; F2.4, F2.5, F6 alignés sur l'ADR 0010 (horodatage par une tâche de la file exécutée par `api`) ; affectation des dossiers et séparation des tâches par défaut (F1.7, F1.16) ; analyse LINDDUN (§8) ; Q3 réécrite (art. 640 du CGI) ; Q5, Q8, Q10 tranchées ; Q14 (effacement et WORM) et Q15 (vie privée) ajoutées |

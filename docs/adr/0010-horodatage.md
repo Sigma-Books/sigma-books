@@ -1,6 +1,6 @@
 # 0010 — Horodatage RFC 3161 de la tête de chaîne
 
-- **Statut :** proposée
+- **Statut :** acceptée (2026-11-18, après correction de l'acteur réseau : question 11.1 du plan L2)
 - **Date :** 2026-11-18
 
 ## Contexte
@@ -21,7 +21,7 @@ Le mainteneur a délégué le choix de l'autorité et de la fréquence (question
 
 ## Conséquences
 - Une réécriture complète de l'export est détectée dès qu'un jeton couvre l'écriture modifiée : `sigma-verifier` signale le témoin qui ne correspond plus. Les écritures postérieures au dernier jeton restent couvertes seulement par la chaîne (fenêtre d'un jour au plus en régime normal).
-- Le worker (lot L2) envoie les requêtes HTTP ; le cœur reste pur (nonce et date passés en paramètre).
+- Les requêtes HTTP partent d'une **tâche de la file PostgreSQL exécutée par le binaire `api`** (lot L2). `worker-documents`, qui n'a pas de réseau (Fondations §3.8), n'y prend aucune part. La sortie réseau est limitée à la liste des autorités. Le cœur reste pur (nonce et date passés en paramètre).
 - Tests sur des jetons réels de DigiCert et de Sectigo, figés dans `crates/integrite/tests/vecteurs/horodatage/` ; la requête produite est identique, octet pour octet, à celle d'`openssl ts -query`.
 - Limites connues : la **révocation** des certificats de l'autorité n'est pas contrôlée (vérification hors ligne) ; seules les signatures RSA sont prises en charge (celles des deux autorités retenues).
 - **Point à soumettre à l'expert-comptable et à un juriste** : valeur probante, dans l'espace OHADA et au Sénégal, d'un horodatage par une autorité étrangère non qualifiée localement ; existence éventuelle d'un prestataire national reconnu, qui s'ajouterait à la liste des autorités.

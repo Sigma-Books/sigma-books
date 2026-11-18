@@ -850,7 +850,7 @@ Lots séquencés selon les dépendances. Durées indicatives pour une petite éq
 |---|---|---|---|
 | **L0 — Fondations** | Dépôt GitHub public, CI sécurisée, ADR, modèle de menaces, SECURITY.md, CLA, workspace Rust, PostgreSQL, squelette SvelteKit | 2 sem. | Pipeline CI vert avec tous les contrôles des Fondations §8 |
 | **L1 — Noyau comptable** | Référentiel SYSCOHADA, écritures, brouillard/validation, numérotation, périodes, exercices, contre-passation, chaîne de hachage, balance, grand livre, journaux | 6 sem. | Tests de propriétés + outil de vérification d'intégrité |
-| **L2 — Socle applicatif** | Passkeys, sessions, Cedar, RLS, audit, multi-tenant, chiffrement par tenant, saisie manuelle, éditions de base | 5 sem. | Tests d'isolation entre tenants ; premier dossier tenu à la main de bout en bout |
+| **L2 — Socle applicatif** | Passkeys, sessions, Cedar, RLS, audit, multi-tenant, saisie manuelle, éditions de base (chiffrement des disques serveurs : exigence de déploiement ; chiffrement par cabinet : option future, ADR 0013) | 5 sem. | Tests d'isolation entre tenants ; premier dossier tenu à la main de bout en bout |
 | **L3 — Tiers et trésorerie** | Tiers, lettrage, échéancier, balance âgée, comptes de trésorerie, import de relevés (CSV), rapprochement bancaire | 5 sem. | État de rapprochement à écart nul sur jeu de test |
 | **L4 — IA et portail** | Worker en bac à sable, pipeline IA, déduplication, file de validation, règles apprises, portail client, évaluations | 7 sem. | Seuils du §22.2 atteints |
 | **L5 — TVA, paie, notes de frais** | Calcul et liquidation de TVA, verrouillage, paie depuis récapitulatif, notes de frais, modèles et abonnements | 3 sem. | Scénarios TVA sur 12 mois |
