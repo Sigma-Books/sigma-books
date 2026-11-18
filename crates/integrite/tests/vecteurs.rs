@@ -9,9 +9,13 @@
 //!   jetons réels (`Sectigo` sur les 3 premières écritures, `DigiCert` sur les 5), selon
 //!   `docs/integrite/format-v2.md`. Comme la v1, il contient une écriture « sans pièce », que le
 //!   moteur ne produit plus (AUDCIF art. 17 et 22) : il reste lu et vérifié.
-//! - `export-v2-reference.txt` : export v2 du dossier de référence actuel, où cette écriture
-//!   s'appuie sur une pièce interne. Produit indépendamment (Python : écriture remplacée, chaîne
-//!   recalculée), avec deux jetons réels obtenus pour cette chaîne.
+//! - `export-v2-reference.txt` : export v2 du dossier de référence, où cette écriture s'appuie
+//!   sur une pièce interne. Produit indépendamment (Python : écriture remplacée, chaîne
+//!   recalculée), avec deux jetons réels obtenus pour cette chaîne. Figé : lu et vérifié.
+//! - `export-v3-reference.txt` : export v3 du dossier de référence actuel : les 5 écritures
+//!   précédentes, inchangées, puis une opération tardive au format canonique v2 (date de valeur
+//!   comptable, AUDCIF art. 22 4°). Produit indépendamment en Python à partir de
+//!   `docs/integrite/format-v3.md`, avec trois jetons réels (3, 5 et 6 écritures).
 
 #![allow(clippy::unwrap_used)]
 
@@ -22,6 +26,7 @@ use integrite::{Empreinte, Options, Version, genese, verifier};
 const EXPORT_V1: &[u8] = include_bytes!("vecteurs/export-v1.txt");
 const EXPORT_V2: &[u8] = include_bytes!("vecteurs/export-v2.txt");
 const EXPORT_V2_REFERENCE: &[u8] = include_bytes!("vecteurs/export-v2-reference.txt");
+const EXPORT_V3_REFERENCE: &[u8] = include_bytes!("vecteurs/export-v3-reference.txt");
 const GENESE: &str = "ea5595d5652ca52169b5d87e9bfbcae14eafc1031c7e2f7985af5252dff7229c";
 const TETE: &str = "13b4cf3aa80611d5f46d9bdb6fdc110d1adcc51f9ce1be0a737146af7b6a9e62";
 
@@ -35,11 +40,28 @@ fn export_regenere_identique_au_vecteur_de_reference() {
     let regenere = commun::export_avec_jetons(&commun::jetons_de_reference());
     assert_eq!(
         String::from_utf8(regenere).unwrap(),
-        String::from_utf8(EXPORT_V2_REFERENCE.to_vec()).unwrap()
+        String::from_utf8(EXPORT_V3_REFERENCE.to_vec()).unwrap()
     );
+    let rapport = verifier(EXPORT_V3_REFERENCE, &Options::default()).unwrap();
+    assert!(rapport.est_integre(), "{rapport}");
+    assert_eq!(rapport.version, Some(Version::V3));
+    let couverts: Vec<u64> = rapport.horodatages.iter().map(|h| h.nombre).collect();
+    assert_eq!(couverts, [3, 5, 6]);
+}
+
+/// Le vecteur v2 de référence reste lu et vérifié (format figé) ; ses 5 écritures sont les 5
+/// premières du vecteur v3.
+#[test]
+fn vecteur_v2_reference_fige() {
     let rapport = verifier(EXPORT_V2_REFERENCE, &Options::default()).unwrap();
     assert!(rapport.est_integre(), "{rapport}");
-    assert_eq!(rapport.horodatages.len(), 2);
+    assert_eq!(rapport.version, Some(Version::V2));
+    let v2 = String::from_utf8(EXPORT_V2_REFERENCE.to_vec()).unwrap();
+    let v3 = String::from_utf8(EXPORT_V3_REFERENCE.to_vec()).unwrap();
+    let ecritures = |texte: &str| {
+        texte[texte.find("ecriture v1").unwrap()..texte.find("tete=").unwrap()].to_owned()
+    };
+    assert!(ecritures(&v3).starts_with(&ecritures(&v2)));
 }
 
 #[test]

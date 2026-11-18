@@ -1,9 +1,10 @@
 //! Export d'intégrité : les écritures validées d'un dossier dans l'ordre de la chaîne, chacune
-//! suivie de son empreinte, puis la tête, le nombre d'écritures et, en **v2**, les jetons
-//! d'horodatage RFC 3161 de la chaîne.
+//! suivie de son empreinte, puis la tête, le nombre d'écritures et, depuis la **v2**, les
+//! jetons d'horodatage RFC 3161 de la chaîne. La **v3** admet en plus les écritures canoniques
+//! v2 (date de valeur comptable, AUDCIF art. 22 4°).
 //!
-//! Formats décrits dans `docs/integrite/format-v1.md` et `format-v2.md`. L'écriture produit la
-//! v2 ; la lecture accepte la v1 (figée) et la v2. Elle traite le fichier comme **hostile** :
+//! Formats décrits dans `docs/integrite/format-v1.md`, `format-v2.md` et `format-v3.md`.
+//! L'écriture produit la v3 ; la lecture accepte les v1 et v2 (figées) et la v3. Elle traite le fichier comme **hostile** :
 //! lecture ligne à ligne bornée, aucune allocation proportionnelle à une valeur lue, erreurs
 //! typées avec numéro de ligne, aucune panique.
 
@@ -18,8 +19,10 @@ use crate::horodatage::JETON_MAX;
 
 /// Première ligne d'un export v1 (lecture seule).
 pub const ENTETE_EXPORT_V1: &str = "sigma-books export v1";
-/// Première ligne d'un export v2.
+/// Première ligne d'un export v2 (lecture seule).
 pub const ENTETE_EXPORT_V2: &str = "sigma-books export v2";
+/// Première ligne d'un export v3.
+pub const ENTETE_EXPORT_V3: &str = "sigma-books export v3";
 /// Longueur d'une ligne `der=` complète (base64), la dernière pouvant être plus courte.
 pub const BASE64_LIGNE: usize = 64;
 /// Nombre maximal de jetons dans un export (un par jour pendant plus de 25 ans).
@@ -83,6 +86,8 @@ pub enum Version {
     V1,
     /// v2 : v1 et jetons d'horodatage.
     V2,
+    /// v3 : v2 et écritures canoniques v2 (date de valeur comptable).
+    V3,
 }
 
 /// Jeton d'horodatage de la chaîne, tel qu'exporté : le témoin (nombre d'écritures et tête à
@@ -148,7 +153,7 @@ pub enum Element {
     },
 }
 
-/// Écrit un export v2, écriture par écriture.
+/// Écrit un export v3, écriture par écriture.
 pub struct EcrivainExport<W: Write> {
     sortie: W,
     chaine: Chaine,
@@ -160,7 +165,7 @@ impl<W: Write> EcrivainExport<W> {
     /// # Errors
     /// Erreur d'écriture.
     pub fn nouveau(dossier: &IdDossier, mut sortie: W) -> io::Result<Self> {
-        writeln!(sortie, "{ENTETE_EXPORT_V2}")?;
+        writeln!(sortie, "{ENTETE_EXPORT_V3}")?;
         writeln!(sortie, "dossier={dossier}")?;
         Ok(Self {
             sortie,
@@ -244,7 +249,7 @@ enum Etape {
     Termine,
 }
 
-/// Lit un export v1 ou v2 élément par élément, sans le charger en mémoire.
+/// Lit un export v1, v2 ou v3 élément par élément, sans le charger en mémoire.
 pub struct LecteurExport<R: BufRead> {
     entree: R,
     ligne: u64,
@@ -264,14 +269,15 @@ impl<R: BufRead> LecteurExport<R> {
             entree,
             ligne: 0,
             tampon: Vec::with_capacity(LIGNE_MAX + 1),
-            version: Version::V2,
+            version: Version::V3,
             etape: Etape::Chaine,
             jetons: 0,
         };
         lecteur.version = match lecteur.ligne_requise()?.as_str() {
+            ENTETE_EXPORT_V3 => Version::V3,
             ENTETE_EXPORT_V2 => Version::V2,
             ENTETE_EXPORT_V1 => Version::V1,
-            _ => return Err(lecteur.erreur(ErreurExport::Attendu(ENTETE_EXPORT_V2))),
+            _ => return Err(lecteur.erreur(ErreurExport::Attendu(ENTETE_EXPORT_V3))),
         };
         let dossier = lecteur.valeur("dossier")?;
         let dossier = IdDossier::parse(&dossier)
@@ -318,8 +324,13 @@ impl<R: BufRead> LecteurExport<R> {
                 ligne: debut,
             }));
         }
-        if premiere != canonique::ENTETE_V1 {
-            return Err(self.erreur(ErreurExport::Attendu("ecriture v1 » ou « tete=")));
+        let canonique_admise = premiere == canonique::ENTETE_V1
+            || (premiere == canonique::ENTETE_V2 && self.version == Version::V3);
+        if !canonique_admise {
+            return Err(self.erreur(ErreurExport::Attendu(match self.version {
+                Version::V3 => "ecriture v1 », « ecriture v2 » ou « tete=",
+                Version::V1 | Version::V2 => "ecriture v1 » ou « tete=",
+            })));
         }
         let mut contenu = premiere;
         contenu.push('\n');
@@ -559,7 +570,7 @@ mod tests {
             })
         );
         assert_eq!(lecteur.suivant().unwrap(), None);
-        assert_eq!(lecteur.version(), Version::V2);
+        assert_eq!(lecteur.version(), Version::V3);
     }
 
     fn erreur(texte: &[u8]) -> (u64, ErreurExport) {
@@ -580,8 +591,8 @@ mod tests {
             format!("{ENTETE_EXPORT_V1}\ndossier=demo\ntete={tete}\nnombre=0\nfin-export\n");
         assert_eq!(erreur(b""), (1, ErreurExport::Tronque));
         assert_eq!(
-            erreur(b"sigma-books export v3\n").1,
-            ErreurExport::Attendu(ENTETE_EXPORT_V2)
+            erreur(b"sigma-books export v4\n").1,
+            ErreurExport::Attendu(ENTETE_EXPORT_V3)
         );
         assert_eq!(
             erreur(valide.trim_end().as_bytes()),
@@ -607,6 +618,12 @@ mod tests {
         assert_eq!(
             erreur(longue.as_bytes()),
             (2, ErreurExport::LigneTropLongue)
+        );
+        // Écriture canonique v2 dans un export v2 : refusée (admise à partir de la v3).
+        let v2 = format!("{ENTETE_EXPORT_V2}\ndossier=demo\necriture v2\nnumero=OD-2026-000001\n");
+        assert_eq!(
+            erreur(v2.as_bytes()),
+            (3, ErreurExport::Attendu("ecriture v1 » ou « tete="))
         );
         // v1 : pas de jeton.
         let v1 = format!("{ENTETE_EXPORT_V1}\ndossier=demo\ntete={tete}\nnombre=0\njeton\n");

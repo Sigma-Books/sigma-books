@@ -471,3 +471,102 @@ fn validation_refusee_apres_l_echeance() {
         Err(ErreurValidation::EcheanceDepassee { .. })
     ));
 }
+
+fn achat_tardif(date: time::Date, date_valeur: time::Date) -> compta_core::EcritureEquilibree {
+    let mut b = achat().en_brouillon();
+    b.changer_date(date);
+    b.mentionner_date_valeur_comptable(Some(date_valeur));
+    b.valider_equilibre().unwrap()
+}
+
+/// AUDCIF art. 22 4° : une opération dont la date de valeur comptable tombe dans une période
+/// fermée est datée du premier jour de la plus ancienne période ouverte ; sa date de valeur
+/// comptable est conservée à part.
+#[test]
+fn operation_tardive_datee_du_premier_jour_ouvert() {
+    let mut d = Dossier::nouveau();
+    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.exercices
+        .verrouiller_periode(date!(2026 - 02 - 10))
+        .unwrap();
+    // Date de valeur en janvier (clôturé) ou en février (verrouillé) : 1er mars.
+    for date_valeur in [date!(2026 - 01 - 20), date!(2026 - 02 - 25)] {
+        assert_eq!(
+            d.valider(achat_tardif(date!(2026 - 03 - 05), date_valeur)),
+            Err(ErreurValidation::DateComptableTardive {
+                date: date!(2026 - 03 - 05),
+                attendue: Some(date!(2026 - 03 - 01)),
+            })
+        );
+        let numero = d
+            .valider(achat_tardif(date!(2026 - 03 - 01), date_valeur))
+            .unwrap();
+        let e = d.livre.ecriture(&numero).unwrap();
+        assert_eq!(e.date(), date!(2026 - 03 - 01));
+        assert_eq!(e.date_valeur_comptable(), Some(date_valeur));
+    }
+    // Date de valeur dans une période ouverte : l'écriture doit simplement en être datée.
+    assert_eq!(
+        d.valider(achat_tardif(date!(2026 - 03 - 20), date!(2026 - 03 - 02))),
+        Err(ErreurValidation::DateValeurDansPeriodeOuverte(date!(
+            2026 - 03 - 02
+        )))
+    );
+    // La date de valeur précède toujours la date comptable.
+    assert_eq!(
+        d.valider(achat_tardif(date!(2026 - 03 - 01), date!(2026 - 03 - 01))),
+        Err(ErreurValidation::DateValeurNonAnterieure {
+            date_valeur: date!(2026 - 03 - 01),
+            date: date!(2026 - 03 - 01),
+        })
+    );
+}
+
+/// Exercice en clôture : il n'accepte pas les achats ; un achat tardif de cet exercice va au
+/// premier jour du suivant. Un journal admis en clôture (OD) reste dans l'exercice en clôture.
+#[test]
+fn operation_tardive_et_exercice_en_cloture() {
+    let mut d = Dossier::nouveau();
+    d.exercices
+        .passer_en_cloture(&CodeExercice::parse("2026").unwrap())
+        .unwrap();
+    assert!(
+        d.valider(achat_tardif(date!(2027 - 01 - 01), date!(2026 - 11 - 15)))
+            .is_ok()
+    );
+    let mut od = achat().en_brouillon();
+    od.changer_journal(j("OD"));
+    od.changer_date(date!(2026 - 01 - 01));
+    od.mentionner_date_valeur_comptable(Some(date!(2025 - 12 - 20)));
+    // Date de valeur antérieure au dossier : premier jour ouvert du dossier pour OD.
+    assert!(d.valider(od.valider_equilibre().unwrap()).is_ok());
+}
+
+/// La date de valeur comptable figure distinctement dans les éditions (art. 22 4°).
+#[test]
+fn date_de_valeur_comptable_editee() {
+    let mut d = Dossier::nouveau();
+    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.valider(achat_tardif(date!(2026 - 02 - 01), date!(2026 - 01 - 31)))
+        .unwrap();
+    let exercice = d
+        .exercices
+        .exercice(&CodeExercice::parse("2026").unwrap())
+        .unwrap();
+    let filtre =
+        compta_core::Filtre::exercice(exercice, &d.journaux, date!(2026 - 12 - 31)).unwrap();
+    let journaux =
+        compta_core::journaux(&d.livre, &[], compta_core::Mode::Definitif, &filtre).unwrap();
+    assert_eq!(
+        journaux[0].ecritures[0].date_valeur_comptable,
+        Some(date!(2026 - 01 - 31))
+    );
+    let grand_livre =
+        compta_core::grand_livre(&d.livre, &[], compta_core::Mode::Definitif, &filtre).unwrap();
+    assert!(
+        grand_livre
+            .iter()
+            .flat_map(|c| c.lignes.iter())
+            .all(|l| l.date_valeur_comptable == Some(date!(2026 - 01 - 31)))
+    );
+}

@@ -1,6 +1,6 @@
 # Fuzzing de `integrite`
 
-- Cible `export` : l'analyseur d'export de `sigma-verifier` (v1 et v2, jetons compris) reçoit
+- Cible `export` : l'analyseur d'export de `sigma-verifier` (v1, v2 et v3, jetons et écritures canoniques v2 compris) reçoit
   des octets quelconques (menace F7.5 du modèle de menaces). Elle vérifie qu'aucune entrée ne
   provoque de panique et qu'une écriture acceptée est exactement sa forme canonique.
 - Cible `jeton` : l'analyse ASN.1 d'un jeton et d'une réponse RFC 3161 (CMS, X.509) reçoit des

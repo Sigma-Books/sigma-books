@@ -33,9 +33,9 @@ use crate::ecriture::{
     VersionParametres,
 };
 use crate::exercice::{
-    CodeExercice, Exercices, StatutExercice, StatutPeriode, echeance_de_cloture,
+    CodeExercice, Exercice, Exercices, Periode, StatutExercice, StatutPeriode, echeance_de_cloture,
 };
-use crate::journal::{CodeJournal, Journaux};
+use crate::journal::{CodeJournal, Journal, Journaux};
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 use crate::plan::{ErreurPlan, PlanComptes, Usage};
 use crate::texte::TexteCourt;
@@ -147,6 +147,31 @@ pub enum ErreurValidation {
     /// Calcul de date impossible.
     #[error("exercice : {0}")]
     Exercice(#[from] crate::exercice::ErreurExercice),
+    /// Date de valeur comptable qui n'est pas antérieure à la date comptable.
+    #[error("la date de valeur comptable ({date_valeur}) doit précéder la date comptable ({date})")]
+    DateValeurNonAnterieure {
+        /// Date de valeur comptable.
+        date_valeur: Date,
+        /// Date comptable.
+        date: Date,
+    },
+    /// Date de valeur comptable dans une période ouverte : l'écriture doit simplement être
+    /// datée de ce jour-là.
+    #[error(
+        "la date de valeur comptable {0} tombe dans une période ouverte : datez l'écriture de ce jour"
+    )]
+    DateValeurDansPeriodeOuverte(Date),
+    /// Opération tardive mal datée : elle doit l'être du premier jour de la plus ancienne
+    /// période ouverte qui accepte son journal (art. 22 4°).
+    #[error(
+        "opération tardive datée du {date} : le premier jour de la plus ancienne période ouverte est attendu ({attendue:?})"
+    )]
+    DateComptableTardive {
+        /// Date comptable fournie.
+        date: Date,
+        /// Date attendue (absente si aucune période n'est ouverte).
+        attendue: Option<Date>,
+    },
     /// Contre-passation datée avant l'écriture d'origine.
     #[error("la contre-passation ({date}) ne peut précéder l'écriture d'origine ({origine})")]
     DateAnterieureAOrigine {
@@ -178,6 +203,7 @@ pub struct EcritureValidee {
     lignes: Vec<Ligne>,
     justification: Justification,
     version_parametres: Option<VersionParametres>,
+    date_valeur_comptable: Option<Date>,
     date_validation: Date,
     origine: Option<NumeroEcriture>,
 }
@@ -223,6 +249,12 @@ impl EcritureValidee {
     #[must_use]
     pub fn version_parametres(&self) -> Option<&VersionParametres> {
         self.version_parametres.as_ref()
+    }
+
+    /// Date de valeur comptable, distincte de la date comptable (AUDCIF art. 22 4°).
+    #[must_use]
+    pub fn date_valeur_comptable(&self) -> Option<Date> {
+        self.date_valeur_comptable
     }
 
     /// Date de la validation (fournie par l'appelant : le moteur ne lit pas l'horloge).
@@ -414,6 +446,7 @@ impl Livre {
             lignes: brouillon.lignes().to_vec(),
             justification,
             version_parametres: ecriture.version_parametres().cloned(),
+            date_valeur_comptable: ecriture.date_valeur_comptable(),
             date_validation,
             origine: origine.clone(),
         };
@@ -425,6 +458,50 @@ impl Livre {
         self.ecritures.push(validee);
         Ok((numero, suivant))
     }
+}
+
+/// AUDCIF art. 22 4° : « lorsque la date de valeur comptable correspond à une période déjà
+/// clôturée, l'opération concernée est enregistrée au premier jour de la période non encore
+/// clôturée » ; la date de valeur comptable est « mentionnée distinctement ». Décision du
+/// mainteneur du 2026-11-18 : la date de valeur comptable tombe dans une période **non
+/// ouverte** pour son journal (verrouillée, clôturée, exercice clôturé, exercice en clôture qui
+/// n'accepte pas le journal, ou date antérieure au dossier) ; l'écriture est datée du premier
+/// jour de la **plus ancienne période ouverte** qui accepte son journal.
+fn controler_date_valeur_comptable(
+    date_valeur: Date,
+    date: Date,
+    journal: &Journal,
+    exercices: &Exercices,
+) -> Result<(), ErreurValidation> {
+    if date_valeur >= date {
+        return Err(ErreurValidation::DateValeurNonAnterieure { date_valeur, date });
+    }
+    // Une période est ouverte pour cette écriture si elle est ouverte et si son exercice
+    // accepte le journal (un exercice en clôture n'accepte que les journaux admis).
+    let accepte = |e: &Exercice| match e.statut() {
+        StatutExercice::Ouvert => true,
+        StatutExercice::EnCloture => journal.admis_en_cloture(),
+        StatutExercice::Cloture => false,
+    };
+    let periode_ouverte = exercices.exercice_contenant(date_valeur).is_some_and(|e| {
+        accepte(e)
+            && e.periode_contenant(date_valeur)
+                .is_some_and(|p| p.statut() == StatutPeriode::Ouverte)
+    });
+    if periode_ouverte {
+        return Err(ErreurValidation::DateValeurDansPeriodeOuverte(date_valeur));
+    }
+    let attendue = exercices
+        .exercices()
+        .iter()
+        .filter(|e| accepte(e))
+        .flat_map(|e| e.periodes().iter())
+        .find(|p| p.statut() == StatutPeriode::Ouverte)
+        .map(Periode::debut);
+    if attendue != Some(date) {
+        return Err(ErreurValidation::DateComptableTardive { date, attendue });
+    }
+    Ok(())
 }
 
 /// Contrôle des invariants 3 à 7 du §6.2 (1 et 2 sont garantis par les types). Renvoie le code
@@ -471,6 +548,10 @@ fn controler(
             periode: periode.debut(),
             echeance,
         });
+    }
+    // Opération tardive (art. 22 4°) : date de valeur comptable dans une période fermée.
+    if let Some(date_valeur) = ecriture.date_valeur_comptable() {
+        controler_date_valeur_comptable(date_valeur, date, journal, contexte.exercices)?;
     }
     // Invariants 3 et 4 : comptes de mouvement actifs ; tiers sur les comptes collectifs.
     for (indice, ligne) in ecriture.lignes().iter().enumerate() {

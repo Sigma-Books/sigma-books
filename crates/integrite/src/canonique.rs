@@ -21,6 +21,9 @@ use time::{Date, Month};
 
 /// Première ligne d'une écriture au format v1. La version entre dans le contenu haché.
 pub const ENTETE_V1: &str = "ecriture v1";
+/// Première ligne d'une écriture au format v2 : v1 et une date de valeur comptable (AUDCIF
+/// art. 22 4°). Une écriture sans date de valeur comptable reste au format v1, à l'identique.
+pub const ENTETE_V2: &str = "ecriture v2";
 /// Dernière ligne d'une écriture.
 pub const FIN: &str = "fin";
 /// Marqueur d'une ligne d'écriture.
@@ -84,6 +87,7 @@ pub struct EcritureCanonique {
     numero: NumeroEcriture,
     date: Date,
     date_validation: Date,
+    date_valeur_comptable: Option<Date>,
     libelle: TexteCourt,
     origine: Option<NumeroEcriture>,
     parametres: Option<VersionParametres>,
@@ -99,6 +103,7 @@ impl EcritureCanonique {
             numero: ecriture.numero().clone(),
             date: ecriture.date(),
             date_validation: ecriture.date_validation(),
+            date_valeur_comptable: ecriture.date_valeur_comptable(),
             libelle: ecriture.libelle().clone(),
             origine: ecriture.origine().cloned(),
             parametres: ecriture.version_parametres().cloned(),
@@ -135,7 +140,14 @@ impl EcritureCanonique {
         !self.lignes.is_empty() && debit == credit
     }
 
-    /// Sérialisation canonique v1 : les octets hachés.
+    /// Date de valeur comptable (format v2 seulement).
+    #[must_use]
+    pub fn date_valeur_comptable(&self) -> Option<Date> {
+        self.date_valeur_comptable
+    }
+
+    /// Sérialisation canonique : les octets hachés. Format v1, ou v2 si l'écriture porte une
+    /// date de valeur comptable.
     #[must_use]
     pub fn serialiser(&self) -> String {
         let mut s = String::new();
@@ -146,6 +158,9 @@ impl EcritureCanonique {
         cle("numero", &self.numero);
         cle("date", &DateIso(self.date));
         cle("date-validation", &DateIso(self.date_validation));
+        if let Some(date_valeur) = self.date_valeur_comptable {
+            cle("date-valeur-comptable", &DateIso(date_valeur));
+        }
         cle("libelle", &self.libelle);
         if let Some(origine) = &self.origine {
             cle("origine", origine);
@@ -186,10 +201,16 @@ impl EcritureCanonique {
                 cle("tiers", tiers);
             }
         }
-        format!("{ENTETE_V1}\n{s}{corps}{FIN}\n")
+        let entete = if self.date_valeur_comptable.is_some() {
+            ENTETE_V2
+        } else {
+            ENTETE_V1
+        };
+        format!("{entete}\n{s}{corps}{FIN}\n")
     }
 
-    /// Lit une écriture au format v1 et vérifie que le texte est exactement sa forme canonique.
+    /// Lit une écriture au format v1 ou v2 et vérifie que le texte est exactement sa forme
+    /// canonique.
     ///
     /// # Errors
     /// [`ErreurCanonique`] : structure, valeur, contre-valeur ou forme non canonique.
@@ -268,14 +289,6 @@ impl<'a> Lecteur<'a> {
         self.lignes.peek().map_or(0, |(i, _)| i + 1)
     }
 
-    fn marqueur(&mut self, attendu: &'static str) -> Result<(), ErreurCanonique> {
-        match self.suivante() {
-            Some((_, l)) if l == attendu => Ok(()),
-            Some((ligne, _)) => Err(ErreurCanonique::Attendu { ligne, attendu }),
-            None => Err(ErreurCanonique::Attendu { ligne: 0, attendu }),
-        }
-    }
-
     /// Valeur de la clé attendue sur la ligne suivante.
     fn cle(&mut self, cle: &'static str) -> Result<(usize, &'a str), ErreurCanonique> {
         let rang = self.rang_courant();
@@ -334,10 +347,30 @@ impl<'a> Lecteur<'a> {
     }
 
     fn ecriture(mut self) -> Result<EcritureCanonique, ErreurCanonique> {
-        self.marqueur(ENTETE_V1)?;
+        let v2 = match self.suivante() {
+            Some((_, ENTETE_V1)) => false,
+            Some((_, ENTETE_V2)) => true,
+            Some((ligne, _)) => {
+                return Err(ErreurCanonique::Attendu {
+                    ligne,
+                    attendu: ENTETE_V1,
+                });
+            }
+            None => {
+                return Err(ErreurCanonique::Attendu {
+                    ligne: 0,
+                    attendu: ENTETE_V1,
+                });
+            }
+        };
         let numero = self.valeur("numero", NumeroEcriture::parse)?;
         let date = self.valeur("date", |v| lire_date(v).ok_or(()))?;
         let date_validation = self.valeur("date-validation", |v| lire_date(v).ok_or(()))?;
+        let date_valeur_comptable = if v2 {
+            Some(self.valeur("date-valeur-comptable", |v| lire_date(v).ok_or(()))?)
+        } else {
+            None
+        };
         let libelle = self.valeur("libelle", TexteCourt::parse)?;
         let origine = self.valeur_optionnelle("origine", NumeroEcriture::parse)?;
         let parametres = self.valeur_optionnelle("parametres", VersionParametres::parse)?;
@@ -376,6 +409,7 @@ impl<'a> Lecteur<'a> {
             numero,
             date,
             date_validation,
+            date_valeur_comptable,
             libelle,
             origine,
             parametres,
@@ -508,9 +542,33 @@ mod tests {
     }
 
     #[test]
+    fn version_v2_et_date_de_valeur_comptable() {
+        let v1 = exemple();
+        let v2 = v1.replacen("ecriture v1\n", "ecriture v2\n", 1).replacen(
+            "date-validation=2026-03-16\n",
+            "date-validation=2026-03-16\ndate-valeur-comptable=2026-02-27\n",
+            1,
+        );
+        let e = EcritureCanonique::lire(&v2).unwrap();
+        assert_eq!(
+            e.date_valeur_comptable(),
+            Some(time::macros::date!(2026 - 02 - 27))
+        );
+        assert_eq!(e.serialiser(), v2);
+        // v1 avec date de valeur comptable, v2 sans : refusés.
+        let v1_avec = v2.replacen("ecriture v2\n", "ecriture v1\n", 1);
+        assert!(EcritureCanonique::lire(&v1_avec).is_err());
+        let v2_sans = v1.replacen("ecriture v1\n", "ecriture v2\n", 1);
+        assert!(EcritureCanonique::lire(&v2_sans).is_err());
+        assert!(
+            EcritureCanonique::lire(&v1.replacen("ecriture v1\n", "ecriture v3\n", 1)).is_err()
+        );
+    }
+
+    #[test]
     fn refuse_les_structures_invalides() {
         let cas = [
-            ("ecriture v1\n", "ecriture v2\n"),
+            ("ecriture v1\n", "ecriture v3\n"),
             ("sens=D", "sens=X"),
             ("montant-devise=228.67", "montant-devise=228.68"),
             ("fin\n", "fin\nfin\n"),
@@ -544,5 +602,97 @@ mod tests {
         assert!(lire_date("2024-02-29").is_some());
         assert!(lire_date("+026-01-01").is_none());
         assert!(lire_date("2026-01-01 ").is_none());
+    }
+
+    mod proprietes {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn texte() -> impl Strategy<Value = TexteCourt> {
+            // Unicode quelconque, `=` et espaces compris ; jamais de caractère de contrôle.
+            "[^\\p{Cc}]{1,60}".prop_filter_map("texte court", |t| TexteCourt::parse(&t).ok())
+        }
+
+        fn date() -> impl Strategy<Value = Date> {
+            (0i32..3000).prop_map(|j| {
+                time::macros::date!(2025 - 01 - 01) + time::Duration::days(i64::from(j))
+            })
+        }
+
+        fn ligne() -> impl Strategy<Value = Ligne> {
+            let compte = prop_oneof![Just("4111"), Just("521"), Just("605"), Just("4011-SENELEC")]
+                .prop_map(|c| NumeroCompte::parse(c).unwrap());
+            let sens = prop_oneof![Just(Sens::Debit), Just(Sens::Credit)];
+            let tiers =
+                proptest::option::of("[A-Z0-9]{1,8}".prop_map(|t| IdTiers::parse(&t).unwrap()));
+            let devise = proptest::option::of((1i64..10_000_000, 1i64..10_000_000));
+            (compte, sens, 1i64..1_000_000_000_000, devise, tiers).prop_filter_map(
+                "ligne valide",
+                |(compte, sens, xof, devise, tiers)| {
+                    let ligne = match devise {
+                        None => Ligne::en_xof(
+                            compte,
+                            sens,
+                            Montant::nouveau(Decimal::new(xof, 0), Devise::XOF),
+                        ),
+                        Some((montant, cours)) => Ligne::en_devise(
+                            compte,
+                            sens,
+                            Montant::nouveau(Decimal::new(montant, 2), Devise::parse("EUR").ok()?),
+                            Cours::nouveau(Decimal::new(cours, 3)).ok()?,
+                        ),
+                    }
+                    .ok()?;
+                    Some(match tiers {
+                        Some(t) => ligne.avec_tiers(t),
+                        None => ligne,
+                    })
+                },
+            )
+        }
+
+        prop_compose! {
+            fn ecriture()(
+                rang in 1u32..999_999,
+                date in date(),
+                date_validation in date(),
+                date_valeur_comptable in proptest::option::of(date()),
+                libelle in texte(),
+                origine in proptest::option::of(1u32..999_999),
+                parametres in proptest::option::of("[a-z0-9.-]{1,12}"),
+                pieces in proptest::collection::btree_set("[0-9a-f]{64}", 1..4),
+                lignes in proptest::collection::vec(ligne(), 1..6),
+            ) -> EcritureCanonique {
+                let numero = |r: u32| NumeroEcriture::parse(&format!("OD-2026-{r:06}")).unwrap();
+                EcritureCanonique {
+                    numero: numero(rang),
+                    date,
+                    date_validation,
+                    date_valeur_comptable,
+                    libelle,
+                    origine: origine.map(numero),
+                    parametres: parametres.map(|p| VersionParametres::parse(&p).unwrap()),
+                    justification: JustificationCanonique::Pieces(
+                        pieces.iter().map(|p| ReferencePiece::parse(p).unwrap()).collect(),
+                    ),
+                    lignes,
+                }
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(512))]
+
+            /// Menace F7.3 : la sérialisation est injective. Toute écriture se relit exactement
+            /// depuis sa forme canonique (v1, ou v2 avec date de valeur comptable) ; deux
+            /// écritures distinctes ont donc des formes canoniques distinctes.
+            #[test]
+            fn serialisation_injective(a in ecriture(), b in ecriture()) {
+                let (ta, tb) = (a.serialiser(), b.serialiser());
+                prop_assert_eq!(EcritureCanonique::lire(&ta), Ok(a.clone()));
+                prop_assert_eq!(ta.starts_with(ENTETE_V2), a.date_valeur_comptable.is_some());
+                prop_assert_eq!(a == b, ta == tb);
+            }
+        }
     }
 }
