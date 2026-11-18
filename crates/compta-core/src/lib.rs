@@ -5,6 +5,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod alertes;
+pub mod centralisateur;
 pub mod compte;
 pub mod ecriture;
 pub mod editions;
@@ -17,6 +19,11 @@ pub mod plan;
 pub mod texte;
 pub mod validation;
 
+pub use alertes::{AlerteBrouillard, RetardValidation, brouillard_en_retard, retard_de_validation};
+pub use centralisateur::{
+    Centralisateur, LigneCentralisateur, LigneCentralisateurCompte, MoisCivil,
+    RubriqueCentralisateur, TotalMois,
+};
 pub use compte::{ErreurNumeroCompte, NumeroCompte};
 pub use ecriture::{
     EcritureBrouillon, EcritureEquilibree, ErreurEcriture, IdTiers, Justification, Ligne,
