@@ -19,3 +19,5 @@ toml.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+rust_decimal.workspace = true
+time = { workspace = true, features = ["macros"] }
