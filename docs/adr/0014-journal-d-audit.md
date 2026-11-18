@@ -1,6 +1,6 @@
 # 0014 — Journal d'audit chaîné : deux portées, format canonique, même transaction
 
-- **Statut :** proposée
+- **Statut :** acceptée (2026-11-18, par le mainteneur)
 - **Date :** 2026-11-18
 
 ## Contexte

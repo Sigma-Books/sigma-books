@@ -1,6 +1,6 @@
 # 0013 — Chiffrement : disques obligatoires, chiffrement par cabinet facultatif
 
-- **Statut :** proposée
+- **Statut :** acceptée (2026-11-18, par le mainteneur)
 - **Date :** 2026-11-18
 
 ## Contexte

@@ -1,6 +1,6 @@
 # 0011 — Persistance et multi-tenant : rôles, tables, RLS forcée, contexte
 
-- **Statut :** proposée
+- **Statut :** acceptée (2026-11-18, par le mainteneur)
 - **Date :** 2026-11-18
 
 ## Contexte

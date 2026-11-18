@@ -1,6 +1,6 @@
 # 0012 — Sessions, secours, récupération de compte et création des cabinets
 
-- **Statut :** proposée
+- **Statut :** acceptée (2026-11-18, par le mainteneur)
 - **Date :** 2026-11-18
 
 ## Contexte

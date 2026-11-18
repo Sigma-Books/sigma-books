@@ -14,10 +14,10 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0008 | L'IA propose, l'humain valide | Acceptée |
 | 0009 | Licence AGPL-3.0-or-later, CLA, marque réservée | Acceptée |
 | 0010 | Horodatage RFC 3161 de la tête de chaîne : DigiCert, Sectigo en secours | Acceptée |
-| 0011 | Persistance et multi-tenant : rôles PostgreSQL, RLS forcée, isolation à trois niveaux | Proposée |
-| 0012 | Sessions, secours, récupération de compte et création des cabinets | Proposée |
-| 0013 | Chiffrement : disques des serveurs obligatoire, chiffrement par cabinet facultatif | Proposée |
-| 0014 | Journal d'audit chaîné | Proposée |
-| 0015 | Pièces justificatives en L2 | Proposée |
+| 0011 | Persistance et multi-tenant : rôles PostgreSQL, RLS forcée, isolation à trois niveaux | Acceptée |
+| 0012 | Sessions, secours, récupération de compte et création des cabinets | Acceptée |
+| 0013 | Chiffrement : disques des serveurs obligatoire, chiffrement par cabinet facultatif | Acceptée |
+| 0014 | Journal d'audit chaîné | Acceptée |
+| 0015 | Pièces justificatives en L2 | Acceptée |
 
 Modèle : copier `0000-modele.md`.
