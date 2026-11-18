@@ -14,7 +14,7 @@
 //!   informatique, qui a son échéance : [`crate::echeance_de_cloture`]). C'est un choix fondé sur
 //!   ce contraste.
 //! - C'est une **alerte**, jamais un blocage : la saisie et la validation restent régies par
-//!   [`crate::Livre::valider`].
+//!   [`crate::valider`] (ou [`crate::Livre::valider`]).
 //!
 //! **Moteurs de référence.** Aucun n'alerte sur l'âge du brouillard : Dolibarr compte les
 //! lignes non validées par mois à la clôture, Odoo compte les brouillons par journal.

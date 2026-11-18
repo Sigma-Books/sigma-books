@@ -289,7 +289,7 @@ fn a_nouveaux_hors_bornes_absents_de_la_rubrique() {
     );
     // La balance du même filtre, elle, porte l'à-nouveau en ouverture.
     let balance = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &brouillard,
         Mode::Provisoire,
         &filtre,
@@ -574,7 +574,7 @@ proptest! {
         let filtre = filtre(&dos, cal, du, au, &journaux);
         let mode = mode(provisoire);
         let c = Centralisateur::calculer(dos.livre.ecritures(), &brouillard, mode, &filtre).unwrap();
-        let balance = Balance::calculer(&dos.livre, &brouillard, mode, &filtre, Regroupement::ParCompte).unwrap();
+        let balance = Balance::calculer(dos.livre.ecritures(), &brouillard, mode, &filtre, Regroupement::ParCompte).unwrap();
         let (mut debit, mut credit) = (Decimal::ZERO, Decimal::ZERO);
         for ligne in balance.lignes() {
             let (d, c) = ligne.mouvements();
@@ -635,7 +635,7 @@ proptest! {
         let filtre = Filtre::exercice(exercice, &dos.journaux, cal.date(au)).unwrap();
         let mode = mode(provisoire);
         let c = Centralisateur::calculer(dos.livre.ecritures(), &brouillard, mode, &filtre).unwrap();
-        let balance = Balance::calculer(&dos.livre, &brouillard, mode, &filtre, Regroupement::ParCompte).unwrap();
+        let balance = Balance::calculer(dos.livre.ecritures(), &brouillard, mode, &filtre, Regroupement::ParCompte).unwrap();
         for ligne in balance.lignes() {
             let (od, oc) = ligne.solde_ouverture().unwrap();
             let solde_an: Decimal = c
