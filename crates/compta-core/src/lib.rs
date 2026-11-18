@@ -38,4 +38,4 @@ pub use montant::{Cours, Devise, ErreurMontant, Montant};
 pub use numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 pub use plan::{Compte, CompteReference, ErreurPlan, GenreCompte, PlanComptes, SensNormal, Usage};
 pub use texte::{ErreurTexte, TexteCourt};
-pub use validation::{contre_passer, valider};
+pub use validation::{Validation, contre_passer, valider};

@@ -320,6 +320,10 @@ pub struct Balance {
 impl Balance {
     /// Calcule la balance : une ligne par compte (ou tronc) mouvementé, triée par clé.
     ///
+    /// `validees` : écritures validées d'**un seul dossier**, sans doublon (chacune une fois) ;
+    /// l'ordre est indifférent. Au lot L2, l'API passe celles de l'exercice du filtre jusqu'à sa
+    /// date de fin : les écritures antérieures à la période alimentent l'ouverture.
+    ///
     /// # Errors
     /// Dépassement de capacité.
     pub fn calculer(
@@ -438,6 +442,10 @@ pub struct CompteGrandLivre {
 
 /// Grand livre général : un bloc par compte mouvementé, trié par numéro.
 ///
+/// `validees` : écritures validées d'**un seul dossier**, sans doublon (chacune une fois) ;
+/// l'ordre est indifférent. Au lot L2, l'API passe celles de l'exercice du filtre jusqu'à sa
+/// date de fin : les écritures antérieures à la période alimentent l'ouverture.
+///
 /// # Errors
 /// Dépassement de capacité.
 pub fn grand_livre(
@@ -538,6 +546,10 @@ pub struct EditionJournal {
 
 /// Journaux de la période : un bloc par journal retenu et mouvementé, trié par code. Le filtre
 /// de comptes ne s'applique pas : une écriture figure toujours en entier dans son journal.
+///
+/// `validees` : écritures validées d'**un seul dossier**, sans doublon (chacune une fois) ;
+/// l'ordre est indifférent. Au lot L2, l'API passe celles de l'exercice du filtre jusqu'à sa
+/// date de fin : les écritures antérieures à la période alimentent l'ouverture.
 ///
 /// # Errors
 /// Dépassement de capacité.

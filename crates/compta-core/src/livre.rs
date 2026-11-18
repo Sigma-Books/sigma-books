@@ -3,9 +3,12 @@
 //! - [`Livre::valider`] contrôle les invariants du §6.2 sur une [`EcritureEquilibree`], attribue
 //!   le numéro définitif (compteur passé en paramètre, fonction pure côté numérotation) et
 //!   inscrit l'écriture. Il délègue à [`crate::validation::valider`], la même validation sans
-//!   livre en mémoire (lot L2 : écritures en base). Ces deux voies, et la contre-passation,
-//!   sont les **seules** qui créent une [`EcritureValidee`] ;
-//!   [`EcritureValidee::reconstituer`] ne fait que relire une écriture déjà validée.
+//!   livre en mémoire (lot L2 : écritures en base).
+//! - Une [`EcritureValidee`] naît d'une validation ou d'une contre-passation, ou d'une
+//!   **relecture** de la base ([`EcritureValidee::reconstituer`], contrôles structurels
+//!   seulement). La détenir ne prouve donc pas qu'elle a passé les contrôles du §6.2 : seule
+//!   une [`crate::validation::Validation`] le prouve, et c'est elle seule que la couche
+//!   d'insertion accepte.
 //! - Le livre est en **ajout seul** : aucune fonction ne modifie ni ne retire une écriture
 //!   validée, aucune ne rend de `&mut` sur l'une d'elles (règle absolue 5).
 //! - [`Livre::contre_passer`] crée l'écriture miroir (sens inversés, mêmes comptes, montants,
@@ -252,12 +255,27 @@ pub enum ErreurReconstitution {
     /// Écriture qui se cite elle-même comme origine.
     #[error("l'écriture {0} se cite elle-même comme origine")]
     OrigineIdentique(NumeroEcriture),
+    /// Origine du même journal et du même exercice, numérotée après sa contre-passation.
+    #[error("la contre-passation {numero} cite une origine {origine} numérotée après elle")]
+    OrigineNonAnterieure {
+        /// Numéro de la contre-passation.
+        numero: NumeroEcriture,
+        /// Origine citée.
+        origine: NumeroEcriture,
+    },
+    /// Contre-passation qui porte une date de valeur comptable : une contre-passation est une
+    /// opération nouvelle, datée dans une période ouverte, qui n'en a jamais.
+    #[error("la contre-passation {0} porte une date de valeur comptable")]
+    DateValeurSurContrePassation(NumeroEcriture),
 }
 
-/// Écriture validée : définitive, numérotée, en lecture seule. Ne se crée que par la
-/// validation ([`Livre::valider`], [`crate::validation::valider`]) ou la contre-passation
-/// ([`Livre::contre_passer`], [`crate::validation::contre_passer`]) ; une écriture déjà
-/// validée, relue de la base, se reconstitue par [`EcritureValidee::reconstituer`].
+/// Écriture validée : définitive, numérotée, en lecture seule.
+///
+/// Elle naît d'une validation ([`Livre::valider`], [`crate::validation::valider`]), d'une
+/// contre-passation ([`Livre::contre_passer`], [`crate::validation::contre_passer`]) ou d'une
+/// **relecture** de la base ([`EcritureValidee::reconstituer`]). Détenir une
+/// `EcritureValidee` ne prouve donc pas qu'elle a passé les contrôles du §6.2 : seule une
+/// [`crate::validation::Validation`] le prouve.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EcritureValidee {
     numero: NumeroEcriture,
@@ -301,18 +319,25 @@ impl EcritureValidee {
     /// contenu (`ecriture`, rebâtie au brouillard puis équilibrée), son numéro, sa date de
     /// validation et, pour une contre-passation, son origine.
     ///
-    /// **Seul usage : relire la persistance. Ce n'est pas une voie de validation.** Une
-    /// écriture du brouillard passe par [`crate::validation::valider`] ou [`Livre::valider`].
+    /// **Seul usage : relire la persistance** (éditions, vérification de la chaîne, origine à
+    /// contre-passer). **Ce n'est pas une voie de validation** : une écriture du brouillard
+    /// passe par [`crate::validation::valider`] ou [`Livre::valider`], et la couche
+    /// d'insertion n'accepte qu'une [`crate::validation::Validation`].
     ///
     /// Les contrôles sont **structurels** seulement : équilibre (garanti par le type
     /// [`EcritureEquilibree`]), numéro dans le journal de l'écriture, justification présente
     /// (inv. 6), date de valeur comptable antérieure à la date, origine éventuelle dans le même
-    /// journal et distincte du numéro. Les contrôles de contexte (périodes ouvertes, comptes
+    /// journal et distincte du numéro, de séquence inférieure si elle est du même exercice ;
+    /// pas de date de valeur comptable sur une contre-passation. Les contrôles de contexte (périodes ouvertes, comptes
     /// actifs, échéance de clôture) ne sont **pas** rejoués : ils valaient au jour de la
     /// validation, et la période peut avoir été clôturée depuis, un compte désactivé.
     /// L'intégrité du contenu relu n'est pas établie ici : elle l'est par la chaîne de hachage
     /// (`crates/integrite`, ADR 0007), dont le contenu canonique d'une écriture reconstituée
     /// est identique à celui de l'écriture validée d'origine.
+    ///
+    /// Le contenu relu repasse par [`crate::EcritureBrouillon::valider_equilibre`] : si les
+    /// règles de saisie se durcissent un jour, la relecture des écritures anciennes devra avoir
+    /// sa propre voie.
     ///
     /// # Errors
     /// [`ErreurReconstitution`] : la donnée relue n'a pas la forme d'une écriture validée.
@@ -349,6 +374,15 @@ impl EcritureValidee {
             }
             if origine == &numero {
                 return Err(ErreurReconstitution::OrigineIdentique(numero));
+            }
+            if origine.exercice() == numero.exercice() && origine.sequence() > numero.sequence() {
+                return Err(ErreurReconstitution::OrigineNonAnterieure {
+                    numero,
+                    origine: origine.clone(),
+                });
+            }
+            if ecriture.date_valeur_comptable().is_some() {
+                return Err(ErreurReconstitution::DateValeurSurContrePassation(numero));
             }
         }
         Ok(Self::assembler(

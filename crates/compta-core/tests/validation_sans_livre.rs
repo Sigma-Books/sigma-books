@@ -4,7 +4,7 @@
 //!
 //! Propriétés (`docs/lots/L2.md`, « Tests exigés ») :
 //! - sur toute suite d'opérations (validations, contre-passations, refus compris, changements
-//!   d'état des périodes et des exercices), les fonctions libres, avec compteurs et liens de
+//!   d'état des périodes, ouverture et clôture d'exercices), les fonctions libres, avec compteurs et liens de
 //!   contre-passation tenus à part comme le ferait la base, donnent exactement le résultat du
 //!   [`Livre`] : mêmes écritures validées, mêmes refus, mêmes compteurs, mêmes liens ;
 //! - une écriture validée, relue champ par champ et reconstituée, est égale à l'originale.
@@ -18,8 +18,9 @@ use std::collections::BTreeMap;
 use commun::*;
 use compta_core::{
     CodeExercice, CodeJournal, Compteur, EcritureBrouillon, EcritureEquilibree, EcritureValidee,
-    ErreurReconstitution, ErreurValidation, Exercices, IdTiers, Livre, NumeroEcriture, Sens,
-    VersionParametres, contre_passer, valider,
+    ErreurReconstitution, ErreurValidation, Exercice, Exercices, IdTiers, Livre, NumeroEcriture,
+    Periode, Sens, StatutExercice, StatutPeriode, Validation, VersionParametres, contre_passer,
+    valider,
 };
 use proptest::prelude::*;
 use rust_decimal::Decimal;
@@ -74,8 +75,10 @@ fn reconstituer(e: &EcritureValidee) -> Result<EcritureValidee, ErreurReconstitu
 fn valider_rend_l_ecriture_validee_et_le_compteur_suivant() {
     let d = Dossier::nouveau();
     let compteur = Compteur::nouveau(j("AC"), exercice("2026"));
-    let (validee, suivant) =
-        valider(achat(), &d.contexte(), &compteur, date!(2026 - 03 - 12)).unwrap();
+    let validation = valider(achat(), &d.contexte(), &compteur, date!(2026 - 03 - 12)).unwrap();
+    assert_eq!(validation.compteur().dernier(), 1);
+    let (validee, suivant) = validation.clone().decomposer();
+    assert_eq!(validation.ecriture(), &validee);
     assert_eq!(validee.numero().to_string(), "AC-2026-000001");
     assert_eq!(suivant.dernier(), 1);
     assert_eq!(
@@ -99,7 +102,9 @@ fn le_compteur_fourni_fait_foi() {
     for _ in 0..41 {
         a_41 = a_41.suivant().unwrap().1;
     }
-    let (validee, suivant) = valider(achat(), &d.contexte(), &a_41, date!(2026 - 03 - 10)).unwrap();
+    let (validee, suivant) = valider(achat(), &d.contexte(), &a_41, date!(2026 - 03 - 10))
+        .unwrap()
+        .decomposer();
     assert_eq!(validee.numero().to_string(), "AC-2026-000042");
     assert_eq!(suivant.dernier(), 42);
 }
@@ -159,7 +164,8 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
         &compteur,
         date!(2026 - 03 - 10),
     )
-    .unwrap();
+    .unwrap()
+    .decomposer();
     let (miroir, suivant) = contre_passer(
         &origine,
         None,
@@ -169,7 +175,8 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
         &compteur,
         date!(2026 - 04 - 03),
     )
-    .unwrap();
+    .unwrap()
+    .decomposer();
     assert_eq!(miroir.numero().to_string(), "AC-2026-000002");
     assert_eq!(suivant.dernier(), 2);
     assert_eq!(miroir.origine(), Some(origine.numero()));
@@ -185,6 +192,7 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
         assert_eq!(a.sens(), m.sens().inverse());
     }
     assert_eq!(miroir.total(), origine.total());
+    assert!(reconstituer(&miroir).is_ok());
 
     // Déjà contre-passée : le fait fourni par l'appelant suffit.
     assert_eq!(
@@ -275,6 +283,30 @@ fn reconstituer_redonne_l_ecriture_validee() {
     assert_eq!(cp.origine(), Some(&numeros[0]));
 }
 
+/// Le miroir d'une opération tardive ne reprend pas sa date de valeur comptable : il se
+/// reconstitue donc sans refus `DateValeurSurContrePassation`.
+#[test]
+fn la_contre_passation_n_a_pas_de_date_de_valeur() {
+    let (d, numeros) = ecritures_variees();
+    let tardive = d.livre.ecriture(&numeros[1]).unwrap();
+    let (miroir, _) = contre_passer(
+        tardive,
+        None,
+        date!(2026 - 02 - 05),
+        t("Annulation"),
+        &d.contexte(),
+        &Compteur::nouveau(j("OD"), exercice("2026"))
+            .suivant()
+            .unwrap()
+            .1,
+        date!(2026 - 02 - 05),
+    )
+    .unwrap()
+    .decomposer();
+    assert_eq!(miroir.date_valeur_comptable(), None);
+    assert_eq!(reconstituer(&miroir).unwrap(), miroir);
+}
+
 /// Les contrôles de contexte ne sont pas rejoués : la période peut avoir été clôturée, le
 /// compte désactivé depuis la validation.
 #[test]
@@ -354,9 +386,52 @@ fn reconstituer_refuse_une_forme_impossible() {
         Err(ErreurReconstitution::OrigineIdentique(numero.clone()))
     );
     assert!(
-        ErreurReconstitution::OrigineIdentique(numero)
+        ErreurReconstitution::OrigineIdentique(numero.clone())
             .to_string()
             .contains("se cite elle-même")
+    );
+
+    // Origine du même journal et du même exercice, numérotée après la contre-passation.
+    let posterieure: NumeroEcriture = "AC-2026-000002".parse().unwrap();
+    assert_eq!(
+        EcritureValidee::reconstituer(
+            rebatir(achat),
+            numero.clone(),
+            jour,
+            Some(posterieure.clone())
+        ),
+        Err(ErreurReconstitution::OrigineNonAnterieure {
+            numero: numero.clone(),
+            origine: posterieure,
+        })
+    );
+    // Une origine d'un exercice antérieur peut avoir une séquence plus grande.
+    let cp = d.livre.ecriture(&numeros[2]).unwrap();
+    let mut cp_2027 = rebatir(cp).en_brouillon();
+    cp_2027.changer_date(date!(2027 - 01 - 05));
+    assert!(
+        EcritureValidee::reconstituer(
+            cp_2027.valider_equilibre().unwrap(),
+            "AC-2027-000001".parse().unwrap(),
+            date!(2027 - 01 - 05),
+            Some("AC-2026-000007".parse().unwrap()),
+        )
+        .is_ok()
+    );
+
+    // Contre-passation qui porterait une date de valeur comptable.
+    let mut cp_tardive = rebatir(cp).en_brouillon();
+    cp_tardive.mentionner_date_valeur_comptable(Some(date!(2026 - 01 - 05)));
+    assert_eq!(
+        EcritureValidee::reconstituer(
+            cp_tardive.valider_equilibre().unwrap(),
+            cp.numero().clone(),
+            cp.date_validation(),
+            cp.origine().cloned(),
+        ),
+        Err(ErreurReconstitution::DateValeurSurContrePassation(
+            cp.numero().clone()
+        ))
     );
 }
 
@@ -369,33 +444,48 @@ fn reconstituer_refuse_une_forme_impossible() {
 const JOURNAUX: [&str; 6] = ["OD", "AC", "BQ1", "AN", "PA", "ZZ"];
 /// Comptes du dossier de test, plus un compte de regroupement (`605`) et un compte inconnu.
 const COMPTES: [&str; 8] = ["4011", "4111", "521", "571", "6052", "7011", "605", "7019"];
+/// Marge, en jours, avant le premier exercice et après le dernier.
+const MARGE: i64 = 5;
 
-fn jour_de(jour: i64) -> Date {
-    date!(2026 - 01 - 01) + Duration::days(jour)
+/// Instant en millièmes de la plage couverte par les exercices **existants** (marge
+/// comprise) : la plage s'étend quand un exercice s'ouvre.
+fn jour_de(exercices: &Exercices, millieme: u16) -> Date {
+    let liste = exercices.exercices();
+    let debut = liste.first().unwrap().debut() - Duration::days(MARGE);
+    let fin = liste.last().unwrap().fin() + Duration::days(MARGE);
+    debut + Duration::days((fin - debut).whole_days() * i64::from(millieme) / 1000)
 }
 
 #[derive(Debug, Clone)]
 enum Op {
     Valider {
         journal: usize,
-        jour: i64,
+        instant: u16,
         delai: i64,
         lignes: Vec<(usize, usize, i64)>,
         tiers: bool,
         piece: bool,
         parametres: bool,
         recul_valeur: Option<i64>,
+        debut_de_periode: bool,
+        compteur_decale: bool,
     },
     ContrePasser {
         cible: usize,
-        jour: i64,
+        instant: u16,
         delai: i64,
+        compteur_decale: bool,
     },
-    Verrouiller(i64),
-    Deverrouiller(i64),
-    CloturerPeriode(i64),
+    Verrouiller(u16),
+    Deverrouiller(u16),
+    /// Clôture de la plus ancienne période non clôturée (les clôtures se font dans l'ordre).
+    CloturerPeriode,
+    /// Le plus ancien exercice ouvert passe en clôture.
     PasserEnCloture,
+    /// Le plus ancien exercice en clôture est clôturé.
     CloturerExercice,
+    /// Ouvre l'exercice suivant (refusé tant que deux exercices ne sont pas clôturés).
+    OuvrirSuivant,
 }
 
 /// Délai entre la date de l'écriture et sa validation : parfois au-delà de l'échéance de
@@ -405,43 +495,71 @@ fn delai() -> impl Strategy<Value = i64> {
 }
 
 fn op() -> impl Strategy<Value = Op> {
-    // Jours de -5 (avant le dossier) à 735 (après 2027) ; délai de validation jusqu'à 200
-    // jours (échéance de clôture dépassée).
+    // Instants répartis sur les exercices existants, marge comprise ; date de valeur jusqu'à
+    // 120 jours avant la date (exercice précédent compris), l'écriture étant alors souvent
+    // datée du premier jour de sa période (opération tardive reportée) ; un compteur sur vingt
+    // est celui d'un autre exercice (`CompteurInadapte`).
     // Le plus souvent un journal ouvert à la saisie et un compte de mouvement connu, pour
     // que des validations aboutissent ; parfois les autres, pour les refus.
     let journal = prop_oneof![6 => 0..3usize, 1 => 3..JOURNAUX.len()];
     let compte = || prop_oneof![12 => 0..6usize, 1 => 6..COMPTES.len()];
     let valider = (
-        journal,
-        -5i64..735,
-        delai(),
+        (journal, 0u16..=1000, delai()),
         proptest::collection::vec((compte(), compte(), 1i64..1_000_000), 1..4),
-        proptest::bool::weighted(0.9),
-        proptest::bool::weighted(0.95),
-        any::<bool>(),
-        proptest::option::weighted(0.2, 1i64..90),
+        (
+            proptest::bool::weighted(0.9),
+            proptest::bool::weighted(0.95),
+            any::<bool>(),
+        ),
+        (
+            proptest::option::weighted(0.3, 1i64..120),
+            proptest::bool::weighted(0.3),
+        ),
+        proptest::bool::weighted(0.05),
     )
         .prop_map(
-            |(journal, jour, delai, lignes, tiers, piece, parametres, recul_valeur)| Op::Valider {
+            |(
+                (journal, instant, delai),
+                lignes,
+                (tiers, piece, parametres),
+                (recul_valeur, debut_de_periode),
+                compteur_decale,
+            )| Op::Valider {
                 journal,
-                jour,
+                instant,
                 delai,
                 lignes,
                 tiers,
                 piece,
                 parametres,
                 recul_valeur,
+                debut_de_periode,
+                compteur_decale,
+            },
+        );
+    let contre_passer = (
+        any::<usize>(),
+        0u16..=1000,
+        delai(),
+        proptest::bool::weighted(0.05),
+    )
+        .prop_map(
+            |(cible, instant, delai, compteur_decale)| Op::ContrePasser {
+                cible,
+                instant,
+                delai,
+                compteur_decale,
             },
         );
     prop_oneof![
         12 => valider,
-        4 => (any::<usize>(), -5i64..735, delai())
-            .prop_map(|(cible, jour, delai)| Op::ContrePasser { cible, jour, delai }),
-        1 => (0i64..730).prop_map(Op::Verrouiller),
-        1 => (0i64..730).prop_map(Op::Deverrouiller),
-        1 => (0i64..730).prop_map(Op::CloturerPeriode),
+        5 => contre_passer,
+        1 => (0u16..=1000).prop_map(Op::Verrouiller),
+        1 => (0u16..=1000).prop_map(Op::Deverrouiller),
+        2 => Just(Op::CloturerPeriode),
         1 => Just(Op::PasserEnCloture),
         1 => Just(Op::CloturerExercice),
+        1 => Just(Op::OuvrirSuivant),
     ]
 }
 
@@ -477,16 +595,28 @@ fn ecriture_generee(
 
 type Compteurs = BTreeMap<(CodeJournal, CodeExercice), Compteur>;
 
-/// Compteur courant du journal pour l'exercice de la date, comme l'API le lira en base.
+/// Compteur courant du journal pour l'exercice de la date, comme l'API le lira en base ;
+/// `decale` : celui d'un autre exercice, comme le fournirait un appelant fautif.
 fn compteur(
     compteurs: &Compteurs,
     exercices: &Exercices,
     journal: &CodeJournal,
     d: Date,
+    decale: bool,
 ) -> Compteur {
-    let exercice = exercices
+    let premier = exercices.exercices()[0].code().clone();
+    let mut exercice = exercices
         .exercice_contenant(d)
-        .map_or_else(|| exercice("2026"), |e| e.code().clone());
+        .map_or_else(|| premier.clone(), |e| e.code().clone());
+    if decale
+        && let Some(autre) = exercices
+            .exercices()
+            .iter()
+            .map(Exercice::code)
+            .find(|c| **c != exercice)
+    {
+        exercice = autre.clone();
+    }
     compteurs
         .get(&(journal.clone(), exercice.clone()))
         .cloned()
@@ -522,37 +652,75 @@ impl Banc {
         }
     }
 
+    fn plus_ancien(&self, statut: StatutExercice) -> Option<CodeExercice> {
+        self.dossier
+            .exercices
+            .exercices()
+            .iter()
+            .find(|e| e.statut() == statut)
+            .map(|e| e.code().clone())
+    }
+
     /// Applique l'opération aux deux mondes et vérifie qu'ils répondent de même.
     fn appliquer(&mut self, op: &Op) -> Result<(), TestCaseError> {
-        let code_2026 = exercice("2026");
-        let exercices = &mut self.dossier.exercices;
+        let jour = |millieme: u16| jour_de(&self.dossier.exercices, millieme);
         match op {
-            Op::Verrouiller(jour) => {
-                let _ = exercices.verrouiller_periode(jour_de(*jour));
+            Op::Verrouiller(m) => {
+                let d = jour(*m);
+                let _ = self.dossier.exercices.verrouiller_periode(d);
             }
-            Op::Deverrouiller(jour) => {
-                let _ = exercices.deverrouiller_periode(jour_de(*jour), t("Motif"));
+            Op::Deverrouiller(m) => {
+                let d = jour(*m);
+                let _ = self.dossier.exercices.deverrouiller_periode(d, t("Motif"));
             }
-            Op::CloturerPeriode(jour) => {
-                let _ = exercices.cloturer_periode(jour_de(*jour));
+            Op::CloturerPeriode => {
+                let premiere = self
+                    .dossier
+                    .exercices
+                    .exercices()
+                    .iter()
+                    .flat_map(Exercice::periodes)
+                    .find(|p| p.statut() != StatutPeriode::Cloturee)
+                    .map(Periode::debut);
+                if let Some(d) = premiere {
+                    let _ = self.dossier.exercices.cloturer_periode(d);
+                }
             }
             Op::PasserEnCloture => {
-                let _ = exercices.passer_en_cloture(&code_2026);
+                if let Some(code) = self.plus_ancien(StatutExercice::Ouvert) {
+                    let _ = self.dossier.exercices.passer_en_cloture(&code);
+                }
             }
             Op::CloturerExercice => {
-                let _ = exercices.cloturer(&code_2026);
+                if let Some(code) = self.plus_ancien(StatutExercice::EnCloture) {
+                    let _ = self.dossier.exercices.cloturer(&code);
+                }
+            }
+            Op::OuvrirSuivant => {
+                let _ = self.dossier.exercices.ouvrir_suivant();
             }
             Op::Valider {
                 journal,
-                jour,
+                instant,
                 delai,
                 lignes,
                 tiers,
                 piece,
                 parametres,
                 recul_valeur,
+                debut_de_periode,
+                compteur_decale,
             } => {
-                let date = jour_de(*jour);
+                let mut date = jour(*instant);
+                if *debut_de_periode
+                    && let Some(p) = self
+                        .dossier
+                        .exercices
+                        .exercice_contenant(date)
+                        .and_then(|e| e.periode_contenant(date))
+                {
+                    date = p.debut();
+                }
                 let date_valeur = recul_valeur.map(|r| date - Duration::days(r));
                 let e = ecriture_generee(
                     *journal,
@@ -563,17 +731,27 @@ impl Banc {
                     *parametres,
                     date_valeur,
                 );
-                self.valider(e, date + Duration::days(*delai))?;
+                self.valider(e, date + Duration::days(*delai), *compteur_decale)?;
             }
-            Op::ContrePasser { cible, jour, delai } => {
+            Op::ContrePasser {
+                cible,
+                instant,
+                delai,
+                compteur_decale,
+            } => {
+                let date = jour(*instant);
                 // Une cible sur six environ est inconnue.
                 let origine = if self.numeros.is_empty() || cible % 6 == 0 {
                     "OD-2026-000999".parse().unwrap()
                 } else {
                     self.numeros[cible % self.numeros.len()].clone()
                 };
-                let date = jour_de(*jour);
-                self.contre_passer(&origine, date, date + Duration::days(*delai))?;
+                self.contre_passer(
+                    &origine,
+                    date,
+                    date + Duration::days(*delai),
+                    *compteur_decale,
+                )?;
             }
         }
         Ok(())
@@ -583,15 +761,28 @@ impl Banc {
         &mut self,
         e: EcritureEquilibree,
         date_validation: Date,
+        decale: bool,
     ) -> Result<(), TestCaseError> {
         let exercices = &self.dossier.exercices;
-        let c_livre = compteur(&self.compteurs_livre, exercices, e.journal(), e.date());
-        let c_base = compteur(&self.compteurs_base, exercices, e.journal(), e.date());
+        let c_livre = compteur(
+            &self.compteurs_livre,
+            exercices,
+            e.journal(),
+            e.date(),
+            decale,
+        );
+        let c_base = compteur(
+            &self.compteurs_base,
+            exercices,
+            e.journal(),
+            e.date(),
+            decale,
+        );
         let contexte = self.dossier.contexte();
         let par_livre = self
             .livre
             .valider(e.clone(), &contexte, &c_livre, date_validation);
-        let par_base = valider(e, &contexte, &c_base, date_validation);
+        let par_base = valider(e, &contexte, &c_base, date_validation).map(Validation::decomposer);
         match (par_livre, par_base) {
             (Ok((numero, s_livre)), Ok((validee, s_base))) => {
                 prop_assert_eq!(&numero, validee.numero());
@@ -613,10 +804,23 @@ impl Banc {
         origine: &NumeroEcriture,
         date: Date,
         date_validation: Date,
+        decale: bool,
     ) -> Result<(), TestCaseError> {
         let exercices = &self.dossier.exercices;
-        let c_livre = compteur(&self.compteurs_livre, exercices, origine.journal(), date);
-        let c_base = compteur(&self.compteurs_base, exercices, origine.journal(), date);
+        let c_livre = compteur(
+            &self.compteurs_livre,
+            exercices,
+            origine.journal(),
+            date,
+            decale,
+        );
+        let c_base = compteur(
+            &self.compteurs_base,
+            exercices,
+            origine.journal(),
+            date,
+            decale,
+        );
         let contexte = self.dossier.contexte();
         let par_livre = self.livre.contre_passer(
             origine,
@@ -638,12 +842,14 @@ impl Banc {
                 &contexte,
                 &c_base,
                 date_validation,
-            ),
+            )
+            .map(Validation::decomposer),
         };
         match (par_livre, par_base) {
             (Ok((numero, s_livre)), Ok((validee, s_base))) => {
                 prop_assert_eq!(&numero, validee.numero());
                 prop_assert_eq!(validee.origine(), Some(origine));
+                prop_assert_eq!(validee.date_valeur_comptable(), None);
                 prop_assert_eq!(&s_livre, &s_base);
                 prop_assert_eq!(self.livre.ecriture(&numero), Some(&validee));
                 enregistrer(&mut self.compteurs_livre, s_livre);
@@ -677,7 +883,7 @@ proptest! {
 
     #[test]
     fn fonctions_libres_et_livre_donnent_le_meme_resultat(
-        ops in proptest::collection::vec(op(), 1..60),
+        ops in proptest::collection::vec(op(), 1..80),
     ) {
         let mut banc = Banc::nouveau();
         for op in &ops {
@@ -687,9 +893,9 @@ proptest! {
     }
 
     /// Toute écriture validée (validation, contre-passation, opération tardive, version de
-    /// paramètres) se reconstitue à l'identique à partir de ses champs.
+    /// paramètres, plusieurs exercices) se reconstitue à l'identique à partir de ses champs.
     #[test]
-    fn reconstitution_identique(ops in proptest::collection::vec(op(), 1..60)) {
+    fn reconstitution_identique(ops in proptest::collection::vec(op(), 1..80)) {
         let mut banc = Banc::nouveau();
         for op in &ops {
             banc.appliquer(op)?;

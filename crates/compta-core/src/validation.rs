@@ -5,14 +5,25 @@
 //! [`valider`] et [`contre_passer`] font exactement ce que font [`Livre::valider`] et
 //! [`Livre::contre_passer`], qui leur délèguent ; le résultat est le même sur toute suite
 //! d'opérations (propriété `tests/validation_sans_livre.rs`). Ces fonctions sont pures :
-//! elles renvoient l'écriture validée et le compteur à réécrire, l'appelant les enregistre.
+//! elles renvoient une [`Validation`] (l'écriture validée et le compteur à réécrire), que
+//! l'appelant enregistre.
+//!
+//! # Preuve de validation
+//! Une [`EcritureValidee`] peut venir d'une **relecture** de la base
+//! ([`EcritureValidee::reconstituer`]) : la détenir ne prouve pas qu'elle a passé les
+//! contrôles du §6.2. Seule une [`Validation`] le prouve : elle ne se construit que par
+//! [`valider`] et [`contre_passer`]. La couche d'insertion (API, PR 13) n'accepte **que** ce
+//! type pour inscrire une écriture validée ; une écriture reconstituée sert à la lecture
+//! seulement (éditions, vérification de la chaîne, origine à contre-passer).
 //!
 //! # Faits que l'appelant fournit, et verrous à prendre
 //! Tout est lu **dans la transaction de la validation** (`READ COMMITTED`), dans l'ordre de
 //! verrouillage de l'ADR 0011 (période, tête de chaîne, compteur, tête d'audit) :
 //! - **exercices et périodes** ([`Contexte::exercices`]) en lecture partagée (`FOR SHARE`) :
 //!   un verrouillage ou une clôture concurrente, qui prend le verrou exclusif, attend la fin
-//!   de la validation ;
+//!   de la validation. Ce verrou n'est possible que parce que le rôle applicatif a le droit
+//!   `UPDATE` sur ces tables (changement d'état des périodes) : PostgreSQL l'exige pour tout
+//!   verrou de ligne ;
 //! - **plan de comptes** ([`Contexte::plan`]) : au moins les comptes des lignes, avec leurs
 //!   descendants (un compte qui en a est de regroupement) ; en pratique, le plan du dossier ;
 //!   **journaux** ([`Contexte::journaux`]) ;
@@ -27,9 +38,10 @@
 //!   [`EcritureValidee::reconstituer`], et son **état de contre-passation** (numéro de la
 //!   contre-passation qui la cite, s'il y en a une), lus après la prise des verrous, de sorte
 //!   que deux contre-passations concurrentes de la même origine soient sérialisées. Le verrou
-//!   `FOR UPDATE` de la tête de chaîne du dossier suffit à cette sérialisation ; un
-//!   `SELECT … FOR UPDATE` sur la table des écritures validées exigerait le droit `UPDATE`,
-//!   refusé au rôle applicatif (ADR 0011, ajout seul). Un index unique partiel sur l'origine
+//!   `FOR UPDATE` de la tête de chaîne du dossier suffit à cette sérialisation. **Aucun verrou
+//!   de ligne n'est possible sur les écritures validées** : `FOR UPDATE`, `FOR NO KEY UPDATE`,
+//!   `FOR SHARE` et `FOR KEY SHARE` exigent tous le droit `UPDATE`, refusé au rôle applicatif
+//!   sur ces tables (ADR 0011, ajout seul). Un index unique partiel sur l'origine
 //!   (`WHERE origine IS NOT NULL`) sert de filet.
 //!
 //! # Moteurs de référence étudiés
@@ -52,9 +64,40 @@ use crate::livre::{Contexte, EcritureValidee, ErreurValidation, controler};
 use crate::numerotation::{Compteur, NumeroEcriture};
 use crate::texte::TexteCourt;
 
+/// Résultat d'une validation ou d'une contre-passation : l'écriture validée et le compteur à
+/// enregistrer à la place de l'ancien, dans la même transaction.
+///
+/// **Preuve de validation** : ce type ne se construit que par [`valider`] et
+/// [`contre_passer`], après les contrôles du §6.2. La couche d'insertion (API, PR 13)
+/// n'accepte que lui ; une [`EcritureValidee`] seule peut venir d'une relecture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Validation {
+    ecriture: EcritureValidee,
+    compteur: Compteur,
+}
+
+impl Validation {
+    /// Écriture validée, à inscrire.
+    #[must_use]
+    pub fn ecriture(&self) -> &EcritureValidee {
+        &self.ecriture
+    }
+
+    /// Compteur à enregistrer à la place de celui qui a été fourni.
+    #[must_use]
+    pub fn compteur(&self) -> &Compteur {
+        &self.compteur
+    }
+
+    /// Récupère l'écriture et le compteur, au moment de les inscrire.
+    #[must_use]
+    pub fn decomposer(self) -> (EcritureValidee, Compteur) {
+        (self.ecriture, self.compteur)
+    }
+}
+
 /// Valide une écriture équilibrée à partir de faits fournis : contrôle les invariants du
-/// §6.2 dans le `contexte`, attribue le numéro suivant du `compteur`. Renvoie l'écriture
-/// validée et le compteur à enregistrer à la place de l'ancien, dans la même transaction.
+/// §6.2 dans le `contexte`, attribue le numéro suivant du `compteur`.
 ///
 /// # Errors
 /// Invariant non respecté ou compteur d'un autre journal ou d'un autre exercice que
@@ -65,16 +108,24 @@ pub fn valider(
     contexte: &Contexte<'_>,
     compteur: &Compteur,
     date_validation: Date,
-) -> Result<(EcritureValidee, Compteur), Refus<EcritureEquilibree, ErreurValidation>> {
-    valider_avec(ecriture, None, contexte, compteur, date_validation, |_| {
-        Ok(())
-    })
+) -> Result<Validation, Refus<EcritureEquilibree, ErreurValidation>> {
+    let (ecriture, compteur) =
+        valider_avec(ecriture, None, contexte, compteur, date_validation, |_| {
+            Ok(())
+        })?;
+    Ok(Validation { ecriture, compteur })
 }
 
 /// Contre-passe l'écriture `origine` à partir de faits fournis : écriture miroir dans le même
 /// journal (sens inversés ; mêmes comptes, montants, devises, tiers, justification et version
 /// de paramètres), à la `date` donnée, validée selon les mêmes contrôles. `contre_passee_par`
-/// est la contre-passation qui cite déjà `origine`, s'il y en a une.
+/// est la contre-passation qui cite déjà `origine`, s'il y en a une. La contre-passation ne
+/// reprend pas la date de valeur comptable de l'origine : c'est une opération nouvelle,
+/// datée dans une période ouverte.
+///
+/// `origine` et `contre_passee_par` doivent être relus de la base **du même dossier**, dans
+/// la transaction de la contre-passation, après la prise des verrous (voir la documentation
+/// du module) : le moteur ne peut pas vérifier qu'ils sont à jour.
 ///
 /// # Errors
 /// Écriture déjà contre-passée, date antérieure à l'origine, invariant non respecté à la date
@@ -87,9 +138,9 @@ pub fn contre_passer(
     contexte: &Contexte<'_>,
     compteur: &Compteur,
     date_validation: Date,
-) -> Result<(EcritureValidee, Compteur), ErreurValidation> {
+) -> Result<Validation, ErreurValidation> {
     let miroir = miroir(origine, contre_passee_par, date, libelle)?;
-    valider_avec(
+    let (ecriture, compteur) = valider_avec(
         miroir,
         Some(origine.numero().clone()),
         contexte,
@@ -97,7 +148,8 @@ pub fn contre_passer(
         date_validation,
         |_| Ok(()),
     )
-    .map_err(|refus| refus.decomposer().1)
+    .map_err(|refus| refus.decomposer().1)?;
+    Ok(Validation { ecriture, compteur })
 }
 
 /// Écriture miroir de `origine`, après les contrôles propres à la contre-passation.
