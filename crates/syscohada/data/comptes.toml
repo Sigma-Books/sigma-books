@@ -1,0 +1,9909 @@
+# Liste officielle des comptes du SYSCOHADA révisé (Système normal).
+#
+# Source qui fait foi : Acte uniforme relatif au droit comptable et à l'information financière
+# et Système comptable OHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3
+# « Liste des comptes », pages PDF 219 à 272 (pagination imprimée = page PDF - 3).
+# Seuls les numéros et intitulés sont repris du texte (faits), sans les notes de bas de page.
+#
+# Champs de chaque compte :
+# - numero, intitule : texte officiel. Coquilles manifestes corrigées, et trois numéros restitués
+#   (champ `note`) ; liste dans crates/syscohada/README.md.
+# - page : page PDF du document ci-dessus où figure le compte.
+# - nature : déduite de l'intitulé officiel de la classe (classes 1 à 5 : bilan ; 6 et comptes
+#   81, 83, 85, 87, 89 : charge ; 7 et comptes 82, 84, 86, 88 : produit ; 90-91 : hors bilan ;
+#   92-99 : comptabilité analytique de gestion).
+# - sens : sens normal du solde. Il ne figure PAS dans la liste officielle : convention de Sigma Books
+#   (règles dans crates/syscohada/README.md), À VALIDER par un expert-comptable.
+# - collectif : compte collectif de tiers (spec §5.1) ; hérité par les sous-comptes. Repris des comptes
+#   « party_required » du module Tryton account_syscohada (docs/provenance/), complétés de 404, 413, 467.
+
+[source]
+document = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes »"
+version = "SYSCOHADA révisé 2017"
+
+[[classe]]
+numero = 1
+intitule = "COMPTES DE RESSOURCES DURABLES"
+page = 219
+
+[[classe]]
+numero = 2
+intitule = "COMPTES D'ACTIF IMMOBILISÉ"
+page = 226
+
+[[classe]]
+numero = 3
+intitule = "COMPTES DE STOCKS"
+page = 236
+
+[[classe]]
+numero = 4
+intitule = "COMPTES DE TIERS"
+page = 240
+
+[[classe]]
+numero = 5
+intitule = "COMPTES DE TRÉSORERIE"
+page = 249
+
+[[classe]]
+numero = 6
+intitule = "COMPTES DE CHARGES DES ACTIVITÉS ORDINAIRES"
+page = 253
+
+[[classe]]
+numero = 7
+intitule = "COMPTES DE PRODUITS DES ACTIVITÉS ORDINAIRES"
+page = 262
+
+[[classe]]
+numero = 8
+intitule = "COMPTES DES AUTRES CHARGES ET DES AUTRES PRODUITS"
+page = 267
+
+[[classe]]
+numero = 9
+intitule = "COMPTES DES ENGAGEMENTS HORS BILAN ET COMPTES DE LA COMPTABILITÉ ANALYTIQUE DE GESTION"
+page = 270
+
+[[compte]]
+numero = "10"
+intitule = "CAPITAL"
+page = 219
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "101"
+intitule = "CAPITAL SOCIAL"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1011"
+intitule = "Capital souscrit, non appelé"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1012"
+intitule = "Capital souscrit, appelé, non versé"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1013"
+intitule = "Capital souscrit, appelé, versé, non amorti"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1014"
+intitule = "Capital souscrit, appelé, versé, amorti"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1018"
+intitule = "Capital souscrit soumis à des conditions particulières"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "102"
+intitule = "CAPITAL PAR DOTATION"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1021"
+intitule = "Dotation initiale"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1022"
+intitule = "Dotations complémentaires"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1028"
+intitule = "Autres dotations"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "103"
+intitule = "CAPITAL PERSONNEL"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "104"
+intitule = "COMPTE DE L'EXPLOITANT"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1041"
+intitule = "Apports temporaires"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1042"
+intitule = "Opérations courantes"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1043"
+intitule = "Rémunérations, impôts et autres charges personnelles"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1047"
+intitule = "Prélèvements d'autoconsommation"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1048"
+intitule = "Autres prélèvements"
+page = 219
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "105"
+intitule = "PRIMES LIÉES AU CAPITAL SOCIAL"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1051"
+intitule = "Primes d'émission"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1052"
+intitule = "Primes d'apport"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1053"
+intitule = "Primes de fusion"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1054"
+intitule = "Primes de conversion"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1058"
+intitule = "Autres primes"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "106"
+intitule = "ÉCARTS DE RÉÉVALUATION"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1061"
+intitule = "Écarts de réévaluation légale"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1062"
+intitule = "Écarts de réévaluation libre"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "109"
+intitule = "APPORTEURS, CAPITAL SOUSCRIT, NON APPELÉ"
+page = 220
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "11"
+intitule = "RÉSERVES"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "111"
+intitule = "RÉSERVE LÉGALE"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "112"
+intitule = "RÉSERVES STATUTAIRES OU CONTRACTUELLES"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "113"
+intitule = "RÉSERVES RÉGLEMENTÉES"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1131"
+intitule = "Réserves de plus-values nettes à long terme"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1132"
+intitule = "Réserves d'attribution gratuite d'actions au personnel salarié et aux dirigeants"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1133"
+intitule = "Réserves consécutives à l'octroi de subventions d'investissement"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1134"
+intitule = "Réserves des valeurs mobilières donnant accès au capital"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1138"
+intitule = "Autres réserves réglementées"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "118"
+intitule = "AUTRES RÉSERVES"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1181"
+intitule = "Réserves facultatives"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1188"
+intitule = "Réserves diverses"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "12"
+intitule = "REPORT À NOUVEAU"
+page = 220
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "121"
+intitule = "REPORT À NOUVEAU CRÉDITEUR"
+page = 220
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "129"
+intitule = "REPORT À NOUVEAU DÉBITEUR"
+page = 220
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "1291"
+intitule = "Perte nette à reporter"
+page = 220
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "1292"
+intitule = "Perte - Amortissements réputés différés"
+page = 220
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "13"
+intitule = "RÉSULTAT NET DE L'EXERCICE"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "130"
+intitule = "RÉSULTAT EN INSTANCE D'AFFECTATION"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "1301"
+intitule = "Résultat en instance d'affectation : bénéfice"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1309"
+intitule = "Résultat en instance d'affectation : perte"
+page = 221
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "131"
+intitule = "RÉSULTAT NET : BÉNÉFICE"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "132"
+intitule = "MARGE COMMERCIALE (MC)"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "133"
+intitule = "VALEUR AJOUTÉE (V.A.)"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "134"
+intitule = "EXCÈDENT BRUT D'EXPLOITATION (E.B.E.)"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "135"
+intitule = "RÉSULTAT D'EXPLOITATION (R.E.)"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "136"
+intitule = "RÉSULTAT FINANCIER (R.F.)"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "137"
+intitule = "RÉSULTAT DES ACTIVITÉS ORDINAIRES (R.A.O.)"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "138"
+intitule = "RÉSULTAT HORS ACTIVITÉS ORDINAIRES (R.H.A.O.)"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "1381"
+intitule = "Résultat de fusion"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "1382"
+intitule = "Résultat d'apport partiel d'actif"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "1383"
+intitule = "Résultat de scission"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "1384"
+intitule = "Résultat de liquidation"
+page = 221
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "139"
+intitule = "RÉSULTAT NET : PERTE"
+page = 221
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "14"
+intitule = "SUBVENTIONS D'INVESTISSEMENT"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "141"
+intitule = "SUBVENTIONS D'ÉQUIPEMENT"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1411"
+intitule = "État"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1412"
+intitule = "Régions"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1413"
+intitule = "Départements"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1414"
+intitule = "Communes et collectivités publiques décentralisées"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1415"
+intitule = "Entités publiques ou mixtes"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1416"
+intitule = "Entités et organismes privés"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1417"
+intitule = "Organismes internationaux"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1418"
+intitule = "Autres"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "148"
+intitule = "AUTRES SUBVENTIONS D'INVESTISSEMENT"
+page = 221
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "15"
+intitule = "PROVISIONS RÉGLEMENTÉES ET FONDS ASSIMILÉS"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "151"
+intitule = "AMORTISSEMENTS DÉROGATOIRES"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "152"
+intitule = "PLUS-VALUES DE CESSION À RÉINVESTIR"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "153"
+intitule = "FONDS RÉGLEMENTÉS"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1531"
+intitule = "Fonds national"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1532"
+intitule = "Prélèvement pour le budget"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "154"
+intitule = "PROVISIONS SPÉCIALES DE RÉÉVALUATION"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "155"
+intitule = "PROVISIONS RÉGLEMENTÉES RELATIVES AUX IMMOBILISATIONS"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1551"
+intitule = "Reconstitution des gisements miniers et pétroliers"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "156"
+intitule = "PROVISIONS RÉGLEMENTÉES RELATIVES AUX STOCKS"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1561"
+intitule = "Hausse de prix"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1562"
+intitule = "Fluctuation des cours"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "157"
+intitule = "PROVISIONS POUR INVESTISSEMENT"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "158"
+intitule = "AUTRES PROVISIONS ET FONDS RÉGLEMENTÉS"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "16"
+intitule = "EMPRUNTS ET DETTES ASSIMILÉES"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "161"
+intitule = "EMPRUNTS OBLIGATAIRES"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1611"
+intitule = "Emprunts obligataires ordinaires"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1612"
+intitule = "Emprunts obligataires convertibles en actions"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1613"
+intitule = "Emprunts obligataires remboursables en actions"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1618"
+intitule = "Autres emprunts obligataires"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "162"
+intitule = "EMPRUNTS ET DETTES AUPRÈS DES ÉTABLISSEMENTS DE CRÉDIT"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "163"
+intitule = "AVANCES REÇUES DE L'ÉTAT"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "164"
+intitule = "AVANCES REÇUES ET COMPTES COURANTS BLOQUÉS"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "165"
+intitule = "DÉPÔTS ET CAUTIONNEMENTS REÇUS"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1651"
+intitule = "Dépôts"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1652"
+intitule = "Cautionnements"
+page = 222
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "166"
+intitule = "INTÉRÊTS COURUS"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1661"
+intitule = "sur emprunts obligataires"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1662"
+intitule = "sur emprunts et dettes auprès des établissements de crédit"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1663"
+intitule = "sur avances reçues de l'État"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1664"
+intitule = "sur avances reçues et comptes courants bloqués"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1665"
+intitule = "sur dépôts et cautionnements reçus"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1667"
+intitule = "sur avances assorties de conditions particulières"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1668"
+intitule = "sur autres emprunts et dettes"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "167"
+intitule = "AVANCES ASSORTIES DE CONDITIONS PARTICULIÈRES"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1671"
+intitule = "Avances bloquées pour augmentation du capital"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1672"
+intitule = "Avances conditionnées par l'État"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1673"
+intitule = "Avances conditionnées par les autres organismes africains"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1674"
+intitule = "Avances conditionnées par les organismes internationaux"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "168"
+intitule = "AUTRES EMPRUNTS ET DETTES"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1681"
+intitule = "Rentes viagères capitalisées"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1682"
+intitule = "Billets de fonds"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1683"
+intitule = "Dettes consécutives à des titres empruntés"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1684"
+intitule = "Emprunts participatifs"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1685"
+intitule = "Participation des travailleurs aux bénéfices"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1686"
+intitule = "Emprunts et dettes contractés auprès des autres tiers"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "17"
+intitule = "DETTES DE LOCATION ACQUISITION"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "172"
+intitule = "DETTES DE LOCATION ACQUISITION / CRÉDIT-BAIL IMMOBILIER"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "173"
+intitule = "DETTES DE LOCATION ACQUISITION / CRÉDIT-BAIL MOBILIER"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "174"
+intitule = "DETTES DE LOCATION ACQUISITION / LOCATION-VENTE"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "176"
+intitule = "INTÉRÊTS COURUS"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1762"
+intitule = "sur dettes de location acquisition / crédit-bail immobilier"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1763"
+intitule = "sur dettes de location acquisition / crédit-bail mobilier"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1764"
+intitule = "sur dettes de location acquisition / location-vente"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1768"
+intitule = "sur autres dettes de location acquisition"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "178"
+intitule = "AUTRES DETTES DE LOCATION ACQUISITION"
+page = 223
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "18"
+intitule = "DETTES LIÉES À DES PARTICIPATIONS ET COMPTES DE LIAISON DES ÉTABLISSEMENTS ET SOCIÉTÉS EN PARTICIPATION"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "181"
+intitule = "DETTES LIÉES À DES PARTICIPATIONS"
+page = 224
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "1811"
+intitule = "Dettes liées à des participations (groupe)"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "1812"
+intitule = "Dettes liées à des participations (hors groupe)"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "182"
+intitule = "DETTES LIÉES À DES SOCIÉTÉS EN PARTICIPATION"
+page = 224
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "183"
+intitule = "INTÉRÊTS COURUS SUR DETTES LIÉES À DES PARTICIPATIONS"
+page = 224
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "184"
+intitule = "COMPTES PERMANENTS BLOQUÉS DES ÉTABLISSEMENTS ET SUCCURSALES"
+page = 224
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "185"
+intitule = "COMPTES PERMANENTS NON BLOQUÉS DES ÉTABLISSEMENTS ET SUCCURSALES"
+page = 224
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "186"
+intitule = "COMPTES DE LIAISON CHARGES"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "187"
+intitule = "COMPTES DE LIAISON PRODUITS"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "188"
+intitule = "COMPTES DE LIAISON DES SOCIÉTÉS EN PARTICIPATION"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "19"
+intitule = "PROVISIONS POUR RISQUES ET CHARGES"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "191"
+intitule = "PROVISIONS POUR LITIGES"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "192"
+intitule = "PROVISIONS POUR GARANTIES DONNÉES AUX CLIENTS"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "193"
+intitule = "PROVISIONS POUR PERTES SUR MARCHÉS À ACHÈVEMENT FUTUR"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "194"
+intitule = "PROVISIONS POUR PERTES DE CHANGE"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "195"
+intitule = "PROVISIONS POUR IMPÔTS"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "196"
+intitule = "PROVISIONS POUR PENSIONS ET OBLIGATIONS SIMILAIRES"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "1961"
+intitule = "Provisions pour pensions et obligations similaires - engagement de retraite"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1962"
+intitule = "Actif du régime de retraite"
+page = 224
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "197"
+intitule = "PROVISIONS POUR RESTRUCTURATION"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "198"
+intitule = "AUTRES PROVISIONS POUR RISQUES ET CHARGES"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1981"
+intitule = "Provisions pour amendes et pénalités"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1983"
+intitule = "Provisions pour propre assureur"
+page = 224
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1984"
+intitule = "Provisions pour démantèlement et remise en état"
+page = 225
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1985"
+intitule = "Provisions pour droits à réduction ou avantage en nature (Chèques cadeau, cartes de fidélité…)"
+page = 225
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "1988"
+intitule = "Provisions pour divers risques et charges"
+page = 225
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "21"
+intitule = "IMMOBILISATIONS INCORPORELLES"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "211"
+intitule = "FRAIS DE DÉVELOPPEMENT"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "212"
+intitule = "BREVETS, LICENCES, CONCESSIONS ET DROITS SIMILAIRES"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2121"
+intitule = "Brevets"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2122"
+intitule = "Licences"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2123"
+intitule = "Concessions de service public"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2128"
+intitule = "Autres concessions et droits similaires"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "213"
+intitule = "LOGICIELS ET SITES INTERNET"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2131"
+intitule = "Logiciels"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2132"
+intitule = "Sites internet"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "214"
+intitule = "MARQUES"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "215"
+intitule = "FONDS COMMERCIAL"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "216"
+intitule = "DROIT AU BAIL"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "217"
+intitule = "INVESTISSEMENTS DE CRÉATION"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "218"
+intitule = "AUTRES DROITS ET VALEURS INCORPORELS"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2181"
+intitule = "Frais de prospection et d'évaluation de ressources minérales"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2182"
+intitule = "Coûts d'obtention du contrat"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2183"
+intitule = "Fichiers clients, notices, titres de journaux et magazines"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2184"
+intitule = "Coûts des franchises"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2188"
+intitule = "Divers droits et valeurs incorporelles"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "219"
+intitule = "IMMOBILISATIONS INCORPORELLES EN COURS"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2191"
+intitule = "Frais de développement"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2193"
+intitule = "Logiciels et internet"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2198"
+intitule = "Autres droits et valeurs incorporels"
+page = 226
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "22"
+intitule = "TERRAINS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "221"
+intitule = "TERRAINS AGRICOLES ET FORESTIERS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2211"
+intitule = "Terrains d'exploitation agricole"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2212"
+intitule = "Terrains d'exploitation forestière"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2218"
+intitule = "Autres terrains"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "222"
+intitule = "TERRAINS NUS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2221"
+intitule = "Terrains à bâtir"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2228"
+intitule = "Autres terrains nus"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "223"
+intitule = "TERRAINS BÂTIS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2231"
+intitule = "pour bâtiments industriels et agricoles"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2232"
+intitule = "pour bâtiments administratifs et commerciaux"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2234"
+intitule = "pour bâtiments affectés aux autres opérations professionnelles"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2235"
+intitule = "pour bâtiments affectés aux autres opérations non professionnelles"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2238"
+intitule = "Autres terrains bâtis"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "224"
+intitule = "TRAVAUX DE MISE EN VALEUR DES TERRAINS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2241"
+intitule = "Plantation d'arbres et d'arbustes"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2245"
+intitule = "Améliorations du fonds"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2248"
+intitule = "Autres travaux"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "225"
+intitule = "TERRAINS DE CARRIÈRES - TRÉFONDS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2251"
+intitule = "Carrières"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "226"
+intitule = "TERRAINS AMÉNAGÉS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2261"
+intitule = "Parkings"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "227"
+intitule = "TERRAINS MIS EN CONCESSION"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "228"
+intitule = "AUTRES TERRAINS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2281"
+intitule = "Terrains - immeubles de placement"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2285"
+intitule = "Terrains des logements affectés au personnel"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2286"
+intitule = "Terrains de location - acquisition"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2288"
+intitule = "Divers terrains"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "229"
+intitule = "AMÉNAGEMENTS DE TERRAINS EN COURS"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2291"
+intitule = "Terrains agricoles et forestiers"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2292"
+intitule = "Terrains nus"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2295"
+intitule = "Terrains de carrières - tréfonds"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2298"
+intitule = "Autres terrains"
+page = 227
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "23"
+intitule = "BÂTIMENTS, INSTALLATIONS TECHNIQUES ET AGENCEMENTS"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "231"
+intitule = "BÂTIMENTS INDUSTRIELS, AGRICOLES, ADMINISTRATIFS ET COMMERCIAUX SUR SOL PROPRE"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2311"
+intitule = "Bâtiments industriels"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2312"
+intitule = "Bâtiments agricoles"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2313"
+intitule = "Bâtiments administratifs et commerciaux"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2314"
+intitule = "Bâtiments affectés au logement du personnel"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2315"
+intitule = "Bâtiments - immeubles de placement"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2316"
+intitule = "Bâtiments de location acquisition"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "232"
+intitule = "BÂTIMENTS INDUSTRIELS, AGRICOLES, ADMINISTRATIFS ET COMMERCIAUX SUR SOL D'AUTRUI"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2321"
+intitule = "Bâtiments industriels"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2322"
+intitule = "Bâtiments agricoles"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2323"
+intitule = "Bâtiments administratifs et commerciaux"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2324"
+intitule = "Bâtiments affectés au logement du personnel"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2325"
+intitule = "Bâtiments - immeubles de placement"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2326"
+intitule = "Bâtiments de location - acquisition"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "233"
+intitule = "OUVRAGES D'INFRASTRUCTURE"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2331"
+intitule = "Voies de terre"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2332"
+intitule = "Voies de fer"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2333"
+intitule = "Voies d'eau"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2334"
+intitule = "Barrages, digues"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2335"
+intitule = "Pistes d'aérodrome"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2338"
+intitule = "Autres ouvrages d'infrastructures"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "234"
+intitule = "AMÉNAGEMENTS, AGENCEMENTS ET INSTALLATIONS TECHNIQUES"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2341"
+intitule = "Installations complexes spécialisées sur sol propre"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2342"
+intitule = "Installations complexes spécialisées sur sol d'autrui"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2343"
+intitule = "Installations à caractère spécifique sur sol propre"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2344"
+intitule = "Installations à caractère spécifique sur sol d'autrui"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2345"
+intitule = "Aménagements et agencements des bâtiments"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "235"
+intitule = "AMÉNAGEMENTS DE BUREAUX"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2351"
+intitule = "Installations générales"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2358"
+intitule = "Autres aménagements de bureaux"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "237"
+intitule = "BÂTIMENTS INDUSTRIELS, AGRICOLES ET COMMERCIAUX MIS EN CONCESSION"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "238"
+intitule = "AUTRES INSTALLATIONS ET AGENCEMENTS"
+page = 228
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "239"
+intitule = "BÂTIMENTS AMÉNAGEMENTS, AGENCEMENTS ET INSTALLATIONS EN COURS"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2391"
+intitule = "Bâtiments en cours"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2392"
+intitule = "Installations en cours"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2393"
+intitule = "Ouvrages d'infrastructure en cours"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2394"
+intitule = "Aménagements et agencements et installations techniques en cours"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2395"
+intitule = "Aménagements de bureaux en cours"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2398"
+intitule = "Autres installations et agencements en cours"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "24"
+intitule = "MATÉRIEL, MOBILIER ET ACTIFS BIOLOGIQUES"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "241"
+intitule = "MATÉRIEL ET OUTILLAGE INDUSTRIEL ET COMMERCIAL"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2411"
+intitule = "Matériel industriel"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2412"
+intitule = "Outillage industriel"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2413"
+intitule = "Matériel commercial"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2414"
+intitule = "Outillage commercial"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2416"
+intitule = "Matériel et outillage industriel et commercial de location - acquisition"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "242"
+intitule = "MATÉRIEL ET OUTILLAGE AGRICOLE"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2421"
+intitule = "Matériel agricole"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2422"
+intitule = "Outillage agricole"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2426"
+intitule = "Matériel et outillage agricole de location - acquisition"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "243"
+intitule = "MATÉRIEL D'EMBALLAGE RÉCUPÉRABLE ET IDENTIFIABLE"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "244"
+intitule = "MATÉRIEL ET MOBILIER"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2441"
+intitule = "Matériel de bureau"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2442"
+intitule = "Matériel informatique"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2443"
+intitule = "Matériel bureautique"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2444"
+intitule = "Mobilier de bureau"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2445"
+intitule = "Matériel et mobilier - immeubles de placement"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2446"
+intitule = "Matériel et mobilier de location - acquisition"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2447"
+intitule = "Matériel et mobilier des logements du personnel"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "245"
+intitule = "MATÉRIEL DE TRANSPORT"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2451"
+intitule = "Matériel automobile"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2452"
+intitule = "Matériel ferroviaire"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2453"
+intitule = "Matériel fluvial, lagunaire"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2454"
+intitule = "Matériel naval"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2455"
+intitule = "Matériel aérien"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2456"
+intitule = "Matériel de transport de location - acquisition"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2457"
+intitule = "Matériel hippomobile"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2458"
+intitule = "Autres matériels de transport"
+page = 229
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "246"
+intitule = "ACTIFS BIOLOGIQUES"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2461"
+intitule = "Cheptel, animaux de trait"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2462"
+intitule = "Cheptel, animaux reproducteurs"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2463"
+intitule = "Animaux de garde"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2465"
+intitule = "Plantations agricoles"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2468"
+intitule = "Autres actifs biologiques"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "247"
+intitule = "AGENCEMENTS, AMÉNAGEMENTS DU MATÉRIEL ET ACTIFS BIOLOGIQUES"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2471"
+intitule = "Agencements et aménagements du matériel"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2472"
+intitule = "Agencements et aménagements des actifs biologiques"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2478"
+intitule = "Autres agencements, aménagements du matériel et actifs biologiques"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "248"
+intitule = "AUTRES MATÉRIELS ET MOBILIERS"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2481"
+intitule = "Collections et œuvres d'art"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2488"
+intitule = "Divers matériels mobiliers"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "249"
+intitule = "MATÉRIELS ET ACTIFS BIOLOGIQUES EN COURS"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2491"
+intitule = "Matériel et outillage industriel et commercial"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2492"
+intitule = "Matériel et outillage agricole"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2493"
+intitule = "Matériel d'emballage récupérable et identifiable"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2494"
+intitule = "Matériel et mobilier de bureau"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2495"
+intitule = "Matériel de transport"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2496"
+intitule = "Actifs biologiques"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2497"
+intitule = "Agencements et aménagements du matériel et des actifs biologiques"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2498"
+intitule = "Autres matériels et actifs biologiques en cours"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "25"
+intitule = "AVANCES ET ACOMPTES VERSÉS SUR IMMOBILISATIONS"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "251"
+intitule = "AVANCES ET ACOMPTES VERSÉS SUR IMMOBILISATIONS INCORPORELLES"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "252"
+intitule = "AVANCES ET ACOMPTES VERSÉS SUR IMMOBILISATIONS CORPORELLES"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "26"
+intitule = "TITRES DE PARTICIPATION"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "261"
+intitule = "TITRES DE PARTICIPATION DANS DES SOCIÉTÉS SOUS CONTRÔLE EXCLUSIF"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "262"
+intitule = "TITRES DE PARTICIPATION DANS DES SOCIÉTÉS SOUS CONTRÔLE CONJOINT"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "263"
+intitule = "TITRES DE PARTICIPATION DANS DES SOCIÉTÉS CONFÉRANT UNE INFLUENCE NOTABLE"
+page = 230
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "265"
+intitule = "PARTICIPATIONS DANS DES ORGANISMES PROFESSIONNELS"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "266"
+intitule = "PARTS DANS DES GROUPEMENTS D'INTÉRÊT ÉCONOMIQUE (G.I.E.)"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "268"
+intitule = "AUTRES TITRES DE PARTICIPATION"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "27"
+intitule = "AUTRES IMMOBILISATIONS FINANCIÈRES"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "271"
+intitule = "PRÊTS ET CRÉANCES"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2711"
+intitule = "Prêts participatifs"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2712"
+intitule = "Prêts aux associés"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2713"
+intitule = "Billets de fonds"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2714"
+intitule = "Titres prêtés"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2718"
+intitule = "Autres prêts et créances"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "272"
+intitule = "PRÊTS AU PERSONNEL"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2721"
+intitule = "Prêts immobiliers"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2722"
+intitule = "Prêts mobiliers et d'installation"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2728"
+intitule = "Autres prêts au personnel"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "273"
+intitule = "CRÉANCES SUR L'ÉTAT"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2731"
+intitule = "Retenues de garantie"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2733"
+intitule = "Fonds réglementé"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2734"
+intitule = "Créances sur le concédant"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2738"
+intitule = "Autres créances sur l'État"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "274"
+intitule = "TITRES IMMOBILISÉS"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2741"
+intitule = "Titres immobilisés de l'activité de portefeuille (T.I.A.P.)"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2742"
+intitule = "Titres participatifs"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2743"
+intitule = "Certificats d'investissement"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2744"
+intitule = "Parts de fonds commun de placement (F.C.P.)"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2745"
+intitule = "Obligations"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2746"
+intitule = "Actions ou parts propres"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2748"
+intitule = "Autres titres immobilisés"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "275"
+intitule = "DÉPÔTS ET CAUTIONNEMENTS VERSÉS"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2751"
+intitule = "Dépôts pour loyers d'avance"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2752"
+intitule = "Dépôts pour l'électricité"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2753"
+intitule = "Dépôts pour l'eau"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2754"
+intitule = "Dépôts pour le gaz"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2755"
+intitule = "Dépôts pour le téléphone, le télex, la télécopie"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2756"
+intitule = "Cautionnements sur marchés publics"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2757"
+intitule = "Cautionnements sur autres opérations"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2758"
+intitule = "Autres dépôts et cautionnements"
+page = 231
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "276"
+intitule = "INTÉRÊTS COURUS"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2761"
+intitule = "Prêts et créances non commerciales"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2762"
+intitule = "Prêts au personnel"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2763"
+intitule = "Créances sur l'État"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2764"
+intitule = "Titres immobilisés"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2765"
+intitule = "Dépôts et cautionnements versés"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2767"
+intitule = "Créances rattachées à des participations"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2768"
+intitule = "Immobilisations financières diverses"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "277"
+intitule = "CRÉANCES RATTACHÉES À DES PARTICIPATIONS ET AVANCES À DES G.I.E."
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2771"
+intitule = "Créances rattachées à des participations (groupe)"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2772"
+intitule = "Créances rattachées à des participations (hors groupe)"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2773"
+intitule = "Créances rattachées à des sociétés en participation"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2774"
+intitule = "Avances à des Groupements d'intérêt économique (G.I.E.)"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "278"
+intitule = "IMMOBILISATIONS FINANCIÈRES DIVERSES"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2781"
+intitule = "Créances diverses groupe"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2782"
+intitule = "Créances diverses hors groupe"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2784"
+intitule = "Banques dépôts à terme"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2785"
+intitule = "Or et métaux précieux"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "2788"
+intitule = "Autres immobilisations financières"
+page = 232
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "28"
+intitule = "AMORTISSEMENTS"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "281"
+intitule = "AMORTISSEMENTS DES IMMOBILISATIONS INCORPORELLES"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2811"
+intitule = "Amortissements des frais de développement"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2812"
+intitule = "Amortissements des brevets, licences, concessions et droits similaires"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2813"
+intitule = "Amortissements des logiciels et sites internet"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2814"
+intitule = "Amortissements des marques"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2815"
+intitule = "Amortissements du fonds commercial"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2816"
+intitule = "Amortissements du droit au bail"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2817"
+intitule = "Amortissements des investissements de création"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2818"
+intitule = "Amortissements des autres droits et valeurs incorporels"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "282"
+intitule = "AMORTISSEMENTS DES TERRAINS"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2824"
+intitule = "Amortissements des travaux de mise en valeur des terrains"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "283"
+intitule = "AMORTISSEMENTS DES BÂTIMENTS, INSTALLATIONS TECHNIQUES ET AGENCEMENTS"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2831"
+intitule = "Amortissements des bâtiments industriels, agricoles, administratifs et commerciaux sur sol propre"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2832"
+intitule = "Amortissements des bâtiments industriels, agricoles, administratifs et commerciaux sur sol d'autrui"
+page = 232
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2833"
+intitule = "Amortissements des ouvrages d'infrastructure"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2834"
+intitule = "Amortissements des aménagements, agencements et installations techniques"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2835"
+intitule = "Amortissements des aménagements de bureaux"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2837"
+intitule = "Amortissements des bâtiments industriels, agricoles et commerciaux mis en concession"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2838"
+intitule = "Amortissements des autres installations et agencements"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "284"
+intitule = "AMORTISSEMENTS DU MATÉRIEL"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2841"
+intitule = "Amortissements du matériel et outillage industriel et commercial"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2842"
+intitule = "Amortissements du matériel et outillage agricole"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2843"
+intitule = "Amortissements du matériel d'emballage récupérable et identifiable"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2844"
+intitule = "Amortissements du matériel et mobilier"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2845"
+intitule = "Amortissements du matériel de transport"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2846"
+intitule = "Amortissements des actifs biologiques"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2847"
+intitule = "Amortissements des agencements et aménagements du matériel et des actifs biologiques"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2848"
+intitule = "Amortissements des autres matériels"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "29"
+intitule = "DÉPRÉCIATIONS DES IMMOBILISATIONS"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "291"
+intitule = "DÉPRÉCIATIONS DES IMMOBILISATIONS INCORPORELLES"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2911"
+intitule = "Dépréciations des frais de développement"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2912"
+intitule = "Dépréciations des brevets, licences, concessions et droits similaires"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2913"
+intitule = "Dépréciations des logiciels et sites internet"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2914"
+intitule = "Dépréciations des marques"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2915"
+intitule = "Dépréciations du fonds commercial"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2916"
+intitule = "Dépréciations du droit au bail"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2917"
+intitule = "Dépréciations des investissements de création"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2918"
+intitule = "Dépréciations des autres droits et valeurs incorporels"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2919"
+intitule = "Dépréciations des immobilisations incorporelles en cours"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "292"
+intitule = "DÉPRÉCIATIONS DES TERRAINS"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2921"
+intitule = "Dépréciations des terrains agricoles et forestiers"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2922"
+intitule = "Dépréciations des terrains nus"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2923"
+intitule = "Dépréciations des terrains bâtis"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2924"
+intitule = "Dépréciations des travaux de mise en valeur des terrains"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2925"
+intitule = "Dépréciations des terrains de gisement"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2926"
+intitule = "Dépréciations des terrains aménagés"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2927"
+intitule = "Dépréciations des terrains mis en concession"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2928"
+intitule = "Dépréciations des autres terrains"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2929"
+intitule = "Dépréciations des aménagements de terrains en cours"
+page = 233
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "293"
+intitule = "DÉPRÉCIATIONS DES BÂTIMENTS, INSTALLATIONS TECHNIQUES ET AGENCEMENTS"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2931"
+intitule = "Dépréciations des bâtiments industriels, agricoles, administratifs et commerciaux sur sol propre"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2932"
+intitule = "Dépréciations des bâtiments industriels, agricoles, administratifs et commerciaux sur sol d'autrui"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2933"
+intitule = "Dépréciations des ouvrages d'infrastructures"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2934"
+intitule = "Dépréciations des aménagements, agencements et installations techniques"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2935"
+intitule = "Dépréciations des aménagements de bureaux"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2937"
+intitule = "Dépréciations des bâtiments industriels, agricoles et commerciaux mis en concession"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2938"
+intitule = "Dépréciations des autres installations et agencements"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2939"
+intitule = "Dépréciations des bâtiments et installations en cours"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "294"
+intitule = "DÉPRÉCIATIONS DE MATÉRIEL, DU MOBILIER ET DE L'ACTIF BIOLOGIQUE"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2941"
+intitule = "Dépréciations du matériel et outillage industriel et commercial"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2942"
+intitule = "Dépréciations du matériel et outillage agricole"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2943"
+intitule = "Dépréciations du matériel d'emballage récupérable et identifiable"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2944"
+intitule = "Dépréciations du matériel et mobilier"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2945"
+intitule = "Dépréciations du matériel de transport"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2946"
+intitule = "Dépréciations des actifs biologiques"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2947"
+intitule = "Dépréciations des agencements et aménagements du matériel et des actifs biologiques"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2948"
+intitule = "Dépréciations des autres matériels"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2949"
+intitule = "Dépréciations de matériel en cours"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "295"
+intitule = "DÉPRÉCIATIONS DES AVANCES ET ACOMPTES VERSÉS SUR IMMOBILISATIONS"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2951"
+intitule = "Dépréciations des avances et acomptes versés sur immobilisations incorporelles"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2952"
+intitule = "Dépréciations des avances et acomptes versés sur immobilisations corporelles"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "296"
+intitule = "DÉPRÉCIATIONS DES TITRES DE PARTICIPATION"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2961"
+intitule = "Dépréciations des titres de participation dans des sociétés sous contrôle exclusif"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2962"
+intitule = "Dépréciations des titres de participation dans les sociétés sous contrôle conjoint"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2963"
+intitule = "Dépréciations des titres de participation dans les sociétés conférant une influence notable"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2965"
+intitule = "Dépréciations des participations dans des organismes professionnels"
+page = 234
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2966"
+intitule = "Dépréciations des parts dans des GIE"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2968"
+intitule = "Dépréciations des autres titres de participation"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "297"
+intitule = "DÉPRÉCIATIONS DES AUTRES IMMOBILISATIONS FINANCIÈRES"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2971"
+intitule = "Dépréciations des prêts et créances"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2972"
+intitule = "Dépréciations des prêts au personnel"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2973"
+intitule = "Dépréciations des créances sur l'État"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2974"
+intitule = "Dépréciations des titres immobilisés"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2975"
+intitule = "Dépréciations des dépôts et cautionnements versés"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2977"
+intitule = "Dépréciations des créances rattachées à des participations et avances à des GIE"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "2978"
+intitule = "Dépréciations des créances financières diverses"
+page = 235
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "31"
+intitule = "MARCHANDISES"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "311"
+intitule = "MARCHANDISES A"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3111"
+intitule = "Marchandises A1"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3112"
+intitule = "Marchandises A2"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "312"
+intitule = "MARCHANDISES B"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3121"
+intitule = "Marchandises B1"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3122"
+intitule = "Marchandises B2"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "313"
+intitule = "ACTIFS BIOLOGIQUES"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3131"
+intitule = "Animaux"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3132"
+intitule = "Végétaux"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "318"
+intitule = "MARCHANDISES HORS ACTIVITÉS ORDINAIRES (H.A.O.)"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "32"
+intitule = "MATIÈRES PREMIÈRES ET FOURNITURES LIÉES"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "321"
+intitule = "MATIÈRES A"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "322"
+intitule = "MATIÈRES B"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "323"
+intitule = "FOURNITURES (A, B)"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "33"
+intitule = "AUTRES APPROVISIONNEMENTS"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "331"
+intitule = "MATIÈRES CONSOMMABLES"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "332"
+intitule = "FOURNITURES D'ATELIER ET D'USINE"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "333"
+intitule = "FOURNITURES DE MAGASIN"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "334"
+intitule = "FOURNITURES DE BUREAU"
+page = 236
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "335"
+intitule = "EMBALLAGES"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3351"
+intitule = "Emballages perdus"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3352"
+intitule = "Emballages récupérables non identifiables"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3353"
+intitule = "Emballages à usage mixte"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3358"
+intitule = "Autres emballages"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "338"
+intitule = "AUTRES MATIÈRES"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "34"
+intitule = "PRODUITS EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "341"
+intitule = "PRODUITS EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3411"
+intitule = "Produits en cours P1"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3412"
+intitule = "Produits en cours P2"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "342"
+intitule = "TRAVAUX EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3421"
+intitule = "Travaux en cours T1"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3422"
+intitule = "Travaux en cours T2"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "343"
+intitule = "PRODUITS INTERMÉDIAIRES EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3431"
+intitule = "Produits intermédiaires A"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3432"
+intitule = "Produits intermédiaires B"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "344"
+intitule = "PRODUITS RÉSIDUELS EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3441"
+intitule = "Produits résiduels A"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3442"
+intitule = "Produits résiduels B"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "345"
+intitule = "ACTIFS BIOLOGIQUES EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3451"
+intitule = "Animaux"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3452"
+intitule = "Végétaux"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "35"
+intitule = "SERVICES EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "351"
+intitule = "ÉTUDES EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3511"
+intitule = "Études en cours E1"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3512"
+intitule = "Études en cours E2"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "352"
+intitule = "PRESTATIONS DE SERVICES EN COURS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3521"
+intitule = "Prestations de services S1"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3522"
+intitule = "Prestations de services S2"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "36"
+intitule = "PRODUITS FINIS"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "361"
+intitule = "PRODUITS FINIS A"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "362"
+intitule = "PRODUITS FINIS B"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "363"
+intitule = "ACTIFS BIOLOGIQUES"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3631"
+intitule = "Animaux"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3632"
+intitule = "Végétaux"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3638"
+intitule = "Autres stocks (activités annexes)"
+page = 237
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "37"
+intitule = "PRODUITS INTERMÉDIAIRES ET RÉSIDUELS"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "371"
+intitule = "PRODUITS INTERMÉDIAIRES"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3711"
+intitule = "Produits intermédiaires A"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3712"
+intitule = "Produits intermédiaires B"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "372"
+intitule = "PRODUITS RÉSIDUELS"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3721"
+intitule = "Déchets"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3722"
+intitule = "Rebuts"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3723"
+intitule = "Matières de récupération"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "373"
+intitule = "ACTIFS BIOLOGIQUES"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3731"
+intitule = "Animaux"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3732"
+intitule = "Végétaux"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3738"
+intitule = "Autres stocks (activités annexes)"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "38"
+intitule = "STOCKS EN COURS DE ROUTE, EN CONSIGNATION OU EN DÉPÔT"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "381"
+intitule = "MARCHANDISES EN COURS DE ROUTE"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "382"
+intitule = "MATIÈRES PREMIÈRES ET FOURNITURES LIÉES EN COURS DE ROUTE"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "383"
+intitule = "AUTRES APPROVISIONNEMENTS EN COURS DE ROUTE"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "386"
+intitule = "PRODUITS FINIS EN COURS DE ROUTE"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "387"
+intitule = "STOCK EN CONSIGNATION OU EN DÉPÔT"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3871"
+intitule = "Stock en consignation"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "3872"
+intitule = "Stock en dépôt"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "388"
+intitule = "STOCK PROVENANT D'IMMOBILISATIONS MISES HORS SERVICE OU AU REBUT"
+page = 238
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "39"
+intitule = "DÉPRÉCIATIONS DES STOCKS ET ENCOURS DE PRODUCTION"
+page = 238
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "391"
+intitule = "DÉPRÉCIATIONS DES STOCKS DE MARCHANDISES"
+page = 238
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "392"
+intitule = "DÉPRÉCIATIONS DES STOCKS DE MATIÈRES PREMIÈRES ET FOURNITURES LIÉES"
+page = 238
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "393"
+intitule = "DÉPRÉCIATIONS DES STOCKS D'AUTRES APPROVISIONNEMENTS"
+page = 238
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "394"
+intitule = "DÉPRÉCIATIONS DES PRODUCTIONS EN COURS"
+page = 238
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "395"
+intitule = "DÉPRÉCIATIONS DES SERVICES EN COURS"
+page = 239
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "396"
+intitule = "DÉPRÉCIATIONS DES STOCKS DE PRODUITS FINIS"
+page = 239
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "397"
+intitule = "DÉPRÉCIATIONS DES STOCKS DE PRODUITS INTERMÉDIAIRES ET RÉSIDUELS"
+page = 239
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "398"
+intitule = "DÉPRÉCIATIONS DES STOCKS EN COURS DE ROUTE, EN CONSIGNATION OU EN DÉPÔT"
+page = 239
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "40"
+intitule = "FOURNISSEURS ET COMPTES RATTACHÉS"
+page = 240
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "401"
+intitule = "FOURNISSEURS, DETTES EN COMPTE"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4011"
+intitule = "Fournisseurs"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4012"
+intitule = "Fournisseurs Groupe"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4013"
+intitule = "Fournisseurs sous-traitants"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4016"
+intitule = "Fournisseurs, réserve de propriété"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4017"
+intitule = "Fournisseurs, retenues de garantie"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "402"
+intitule = "FOURNISSEURS, EFFETS À PAYER"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4021"
+intitule = "Fournisseurs, Effets à payer"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4022"
+intitule = "Fournisseurs - Groupe, Effets à payer"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4023"
+intitule = "Fournisseurs sous-traitants, Effets à payer"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "404"
+intitule = "FOURNISSEURS, ACQUISITIONS COURANTES D'IMMOBILISATIONS"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4041"
+intitule = "Fournisseurs dettes en compte, immobilisations incorporelles"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4042"
+intitule = "Fournisseurs dettes en compte, immobilisations corporelles"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4046"
+intitule = "Fournisseurs effets à payer, immobilisations incorporelles"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4047"
+intitule = "Fournisseurs effets à payer, immobilisations corporelles"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "408"
+intitule = "FOURNISSEURS, FACTURES NON PARVENUES"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4081"
+intitule = "Fournisseurs"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4082"
+intitule = "Fournisseurs - Groupe"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4083"
+intitule = "Fournisseurs sous-traitants"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4086"
+intitule = "Fournisseurs, intérêts courus"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "409"
+intitule = "FOURNISSEURS DÉBITEURS"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4091"
+intitule = "Fournisseurs avances et acomptes versés"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4092"
+intitule = "Fournisseurs - Groupe avances et acomptes versés"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4093"
+intitule = "Fournisseurs sous-traitants avances et acomptes versés"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4094"
+intitule = "Fournisseurs créances pour emballages et matériels à rendre"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4098"
+intitule = "Fournisseurs, rabais, remises, ristournes et autres avoirs à obtenir"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "41"
+intitule = "CLIENTS ET COMPTES RATTACHÉS"
+page = 241
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "411"
+intitule = "CLIENTS"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4111"
+intitule = "Clients"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4112"
+intitule = "Clients - Groupe"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4114"
+intitule = "Clients, État et Collectivités publiques"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4115"
+intitule = "Clients, organismes internationaux"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4116"
+intitule = "Clients, réserve de propriété"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4117"
+intitule = "Clients, retenues de garantie"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4118"
+intitule = "Clients, dégrèvement de Taxes sur la Valeur Ajoutée (T.V.A.)"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "412"
+intitule = "CLIENTS, EFFETS À RECEVOIR EN PORTEFEUILLE"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4121"
+intitule = "Clients, Effets à recevoir"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4122"
+intitule = "Clients - Groupe, Effets à recevoir"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4124"
+intitule = "État et Collectivités publiques, Effets à recevoir"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4125"
+intitule = "Organismes Internationaux, Effets à recevoir"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+note = "numéro imprimé « 412 » (tronqué) dans le JO ; restitué 4125 par analogie avec 4115, comme Tryton"
+
+[[compte]]
+numero = "413"
+intitule = "CLIENTS, CHÈQUES, EFFETS ET AUTRES VALEURS IMPAYÉS"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4131"
+intitule = "Clients, chèques impayés"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4132"
+intitule = "Clients, effets impayés"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4133"
+intitule = "Clients, cartes de crédit impayées"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4138"
+intitule = "Clients, autres valeurs impayées"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "414"
+intitule = "CRÉANCES SUR CESSIONS COURANTES D'IMMOBILISATIONS"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4141"
+intitule = "Créances en compte, immobilisations incorporelles"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4142"
+intitule = "Créances en compte, immobilisations corporelles"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4146"
+intitule = "Effets à recevoir, immobilisations incorporelles"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4147"
+intitule = "Effets à recevoir, immobilisations corporelles"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "415"
+intitule = "CLIENTS, EFFETS ESCOMPTÉS NON ÉCHUS"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "416"
+intitule = "CRÉANCES CLIENTS LITIGIEUSES OU DOUTEUSES"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4161"
+intitule = "Créances litigieuses"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4162"
+intitule = "Créances douteuses"
+page = 241
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "418"
+intitule = "CLIENTS, PRODUITS À RECEVOIR"
+page = 242
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4181"
+intitule = "Clients, factures à établir"
+page = 242
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4186"
+intitule = "Clients, intérêts courus"
+page = 242
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "419"
+intitule = "CLIENTS CRÉDITEURS"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4191"
+intitule = "Clients, avances et acomptes reçus"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4192"
+intitule = "Clients - Groupe, avances et acomptes reçus"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4194"
+intitule = "Clients, dettes pour emballages et matériels consignés"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4198"
+intitule = "Clients, rabais, remises, ristournes et autres avoirs à accorder"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "42"
+intitule = "PERSONNEL"
+page = 242
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "421"
+intitule = "PERSONNEL, AVANCES ET ACOMPTES"
+page = 242
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4211"
+intitule = "Personnel, avances"
+page = 242
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4212"
+intitule = "Personnel, acomptes"
+page = 242
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4213"
+intitule = "Frais avancés et fournitures au personnel"
+page = 242
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "422"
+intitule = "PERSONNEL, RÉMUNÉRATIONS DUES"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "423"
+intitule = "PERSONNEL, OPPOSITIONS, SAISIES-ARRÊTS"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4231"
+intitule = "Personnel, oppositions"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4232"
+intitule = "Personnel, saisies arrêts"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4233"
+intitule = "Personnel, avis à tiers détenteur"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "424"
+intitule = "PERSONNEL, OEUVRES SOCIALES INTERNES"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4241"
+intitule = "Assistance médicale"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4242"
+intitule = "Allocations familiales"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4245"
+intitule = "Organismes sociaux rattachés à l'entité"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4248"
+intitule = "Autres œuvres sociales internes"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "425"
+intitule = "REPRÉSENTANTS DU PERSONNEL"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4251"
+intitule = "Délégués du personnel"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4252"
+intitule = "Syndicats et Comités d'entreprises, d'Établissement"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4258"
+intitule = "Autres représentants du personnel"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "426"
+intitule = "PERSONNEL, PARTICIPATION AUX BÉNÉFICES ET AU CAPITAL"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4261"
+intitule = "Participation aux bénéfices"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4264"
+intitule = "Participation au capital"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "427"
+intitule = "PERSONNEL - DÉPÔTS"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "428"
+intitule = "PERSONNEL, CHARGES À PAYER ET PRODUITS À RECEVOIR"
+page = 242
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4281"
+intitule = "Dettes provisionnées pour congés à payer"
+page = 242
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4286"
+intitule = "Autres charges à payer"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4287"
+intitule = "Produits à recevoir"
+page = 243
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "43"
+intitule = "ORGANISMES SOCIAUX"
+page = 243
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "431"
+intitule = "SÉCURITÉ SOCIALE"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4311"
+intitule = "Prestations familiales"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4312"
+intitule = "Accidents de travail"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4313"
+intitule = "Caisse de retraite obligatoire"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4314"
+intitule = "Caisse de retraite facultative"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4318"
+intitule = "Autres cotisations sociales"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "432"
+intitule = "CAISSES DE RETRAITE COMPLÉMENTAIRE"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "433"
+intitule = "AUTRES ORGANISMES SOCIAUX"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4331"
+intitule = "Mutuelle"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4332"
+intitule = "Assurances retraite"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4333"
+intitule = "Assurances et organismes de santé"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "438"
+intitule = "ORGANISMES SOCIAUX, CHARGES À PAYER ET PRODUITS À RECEVOIR"
+page = 243
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4381"
+intitule = "Charges sociales sur gratifications à payer"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4382"
+intitule = "Charges sociales sur congés à payer"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4386"
+intitule = "Autres charges à payer"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4387"
+intitule = "Produits à recevoir"
+page = 243
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "44"
+intitule = "ÉTAT ET COLLECTIVITÉS PUBLIQUES"
+page = 243
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "441"
+intitule = "ÉTAT, IMPÔT SUR LES BÉNÉFICES"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "442"
+intitule = "ÉTAT, AUTRES IMPÔTS ET TAXES"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4421"
+intitule = "Impôts et taxes d'État"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4422"
+intitule = "Impôts et taxes pour les collectivités publiques"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4423"
+intitule = "Impôts et taxes recouvrables sur des obligataires"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4424"
+intitule = "Impôts et taxes recouvrables sur des associés"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4426"
+intitule = "Droits de douane"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4428"
+intitule = "Autres impôts et taxes"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "443"
+intitule = "ÉTAT, T.V.A. FACTURÉE"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4431"
+intitule = "T.V.A. facturée sur ventes"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4432"
+intitule = "T.V.A. facturée sur prestations de services"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4433"
+intitule = "T.V.A. facturée sur travaux"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4434"
+intitule = "T.V.A. facturée sur production livrée à soi-même"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4435"
+intitule = "T.V.A. sur factures à établir"
+page = 243
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "444"
+intitule = "ÉTAT, T.V.A. DUE OU CRÉDIT DE T.V.A."
+page = 244
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4441"
+intitule = "État, T.V.A. due"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4449"
+intitule = "État, crédit de T.V.A. à reporter"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "445"
+intitule = "ÉTAT, T.V.A. RÉCUPÉRABLE"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4451"
+intitule = "T.V.A. récupérable sur immobilisations"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4452"
+intitule = "T.V.A. récupérable sur achats"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4453"
+intitule = "T.V.A. récupérable sur transport"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4454"
+intitule = "T.V.A. récupérable sur services extérieurs et autres charges"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4455"
+intitule = "T.V.A. récupérable sur factures non parvenues"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4456"
+intitule = "T.V.A. transférée par d'autres entités"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "446"
+intitule = "ÉTAT, AUTRES TAXES SUR LE CHIFFRE D'AFFAIRES"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "447"
+intitule = "ÉTAT, IMPÔTS RETENUS À LA SOURCE"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4471"
+intitule = "Impôt Général sur le revenu"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4472"
+intitule = "Impôts sur salaires"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4473"
+intitule = "Contribution nationale"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4474"
+intitule = "Contribution nationale de solidarité"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4478"
+intitule = "Autres impôts et contributions"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "448"
+intitule = "ÉTAT, CHARGES À PAYER ET PRODUITS À RECEVOIR"
+page = 244
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4486"
+intitule = "Charges à payer"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4487"
+intitule = "Produits à recevoir"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "449"
+intitule = "ÉTAT, CRÉANCES ET DETTES DIVERSES"
+page = 244
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4491"
+intitule = "État, obligations cautionnées"
+page = 244
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4492"
+intitule = "État, avances et acomptes versés sur impôts"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4493"
+intitule = "État, fonds de dotation à recevoir"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4494"
+intitule = "État, subventions investissement à recevoir"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4495"
+intitule = "État, subventions d'exploitation à recevoir"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4496"
+intitule = "État, subventions d'équilibre à recevoir"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4497"
+intitule = "État avances sur subventions"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4499"
+intitule = "État, fonds réglementés provisionnés"
+page = 244
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "45"
+intitule = "ORGANISMES INTERNATIONAUX"
+page = 244
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "451"
+intitule = "OPÉRATIONS AVEC LES ORGANISMES AFRICAINS"
+page = 244
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "452"
+intitule = "OPÉRATIONS AVEC LES AUTRES ORGANISMES INTERNATIONAUX"
+page = 244
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "458"
+intitule = "ORGANISMES INTERNATIONAUX, FONDS DE DOTATION ET SUBVENTIONS À RECEVOIR"
+page = 244
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4581"
+intitule = "Organismes internationaux, fonds de dotation à recevoir"
+page = 245
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4582"
+intitule = "Organismes internationaux, subventions à recevoir"
+page = 245
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "46"
+intitule = "APPORTEURS, ASSOCIÉS ET GROUPE"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "461"
+intitule = "APPORTEURS, OPÉRATIONS SUR LE CAPITAL"
+page = 245
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "4611"
+intitule = "Apporteurs, apports en nature"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4612"
+intitule = "Apporteurs, apports en numéraire"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4613"
+intitule = "Apporteurs, capital appelé, non versé"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4614"
+intitule = "Apporteurs, compte d'apport, opérations de restructuration (fusion…)"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4615"
+intitule = "Apporteurs, versements reçus sur augmentation de capital"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4616"
+intitule = "Apporteurs, versements anticipés"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4617"
+intitule = "Apporteurs défaillants"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4618"
+intitule = "Apporteurs, titres à échanger"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4619"
+intitule = "Apporteurs, capital à rembourser"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "462"
+intitule = "ASSOCIÉS, COMPTES COURANTS"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4621"
+intitule = "Principal"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4626"
+intitule = "Intérêts courus"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "463"
+intitule = "ASSOCIÉS, OPÉRATIONS FAITES EN COMMUN ET GIE"
+page = 245
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "4631"
+intitule = "Opérations courantes"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4636"
+intitule = "Intérêts courus"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "465"
+intitule = "ASSOCIÉS, DIVIDENDES À PAYER"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "466"
+intitule = "GROUPE, COMPTES COURANTS"
+page = 245
+nature = "bilan"
+sens = "variable"
+collectif = true
+
+[[compte]]
+numero = "467"
+intitule = "APPORTEURS RESTANT DÛ SUR CAPITAL APPELÉ"
+page = 245
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "47"
+intitule = "DÉBITEURS ET CRÉDITEURS DIVERS"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "471"
+intitule = "DÉBITEURS ET CRÉDITEURS DIVERS"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4711"
+intitule = "Débiteurs divers"
+page = 245
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4712"
+intitule = "Créditeurs divers"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4713"
+intitule = "Obligataires"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4715"
+intitule = "Rémunérations d'administrateurs"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4716"
+intitule = "Compte d'affacturage"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4717"
+intitule = "Débiteurs divers - retenues de garantie"
+page = 245
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4718"
+intitule = "Apport, compte de fusion et opérations assimilées"
+page = 245
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4719"
+intitule = "Bons de souscription d'actions et d'obligations"
+page = 245
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "472"
+intitule = "CRÉANCES ET DETTES SUR TITRES DE PLACEMENT"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4721"
+intitule = "Créances sur cessions de titres de placement"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4726"
+intitule = "Versements restant à effectuer sur titres de placement non libérés"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "473"
+intitule = "INTERMÉDIAIRES - OPÉRATIONS FAITES POUR COMPTE DE TIERS"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4731"
+intitule = "Mandants"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4732"
+intitule = "Mandataires"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4733"
+intitule = "Commettants"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4734"
+intitule = "Commissionnaires"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4739"
+intitule = "État, Collectivités publiques, fonds global d'allocation"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "474"
+intitule = "COMPTE DE RÉPARTITION PÉRIODIQUE DES CHARGES ET DES PRODUITS"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4746"
+intitule = "Compte de répartition périodique des charges"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4747"
+intitule = "Compte de répartition périodique des produits"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "475"
+intitule = "COMPTE TRANSITOIRE, AJUSTEMENT SPÉCIAL LIÉ À LA RÉVISION DU SYSCOHADA"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "4751"
+intitule = "Compte actif"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4752"
+intitule = "Compte passif"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "476"
+intitule = "CHARGES CONSTATÉES D'AVANCE"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "477"
+intitule = "PRODUITS CONSTATÉS D'AVANCE"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "478"
+intitule = "ÉCARTS DE CONVERSION - ACTIF"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4781"
+intitule = "Diminution des créances d'exploitation"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4782"
+intitule = "Diminution des créances financières"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4783"
+intitule = "Augmentation des dettes d'exploitation"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4784"
+intitule = "Augmentation des dettes financières"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4786"
+intitule = "Différences d'évaluation sur instruments de trésorerie"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4788"
+intitule = "Différences compensées par couverture de change"
+page = 246
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "479"
+intitule = "ÉCARTS DE CONVERSION - PASSIF"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4791"
+intitule = "Augmentation des créances d'exploitation"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4792"
+intitule = "Augmentation des créances financières"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4793"
+intitule = "Diminution des dettes d'exploitation"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4794"
+intitule = "Diminution des dettes financières"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+note = "le JO imprime « Diminution des dettes d'exploitation », doublon de 4793 ; restitué par symétrie avec 4784"
+
+[[compte]]
+numero = "4797"
+intitule = "Différences d'évaluation sur instruments de trésorerie"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4798"
+intitule = "Différences compensées par couverture de change"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "48"
+intitule = "CRÉANCES ET DETTES HORS ACTIVITÉS ORDINAIRES (HAO)"
+page = 246
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "481"
+intitule = "FOURNISSEURS D'INVESTISSEMENTS"
+page = 246
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4811"
+intitule = "Immobilisations incorporelles"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4812"
+intitule = "Immobilisations corporelles"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4813"
+intitule = "Versements restant à effectuer sur titres de participation et titres immobilisés non libérés"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4816"
+intitule = "Réserve de propriété"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4817"
+intitule = "Retenues de garantie"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4818"
+intitule = "Factures non parvenues"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "482"
+intitule = "FOURNISSEURS D'INVESTISSEMENTS, EFFETS À PAYER"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+collectif = true
+
+[[compte]]
+numero = "4821"
+intitule = "Immobilisations incorporelles"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4822"
+intitule = "Immobilisations corporelles"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "484"
+intitule = "AUTRES DETTES HORS ACTIVITÉS ORDINAIRES (H.A.O.)"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "485"
+intitule = "CRÉANCES SUR CESSIONS D'IMMOBILISATIONS"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+collectif = true
+
+[[compte]]
+numero = "4851"
+intitule = "En compte, immobilisations incorporelles"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4852"
+intitule = "En compte, immobilisations corporelles"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4853"
+intitule = "Effets à recevoir, immobilisations incorporelles"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4854"
+intitule = "Effets à recevoir, immobilisations corporelles"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4855"
+intitule = "Effets escomptés non échus"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4857"
+intitule = "Retenues de garantie"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "4858"
+intitule = "Factures à établir"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "488"
+intitule = "AUTRES CRÉANCES HORS ACTIVITÉS ORDINAIRES (H.A.O.)"
+page = 247
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "49"
+intitule = "DÉPRÉCIATIONS ET PROVISIONS POUR RISQUES À COURT TERME (TIERS)"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "490"
+intitule = "DÉPRÉCIATIONS DES COMPTES FOURNISSEURS"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "491"
+intitule = "DÉPRÉCIATIONS DES COMPTES CLIENTS"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4911"
+intitule = "Créances litigieuses"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4912"
+intitule = "Créances douteuses"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "492"
+intitule = "DÉPRÉCIATIONS DES COMPTES PERSONNEL"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "493"
+intitule = "DÉPRÉCIATIONS DES COMPTES ORGANISMES SOCIAUX"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "494"
+intitule = "DÉPRÉCIATIONS DES COMPTES ÉTAT ET COLLECTIVITÉS PUBLIQUES"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "495"
+intitule = "DÉPRÉCIATIONS DES COMPTES ORGANISMES INTERNATIONAUX"
+page = 247
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "496"
+intitule = "DÉPRÉCIATIONS DES COMPTES APPORTEURS ASSOCIÉS ET GROUPE"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4962"
+intitule = "Associés, comptes courants"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4963"
+intitule = "Associés, opérations faites en commun"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4966"
+intitule = "Groupe, comptes courants"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "497"
+intitule = "DÉPRÉCIATIONS DES COMPTES DÉBITEURS DIVERS"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "498"
+intitule = "DÉPRÉCIATIONS DES COMPTES DE CRÉANCES H.A.O."
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4985"
+intitule = "Créances sur cessions d'immobilisations"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4986"
+intitule = "Créances sur cessions de titres de placement"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4988"
+intitule = "Autres créances H.A.O."
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "499"
+intitule = "PROVISIONS POUR RISQUES À COURT TERME"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4991"
+intitule = "sur opérations d'exploitation"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4997"
+intitule = "sur opérations financières"
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "4998"
+intitule = "sur opérations H.A.O."
+page = 248
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "50"
+intitule = "TITRES DE PLACEMENT"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "501"
+intitule = "TITRES DU TRÉSOR ET BONS DE CAISSE À COURT TERME"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5011"
+intitule = "Titres du Trésor à court terme"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5012"
+intitule = "Titres d'organismes financiers"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5013"
+intitule = "Bons de caisse à court terme"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5016"
+intitule = "Frais d'acquisition des titres de trésor et bons de caisse"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "502"
+intitule = "ACTIONS"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5021"
+intitule = "Actions ou parts propres"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5022"
+intitule = "Actions cotées"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5023"
+intitule = "Actions non cotées"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5024"
+intitule = "Actions démembrées (certificats d'investissement ; droits de vote)"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5025"
+intitule = "Autres actions"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5026"
+intitule = "Frais d'acquisition des actions"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "503"
+intitule = "OBLIGATIONS"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5031"
+intitule = "Obligations émises par la société et rachetées par elle"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5032"
+intitule = "Obligations cotées"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5033"
+intitule = "Obligations non cotées"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5035"
+intitule = "Autres obligations"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5036"
+intitule = "Frais d'acquisition des obligations"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "504"
+intitule = "BONS DE SOUSCRIPTION"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5042"
+intitule = "Bons de souscription d'actions"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5043"
+intitule = "Bons de souscription d'obligations"
+page = 249
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "505"
+intitule = "TITRES NÉGOCIABLES HORS RÉGION"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "506"
+intitule = "INTÉRÊTS COURUS"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5061"
+intitule = "Titres du Trésor et bons de caisse à court terme"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5062"
+intitule = "Actions"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5063"
+intitule = "Obligations"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "508"
+intitule = "AUTRES TITRES DE PLACEMENT ET CRÉANCES ASSIMILÉES"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "51"
+intitule = "VALEURS À ENCAISSER"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "511"
+intitule = "EFFETS À ENCAISSER"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "512"
+intitule = "EFFETS À L'ENCAISSEMENT"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "513"
+intitule = "CHÈQUES À ENCAISSER"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "514"
+intitule = "CHÈQUES À L'ENCAISSEMENT"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "515"
+intitule = "CARTES DE CRÉDIT À ENCAISSER"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "518"
+intitule = "AUTRES VALEURS À L'ENCAISSEMENT"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5181"
+intitule = "Warrants"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5182"
+intitule = "Billets de fonds"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5185"
+intitule = "Chèques de voyage"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5186"
+intitule = "Coupons échus"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5187"
+intitule = "Intérêts échus des obligations"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "52"
+intitule = "BANQUES"
+page = 250
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "521"
+intitule = "BANQUES LOCALES"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5211"
+intitule = "Banques en monnaie nationale"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5215"
+intitule = "Banques en devises"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "522"
+intitule = "BANQUES AUTRES ÉTATS RÉGION"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "523"
+intitule = "BANQUES AUTRES ÉTATS ZONE MONÉTAIRE"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "524"
+intitule = "BANQUES HORS ZONE MONÉTAIRE"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "525"
+intitule = "BANQUES DÉPÔT À TERME"
+page = 250
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "526"
+intitule = "BANQUES, INTÉRÊTS COURUS"
+page = 251
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "5261"
+intitule = "Banque, intérêts courus charges à payer"
+page = 251
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "5267"
+intitule = "Banque, intérêts courus produits à recevoir"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "53"
+intitule = "ÉTABLISSEMENTS FINANCIERS ET ASSIMILÉS"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "531"
+intitule = "CHÈQUES POSTAUX"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "532"
+intitule = "TRÉSOR"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "533"
+intitule = "SOCIÉTÉS DE GESTION ET D'INTERMÉDIATION (S.G.I.)"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "536"
+intitule = "ÉTABLISSEMENTS FINANCIERS, INTÉRÊTS COURUS"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "538"
+intitule = "AUTRES ORGANISMES FINANCIERS"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "54"
+intitule = "INSTRUMENTS DE TRÉSORERIE"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "541"
+intitule = "OPTIONS DE TAUX D'INTÉRÊT"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "542"
+intitule = "OPTIONS DE TAUX DE CHANGE"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "543"
+intitule = "OPTIONS DE TAUX BOURSIERS"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "544"
+intitule = "INSTRUMENTS DE MARCHÉS À TERME"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "545"
+intitule = "AVOIRS D'OR ET AUTRES MÉTAUX PRÉCIEUX"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "55"
+intitule = "INSTRUMENTS DE MONNAIE ÉLECTRONIQUE"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "551"
+intitule = "MONNAIE ÉLECTRONIQUE - CARTE CARBURANT"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "552"
+intitule = "MONNAIE ÉLECTRONIQUE - TÉLÉPHONE PORTABLE"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "553"
+intitule = "MONNAIE ÉLECTRONIQUE - CARTE PÉAGE"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "554"
+intitule = "PORTE-MONNAIE ÉLECTRONIQUE"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "558"
+intitule = "AUTRES INSTRUMENTS MONNAIES ÉLECTRONIQUES"
+page = 251
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "56"
+intitule = "BANQUES, CRÉDITS DE TRÉSORERIE ET D'ESCOMPTE"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "561"
+intitule = "CRÉDITS DE TRÉSORERIE"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "564"
+intitule = "ESCOMPTE DE CRÉDITS DE CAMPAGNE"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "565"
+intitule = "ESCOMPTE DE CRÉDITS ORDINAIRES"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "566"
+intitule = "BANQUES, CRÉDITS DE TRÉSORERIE, INTÉRÊTS COURUS"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "57"
+intitule = "CAISSE"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "571"
+intitule = "CAISSE SIÈGE SOCIAL"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5711"
+intitule = "Caisse en monnaie nationale"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5712"
+intitule = "Caisse en devises"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "572"
+intitule = "CAISSE SUCCURSALE A"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5721"
+intitule = "en monnaie nationale"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5722"
+intitule = "en devises"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "573"
+intitule = "CAISSE SUCCURSALE B"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5731"
+intitule = "en monnaie nationale"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "5732"
+intitule = "en devises"
+page = 252
+nature = "bilan"
+sens = "debiteur"
+
+[[compte]]
+numero = "58"
+intitule = "RÉGIES D'AVANCES, ACCRÉDITIFS ET VIREMENTS INTERNES"
+page = 252
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "581"
+intitule = "RÉGIES D'AVANCE"
+page = 252
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "582"
+intitule = "ACCRÉDITIFS"
+page = 252
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "585"
+intitule = "VIREMENTS DE FONDS"
+page = 252
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "588"
+intitule = "AUTRES VIREMENTS INTERNES"
+page = 252
+nature = "bilan"
+sens = "variable"
+
+[[compte]]
+numero = "59"
+intitule = "DÉPRÉCIATIONS ET PROVISIONS POUR RISQUE À COURT TERME"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "590"
+intitule = "DÉPRÉCIATIONS DES TITRES DE PLACEMENT"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "591"
+intitule = "DÉPRÉCIATIONS DES TITRES ET VALEURS À ENCAISSER"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "592"
+intitule = "DÉPRÉCIATIONS DES COMPTES BANQUES"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "593"
+intitule = "DÉPRÉCIATIONS DES COMPTES ÉTABLISSEMENTS FINANCIERS ET ASSIMILÉS"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "594"
+intitule = "DÉPRÉCIATIONS DES COMPTES D'INSTRUMENTS DE TRÉSORERIE"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "599"
+intitule = "PROVISIONS POUR RISQUE À COURT TERME À CARACTÈRE FINANCIER"
+page = 252
+nature = "bilan"
+sens = "crediteur"
+
+[[compte]]
+numero = "60"
+intitule = "ACHATS ET VARIATIONS DE STOCKS"
+page = 253
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "601"
+intitule = "ACHATS DE MARCHANDISES"
+page = 253
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6011"
+intitule = "dans la Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6012"
+intitule = "hors Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6013"
+intitule = "aux entités du groupe dans la Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6014"
+intitule = "aux entités du groupe hors Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6015"
+intitule = "frais sur achats"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6019"
+intitule = "Rabais, Remises et Ristournes obtenus (non ventilés)"
+page = 253
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "602"
+intitule = "ACHATS DE MATIÈRES PREMIÈRES ET FOURNITURES LIÉES"
+page = 253
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6021"
+intitule = "dans la Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6022"
+intitule = "hors Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6023"
+intitule = "aux entités du groupe dans la Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6024"
+intitule = "aux entités du groupe hors Région"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6025"
+intitule = "frais sur achats"
+page = 253
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6029"
+intitule = "Rabais, Remises et Ristournes obtenus (non ventilés)"
+page = 253
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "603"
+intitule = "VARIATIONS DES STOCKS DE BIENS ACHETÉS"
+page = 253
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6031"
+intitule = "Variations des stocks de marchandises"
+page = 253
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6032"
+intitule = "Variations des stocks de matières premières et fournitures liées"
+page = 253
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6033"
+intitule = "Variations des stocks d'autres approvisionnements"
+page = 254
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "604"
+intitule = "ACHATS STOCKÉS DE MATIÈRES ET FOURNITURES CONSOMMABLES"
+page = 254
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6041"
+intitule = "Matières consommables"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6042"
+intitule = "Matières combustibles"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6043"
+intitule = "Produits d'entretien"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6044"
+intitule = "Fournitures d'atelier et d'usine"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6045"
+intitule = "Frais sur achats"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6046"
+intitule = "Fournitures de magasin"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6047"
+intitule = "Fournitures de bureau"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6049"
+intitule = "Rabais, Remises et Ristournes obtenus (non ventilés)"
+page = 254
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "605"
+intitule = "AUTRES ACHATS"
+page = 254
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6051"
+intitule = "Fournitures non stockables - Eau"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6052"
+intitule = "Fournitures non stockables - Électricité"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6053"
+intitule = "Fournitures non stockables - Autres énergies"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6054"
+intitule = "Fournitures d'entretien non stockables"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6055"
+intitule = "Fournitures de bureau non stockables"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6056"
+intitule = "Achats de petit matériel et outillage"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6057"
+intitule = "Achats d'études et prestations de services"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6058"
+intitule = "Achats de travaux, matériels et équipements"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6059"
+intitule = "Rabais, Remises et Ristournes obtenus (non ventilés)"
+page = 254
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "608"
+intitule = "ACHATS D'EMBALLAGES"
+page = 254
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "6081"
+intitule = "Emballages perdus"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6082"
+intitule = "Emballages récupérables non identifiables"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6083"
+intitule = "Emballages à usage mixte"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6085"
+intitule = "Frais sur achats"
+page = 254
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6089"
+intitule = "Rabais, Remises et Ristournes obtenus (non ventilés)"
+page = 254
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "61"
+intitule = "TRANSPORTS"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "612"
+intitule = "TRANSPORTS SUR VENTES"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "613"
+intitule = "TRANSPORTS POUR LE COMPTE DE TIERS"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "614"
+intitule = "TRANSPORTS DU PERSONNEL"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "616"
+intitule = "TRANSPORTS DE PLIS"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "618"
+intitule = "AUTRES FRAIS DE TRANSPORT"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6181"
+intitule = "Voyages et déplacements"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6182"
+intitule = "Transports entre établissements ou chantiers"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6183"
+intitule = "Transports administratifs"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "62"
+intitule = "SERVICES EXTÉRIEURS"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "621"
+intitule = "SOUS-TRAITANCE GÉNÉRALE"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "622"
+intitule = "LOCATIONS, CHARGES LOCATIVES"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6221"
+intitule = "Locations de terrains"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6222"
+intitule = "Locations de bâtiments"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6223"
+intitule = "Locations de matériels et outillages"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6224"
+intitule = "Malis sur emballages"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6225"
+intitule = "Locations d'emballages"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6226"
+intitule = "Fermages et loyers du foncier"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6228"
+intitule = "Locations et charges locatives diverses"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "623"
+intitule = "REDEVANCES DE LOCATION ACQUISITION"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6232"
+intitule = "Crédit-bail immobilier"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6233"
+intitule = "Crédit-bail mobilier"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6234"
+intitule = "Location vente"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6238"
+intitule = "Autres contrats de location acquisition"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "624"
+intitule = "ENTRETIEN, RÉPARATIONS, REMISE EN ÉTAT ET MAINTENANCE"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6241"
+intitule = "Entretien et réparations des biens immobiliers"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6242"
+intitule = "Entretien et réparations des biens mobiliers"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6243"
+intitule = "Maintenance"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6244"
+intitule = "Charges de démantèlement et remise en état"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6248"
+intitule = "Autres entretiens et réparations"
+page = 255
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "625"
+intitule = "PRIMES D'ASSURANCE"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6251"
+intitule = "Assurances multirisques"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6252"
+intitule = "Assurances matériel de transport"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6253"
+intitule = "Assurances risques d'exploitation"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6254"
+intitule = "Assurances responsabilité du producteur"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6255"
+intitule = "Assurances insolvabilité clients"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6257"
+intitule = "Assurances transport sur ventes"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6258"
+intitule = "Autres primes d'assurances"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "626"
+intitule = "ÉTUDES, RECHERCHES ET DOCUMENTATION"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6261"
+intitule = "Études et recherches"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6265"
+intitule = "Documentation générale"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6266"
+intitule = "Documentation technique"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "627"
+intitule = "PUBLICITÉ, PUBLICATIONS, RELATIONS PUBLIQUES"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6271"
+intitule = "Annonces, insertions"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6272"
+intitule = "Catalogues, imprimés publicitaires"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6273"
+intitule = "Échantillons"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6274"
+intitule = "Foires et expositions"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6275"
+intitule = "Publications"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6276"
+intitule = "Cadeaux à la clientèle"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6277"
+intitule = "Frais de colloques, séminaires, conférences"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6278"
+intitule = "Autres charges de publicité et relations publiques"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "628"
+intitule = "FRAIS DE TÉLÉCOMMUNICATIONS"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6281"
+intitule = "Frais de téléphone"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6282"
+intitule = "Frais de télex"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6283"
+intitule = "Frais de télécopie"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6288"
+intitule = "Autres frais de télécommunications"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "63"
+intitule = "AUTRES SERVICES EXTÉRIEURS"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "631"
+intitule = "FRAIS BANCAIRES"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6311"
+intitule = "Frais sur titres (vente, garde)"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6312"
+intitule = "Frais sur effets"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6313"
+intitule = "Location de coffres"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6314"
+intitule = "Commissions d'affacturage"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6315"
+intitule = "Commissions sur cartes de crédit"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6316"
+intitule = "Frais d'émission d'emprunts"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6317"
+intitule = "Frais sur instruments monnaie électronique"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6318"
+intitule = "Autres frais bancaires"
+page = 256
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "632"
+intitule = "RÉMUNÉRATIONS D'INTERMÉDIAIRES ET DE CONSEILS"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6322"
+intitule = "Commissions et courtages sur ventes"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6324"
+intitule = "Honoraires des professions réglementées"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6325"
+intitule = "Frais d'actes et de contentieux"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6326"
+intitule = "Rémunérations d'affacturage"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6327"
+intitule = "Rémunérations des autres prestataires de services"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6328"
+intitule = "Divers frais"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "633"
+intitule = "FRAIS DE FORMATION DU PERSONNEL"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "634"
+intitule = "REDEVANCES POUR BREVETS, LICENCES, LOGICIELS, CONCESSIONS ET DROITS ET VALEURS SIMILAIRES"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6342"
+intitule = "Redevances pour brevets, licences"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6343"
+intitule = "Redevances pour logiciels"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6344"
+intitule = "Redevances pour marques"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6345"
+intitule = "Redevances pour sites internet"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6346"
+intitule = "Redevances pour concessions, droits et valeurs similaires"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "635"
+intitule = "COTISATIONS"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6351"
+intitule = "Cotisations"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6358"
+intitule = "Concours divers"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "637"
+intitule = "RÉMUNÉRATIONS DE PERSONNEL EXTÉRIEUR À L'ENTITÉ"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6371"
+intitule = "Personnel intérimaire"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6372"
+intitule = "Personnel détaché ou prêté à l'entité"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "638"
+intitule = "AUTRES CHARGES EXTERNES"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6381"
+intitule = "Frais de recrutement du personnel"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6382"
+intitule = "Frais de déménagement"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6383"
+intitule = "Réceptions"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6384"
+intitule = "Missions"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6385"
+intitule = "Charges de copropriété"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "64"
+intitule = "IMPÔTS ET TAXES"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "641"
+intitule = "IMPÔTS ET TAXES DIRECTS"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6411"
+intitule = "Impôts fonciers et taxes annexes"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6412"
+intitule = "Patentes, licences et taxes annexes"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6413"
+intitule = "Taxes sur appointements et salaires"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6414"
+intitule = "Taxes d'apprentissage"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6415"
+intitule = "Formation professionnelle continue"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6418"
+intitule = "Autres impôts et taxes directs"
+page = 257
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "645"
+intitule = "IMPÔTS ET TAXES INDIRECTS"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "646"
+intitule = "DROITS D'ENREGISTREMENT"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6461"
+intitule = "Droits de mutation"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6462"
+intitule = "Droits de timbre"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6463"
+intitule = "Taxes sur les véhicules de société"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6464"
+intitule = "Vignettes"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6468"
+intitule = "Autres droits"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "647"
+intitule = "PÉNALITÉS, AMENDES FISCALES"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6471"
+intitule = "Pénalités d'assiette, impôts directs"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6472"
+intitule = "Pénalités d'assiette, impôts indirects"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6473"
+intitule = "Pénalités de recouvrement, impôts directs"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6474"
+intitule = "Pénalités de recouvrement, impôts indirects"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6478"
+intitule = "Autres pénalités et amendes fiscales"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "648"
+intitule = "AUTRES IMPÔTS ET TAXES"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "65"
+intitule = "AUTRES CHARGES"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "651"
+intitule = "PERTES SUR CRÉANCES CLIENTS ET AUTRES DÉBITEURS"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6511"
+intitule = "Clients"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6515"
+intitule = "Autres débiteurs"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "652"
+intitule = "QUOTE-PART DE RÉSULTAT SUR OPÉRATIONS FAITES EN COMMUN"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6521"
+intitule = "Quote-part transférée de bénéfices (comptabilité du gérant)"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6525"
+intitule = "Pertes imputées par transfert (comptabilité des associés non gérants)"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "654"
+intitule = "VALEURS COMPTABLES DES CESSIONS COURANTES D'IMMOBILISATIONS"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6541"
+intitule = "Immobilisations incorporelles"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6542"
+intitule = "Immobilisations corporelles"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "656"
+intitule = "PERTE DE CHANGE SUR CRÉANCES ET DETTES COMMERCIALES"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "657"
+intitule = "PÉNALITÉS ET AMENDES PÉNALES"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "658"
+intitule = "CHARGES DIVERSES"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6581"
+intitule = "Indemnités de fonction et autres rémunérations d'administrateurs"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6582"
+intitule = "Dons"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6583"
+intitule = "Mécénat"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6588"
+intitule = "Autres charges diverses"
+page = 258
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "659"
+intitule = "CHARGES POUR DÉPRÉCIATIONS ET PROVISIONS POUR RISQUES À COURT TERME D'EXPLOITATION"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6591"
+intitule = "sur risques à court terme"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6593"
+intitule = "sur stocks"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6594"
+intitule = "sur créances"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6598"
+intitule = "Autres charges pour dépréciations et provisions pour risques à court terme"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "66"
+intitule = "CHARGES DE PERSONNEL"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "661"
+intitule = "RÉMUNÉRATIONS DIRECTES VERSÉES AU PERSONNEL NATIONAL"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6611"
+intitule = "Appointements salaires et commissions"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6612"
+intitule = "Primes et gratifications"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6613"
+intitule = "Congés payés"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6614"
+intitule = "Indemnités de préavis, de licenciement et de recherche d'embauche"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6615"
+intitule = "Indemnités de maladie versées aux travailleurs"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6616"
+intitule = "Supplément familial"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6617"
+intitule = "Avantages en nature"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6618"
+intitule = "Autres rémunérations directes"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "662"
+intitule = "RÉMUNÉRATIONS DIRECTES VERSÉES AU PERSONNEL NON NATIONAL"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6621"
+intitule = "Appointements salaires et commissions"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6622"
+intitule = "Primes et gratifications"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6623"
+intitule = "Congés payés"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6624"
+intitule = "Indemnités de préavis, de licenciement et de recherche d'embauche"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6625"
+intitule = "Indemnités de maladie versées aux travailleurs"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6626"
+intitule = "Supplément familial"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6627"
+intitule = "Avantages en nature"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6628"
+intitule = "Autres rémunérations directes"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "663"
+intitule = "INDEMNITÉS FORFAITAIRES VERSÉES AU PERSONNEL"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6631"
+intitule = "Indemnités de logement"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6632"
+intitule = "Indemnités de représentation"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6633"
+intitule = "Indemnités d'expatriation"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6634"
+intitule = "Indemnités de transport"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6638"
+intitule = "Autres indemnités et avantages divers"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "664"
+intitule = "CHARGES SOCIALES"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6641"
+intitule = "Charges sociales sur rémunération du personnel national"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6642"
+intitule = "Charges sociales sur rémunération du personnel non national"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "666"
+intitule = "RÉMUNÉRATIONS ET CHARGES SOCIALES DE L'EXPLOITANT INDIVIDUEL"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6661"
+intitule = "Rémunération du travail de l'exploitant"
+page = 259
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6662"
+intitule = "Charges sociales"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "667"
+intitule = "RÉMUNÉRATION TRANSFÉRÉE DE PERSONNEL EXTÉRIEUR"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6671"
+intitule = "Personnel intérimaire"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6672"
+intitule = "Personnel détaché ou prêté à l'entité"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "668"
+intitule = "AUTRES CHARGES SOCIALES"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6681"
+intitule = "Versements aux Syndicats et Comités d'entreprise, d'établissement"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6682"
+intitule = "Versements aux Comités d'hygiène et de sécurité"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6683"
+intitule = "Versements et contributions aux autres œuvres sociales"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6684"
+intitule = "Médecine du travail et pharmacie"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6685"
+intitule = "Assurances et organismes de santé"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6686"
+intitule = "Assurances retraite et fonds de pension"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6687"
+intitule = "Majorations et pénalités sociales"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6688"
+intitule = "Charges sociales diverses"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "67"
+intitule = "FRAIS FINANCIERS ET CHARGES ASSIMILÉES"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "671"
+intitule = "INTÉRÊTS DES EMPRUNTS"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6711"
+intitule = "Emprunts obligataires"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6712"
+intitule = "Emprunts auprès des établissements de crédit"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6713"
+intitule = "Dettes liées à des participations"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6714"
+intitule = "Primes de remboursement des obligations"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "672"
+intitule = "INTÉRÊTS DANS LOYERS DE LOCATION ACQUISITION"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6722"
+intitule = "Intérêts dans loyers de location acquisition/crédit-bail immobilier"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6723"
+intitule = "Intérêts dans loyers de location acquisition/crédit-bail mobilier"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6724"
+intitule = "Intérêts dans loyers de location acquisition/location-vente"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6728"
+intitule = "Intérêts dans loyers des autres locations acquisition"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "673"
+intitule = "ESCOMPTES ACCORDÉS"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "674"
+intitule = "AUTRES INTÉRÊTS"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6741"
+intitule = "Avances reçues et dépôts créditeurs"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6742"
+intitule = "Comptes courants bloqués"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6743"
+intitule = "Intérêts sur obligations cautionnées"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6744"
+intitule = "Intérêts sur dettes commerciales"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6745"
+intitule = "Intérêts bancaires et sur opérations de financement (escompte…)"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6748"
+intitule = "Intérêts sur dettes diverses"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "675"
+intitule = "ESCOMPTES DES EFFETS DE COMMERCE"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "676"
+intitule = "PERTES DE CHANGE FINANCIÈRES"
+page = 260
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "677"
+intitule = "PERTES SUR TITRES DE PLACEMENT"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6771"
+intitule = "Pertes sur cessions de titres de placement"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6772"
+intitule = "Malis provenant d'attribution gratuite d'actions au personnel salarié et aux dirigeants"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "678"
+intitule = "PERTES ET CHARGES SUR RISQUES FINANCIERS"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6781"
+intitule = "sur rentes viagères"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6782"
+intitule = "sur opérations financières"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6784"
+intitule = "sur instruments de trésorerie"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "679"
+intitule = "CHARGES POUR DÉPRÉCIATIONS ET PROVISIONS POUR RISQUES À COURT TERME FINANCIÈRES"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6791"
+intitule = "sur risques financiers"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6795"
+intitule = "sur titres de placement"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6798"
+intitule = "Autres charges pour dépréciations et provisions pour risques à court terme financières"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "68"
+intitule = "DOTATIONS AUX AMORTISSEMENTS"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "681"
+intitule = "DOTATIONS AUX AMORTISSEMENTS D'EXPLOITATION"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6812"
+intitule = "Dotations aux amortissements des immobilisations incorporelles"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6813"
+intitule = "Dotations aux amortissements des immobilisations corporelles"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "69"
+intitule = "DOTATIONS AUX PROVISIONS ET AUX DÉPRÉCIATIONS"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "691"
+intitule = "DOTATIONS AUX PROVISIONS ET AUX DÉPRÉCIATIONS D'EXPLOITATION"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6911"
+intitule = "Dotations aux provisions pour risques et charges"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6913"
+intitule = "Dotations aux dépréciations des immobilisations incorporelles"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6914"
+intitule = "Dotations aux dépréciations des immobilisations corporelles"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "697"
+intitule = "DOTATIONS AUX PROVISIONS ET AUX DÉPRÉCIATIONS FINANCIÈRES"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6971"
+intitule = "Dotations aux provisions pour risques et charges"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "6972"
+intitule = "Dotations aux dépréciations des immobilisations financières"
+page = 261
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "70"
+intitule = "VENTES"
+page = 262
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "701"
+intitule = "VENTES DE MARCHANDISES"
+page = 262
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7011"
+intitule = "dans la Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7012"
+intitule = "hors Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7013"
+intitule = "Aux entités du groupe dans la Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7014"
+intitule = "aux entités du groupe hors Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7015"
+intitule = "sur internet"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7019"
+intitule = "Rabais, remises, ristournes accordés (non ventilés)"
+page = 262
+nature = "produit"
+sens = "debiteur"
+
+[[compte]]
+numero = "702"
+intitule = "VENTES DE PRODUITS FINIS"
+page = 262
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7021"
+intitule = "dans la Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7022"
+intitule = "hors Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7023"
+intitule = "aux entités du groupe dans la Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7024"
+intitule = "aux entités du groupe hors Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7025"
+intitule = "sur internet"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7029"
+intitule = "Rabais, remises, ristournes accordés (non ventilés)"
+page = 262
+nature = "produit"
+sens = "debiteur"
+
+[[compte]]
+numero = "703"
+intitule = "VENTES DE PRODUITS INTERMÉDIAIRES"
+page = 262
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7031"
+intitule = "dans la Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7032"
+intitule = "hors Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7033"
+intitule = "aux entités du groupe dans la Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7034"
+intitule = "aux entités du groupe hors Région"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7035"
+intitule = "sur internet"
+page = 262
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7039"
+intitule = "Rabais, remises, ristournes accordés (non ventilés)"
+page = 262
+nature = "produit"
+sens = "debiteur"
+
+[[compte]]
+numero = "704"
+intitule = "VENTES DE PRODUITS RÉSIDUELS"
+page = 263
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7041"
+intitule = "dans la Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7042"
+intitule = "hors Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7043"
+intitule = "aux entités du groupe dans la Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7044"
+intitule = "aux entités du groupe hors Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7045"
+intitule = "sur internet"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7049"
+intitule = "Rabais, remises, ristournes accordés (non ventilés)"
+page = 263
+nature = "produit"
+sens = "debiteur"
+
+[[compte]]
+numero = "705"
+intitule = "TRAVAUX FACTURÉS"
+page = 263
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7051"
+intitule = "dans la Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7052"
+intitule = "hors Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7053"
+intitule = "aux entités du groupe dans la Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7054"
+intitule = "aux entités du groupe hors Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7055"
+intitule = "sur internet"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7059"
+intitule = "Rabais, remises, ristournes accordés (non ventilés)"
+page = 263
+nature = "produit"
+sens = "debiteur"
+
+[[compte]]
+numero = "706"
+intitule = "SERVICES VENDUS"
+page = 263
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7061"
+intitule = "dans la Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7062"
+intitule = "hors Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7063"
+intitule = "aux entités du groupe dans la Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7064"
+intitule = "aux entités du groupe hors Région"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7065"
+intitule = "sur internet"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7069"
+intitule = "Rabais, remises, ristournes accordés (non ventilés)"
+page = 263
+nature = "produit"
+sens = "debiteur"
+
+[[compte]]
+numero = "707"
+intitule = "PRODUITS ACCESSOIRES"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7071"
+intitule = "Ports, emballages perdus et autres frais facturés"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7072"
+intitule = "Commissions et courtages"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7073"
+intitule = "Locations"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7074"
+intitule = "Bonis sur reprises et cessions d'emballages"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7075"
+intitule = "Mise à disposition de personnel"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7076"
+intitule = "Redevances pour brevets, logiciels, marques et droits similaires"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7077"
+intitule = "Services exploités dans l'intérêt du personnel"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7078"
+intitule = "Autres produits accessoires"
+page = 263
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "71"
+intitule = "SUBVENTIONS D'EXPLOITATION"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "711"
+intitule = "SUR PRODUITS À L'EXPORTATION"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "712"
+intitule = "SUR PRODUITS À L'IMPORTATION"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "713"
+intitule = "SUR PRODUITS DE PÉRÉQUATION"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "714"
+intitule = "INDEMNITÉS ET SUBVENTIONS D'EXPLOITATION (entité agricole)"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "718"
+intitule = "AUTRES SUBVENTIONS D'EXPLOITATION"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7181"
+intitule = "Versées par l'État et les collectivités publiques"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7182"
+intitule = "Versées par les organismes internationaux"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7183"
+intitule = "Versées par des tiers"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "72"
+intitule = "PRODUCTION IMMOBILISÉE"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "721"
+intitule = "IMMOBILISATIONS INCORPORELLES"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "722"
+intitule = "IMMOBILISATIONS CORPORELLES"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7221"
+intitule = "immobilisations corporelles (hors actifs biologiques)"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7222"
+intitule = "immobilisations corporelles (actifs biologiques)"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "724"
+intitule = "PRODUCTION AUTO-CONSOMMÉE"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "726"
+intitule = "IMMOBILISATIONS FINANCIÈRES"
+page = 264
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "73"
+intitule = "VARIATIONS DES STOCKS DE BIENS ET DE SERVICES PRODUITS"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "734"
+intitule = "VARIATIONS DES STOCKS DE PRODUITS EN COURS"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7341"
+intitule = "Produits en cours"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7342"
+intitule = "Travaux en cours"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "735"
+intitule = "VARIATIONS DES EN-COURS DE SERVICES"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7351"
+intitule = "Études en cours"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7352"
+intitule = "Prestations de services en cours"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "736"
+intitule = "VARIATIONS DES STOCKS DE PRODUITS FINIS"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "737"
+intitule = "VARIATIONS DES STOCKS DE PRODUITS INTERMÉDIAIRES ET RÉSIDUELS"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7371"
+intitule = "Produits intermédiaires"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "7372"
+intitule = "Produits résiduels"
+page = 264
+nature = "produit"
+sens = "variable"
+
+[[compte]]
+numero = "75"
+intitule = "AUTRES PRODUITS"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "751"
+intitule = "PROFITS SUR CRÉANCES CLIENTS ET AUTRES DÉBITEURS"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "752"
+intitule = "QUOTE-PART DE RÉSULTAT SUR OPÉRATIONS FAITES EN COMMUN"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7521"
+intitule = "Quote-part transférée de pertes (comptabilité du gérant)"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7525"
+intitule = "Bénéfices attribués par transfert (comptabilité des associés non gérants)"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "754"
+intitule = "PRODUITS DES CESSIONS COURANTES D'IMMOBILISATIONS"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7541"
+intitule = "Immobilisations incorporelles"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7542"
+intitule = "Immobilisations corporelles"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "756"
+intitule = "GAINS DE CHANGE SUR CRÉANCES ET DETTES COMMERCIALES"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "758"
+intitule = "PRODUITS DIVERS"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7581"
+intitule = "Indemnités de fonction et autres rémunérations d'administrateurs"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7582"
+intitule = "Indemnités d'assurances reçues"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7588"
+intitule = "Autres produits divers"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "759"
+intitule = "REPRISES DE CHARGES POUR DÉPRÉCIATIONS ET PROVISIONS POUR RISQUES À COURT TERME D'EXPLOITATION"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7591"
+intitule = "sur risques à court terme"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7593"
+intitule = "sur stocks"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7594"
+intitule = "sur créances"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7598"
+intitule = "sur autres charges pour dépréciations et provisions pour risques à court terme d'exploitation"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "77"
+intitule = "REVENUS FINANCIERS ET PRODUITS ASSIMILÉS"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "771"
+intitule = "INTÉRÊTS DE PRÊTS ET CRÉANCES DIVERSES"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7712"
+intitule = "Intérêts de prêts"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7713"
+intitule = "Intérêts sur créances diverses"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "772"
+intitule = "REVENUS DE PARTICIPATIONS ET AUTRES TITRES IMMOBILISÉS"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7721"
+intitule = "Revenus des titres de participation"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7722"
+intitule = "Revenus autres titres immobilisés"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "773"
+intitule = "ESCOMPTES OBTENUS"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "774"
+intitule = "REVENUS DE PLACEMENT"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7745"
+intitule = "Revenus des obligations"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7746"
+intitule = "Revenus des titres de placement"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "775"
+intitule = "INTÉRÊTS DANS LOYERS DE LOCATION ACQUISITION"
+page = 265
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "776"
+intitule = "GAINS DE CHANGE FINANCIERS"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "777"
+intitule = "GAINS SUR CESSIONS DE TITRES DE PLACEMENT"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "778"
+intitule = "GAINS SUR RISQUES FINANCIERS"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7781"
+intitule = "sur rentes viagères"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7782"
+intitule = "sur opérations financières"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7784"
+intitule = "sur instruments de trésorerie"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "779"
+intitule = "REPRISES DE CHARGES POUR DÉPRÉCIATIONS ET PROVISIONS À COURT TERME FINANCIÈRES"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7791"
+intitule = "sur risques financiers"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7795"
+intitule = "sur titres de placement"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7798"
+intitule = "sur autres charges pour dépréciations et provisions pour risques à court terme financières"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "78"
+intitule = "TRANSFERTS DE CHARGES"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "781"
+intitule = "TRANSFERTS DE CHARGES D'EXPLOITATION"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "787"
+intitule = "TRANSFERTS DE CHARGES FINANCIÈRES"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "79"
+intitule = "REPRISES DE PROVISIONS, DE DÉPRÉCIATIONS ET AUTRES"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "791"
+intitule = "REPRISES DE PROVISIONS ET DÉPRÉCIATIONS D'EXPLOITATION"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7911"
+intitule = "pour risques et charges"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7913"
+intitule = "des immobilisations incorporelles"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7914"
+intitule = "des immobilisations corporelles"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "797"
+intitule = "REPRISES DE PROVISIONS ET DÉPRÉCIATIONS FINANCIÈRES"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7971"
+intitule = "pour risques et charges"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "7972"
+intitule = "des immobilisations financières"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "798"
+intitule = "REPRISES D'AMORTISSEMENTS"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "799"
+intitule = "REPRISES DE SUBVENTIONS D'INVESTISSEMENT"
+page = 266
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "81"
+intitule = "VALEURS COMPTABLES DES CESSIONS D'IMMOBILISATIONS"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "811"
+intitule = "IMMOBILISATIONS INCORPORELLES"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "812"
+intitule = "IMMOBILISATIONS CORPORELLES"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "816"
+intitule = "IMMOBILISATIONS FINANCIÈRES"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "82"
+intitule = "PRODUITS DES CESSIONS D'IMMOBILISATIONS"
+page = 267
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "821"
+intitule = "IMMOBILISATIONS INCORPORELLES"
+page = 267
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "822"
+intitule = "IMMOBILISATIONS CORPORELLES"
+page = 267
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "826"
+intitule = "IMMOBILISATIONS FINANCIÈRES"
+page = 267
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "83"
+intitule = "CHARGES HORS ACTIVITÉS ORDINAIRES"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "831"
+intitule = "CHARGES H.A.O. CONSTATÉES"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "833"
+intitule = "CHARGES LIÉES AUX OPÉRATIONS DE RESTRUCTURATION"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "834"
+intitule = "PERTES SUR CRÉANCES H.A.O."
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "835"
+intitule = "DONS ET LIBÉRALITÉS ACCORDÉS"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "836"
+intitule = "ABANDONS DE CRÉANCES CONSENTIS"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "837"
+intitule = "CHARGES LIÉES AUX OPÉRATIONS DE LIQUIDATION"
+page = 267
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "839"
+intitule = "CHARGES POUR DÉPRÉCIATIONS ET PROVISIONS POUR RISQUES À COURT TERME H.A.O."
+page = 268
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "84"
+intitule = "PRODUITS HORS ACTIVITÉS ORDINAIRES"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "841"
+intitule = "PRODUITS H.A.O. CONSTATÉS"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "843"
+intitule = "PRODUITS LIÉS AUX OPÉRATIONS DE RESTRUCTURATION"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "844"
+intitule = "INDEMNITÉS ET SUBVENTIONS H.A.O. (entité agricole)"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "845"
+intitule = "DONS ET LIBÉRALITÉS OBTENUS"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "846"
+intitule = "ABANDONS DE CRÉANCES OBTENUS"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "847"
+intitule = "PRODUITS LIÉS AUX OPÉRATIONS DE LIQUIDATION"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "848"
+intitule = "TRANSFERTS DE CHARGES H.A.O."
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "849"
+intitule = "REPRISES DE CHARGES POUR DÉPRÉCIATIONS ET PROVISIONS POUR RISQUES À COURT TERME H.A.O."
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "85"
+intitule = "DOTATIONS HORS ACTIVITÉS ORDINAIRES"
+page = 268
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "851"
+intitule = "DOTATIONS AUX PROVISIONS RÉGLEMENTÉES"
+page = 268
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "852"
+intitule = "DOTATIONS AUX AMORTISSEMENTS H.A.O."
+page = 268
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "853"
+intitule = "DOTATIONS AUX DÉPRÉCIATIONS H.A.O."
+page = 268
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "854"
+intitule = "DOTATIONS AUX PROVISIONS POUR RISQUES ET CHARGES H.A.O."
+page = 268
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "858"
+intitule = "AUTRES DOTATIONS H.A.O."
+page = 268
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "86"
+intitule = "REPRISES DE CHARGES, PROVISIONS ET DÉPRÉCIATIONS HAO."
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "861"
+intitule = "REPRISES DE PROVISIONS RÉGLEMENTÉES"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "862"
+intitule = "REPRISES D'AMORTISSEMENTS HAO"
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "863"
+intitule = "REPRISES DE DÉPRÉCIATIONS H.A.O."
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "864"
+intitule = "REPRISES DE PROVISIONS POUR RISQUES ET CHARGES H.A.O."
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "868"
+intitule = "AUTRES REPRISES H.A.O."
+page = 268
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "87"
+intitule = "PARTICIPATION DES TRAVAILLEURS"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "871"
+intitule = "PARTICIPATION LÉGALE AUX BÉNÉFICES"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "874"
+intitule = "PARTICIPATION CONTRACTUELLE AUX BÉNÉFICES"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "878"
+intitule = "AUTRES PARTICIPATIONS"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "88"
+intitule = "SUBVENTIONS D'ÉQUILIBRE"
+page = 269
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "881"
+intitule = "ÉTAT"
+page = 269
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "884"
+intitule = "COLLECTIVITÉS PUBLIQUES"
+page = 269
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "886"
+intitule = "GROUPE"
+page = 269
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "888"
+intitule = "AUTRES"
+page = 269
+nature = "produit"
+sens = "crediteur"
+
+[[compte]]
+numero = "89"
+intitule = "IMPÔTS SUR LE RÉSULTAT"
+page = 269
+nature = "charge"
+sens = "variable"
+
+[[compte]]
+numero = "891"
+intitule = "IMPÔTS SUR LES BÉNÉFICES DE L'EXERCICE"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "8911"
+intitule = "Activités exercées dans l'État"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "8912"
+intitule = "Activités exercées dans les autres États de la Région"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "8913"
+intitule = "Activités exercées hors Région"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "892"
+intitule = "RAPPEL D'IMPÔTS SUR RÉSULTATS ANTÉRIEURS"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "895"
+intitule = "IMPÔT MINIMUM FORFAITAIRE (I.M.F.)"
+page = 269
+nature = "charge"
+sens = "debiteur"
+
+[[compte]]
+numero = "899"
+intitule = "DÉGRÈVEMENTS ET ANNULATIONS D'IMPÔTS SUR RÉSULTATS ANTÉRIEURS"
+page = 269
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "8991"
+intitule = "Dégrèvements"
+page = 269
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "8994"
+intitule = "Annulations pour pertes rétroactives"
+page = 269
+nature = "charge"
+sens = "crediteur"
+
+[[compte]]
+numero = "90"
+intitule = "ENGAGEMENTS OBTENUS ET ENGAGEMENTS ACCORDÉS"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "901"
+intitule = "ENGAGEMENTS DE FINANCEMENT OBTENUS"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9011"
+intitule = "Crédits confirmés obtenus"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9012"
+intitule = "Emprunts restant à encaisser"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9013"
+intitule = "Facilités de financement renouvelables"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9014"
+intitule = "Facilités d'émission"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9018"
+intitule = "Autres engagements de financement obtenus"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "902"
+intitule = "ENGAGEMENTS DE GARANTIE OBTENUS"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9021"
+intitule = "Avals obtenus"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9022"
+intitule = "Cautions, garanties obtenues"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9023"
+intitule = "Hypothèques obtenues"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9024"
+intitule = "Effets endossés par des tiers"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9028"
+intitule = "Autres garanties obtenues"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "903"
+intitule = "ENGAGEMENTS RÉCIPROQUES"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9031"
+intitule = "Achats de marchandises à terme"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9032"
+intitule = "Achats à terme de devises"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9033"
+intitule = "Commandes fermes des clients"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9038"
+intitule = "Autres engagements réciproques"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "904"
+intitule = "AUTRES ENGAGEMENTS OBTENUS"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9041"
+intitule = "Abandons de créances conditionnels"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9043"
+intitule = "Ventes avec clause de réserve de propriété"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9048"
+intitule = "Divers engagements obtenus"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "905"
+intitule = "ENGAGEMENTS DE FINANCEMENT ACCORDÉS"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9051"
+intitule = "Crédits accordés non décaissés"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9058"
+intitule = "Autres engagements de financement accordés"
+page = 270
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "906"
+intitule = "ENGAGEMENTS DE GARANTIE ACCORDÉS"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9061"
+intitule = "Avals accordés"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9062"
+intitule = "Cautions, garanties accordées"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9063"
+intitule = "Hypothèques accordées"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9064"
+intitule = "Effets endossés par l'entité"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9068"
+intitule = "Autres garanties accordées"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "907"
+intitule = "ENGAGEMENTS RÉCIPROQUES"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9071"
+intitule = "Ventes de marchandises à terme"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9072"
+intitule = "Ventes à terme de devises"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9073"
+intitule = "Commandes fermes aux fournisseurs"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9078"
+intitule = "Autres engagements réciproques"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "908"
+intitule = "AUTRES ENGAGEMENTS ACCORDÉS"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+note = "le JO imprime « 907 », doublon du compte précédent ; restitué 908 d'après ses sous-comptes 9081 à 9088 et l'intitulé « Engagements accordés 905 à 908 »"
+
+[[compte]]
+numero = "9081"
+intitule = "Annulations conditionnelles de dettes"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9082"
+intitule = "Engagements de retraite"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9083"
+intitule = "Achats avec clause de réserve de propriété"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "9088"
+intitule = "Divers engagements accordés"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "91"
+intitule = "CONTREPARTIES DES ENGAGEMENTS"
+page = 271
+nature = "hors_bilan"
+sens = "variable"
+
+[[compte]]
+numero = "92"
+intitule = "COMPTES RÉFLÉCHIS"
+page = 272
+nature = "analytique"
+sens = "variable"
+
+[[compte]]
+numero = "93"
+intitule = "COMPTES DE RECLASSEMENTS"
+page = 272
+nature = "analytique"
+sens = "variable"
+
+[[compte]]
+numero = "94"
+intitule = "COMPTES DE COÛTS"
+page = 272
+nature = "analytique"
+sens = "variable"
+
+[[compte]]
+numero = "95"
+intitule = "COMPTES DE STOCKS"
+page = 272
+nature = "analytique"
+sens = "variable"
+
+[[compte]]
+numero = "96"
+intitule = "COMPTES D'ÉCARTS SUR COÛTS PRÉÉTABLIS"
+page = 272
+nature = "analytique"
+sens = "variable"
+
+[[compte]]
+numero = "97"
+intitule = "COMPTES DE DIFFÉRENCES DE TRAITEMENT COMPTABLE"
+page = 272
+nature = "analytique"
+sens = "variable"
+
+[[compte]]
+numero = "98"
+intitule = "COMPTES DE RÉSULTATS"
+page = 272
+nature = "analytique"
+sens = "variable"
+
+[[compte]]
+numero = "99"
+intitule = "COMPTES DE LIAISONS INTERNES"
+page = 272
+nature = "analytique"
+sens = "variable"
