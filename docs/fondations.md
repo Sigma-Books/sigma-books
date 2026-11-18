@@ -153,7 +153,7 @@ Le navigateur n'exécute que du JavaScript ou du WebAssembly. Les options :
 ┌──────▼──────────────────┐   ┌────────────────────────────┐
 │ Stockage objet (pièces) │   │ Sortie vers l'API IA via   │   ZONE SORTANTE
 │ verrouillage WORM,      │   │ proxy en liste blanche      │
-│ chiffrement par tenant  │   └────────────────────────────┘
+│ disques chiffrés        │   └────────────────────────────┘
 └─────────────────────────┘
 ```
 
@@ -177,8 +177,9 @@ Le navigateur n'exécute que du JavaScript ou du WebAssembly. Les options :
 
 ### 3.7 Données et chiffrement
 - TLS 1.3 uniquement ; HSTS ; certificats automatisés.
-- Chiffrement au repos par **clé de données par cabinet** (chiffrement d'enveloppe), clés maîtresses dans un KMS ou OpenBao.
-- Suppression cryptographique : détruire la clé d'un cabinet rend ses données illisibles (utile à la résiliation).
+- **Chiffrement au repos des disques des serveurs, obligatoire** : base de données, stockage des pièces et sauvegardes (BitLocker ou équivalent : LUKS/dm-crypt, chiffrement des volumes de l'hébergeur). Clés gérées par l'exploitation ; exigence de déploiement vérifiée en L9 (ADR 0013).
+- **Aucun chiffrement applicatif par défaut** des données des clients (décision du mainteneur, 2026-11-18) : une clé perdue rendrait illisibles dix ans d'archives légales. Le chiffrement par cabinet est une **option** que le client pourra activer, averti de ce risque ; elle n'est pas développée en L2. La protection entre cabinets repose sur un **cloisonnement** à trois niveaux (Cedar, requête, RLS), testé à chaque build.
+- Résiliation d'un cabinet : remise de ses archives, puis effacement réel de ses données et expiration des sauvegardes qui les contiennent.
 - Pièces stockées en **WORM** (verrouillage d'objet), hachées à l'ingestion.
 
 ### 3.8 Documents non fiables
