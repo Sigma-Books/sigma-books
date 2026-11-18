@@ -76,10 +76,12 @@ pub enum ErreurExercice {
     #[error("l'exercice {0}, plus ancien, doit être clôturé (ou en clôture) avant")]
     ExerciceAnterieurNonClos(CodeExercice),
     /// Des écritures du brouillard sont datées dans ce qui serait clôturé : elles doivent être
-    /// validées (ou supprimées) avant la clôture (AUDCIF art. 22 2° ; décision du mainteneur du
-    /// 2026-11-18).
+    /// validées, redatées ou supprimées avant la clôture. Période : décision du mainteneur du
+    /// 2026-11-18 (les textes ne tranchent pas) ; exercice : spec §15.1 (« Aucune écriture
+    /// non validée sur l'exercice »).
     #[error(
-        "{nombre} écriture(s) du brouillard datée(s) du {du} au {au} : validez-les avant la clôture"
+        "{nombre} écriture(s) du brouillard datée(s) du {du} au {au} : validez-les ou \
+         supprimez-les avant la clôture"
     )]
     BrouillardNonValide {
         /// Premier jour de ce qui serait clôturé.
@@ -420,10 +422,12 @@ impl Exercices {
     /// Clôture un exercice en clôture : irréversible ; toutes ses périodes sont clôturées.
     /// Les exercices plus anciens doivent être clôturés.
     ///
-    /// `brouillard` : dates comptables des écritures du brouillard du dossier (l'appelant peut
-    /// ne fournir que celles de l'exercice). Aucune ne doit tomber dans l'exercice : clôturer
-    /// l'exercice clôture toutes ses périodes, et une période n'est pas clôturée tant qu'il y
-    /// reste du brouillard ([`Exercices::cloturer_periode`]).
+    /// `brouillard` : date comptable de chaque écriture du brouillard du dossier, **une par
+    /// écriture** (l'appelant peut ne fournir que celles de l'exercice). Aucune ne doit tomber
+    /// dans l'exercice : spec §15.1 (« Aucune écriture non validée sur l'exercice ») ; c'est
+    /// aussi la règle des périodes, que cette clôture clôture toutes. Même obligation de
+    /// verrouillage que pour [`Exercices::cloturer_periode`], sur toutes les périodes de
+    /// l'exercice.
     ///
     /// # Errors
     /// Exercice inconnu, pas en clôture, exercice antérieur non clôturé, ou brouillard non
@@ -510,8 +514,16 @@ impl Exercices {
     /// préalable de la clôture. Tous les moteurs de référence bloquent : Tryton
     /// (`Period.close`), Odoo (verrou définitif, `_validate_locks`), Dolibarr (clôture proposée
     /// seulement sans ligne à valider), OCA (`account_fiscal_year_closing`, en option).
-    /// `brouillard` : dates comptables des écritures du brouillard du dossier (l'appelant peut
-    /// ne fournir que celles de la période), lues dans la transaction de la clôture.
+    /// `brouillard` : date comptable de chaque écriture du brouillard du dossier, **une par
+    /// écriture** (le nombre renvoyé en dépend ; l'appelant peut ne fournir que celles de la
+    /// période).
+    ///
+    /// **Concurrence** (à la charge de l'appelant, lot L2) : en `READ COMMITTED`, un brouillon
+    /// créé ou redaté dans la période entre la lecture des dates et la fin de la clôture
+    /// échapperait au contrôle. La clôture prend donc la ligne de la période `FOR UPDATE` avant
+    /// de lire les dates ; toute création ou tout changement de date d'un brouillon prend la
+    /// ligne de la période visée `FOR SHARE` (en tête de l'ordre fixe des verrous, ADR 0011) et
+    /// refuse une période clôturée.
     ///
     /// # Errors
     /// Aucune période ne contient la date, période déjà clôturée, dernière période de
@@ -764,13 +776,20 @@ mod tests {
             })
         );
         assert_eq!(exercices, avant);
-        // Les règles d'ordre passent avant : février ne se clôture pas avant janvier.
+        // Les règles d'ordre passent avant le brouillard : février, qui a un brouillon, ne se
+        // clôture pas avant janvier ; décembre, qui en a un aussi, se clôture avec l'exercice.
+        let avec_fevrier_et_decembre = [date!(2026 - 02 - 14), date!(2026 - 12 - 31)];
         assert_eq!(
-            exercices.cloturer_periode(date!(2026 - 02 - 10), brouillard),
+            exercices.cloturer_periode(date!(2026 - 02 - 10), avec_fevrier_et_decembre),
             Err(ErreurExercice::PeriodeAnterieureNonCloturee(date!(
                 2026 - 01 - 01
             )))
         );
+        assert!(matches!(
+            exercices.cloturer_periode(date!(2026 - 12 - 10), avec_fevrier_et_decembre),
+            Err(ErreurExercice::TransitionInterdite(_))
+        ));
+        assert_eq!(exercices, avant);
         // Brouillard hors de la période (veille et lendemain) : clôture permise.
         exercices
             .cloturer_periode(
@@ -809,6 +828,13 @@ mod tests {
             })
         );
         assert_eq!(exercices, avant);
+        // L'ordre des exercices passe avant le brouillard : 2027 (avec un brouillon) ne se
+        // clôture pas avant 2026.
+        exercices.passer_en_cloture(&code("2027")).unwrap();
+        assert_eq!(
+            exercices.cloturer(&code("2027"), brouillard),
+            Err(ErreurExercice::ExerciceAnterieurNonClos(code("2026")))
+        );
         exercices
             .cloturer(&code("2026"), [date!(2027 - 01 - 01)])
             .unwrap();
@@ -1250,6 +1276,7 @@ mod tests {
             let resultat = exercices.cloturer_periode(DEBUT_ACTIVITE, brouillard.iter().copied());
             if nombre == 0 {
                 prop_assert!(resultat.is_ok());
+                prop_assert_eq!(exercices.exercices()[0].periodes()[0].statut(), StatutPeriode::Cloturee);
             } else {
                 prop_assert_eq!(resultat, Err(ErreurExercice::BrouillardNonValide { du, au, nombre }));
                 prop_assert_eq!(&exercices, &avant);
@@ -1265,6 +1292,7 @@ mod tests {
             let resultat = exercices.cloturer(&code, brouillard.iter().copied());
             if nombre == 0 {
                 prop_assert!(resultat.is_ok());
+                prop_assert_eq!(exercices.exercices()[0].statut(), StatutExercice::Cloture);
             } else {
                 prop_assert_eq!(resultat, Err(ErreurExercice::BrouillardNonValide { du, au, nombre }));
                 prop_assert_eq!(&exercices, &avant);
