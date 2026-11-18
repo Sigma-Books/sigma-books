@@ -1,0 +1,99 @@
+sigma-books export v1
+dossier=dossier-test
+ecriture v1
+numero=VT-2026-000001
+date=2026-01-15
+date-validation=2026-01-15
+libelle=Facture 2026-001 = client « Ndiaye & fils »
+piece=0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a
+piece=1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b
+ligne
+compte=4111
+sens=D
+montant=118000
+tiers=C001
+ligne
+compte=701
+sens=C
+montant=118000
+fin
+empreinte=7a3b32ded1d9ce29a05bfba39d6be58b213cc6399c0cfcd3d1c20931f8de86ec
+ecriture v1
+numero=BQ1-2026-000001
+date=2026-02-03
+date-validation=2026-02-03
+libelle=Règlement
+parametres=sn-2026.1
+piece=2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c
+ligne
+compte=521
+sens=D
+montant=149998
+devise=EUR
+montant-devise=228.67
+cours=655.957
+ligne
+compte=4111
+sens=C
+montant=149998
+devise=EUR
+montant-devise=228.67
+cours=655.957
+tiers=C001
+fin
+empreinte=1d67f85af100f55f945eee6f950e1526ad6b4e4be75df30a4a78f1bfac6b3a45
+ecriture v1
+numero=OD-2026-000001
+date=2026-03-31
+date-validation=2026-03-31
+libelle=Écriture d'ajustement
+sans-piece=Régularisation interne
+ligne
+compte=605
+sens=D
+montant=2500
+ligne
+compte=521
+sens=C
+montant=2500
+fin
+empreinte=7ad8a78204d7b061fc9970084dbd53db80a2e3b245f17efab8d4ddfc89e00cda
+ecriture v1
+numero=VT-2026-000002
+date=2026-04-01
+date-validation=2026-04-01
+libelle=Contre-passation
+origine=VT-2026-000001
+piece=0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a
+piece=1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b
+ligne
+compte=4111
+sens=C
+montant=118000
+tiers=C001
+ligne
+compte=701
+sens=D
+montant=118000
+fin
+empreinte=6795419c6729e7bdc4823623102717973e38ffd4f6ffdd70acfe962f7d7b3ee1
+ecriture v1
+numero=VT-2027-000001
+date=2027-01-10
+date-validation=2027-01-10
+libelle=Facture 2027-001
+piece=3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d
+ligne
+compte=4111
+sens=D
+montant=50000
+tiers=C002
+ligne
+compte=701
+sens=C
+montant=50000
+fin
+empreinte=13b4cf3aa80611d5f46d9bdb6fdc110d1adcc51f9ce1be0a737146af7b6a9e62
+tete=13b4cf3aa80611d5f46d9bdb6fdc110d1adcc51f9ce1be0a737146af7b6a9e62
+nombre=5
+fin-export
