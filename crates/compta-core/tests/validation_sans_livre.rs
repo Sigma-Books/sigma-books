@@ -250,7 +250,9 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
 fn ecritures_variees() -> (Dossier, Vec<NumeroEcriture>) {
     let mut d = Dossier::nouveau();
     let achat = d.valider(achat()).unwrap();
-    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 01 - 10), [])
+        .unwrap();
     let mut tardive = equilibree(
         "OD",
         date!(2026 - 02 - 01),
@@ -312,8 +314,12 @@ fn la_contre_passation_n_a_pas_de_date_de_valeur() {
 #[test]
 fn reconstituer_ne_rejoue_pas_le_contexte() {
     let (mut d, numeros) = ecritures_variees();
-    d.exercices.cloturer_periode(date!(2026 - 02 - 10)).unwrap();
-    d.exercices.cloturer_periode(date!(2026 - 03 - 10)).unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 02 - 10), [])
+        .unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 03 - 10), [])
+        .unwrap();
     d.plan.desactiver(&n("6052")).unwrap();
     for numero in &numeros {
         let e = d.livre.ecriture(numero).unwrap();
@@ -683,7 +689,7 @@ impl Banc {
                     .find(|p| p.statut() != StatutPeriode::Cloturee)
                     .map(Periode::debut);
                 if let Some(d) = premiere {
-                    let _ = self.dossier.exercices.cloturer_periode(d);
+                    let _ = self.dossier.exercices.cloturer_periode(d, []);
                 }
             }
             Op::PasserEnCloture => {
@@ -693,7 +699,7 @@ impl Banc {
             }
             Op::CloturerExercice => {
                 if let Some(code) = self.plus_ancien(StatutExercice::EnCloture) {
-                    let _ = self.dossier.exercices.cloturer(&code);
+                    let _ = self.dossier.exercices.cloturer(&code, []);
                 }
             }
             Op::OuvrirSuivant => {

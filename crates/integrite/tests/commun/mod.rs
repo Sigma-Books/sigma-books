@@ -159,7 +159,7 @@ impl Dossier {
 
     /// Clôture informatique de la période contenant la date.
     pub fn cloturer_periode(&mut self, date: Date) {
-        self.exercices.cloturer_periode(date).unwrap();
+        self.exercices.cloturer_periode(date, []).unwrap();
     }
 
     fn valider_complet(
