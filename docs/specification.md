@@ -236,7 +236,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 - **Contre-passation** : écriture miroir, validée, liée à l'originale. Aucune écriture validée n'est jamais modifiée.
 
 ### 6.2 Invariants vérifiés à la validation
-1. ∑D = ∑C (en XOF ; et par devise pour les lignes en devise).
+1. ∑D = ∑C en XOF. Si toutes les lignes sont dans une même devise étrangère, aussi dans cette devise. Une écriture qui mêle plusieurs devises, ou XOF et une devise (encaissement en EUR sur une banque en XOF), n'est équilibrée qu'en XOF ; l'écart de change se constate au règlement et à la clôture (§6.6).
 2. Chaque ligne a un débit **ou** un crédit, strictement positif.
 3. Tous les comptes existent, sont actifs et sont des comptes de **mouvement** (pas un compte de regroupement).
 4. Une ligne sur un compte collectif porte un tiers.

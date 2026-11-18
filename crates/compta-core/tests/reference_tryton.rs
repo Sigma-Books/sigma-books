@@ -9,7 +9,9 @@
 mod commun;
 
 use commun::*;
-use compta_core::{Balance, CodeExercice, Filtre, Mode, Regroupement, Sens};
+use compta_core::{
+    Balance, CodeExercice, Cours, Devise, Filtre, IdTiers, Ligne, Mode, Montant, Regroupement, Sens,
+};
 use rust_decimal::Decimal;
 use time::macros::date;
 
@@ -22,10 +24,10 @@ fn d(texte: &str) -> Decimal {
 /// contre-passation, chaque compte porte 42 au débit et 42 au crédit, et l'écriture miroir
 /// renvoie à son origine.
 ///
-/// Adaptations : comptes du dossier de test au lieu du plan Tryton ; la ligne de 32 en
-/// seconde devise (30 EUR) devient une ligne en XOF, car Sigma Books exige l'équilibre par
-/// devise (spec §6.2, invariant 1) ; la variante « Cancel Move » par montants négatifs n'est
-/// pas portée (contraire à l'invariant 2).
+/// Adaptations : comptes du dossier de test au lieu du plan Tryton ; la ligne de 32 en seconde
+/// devise (30 EUR) reçoit le cours 1.0667, car Sigma Books calcule la contre-valeur à partir du
+/// cours (30 × 1.0667 = 32,001, arrondi à 32) ; la variante « Cancel Move » par montants
+/// négatifs n'est pas portée (contraire à l'invariant 2).
 #[test]
 fn scenario_move_cancel_reversal() {
     let mut dos = Dossier::nouveau();
@@ -36,7 +38,14 @@ fn scenario_move_cancel_reversal() {
             "Move to cancel",
             vec![
                 ligne("7011", Sens::Credit, "42"),
-                ligne_tiers("4111", Sens::Debit, "32", "Customer"),
+                Ligne::en_devise(
+                    n("4111"),
+                    Sens::Debit,
+                    Montant::parse("30", Devise::parse("EUR").unwrap()).unwrap(),
+                    Cours::parse("1.0667").unwrap(),
+                )
+                .unwrap()
+                .avec_tiers(IdTiers::parse("Customer").unwrap()),
                 ligne_tiers("4111", Sens::Debit, "10", "Party"),
             ],
         ))

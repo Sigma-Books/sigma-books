@@ -25,7 +25,7 @@ use crate::ecriture::{
     VersionParametres,
 };
 use crate::exercice::{CodeExercice, Exercices, StatutExercice, StatutPeriode};
-use crate::journal::{CodeJournal, Journaux, TypeJournal};
+use crate::journal::{CodeJournal, Journaux};
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 use crate::plan::{ErreurPlan, PlanComptes, Usage};
 use crate::texte::TexteCourt;
@@ -53,8 +53,11 @@ pub enum ErreurValidation {
     /// Exercice clôturé (inv. 5).
     #[error("l'exercice {0} est clôturé")]
     ExerciceCloture(CodeExercice),
-    /// Exercice en clôture : seuls les journaux d'opérations diverses sont admis (inv. 5).
-    #[error("l'exercice {0} est en clôture : seuls les journaux d'opérations diverses sont admis")]
+    /// Exercice en clôture : seuls les journaux admis en clôture (OD et IN par défaut) sont
+    /// ouverts (inv. 5).
+    #[error(
+        "l'exercice {0} est en clôture : seuls les journaux admis en clôture (OD, IN) sont ouverts"
+    )]
     ExerciceEnCloture(CodeExercice),
     /// Période verrouillée ou clôturée (inv. 5).
     #[error("la période contenant le {0} n'est pas ouverte")]
@@ -447,8 +450,8 @@ fn controler(
     if !journal.genre().accepte_la_saisie() {
         return Err(ErreurValidation::JournalSansSaisie(code.clone()));
     }
-    // Invariant 5 : date dans une période ouverte d'un exercice ouvert (ou en clôture pour
-    // les journaux d'opérations diverses : OD, IN, et PA qui a ce type, spec §5.2).
+    // Invariant 5 : date dans une période ouverte d'un exercice ouvert, ou en clôture pour les
+    // journaux admis en clôture (OD et IN par défaut, pas PA).
     let date = ecriture.date();
     let exercice = contexte
         .exercices
@@ -456,7 +459,7 @@ fn controler(
         .ok_or(ErreurValidation::DateHorsExercice(date))?;
     match exercice.statut() {
         StatutExercice::Ouvert => {}
-        StatutExercice::EnCloture if journal.genre() == TypeJournal::OperationsDiverses => {}
+        StatutExercice::EnCloture if journal.admis_en_cloture() => {}
         StatutExercice::EnCloture => {
             return Err(ErreurValidation::ExerciceEnCloture(exercice.code().clone()));
         }

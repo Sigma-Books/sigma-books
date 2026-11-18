@@ -8,14 +8,16 @@
 //!   garanti à sa construction, une ligne nulle ou négative est irreprésentable.
 //! - Une ligne en devise conserve la devise, le montant en devise, le cours et la contre-valeur
 //!   XOF, **calculée par le moteur** et arrondie au franc (spec §6.6, principe 8).
-//! - L'équilibre ∑D = ∑C est vérifié en XOF et, pour chaque devise étrangère, entre les lignes
-//!   de cette devise (invariant 1).
+//! - L'équilibre ∑D = ∑C est vérifié en XOF. Si **toutes** les lignes sont dans une même devise
+//!   étrangère, il est aussi vérifié dans cette devise (invariant 1, décision du mainteneur du
+//!   2026-11-18). Une écriture qui mêle XOF et devise, ou plusieurs devises (encaissement en
+//!   EUR sur une banque en XOF), n'est équilibrée qu'en XOF : l'écart de change se constate au
+//!   lettrage (L3) et à la clôture (L6), comme dans Tryton et Odoo.
 //!
 //! Comme dans Tryton (`account.move`, état `draft` puis `posted`), une écriture vide ou
 //! déséquilibrée reste au brouillard. Contrairement à Tryton, une ligne à zéro est refusée
 //! (spec §6.2, invariant 2).
 
-use std::collections::BTreeMap;
 use std::fmt;
 
 use rust_decimal::Decimal;
@@ -73,7 +75,7 @@ pub enum ErreurEcriture {
         /// Total des crédits.
         credit: Decimal,
     },
-    /// ∑D ≠ ∑C entre les lignes d'une même devise étrangère.
+    /// ∑D ≠ ∑C dans la devise étrangère commune à toutes les lignes.
     #[error("écriture déséquilibrée en {devise} : débit {debit}, crédit {credit}")]
     DesequilibreDevise {
         /// Devise concernée.
@@ -496,8 +498,8 @@ impl EcritureBrouillon {
     /// Contrôle l'équilibre et fige l'écriture. Seule voie vers une [`EcritureEquilibree`].
     ///
     /// # Errors
-    /// Écriture vide ou d'une seule ligne ; ∑D ≠ ∑C en XOF ou dans une devise étrangère ;
-    /// dépassement de capacité. En cas d'erreur, le brouillon est rendu intact dans `Err`.
+    /// Écriture vide ou d'une seule ligne ; ∑D ≠ ∑C en XOF, ou dans la devise étrangère commune
+    /// à toutes les lignes ; dépassement de capacité. En cas d'erreur, le brouillon est rendu intact dans `Err`.
     pub fn valider_equilibre(self) -> Result<EcritureEquilibree, Refus<Self, ErreurEcriture>> {
         match controler_equilibre(&self.lignes) {
             Ok(()) => Ok(EcritureEquilibree { brouillon: self }),
@@ -506,7 +508,8 @@ impl EcritureBrouillon {
     }
 }
 
-/// Contrôle de l'invariant 1 : au moins deux lignes, ∑D = ∑C en XOF et par devise étrangère.
+/// Contrôle de l'invariant 1 : au moins deux lignes, ∑D = ∑C en XOF et, si toutes les lignes
+/// sont dans une même devise étrangère, dans cette devise.
 fn controler_equilibre(lignes: &[Ligne]) -> Result<(), ErreurEcriture> {
     match lignes.len() {
         0 => return Err(ErreurEcriture::Vide),
@@ -514,32 +517,37 @@ fn controler_equilibre(lignes: &[Ligne]) -> Result<(), ErreurEcriture> {
         _ => {}
     }
     let (mut debit, mut credit) = (Decimal::ZERO, Decimal::ZERO);
-    let mut par_devise: BTreeMap<Devise, (Decimal, Decimal)> = BTreeMap::new();
     for ligne in lignes {
         debit = ajouter(debit, ligne.debit())?;
         credit = ajouter(credit, ligne.credit())?;
-        if let Some(origine) = ligne.devise() {
-            let totaux = par_devise
-                .entry(origine.montant().devise())
-                .or_insert((Decimal::ZERO, Decimal::ZERO));
-            let valeur = origine.montant().valeur();
-            match ligne.sens() {
-                Sens::Debit => totaux.0 = ajouter(totaux.0, valeur)?,
-                Sens::Credit => totaux.1 = ajouter(totaux.1, valeur)?,
-            }
-        }
     }
     if debit != credit {
         return Err(ErreurEcriture::DesequilibreXof { debit, credit });
     }
-    for (devise, (debit, credit)) in par_devise {
-        if debit != credit {
-            return Err(ErreurEcriture::DesequilibreDevise {
-                devise,
-                debit,
-                credit,
-            });
+    let devise = lignes[0].devise().map(|d| d.montant().devise());
+    let Some(devise) = devise else {
+        return Ok(());
+    };
+    let (mut debit, mut credit) = (Decimal::ZERO, Decimal::ZERO);
+    for ligne in lignes {
+        match ligne.devise() {
+            Some(origine) if origine.montant().devise() == devise => {
+                let valeur = origine.montant().valeur();
+                match ligne.sens() {
+                    Sens::Debit => debit = ajouter(debit, valeur)?,
+                    Sens::Credit => credit = ajouter(credit, valeur)?,
+                }
+            }
+            // Écriture multidevise : équilibre en XOF seulement.
+            _ => return Ok(()),
         }
+    }
+    if debit != credit {
+        return Err(ErreurEcriture::DesequilibreDevise {
+            devise,
+            debit,
+            credit,
+        });
     }
     Ok(())
 }
@@ -727,21 +735,54 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn equilibre_par_devise() {
+    fn equilibre_dans_la_devise_commune() {
         // 100 EUR au débit et 100 EUR au crédit : équilibré en EUR et en XOF.
         let ok = brouillon(vec![
             Ligne::en_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
             Ligne::en_devise(n("4011"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
         ]);
         assert!(ok.valider_equilibre().is_ok());
-        // Équilibré en XOF (65 596 F de chaque côté) mais pas en EUR : refusé (§6.2, inv. 1).
+        // Toutes les lignes en EUR, équilibrées en XOF (65 596 F de chaque côté après arrondi)
+        // mais pas en EUR : refusé (§6.2, inv. 1).
         let ko = brouillon(vec![
-            Ligne::en_devise(n("4011"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
-            ligne("521", Sens::Debit, "65596"),
+            Ligne::en_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
+            Ligne::en_devise(n("4011"), Sens::Credit, eur("100.0001"), cours_eur()).unwrap(),
         ]);
         assert!(matches!(
             ko.valider_equilibre().unwrap_err().decomposer().1,
             ErreurEcriture::DesequilibreDevise { .. }
+        ));
+    }
+
+    #[test]
+    fn ecriture_multidevise_equilibree_en_xof_seulement() {
+        // Encaissement de 100 EUR sur une banque en XOF : équilibré en XOF, accepté.
+        let encaissement = brouillon(vec![
+            Ligne::en_devise(n("4111"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
+            ligne("521", Sens::Debit, "65596"),
+        ]);
+        assert!(encaissement.valider_equilibre().is_ok());
+        // Deux devises, équilibrées en XOF : acceptée.
+        let usd = Montant::parse("100", Devise::parse("USD").unwrap()).unwrap();
+        let deux_devises = brouillon(vec![
+            Ligne::en_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
+            Ligne::en_devise(
+                n("4011"),
+                Sens::Credit,
+                usd,
+                Cours::parse("655.96").unwrap(),
+            )
+            .unwrap(),
+        ]);
+        assert!(deux_devises.valider_equilibre().is_ok());
+        // Déséquilibre en XOF : toujours refusé.
+        let ko = brouillon(vec![
+            Ligne::en_devise(n("4111"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
+            ligne("521", Sens::Debit, "65595"),
+        ]);
+        assert!(matches!(
+            ko.valider_equilibre().unwrap_err().decomposer().1,
+            ErreurEcriture::DesequilibreXof { .. }
         ));
     }
 

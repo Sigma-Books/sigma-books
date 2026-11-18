@@ -14,7 +14,7 @@ Tryton est publié sous GPL-3.0-or-later (fichiers `LICENSE` et `COPYRIGHT` à l
 | Auteurs / titulaires | © 2008-2026 Cédric Krier, © 2008-2013 Bertrand Chenal, © 2008-2026 B2CK SRL, © 2004-2008 Tiny SPRL |
 | Nature de la reprise | cas de test repris (données et résultats attendus), réécrit en Rust |
 | Destination | `crates/compta-core/tests/reference_tryton.rs` |
-| Modifications | comptes du dossier de test au lieu du plan Tryton ; ligne en seconde devise (30 EUR pour 32) passée en XOF, car Sigma Books exige l'équilibre par devise (spec §6.2, inv. 1) ; variante « Cancel Move » par montants négatifs non reprise (spec §6.2, inv. 2) ; lettrage automatique de l'origine et du miroir non repris (lettrage : lot L3) |
+| Modifications | comptes du dossier de test au lieu du plan Tryton ; ligne en seconde devise (30 EUR pour 32) exprimée par un cours (1.0667), dont Sigma Books calcule la contre-valeur ; variante « Cancel Move » par montants négatifs non reprise (spec §6.2, inv. 2) ; lettrage automatique de l'origine et du miroir non repris (lettrage : lot L3) |
 | PR | PR 4 du lot L1 (#64, #59, #63) |
 
 ## syscohada-collectifs — comptes collectifs et transcription des intitulés du plan SYSCOHADA

@@ -4,8 +4,12 @@
 //! code. Un journal de trésorerie est associé à son compte de trésorerie, qui doit être un
 //! compte de mouvement actif du plan ; les autres journaux n'ont pas de compte associé.
 //!
-//! Le **type** d'un journal et son compte de trésorerie ne sont modifiables par aucune
-//! fonction ; seul le code peut changer, tant qu'aucune écriture n'utilise le journal (il
+//! Seuls les journaux d'opérations diverses peuvent être **admis en clôture** : ils restent
+//! ouverts à la saisie quand l'exercice est en clôture (spec §6.2, invariant 5 : OD et IN par
+//! défaut, pas PA).
+//!
+//! Le **type** d'un journal, son admission en clôture et son compte de trésorerie ne sont
+//! modifiables par aucune fonction ; seul le code peut changer, tant qu'aucune écriture n'utilise le journal (il
 //! figure dans les numéros définitifs).
 
 use std::collections::BTreeMap;
@@ -74,6 +78,14 @@ pub enum ErreurJournal {
     /// Un journal de trésorerie doit avoir un compte de trésorerie.
     #[error("le journal de trésorerie {0} n'a pas de compte de trésorerie")]
     CompteTresorerieManquant(CodeJournal),
+    /// Seuls les journaux d'opérations diverses peuvent être admis en clôture.
+    #[error(
+        "le journal {0} n'est pas un journal d'opérations diverses : il ne peut pas être admis en clôture"
+    )]
+    ClotureNonAdmise(CodeJournal),
+    /// Option inconnue dans les données des journaux par défaut.
+    #[error("option de journal inconnue : « {0} »")]
+    OptionInconnue(String),
     /// Seuls les journaux de trésorerie ont un compte associé.
     #[error("le journal {0} n'est pas un journal de trésorerie : pas de compte associé")]
     CompteNonAttendu(CodeJournal),
@@ -133,6 +145,7 @@ impl fmt::Display for CodeJournal {
 pub struct ModeleJournal {
     code: CodeJournal,
     genre: TypeJournal,
+    admis_en_cloture: bool,
     intitule: TexteCourt,
 }
 
@@ -149,6 +162,12 @@ impl ModeleJournal {
         self.genre
     }
 
+    /// Vrai si le journal est admis pendant la clôture de l'exercice.
+    #[must_use]
+    pub fn admis_en_cloture(&self) -> bool {
+        self.admis_en_cloture
+    }
+
     /// Crée le journal du dossier. Un journal de trésorerie reçoit ici son compte.
     ///
     /// # Errors
@@ -158,13 +177,18 @@ impl ModeleJournal {
         compte_tresorerie: Option<NumeroCompte>,
         plan: &PlanComptes,
     ) -> Result<Journal, ErreurJournal> {
-        Journal::nouveau(
+        let journal = Journal::nouveau(
             self.code.clone(),
             self.intitule.clone(),
             self.genre,
             compte_tresorerie,
             plan,
-        )
+        )?;
+        if self.admis_en_cloture {
+            journal.admettre_en_cloture()
+        } else {
+            Ok(journal)
+        }
     }
 }
 
@@ -185,15 +209,28 @@ fn analyser_modeles(donnees: &str) -> Result<Vec<ModeleJournal>, ErreurJournal> 
             continue;
         }
         let erreur = |e: &dyn fmt::Display| ErreurJournal::Donnees(numero, e.to_string());
-        let mut champs = ligne.splitn(3, ';');
-        let (Some(code), Some(genre), Some(intitule)) =
-            (champs.next(), champs.next(), champs.next())
+        let mut champs = ligne.splitn(4, ';');
+        let (Some(code), Some(genre), Some(options), Some(intitule)) =
+            (champs.next(), champs.next(), champs.next(), champs.next())
         else {
-            return Err(erreur(&"trois champs attendus : code;type;intitulé"));
+            return Err(erreur(
+                &"quatre champs attendus : code;type;options;intitulé",
+            ));
         };
+        let code = CodeJournal::parse(code).map_err(|e| erreur(&e))?;
+        let genre = TypeJournal::parse(genre).map_err(|e| erreur(&e))?;
+        let mut admis_en_cloture = false;
+        for option in options.split(',').filter(|o| !o.is_empty()) {
+            match option {
+                "cloture" if genre == TypeJournal::OperationsDiverses => admis_en_cloture = true,
+                "cloture" => return Err(erreur(&ErreurJournal::ClotureNonAdmise(code))),
+                _ => return Err(erreur(&ErreurJournal::OptionInconnue(option.to_owned()))),
+            }
+        }
         let modele = ModeleJournal {
-            code: CodeJournal::parse(code).map_err(|e| erreur(&e))?,
-            genre: TypeJournal::parse(genre).map_err(|e| erreur(&e))?,
+            code,
+            genre,
+            admis_en_cloture,
             intitule: TexteCourt::parse(intitule).map_err(|e| erreur(&e))?,
         };
         if modeles.iter().any(|m| m.code == modele.code) {
@@ -210,12 +247,13 @@ pub struct Journal {
     code: CodeJournal,
     intitule: TexteCourt,
     genre: TypeJournal,
+    admis_en_cloture: bool,
     compte_tresorerie: Option<NumeroCompte>,
 }
 
 impl Journal {
-    /// Crée un journal. Un journal de trésorerie exige un compte de mouvement actif du plan ;
-    /// les autres n'ont pas de compte associé.
+    /// Crée un journal, non admis en clôture. Un journal de trésorerie exige un compte de
+    /// mouvement actif du plan ; les autres n'ont pas de compte associé.
     ///
     /// # Errors
     /// Compte manquant, non attendu ou inutilisable.
@@ -241,8 +279,28 @@ impl Journal {
             code,
             intitule,
             genre,
+            admis_en_cloture: false,
             compte_tresorerie,
         })
+    }
+
+    /// Admet le journal pendant la clôture de l'exercice (spec §6.2, invariant 5). À la
+    /// création seulement : aucune fonction ne modifie cette propriété ensuite.
+    ///
+    /// # Errors
+    /// [`ErreurJournal::ClotureNonAdmise`] si le journal n'est pas d'opérations diverses.
+    pub fn admettre_en_cloture(mut self) -> Result<Self, ErreurJournal> {
+        if self.genre != TypeJournal::OperationsDiverses {
+            return Err(ErreurJournal::ClotureNonAdmise(self.code));
+        }
+        self.admis_en_cloture = true;
+        Ok(self)
+    }
+
+    /// Vrai si le journal est admis pendant la clôture de l'exercice.
+    #[must_use]
+    pub fn admis_en_cloture(&self) -> bool {
+        self.admis_en_cloture
     }
 
     /// Code du journal.
@@ -351,28 +409,32 @@ mod tests {
         assert!(!an.genre().accepte_la_saisie());
         let ca = modeles.iter().find(|m| m.code().as_str() == "CA").unwrap();
         assert_eq!(ca.genre(), TypeJournal::Tresorerie);
+        // Invariant 5 : seuls OD et IN restent ouverts pendant la clôture.
+        let admis: Vec<&str> = modeles
+            .iter()
+            .filter(|m| m.admis_en_cloture())
+            .map(|m| m.code().as_str())
+            .collect();
+        assert_eq!(admis, ["OD", "IN"]);
     }
 
     #[test]
     fn donnees_mal_formees() {
-        assert!(matches!(
-            analyser_modeles("AC;achats"),
-            Err(ErreurJournal::Donnees(1, _))
-        ));
-        assert!(matches!(
-            analyser_modeles("ac;achats;A"),
-            Err(ErreurJournal::Donnees(1, _))
-        ));
-        assert!(matches!(
-            analyser_modeles("AC;autre;A"),
-            Err(ErreurJournal::Donnees(1, _))
-        ));
-        assert!(matches!(
-            analyser_modeles("# c\nAC;achats;A\nAC;ventes;B"),
-            Err(ErreurJournal::Donnees(3, _))
-        ));
+        for (donnees, ligne) in [
+            ("AC;achats;A", 1),
+            ("ac;achats;;A", 1),
+            ("AC;autre;;A", 1),
+            ("AC;achats;cloture;A", 1),
+            ("OD;operations_diverses;inconnue;A", 1),
+            ("# c\nAC;achats;;A\nAC;ventes;;B", 3),
+        ] {
+            assert!(
+                matches!(analyser_modeles(donnees), Err(ErreurJournal::Donnees(l, _)) if l == ligne),
+                "{donnees}"
+            );
+        }
         assert_eq!(
-            analyser_modeles("AC;achats;Achats; divers").unwrap().len(),
+            analyser_modeles("AC;achats;;Achats; divers").unwrap().len(),
             1
         );
     }
@@ -420,6 +482,26 @@ mod tests {
         );
         let achats = Journal::nouveau(c("AC"), t("A"), TypeJournal::Achats, Some(n("6052")), &plan);
         assert_eq!(achats, Err(ErreurJournal::CompteNonAttendu(c("AC"))));
+    }
+
+    #[test]
+    fn admission_en_cloture_reservee_aux_operations_diverses() {
+        let plan = plan_de_test();
+        let od = Journal::nouveau(
+            c("OD2"),
+            t("OD"),
+            TypeJournal::OperationsDiverses,
+            None,
+            &plan,
+        )
+        .unwrap();
+        assert!(!od.admis_en_cloture());
+        assert!(od.admettre_en_cloture().unwrap().admis_en_cloture());
+        let ventes = Journal::nouveau(c("VT2"), t("V"), TypeJournal::Ventes, None, &plan).unwrap();
+        assert_eq!(
+            ventes.admettre_en_cloture(),
+            Err(ErreurJournal::ClotureNonAdmise(c("VT2")))
+        );
     }
 
     #[test]

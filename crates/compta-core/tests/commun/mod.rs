@@ -104,16 +104,21 @@ impl Dossier {
             }))
             .unwrap();
         let mut journaux = Journaux::new();
-        for (code, genre, compte) in [
-            ("AC", TypeJournal::Achats, None),
-            ("VT", TypeJournal::Ventes, None),
-            ("BQ1", TypeJournal::Tresorerie, Some("521")),
-            ("CA", TypeJournal::Tresorerie, Some("571")),
-            ("OD", TypeJournal::OperationsDiverses, None),
-            ("IN", TypeJournal::OperationsDiverses, None),
-            ("AN", TypeJournal::ANouveaux, None),
+        for (code, genre, compte, cloture) in [
+            ("AC", TypeJournal::Achats, None, false),
+            ("VT", TypeJournal::Ventes, None, false),
+            ("BQ1", TypeJournal::Tresorerie, Some("521"), false),
+            ("CA", TypeJournal::Tresorerie, Some("571"), false),
+            ("PA", TypeJournal::OperationsDiverses, None, false),
+            ("OD", TypeJournal::OperationsDiverses, None, true),
+            ("IN", TypeJournal::OperationsDiverses, None, true),
+            ("AN", TypeJournal::ANouveaux, None, false),
         ] {
-            let journal = Journal::nouveau(j(code), t(code), genre, compte.map(n), &plan).unwrap();
+            let mut journal =
+                Journal::nouveau(j(code), t(code), genre, compte.map(n), &plan).unwrap();
+            if cloture {
+                journal = journal.admettre_en_cloture().unwrap();
+            }
             journaux.ajouter(journal).unwrap();
         }
         let mut exercices = Exercices::new();

@@ -142,12 +142,26 @@ fn invariant_5_date_periode_et_exercice() {
         Err(ErreurValidation::PeriodeFermee(date!(2026 - 03 - 10)))
     );
 
-    // Exercice en clôture : OD et IN admis, achats refusés.
+    // Exercice en clôture : OD et IN admis ; achats et paie (PA, pourtant d'opérations
+    // diverses) refusés.
     let mut d = Dossier::nouveau();
     let code = CodeExercice::parse("2026").unwrap();
     d.exercices.passer_en_cloture(&code).unwrap();
     assert_eq!(
         d.valider(achat()),
+        Err(ErreurValidation::ExerciceEnCloture(code.clone()))
+    );
+    let paie = equilibree(
+        "PA",
+        date!(2026 - 12 - 31),
+        "Salaires de décembre",
+        vec![
+            ligne("6052", Sens::Debit, "50"),
+            ligne("521", Sens::Credit, "50"),
+        ],
+    );
+    assert_eq!(
+        d.valider(paie),
         Err(ErreurValidation::ExerciceEnCloture(code.clone()))
     );
     let inventaire = equilibree(
