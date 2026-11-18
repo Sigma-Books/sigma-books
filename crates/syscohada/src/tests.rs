@@ -152,6 +152,78 @@ fn sens_normal_de_quelques_comptes() {
     assert_eq!(sens("7019"), SensNormal::Debiteur);
 }
 
+/// Corrections tirées des fiches de fonctionnement des comptes (AUDCIF, Titre VII, ch. 3).
+#[test]
+fn sens_normal_selon_les_fiches_de_fonctionnement() {
+    let r = officiel();
+    let sens = |numero: &str| r.compte(&n(numero)).unwrap().sens();
+    for numero in ["181", "1811", "182", "183", "905", "9061", "908", "9088"] {
+        assert_eq!(sens(numero), SensNormal::Crediteur, "{numero}");
+    }
+    for numero in ["1962", "581", "582", "901", "9011", "904"] {
+        assert_eq!(sens(numero), SensNormal::Debiteur, "{numero}");
+    }
+    for numero in [
+        "104", "1041", "12", "13", "18", "184", "58", "585", "603", "73", "90",
+    ] {
+        assert_eq!(sens(numero), SensNormal::Variable, "{numero}");
+    }
+    // Regroupements : le sens des subdivisions 1 à 8 (AUDCIF p. PDF 216).
+    for (numero, attendu) in [
+        ("40", SensNormal::Crediteur),
+        ("41", SensNormal::Debiteur),
+        ("444", SensNormal::Crediteur),
+        ("601", SensNormal::Debiteur),
+        ("701", SensNormal::Crediteur),
+    ] {
+        assert_eq!(sens(numero), attendu, "{numero}");
+    }
+}
+
+/// Un compte de regroupement prend le sens commun de ses subdivisions terminées par 1 à 8, ou
+/// est variable si elles divergent ; exceptions du texte : 12, 13, 18, 58, 603, 73 variables.
+#[test]
+fn sens_des_regroupements_coherent() {
+    let r = officiel();
+    let numeros: Vec<String> = r
+        .comptes()
+        .map(|c| c.numero().as_str().to_owned())
+        .collect();
+    let parent = |numero: &str| {
+        (1..numero.len())
+            .rev()
+            .map(|l| &numero[..l])
+            .find(|p| numeros.iter().any(|x| x == p))
+            .map(str::to_owned)
+    };
+    for p in &numeros {
+        let enfants: Vec<&String> = numeros
+            .iter()
+            .filter(|x| parent(x).as_deref() == Some(p.as_str()))
+            .collect();
+        if enfants.is_empty() || ["12", "13", "18", "58", "603", "73"].contains(&p.as_str()) {
+            continue;
+        }
+        let mut retenus: Vec<SensNormal> = enfants
+            .iter()
+            .filter(|e| !e.ends_with('9') || p.starts_with('2'))
+            .map(|e| r.compte(&n(e)).unwrap().sens())
+            .collect();
+        if retenus.is_empty() {
+            retenus = enfants
+                .iter()
+                .map(|e| r.compte(&n(e)).unwrap().sens())
+                .collect();
+        }
+        let attendu = if retenus.iter().all(|s| *s == retenus[0]) {
+            retenus[0]
+        } else {
+            SensNormal::Variable
+        };
+        assert_eq!(r.compte(&n(p)).unwrap().sens(), attendu, "regroupement {p}");
+    }
+}
+
 #[test]
 fn comptes_collectifs_de_tiers() {
     let r = officiel();

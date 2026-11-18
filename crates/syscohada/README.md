@@ -47,15 +47,15 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
   | Comptes 90 et 91 | hors bilan |
   | Comptes 92 à 99 | comptabilité analytique de gestion |
 
-- **`sens`**, le sens normal du solde : la liste officielle ne le donne pas. C'est une **convention de Sigma Books, à faire valider par un expert-comptable**. Elle sert à l'affichage et aux contrôles de vraisemblance, jamais au calcul. Règles, du préfixe le plus long au plus court :
-  - **Par défaut, selon la classe** : 1 et 7 créditeurs ; 2, 3, 5 et 6 débiteurs ; 4 et 9 variables.
-  - **Classe 8** : comptes de charges débiteurs, comptes de produits créditeurs.
-  - **Créditeurs** : 28, 29, 39 et 49 ; 59 ; 56 ; 40, sauf 409 ; 419 ; 42, sauf 421 ; 43 ; 441, 442, 443, 4441, 446 et 447 ; 462 et 465 ; 477 et 479 ; 481, 482 et 484.
-  - **Débiteurs** : 109, 129 et 139 ; 409 ; 41, sauf 419 ; 421 ; 445 et 4449 ; 467 ; 476 et 478 ; 485 et 488.
-  - **Rabais, remises et ristournes** : les comptes en `60x9` sont créditeurs, les comptes en `70x9` débiteurs.
-  - **Comptes de variation** (603, 73) et comptes de liaison (18, 58) : variables.
-  - **Charges à payer et produits à recevoir** (4286/4287, 4386/4387, 4486/4487, 5261/5267) : respectivement créditeurs et débiteurs.
-  - **Comptes de regroupement** : un compte dont les sous-comptes ont des sens différents est variable.
+- **`sens`**, le sens normal du solde : la liste officielle ne le donne pas. Il est **déduit du texte** de l'AUDCIF : règle du chiffre 9 (Titre VII, ch. 2, § 1.2.1 « Constantes », p. PDF 216-217) et fiches « Contenu et fonctionnement des comptes » (Titre VII, ch. 3, p. PDF 274 à 539 : « est débité de… », « solde débiteur »…). Il sert à l'affichage et aux contrôles de vraisemblance, jamais au calcul. L'ensemble reste **à faire valider par un expert-comptable** (spec §26, point 14). Règles, du préfixe le plus long au plus court :
+  - **Par défaut, selon la classe** : 1 et 7 créditeurs ; 2, 3, 5 et 6 débiteurs ; 4 et 9 variables. **Classe 8** : comptes à terminaison impaire (charges) débiteurs, à terminaison paire (produits) créditeurs (p. 217).
+  - **Règle du chiffre 9** (p. 216) : un compte à trois chiffres ou plus terminé par 9 a le sens inverse de son parent (409, 419, 4449, `60x9` créditeurs, `70x9` débiteurs…), sauf en classe 2. Pour les comptes à deux chiffres, la terminaison 9 désigne les dépréciations et provisions (29, 39, 49, 59 créditeurs) ; dans les comptes de gestion, elle désigne les opérations sur provisions (659, 759…), sans inversion.
+  - **Créditeurs** : 28 ; 56 ; 40 ; 42, sauf 421 ; 43 ; 441, 442, 443, 4441, 446 et 447 ; 462 et 465 ; 477 et 479 ; 481, 482 et 484 ; **181 à 183**, dettes liées à des participations (p. 309-310) ; **905 à 908**, engagements accordés (p. 506-507).
+  - **Débiteurs** : 109, 129 et 139 ; 41 ; 421 ; 445 ; 467 ; 476 et 478 ; 485 et 488 ; **1962**, actif du régime de retraite (p. 313) ; **581 et 582**, régies d'avances et accréditifs (p. 430-431) ; **901 à 904**, engagements obtenus (p. 506-507).
+  - **Variables** (« débiteur ou créditeur » selon le texte) : 12 et 13 (p. 275, 294, 296) ; **104**, compte de l'exploitant, « systématiquement soldé » (p. 283-284) ; variations de stocks 603 et 73 (p. 440, 477) ; comptes de liaison 184 à 188 (p. 310) ; virements internes 585 et 588.
+  - **Charges à payer et produits à recevoir** (4286/4287, 4386/4387, 4486/4487, 5261/5267) : respectivement créditeurs et débiteurs. La fiche du compte 52 (p. 416) donne d'autres subdivisions que la liste officielle (5261 « Banques, en monnaie locale », 5265) : incohérence signalée à l'expert-comptable.
+  - **Comptes de regroupement** : un compte prend le sens commun de ses subdivisions terminées par 1 à 8 (celles en 9 sont inverses par construction) ; il est variable si elles divergent. Ainsi 40 est créditeur malgré 409, et 601 débiteur malgré 6019.
+  - **Soldes admis sans être normaux** (non modélisés à ce stade) : banques 52 et 53 créditrices (découvert, p. 416), 103 débiteur (p. 281).
 - **`collectif`** : compte collectif de tiers (spec §5.1, invariant 4 du §6.2) ; les sous-comptes en héritent dans le plan du dossier.
   - **Repris des comptes `party_required` du module Tryton `account_syscohada`** : 103, 109, 181 à 185, 401, 402, 408, 409, 411, 412, 414 à 416, 418, 419, 421, 451, 452, 461 à 463, 465, 466, 481, 482, 485.
   - **Ajouts de Sigma Books**, comptes de tiers de la liste officielle absents de Tryton : 404, 413, 467 et 488 « Autres créances H.A.O. » (créances sur cessions d'immobilisations notamment ; décision du mainteneur du 2026-11-18, en accord avec Odoo `l10n_syscohada`, qui rend 488 lettrable).

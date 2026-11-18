@@ -12,8 +12,9 @@
 # - nature : déduite de l'intitulé officiel de la classe (classes 1 à 5 : bilan ; 6 et comptes
 #   81, 83, 85, 87, 89 : charge ; 7 et comptes 82, 84, 86, 88 : produit ; 90-91 : hors bilan ;
 #   92-99 : comptabilité analytique de gestion).
-# - sens : sens normal du solde. Il ne figure PAS dans la liste officielle : convention de Sigma Books
-#   (règles dans crates/syscohada/README.md), À VALIDER par un expert-comptable.
+# - sens : sens normal du solde. Il ne figure PAS dans la liste officielle : déduit de la règle du
+#   chiffre 9 (même document, p. PDF 216-217) et des fiches de fonctionnement des comptes (p. PDF 274
+#   à 539) ; règles dans crates/syscohada/README.md. À VALIDER par un expert-comptable.
 # - collectif : compte collectif de tiers (spec §5.1) ; hérité par les sous-comptes. Repris des comptes
 #   « party_required » du module Tryton account_syscohada (docs/provenance/), complétés de 404, 413, 467
 #   et 488 (liste dans crates/syscohada/README.md).
@@ -157,42 +158,42 @@ numero = "104"
 intitule = "COMPTE DE L'EXPLOITANT"
 page = 219
 nature = "bilan"
-sens = "crediteur"
+sens = "variable"
 
 [[compte]]
 numero = "1041"
 intitule = "Apports temporaires"
 page = 219
 nature = "bilan"
-sens = "crediteur"
+sens = "variable"
 
 [[compte]]
 numero = "1042"
 intitule = "Opérations courantes"
 page = 219
 nature = "bilan"
-sens = "crediteur"
+sens = "variable"
 
 [[compte]]
 numero = "1043"
 intitule = "Rémunérations, impôts et autres charges personnelles"
 page = 219
 nature = "bilan"
-sens = "crediteur"
+sens = "variable"
 
 [[compte]]
 numero = "1047"
 intitule = "Prélèvements d'autoconsommation"
 page = 219
 nature = "bilan"
-sens = "crediteur"
+sens = "variable"
 
 [[compte]]
 numero = "1048"
 intitule = "Autres prélèvements"
 page = 219
 nature = "bilan"
-sens = "crediteur"
+sens = "variable"
 
 [[compte]]
 numero = "105"
@@ -396,7 +397,7 @@ numero = "130"
 intitule = "RÉSULTAT EN INSTANCE D'AFFECTATION"
 page = 221
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "1301"
@@ -984,7 +985,7 @@ numero = "181"
 intitule = "DETTES LIÉES À DES PARTICIPATIONS"
 page = 224
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 collectif = true
 
 [[compte]]
@@ -992,21 +993,21 @@ numero = "1811"
 intitule = "Dettes liées à des participations (groupe)"
 page = 224
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "1812"
 intitule = "Dettes liées à des participations (hors groupe)"
 page = 224
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "182"
 intitule = "DETTES LIÉES À DES SOCIÉTÉS EN PARTICIPATION"
 page = 224
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 collectif = true
 
 [[compte]]
@@ -1014,7 +1015,7 @@ numero = "183"
 intitule = "INTÉRÊTS COURUS SUR DETTES LIÉES À DES PARTICIPATIONS"
 page = 224
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 collectif = true
 
 [[compte]]
@@ -1115,7 +1116,7 @@ numero = "1962"
 intitule = "Actif du régime de retraite"
 page = 224
 nature = "bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "197"
@@ -3852,7 +3853,7 @@ numero = "40"
 intitule = "FOURNISSEURS ET COMPTES RATTACHÉS"
 page = 240
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "401"
@@ -4046,7 +4047,7 @@ numero = "41"
 intitule = "CLIENTS ET COMPTES RATTACHÉS"
 page = 241
 nature = "bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "411"
@@ -4721,7 +4722,7 @@ numero = "444"
 intitule = "ÉTAT, T.V.A. DUE OU CRÉDIT DE T.V.A."
 page = 244
 nature = "bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "4441"
@@ -6302,14 +6303,14 @@ numero = "581"
 intitule = "RÉGIES D'AVANCE"
 page = 252
 nature = "bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "582"
 intitule = "ACCRÉDITIFS"
 page = 252
 nature = "bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "585"
@@ -6386,7 +6387,7 @@ numero = "601"
 intitule = "ACHATS DE MARCHANDISES"
 page = 253
 nature = "charge"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "6011"
@@ -6435,7 +6436,7 @@ numero = "602"
 intitule = "ACHATS DE MATIÈRES PREMIÈRES ET FOURNITURES LIÉES"
 page = 253
 nature = "charge"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "6021"
@@ -6512,7 +6513,7 @@ numero = "604"
 intitule = "ACHATS STOCKÉS DE MATIÈRES ET FOURNITURES CONSOMMABLES"
 page = 254
 nature = "charge"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "6041"
@@ -6575,7 +6576,7 @@ numero = "605"
 intitule = "AUTRES ACHATS"
 page = 254
 nature = "charge"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "6051"
@@ -6645,7 +6646,7 @@ numero = "608"
 intitule = "ACHATS D'EMBALLAGES"
 page = 254
 nature = "charge"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "6081"
@@ -8248,14 +8249,14 @@ numero = "70"
 intitule = "VENTES"
 page = 262
 nature = "produit"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "701"
 intitule = "VENTES DE MARCHANDISES"
 page = 262
 nature = "produit"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "7011"
@@ -8304,7 +8305,7 @@ numero = "702"
 intitule = "VENTES DE PRODUITS FINIS"
 page = 262
 nature = "produit"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "7021"
@@ -8353,7 +8354,7 @@ numero = "703"
 intitule = "VENTES DE PRODUITS INTERMÉDIAIRES"
 page = 262
 nature = "produit"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "7031"
@@ -8402,7 +8403,7 @@ numero = "704"
 intitule = "VENTES DE PRODUITS RÉSIDUELS"
 page = 263
 nature = "produit"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "7041"
@@ -8451,7 +8452,7 @@ numero = "705"
 intitule = "TRAVAUX FACTURÉS"
 page = 263
 nature = "produit"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "7051"
@@ -8500,7 +8501,7 @@ numero = "706"
 intitule = "SERVICES VENDUS"
 page = 263
 nature = "produit"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "7061"
@@ -9494,7 +9495,7 @@ numero = "89"
 intitule = "IMPÔTS SUR LE RÉSULTAT"
 page = 269
 nature = "charge"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "891"
@@ -9571,252 +9572,252 @@ numero = "901"
 intitule = "ENGAGEMENTS DE FINANCEMENT OBTENUS"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9011"
 intitule = "Crédits confirmés obtenus"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9012"
 intitule = "Emprunts restant à encaisser"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9013"
 intitule = "Facilités de financement renouvelables"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9014"
 intitule = "Facilités d'émission"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9018"
 intitule = "Autres engagements de financement obtenus"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "902"
 intitule = "ENGAGEMENTS DE GARANTIE OBTENUS"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9021"
 intitule = "Avals obtenus"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9022"
 intitule = "Cautions, garanties obtenues"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9023"
 intitule = "Hypothèques obtenues"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9024"
 intitule = "Effets endossés par des tiers"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9028"
 intitule = "Autres garanties obtenues"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "903"
 intitule = "ENGAGEMENTS RÉCIPROQUES"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9031"
 intitule = "Achats de marchandises à terme"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9032"
 intitule = "Achats à terme de devises"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9033"
 intitule = "Commandes fermes des clients"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9038"
 intitule = "Autres engagements réciproques"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "904"
 intitule = "AUTRES ENGAGEMENTS OBTENUS"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9041"
 intitule = "Abandons de créances conditionnels"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9043"
 intitule = "Ventes avec clause de réserve de propriété"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "9048"
 intitule = "Divers engagements obtenus"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "debiteur"
 
 [[compte]]
 numero = "905"
 intitule = "ENGAGEMENTS DE FINANCEMENT ACCORDÉS"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9051"
 intitule = "Crédits accordés non décaissés"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9058"
 intitule = "Autres engagements de financement accordés"
 page = 270
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "906"
 intitule = "ENGAGEMENTS DE GARANTIE ACCORDÉS"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9061"
 intitule = "Avals accordés"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9062"
 intitule = "Cautions, garanties accordées"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9063"
 intitule = "Hypothèques accordées"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9064"
 intitule = "Effets endossés par l'entité"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9068"
 intitule = "Autres garanties accordées"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "907"
 intitule = "ENGAGEMENTS RÉCIPROQUES"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9071"
 intitule = "Ventes de marchandises à terme"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9072"
 intitule = "Ventes à terme de devises"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9073"
 intitule = "Commandes fermes aux fournisseurs"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9078"
 intitule = "Autres engagements réciproques"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "908"
 intitule = "AUTRES ENGAGEMENTS ACCORDÉS"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 note = "le JO imprime « 907 », doublon du compte précédent ; restitué 908 d'après ses sous-comptes 9081 à 9088 et l'intitulé « Engagements accordés 905 à 908 »"
 
 [[compte]]
@@ -9824,28 +9825,28 @@ numero = "9081"
 intitule = "Annulations conditionnelles de dettes"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9082"
 intitule = "Engagements de retraite"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9083"
 intitule = "Achats avec clause de réserve de propriété"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "9088"
 intitule = "Divers engagements accordés"
 page = 271
 nature = "hors_bilan"
-sens = "variable"
+sens = "crediteur"
 
 [[compte]]
 numero = "91"
