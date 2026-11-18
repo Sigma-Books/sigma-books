@@ -19,7 +19,15 @@ time = { version = "0.3.55", default-features = false, features = ["std"] }
 proptest = "1.12.0"
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 toml = { version = "1.2.1", default-features = false, features = ["std", "parse", "serde"] }
-sha2 = { version = "0.11.1", default-features = false }
+sha2 = { version = "0.11.1", default-features = false, features = ["oid"] }
+# Horodatage RFC 3161 (ADR 0010). x509-tsp et cms n'existent qu'en préversion pour la lignée der 0.8.
+sha1 = { version = "0.11.0", default-features = false }
+base64ct = { version = "1.8.3", default-features = false, features = ["alloc"] }
+der = { version = "0.8.3", default-features = false, features = ["alloc", "oid", "derive"] }
+x509-cert = { version = "0.3.0", default-features = false, features = ["pem"] }
+cms = { version = "=0.3.0-rc.2", default-features = false }
+x509-tsp = { version = "=0.2.0-rc.0", default-features = false }
+rsa = { version = "0.10.0", default-features = false, features = ["encoding", "pkcs1v15"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

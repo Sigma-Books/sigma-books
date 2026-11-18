@@ -6,6 +6,6 @@
 
 ## Règles propres
 - Sérialisation canonique **déterministe et documentée** (ordre des champs, format des montants et des dates, tri des lignes). Toute modification du format = nouvelle version de format, jamais un changement silencieux.
-- Cryptographie : RustCrypto uniquement (`sha2`), aucune implémentation maison.
+- Cryptographie : RustCrypto uniquement (`sha2`, `sha1`, `rsa`, `der`, `x509-cert`, `cms`, `x509-tsp`), aucune implémentation maison (ADR 0010).
 - L'outil de vérification n'a besoin que d'un export : il ne se connecte à rien.
 - Tests : une modification d'un seul octet d'une écriture doit être détectée ; vecteurs de test figés dans le dépôt.

@@ -21,5 +21,12 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "jeton"
+path = "fuzz_targets/jeton.rs"
+test = false
+doc = false
+bench = false
+
 # Paquet autonome : n'appartient pas au workspace racine.
 [workspace]

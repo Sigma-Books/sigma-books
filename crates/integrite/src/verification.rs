@@ -1,6 +1,6 @@
 //! Vérification hors ligne d'un export d'intégrité (spec §6.4) : recalcul de la chaîne,
-//! contrôle de la numérotation, de l'équilibre et des contre-passations, rapport pour
-//! l'auditeur.
+//! contrôle de la numérotation, de l'équilibre et des contre-passations, vérification des
+//! jetons d'horodatage RFC 3161 (export v2), rapport pour l'auditeur.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -9,7 +9,10 @@ use std::io::{self, BufRead};
 use compta_core::{CodeExercice, CodeJournal, NumeroEcriture};
 
 use crate::chaine::{Empreinte, IdDossier, chainer, genese};
-use crate::export::{Element, ErreurExport, ErreurLecture, LecteurExport};
+use crate::export::{Element, ErreurExport, ErreurLecture, JetonExporte, LecteurExport, Version};
+use crate::horodatage::{
+    Ancre, ErreurJeton, JetonVerifie, Temoin, ancres_par_defaut, verifier_jeton,
+};
 
 /// Nombre maximal d'anomalies détaillées dans le rapport (les suivantes sont comptées).
 pub const ANOMALIES_DETAILLEES: usize = 100;
@@ -19,8 +22,10 @@ pub const ANOMALIES_DETAILLEES: usize = 100;
 pub struct Options {
     /// Dossier attendu.
     pub dossier: Option<IdDossier>,
-    /// Empreinte de tête attendue, issue d'une source externe (jeton d'horodatage, témoin).
+    /// Empreinte de tête attendue, issue d'une source externe (témoin).
     pub tete: Option<Empreinte>,
+    /// Ancres de confiance ajoutées aux racines intégrées (`ancres_par_defaut`).
+    pub ancres: Vec<Ancre>,
 }
 
 /// Anomalie constatée.
@@ -88,6 +93,21 @@ pub enum Anomalie {
         /// Tête attendue.
         attendue: Empreinte,
     },
+    /// Le témoin d'un jeton ne correspond pas à la chaîne recalculée : l'export n'est pas
+    /// celui qui a été horodaté.
+    TemoinDifferent {
+        /// Ligne du jeton.
+        ligne: u64,
+        /// Nombre d'écritures du témoin.
+        nombre: u64,
+    },
+    /// Jeton d'horodatage invalide (signature, empreinte, chaîne de certificats…).
+    JetonInvalide {
+        /// Ligne du jeton.
+        ligne: u64,
+        /// Motif.
+        erreur: ErreurJeton,
+    },
 }
 
 impl fmt::Display for Anomalie {
@@ -140,6 +160,14 @@ impl fmt::Display for Anomalie {
                 "tête recalculée différente de la tête attendue {attendue} : l'export ne \
                  correspond pas à la référence externe"
             ),
+            Self::TemoinDifferent { ligne, nombre } => write!(
+                f,
+                "jeton (ligne {ligne}) : la chaîne recalculée après {nombre} écriture(s) \
+                 n'est pas celle qui a été horodatée"
+            ),
+            Self::JetonInvalide { ligne, erreur } => {
+                write!(f, "jeton (ligne {ligne}) invalide : {erreur}")
+            }
         }
     }
 }
@@ -153,9 +181,20 @@ pub struct Plage {
     pub dernier: u32,
 }
 
+/// Horodatage vérifié : les `nombre` premières écritures existaient à la date du jeton.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Horodatage {
+    /// Écritures couvertes (les `nombre` premières de la chaîne).
+    pub nombre: u64,
+    /// Ce qu'atteste le jeton.
+    pub jeton: JetonVerifie,
+}
+
 /// Résultat de la vérification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rapport {
+    /// Version du format d'export (absente si l'en-tête est illisible).
+    pub version: Option<Version>,
     /// Dossier déclaré par l'export (absent si l'en-tête est illisible).
     pub dossier: Option<IdDossier>,
     /// Écritures lues.
@@ -168,6 +207,8 @@ pub struct Rapport {
     pub tete: Option<Empreinte>,
     /// Vrai si la tête a été comparée à une référence externe (et concorde, sauf anomalie).
     pub ancre: bool,
+    /// Jetons d'horodatage vérifiés, dans l'ordre de l'export.
+    pub horodatages: Vec<Horodatage>,
     /// Anomalies détaillées (au plus [`ANOMALIES_DETAILLEES`]).
     pub anomalies: Vec<Anomalie>,
     /// Anomalies non détaillées.
@@ -179,6 +220,21 @@ impl Rapport {
     #[must_use]
     pub fn est_integre(&self) -> bool {
         self.anomalies.is_empty()
+    }
+
+    fn vide() -> Self {
+        Self {
+            version: None,
+            dossier: None,
+            nombre: 0,
+            bornes: None,
+            sequences: BTreeMap::new(),
+            tete: None,
+            ancre: false,
+            horodatages: Vec::new(),
+            anomalies: Vec::new(),
+            anomalies_omises: 0,
+        }
     }
 
     fn signaler(&mut self, anomalie: Anomalie) {
@@ -196,21 +252,21 @@ impl Rapport {
 /// # Errors
 /// Erreur d'entrée-sortie.
 pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport> {
-    let mut rapport = Rapport {
-        dossier: None,
-        nombre: 0,
-        bornes: None,
-        sequences: BTreeMap::new(),
-        tete: None,
-        ancre: false,
-        anomalies: Vec::new(),
-        anomalies_omises: 0,
-    };
+    let mut rapport = Rapport::vide();
     let (mut lecteur, dossier) = match LecteurExport::ouvrir(entree) {
         Ok(ouvert) => ouvert,
         Err(e) => return illisible(rapport, e),
     };
     rapport.dossier = Some(dossier.clone());
+    rapport.version = Some(lecteur.version());
+    let mut ancres = match ancres_par_defaut() {
+        Ok(ancres) => ancres,
+        Err(e) => return Err(io::Error::other(e)),
+    };
+    ancres.extend(options.ancres.iter().cloned());
+    // Têtes recalculées après chaque écriture (32 octets par écriture) : un témoin peut porter
+    // sur n'importe quel état passé de la chaîne.
+    let mut tetes: Vec<Empreinte> = vec![genese(&dossier)];
     if let Some(attendu) = &options.dossier
         && *attendu != dossier
     {
@@ -239,6 +295,7 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
                 let numero = ecriture.numero().clone();
                 rapport.nombre += 1;
                 recalculee = chainer(&recalculee, contenu.as_bytes());
+                tetes.push(recalculee);
                 if chainer(&precedente_declaree, contenu.as_bytes()) != empreinte {
                     rapport.signaler(Anomalie::EmpreinteDifferente {
                         numero: numero.clone(),
@@ -276,6 +333,9 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
                     rapport.signaler(Anomalie::NombreDifferent { declare: nombre });
                 }
             }
+            Element::Jeton { ligne, jeton } => {
+                controler_jeton(&mut rapport, &tetes, &dossier, &ancres, ligne, &jeton);
+            }
         }
     }
     rapport.tete = Some(recalculee);
@@ -286,6 +346,48 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
         }
     }
     Ok(rapport)
+}
+
+/// Rattache un jeton à l'état de la chaîne recalculée qu'il décrit, puis le vérifie.
+fn controler_jeton(
+    rapport: &mut Rapport,
+    tetes: &[Empreinte],
+    dossier: &IdDossier,
+    ancres: &[Ancre],
+    ligne: u64,
+    jeton: &JetonExporte,
+) {
+    let recalculee_alors = usize::try_from(jeton.nombre)
+        .ok()
+        .and_then(|n| tetes.get(n));
+    if recalculee_alors != Some(&jeton.tete) {
+        rapport.signaler(Anomalie::TemoinDifferent {
+            ligne,
+            nombre: jeton.nombre,
+        });
+        return;
+    }
+    let temoin = Temoin::nouveau(dossier.clone(), jeton.tete, jeton.nombre);
+    match verifier_jeton(&jeton.der, &temoin, ancres) {
+        Ok(verifie) => rapport.horodatages.push(Horodatage {
+            nombre: jeton.nombre,
+            jeton: verifie,
+        }),
+        Err(erreur) => rapport.signaler(Anomalie::JetonInvalide { ligne, erreur }),
+    }
+}
+
+fn date(jeton: &JetonVerifie) -> String {
+    let d = jeton.date;
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        d.year(),
+        u8::from(d.month()),
+        d.day(),
+        d.hour(),
+        d.minute(),
+        d.second()
+    )
 }
 
 fn controler_numero(rapport: &mut Rapport, numero: &NumeroEcriture, ligne: u64) {
@@ -323,7 +425,12 @@ fn illisible(mut rapport: Rapport, erreur: ErreurLecture) -> io::Result<Rapport>
 
 impl fmt::Display for Rapport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Sigma Books — vérification d'intégrité (export v1)")?;
+        let version = match self.version {
+            Some(Version::V1) => "export v1",
+            Some(Version::V2) => "export v2",
+            None => "export illisible",
+        };
+        writeln!(f, "Sigma Books — vérification d'intégrité ({version})")?;
         match &self.dossier {
             Some(d) => writeln!(f, "Dossier            : {d}")?,
             None => writeln!(f, "Dossier            : illisible")?,
@@ -346,10 +453,33 @@ impl fmt::Display for Rapport {
         if let Some(tete) = &self.tete {
             writeln!(f, "Empreinte de tête  : {tete}")?;
         }
-        writeln!(
-            f,
-            "Horodatage         : aucun jeton vérifié (format d'export v1)"
-        )?;
+        match self.horodatages.iter().max_by_key(|h| h.nombre) {
+            None => writeln!(f, "Horodatage         : aucun jeton vérifié")?,
+            Some(dernier) => {
+                writeln!(
+                    f,
+                    "Horodatage         : {} jeton(s) vérifié(s)",
+                    self.horodatages.len()
+                )?;
+                for h in &self.horodatages {
+                    writeln!(
+                        f,
+                        "  {} premières écritures au plus tard le {} UTC — {} (racine : {})",
+                        h.nombre,
+                        date(&h.jeton),
+                        h.jeton.autorite,
+                        h.jeton.ancre
+                    )?;
+                }
+                if dernier.nombre < self.nombre {
+                    writeln!(
+                        f,
+                        "  {} écriture(s) postérieure(s) au dernier jeton, non couvertes",
+                        self.nombre - dernier.nombre
+                    )?;
+                }
+            }
+        }
         writeln!(f)?;
         if self.est_integre() {
             writeln!(
@@ -357,12 +487,12 @@ impl fmt::Display for Rapport {
                 "RÉSULTAT : INTÈGRE — chaîne recalculée, numérotation continue, écritures \
                  équilibrées."
             )?;
-            if !self.ancre {
+            if !self.ancre && self.horodatages.is_empty() {
                 writeln!(
                     f,
                     "Attention : sans référence externe, une réécriture complète de l'export ne \
-                     serait pas détectée. Comparez l'empreinte de tête à un jeton d'horodatage \
-                     ou à un témoin (option --tete)."
+                     serait pas détectée. Il faut un jeton d'horodatage dans l'export ou une \
+                     empreinte de tête conservée par un témoin (option --tete)."
                 )?;
             }
         } else {
@@ -421,8 +551,18 @@ mod tests {
             Anomalie::AncrageDifferent {
                 attendue: empreinte,
             },
+            Anomalie::TemoinDifferent {
+                ligne: 8,
+                nombre: 2,
+            },
+            Anomalie::JetonInvalide {
+                ligne: 9,
+                erreur: ErreurJeton::ChaineNonFiable,
+            },
         ];
         let mut rapport = Rapport {
+            version: None,
+            horodatages: Vec::new(),
             dossier: None,
             nombre: 0,
             bornes: None,
@@ -438,7 +578,7 @@ mod tests {
         }
         let texte = rapport.to_string();
         assert!(texte.contains("Dossier            : illisible"));
-        assert!(texte.contains("RÉSULTAT : ANOMALIES (9)"));
+        assert!(texte.contains("RÉSULTAT : ANOMALIES (11)"));
         assert!(texte.contains("ligne 3 : fin du fichier"));
         assert!(texte.contains("rang 000001 attendu"));
     }

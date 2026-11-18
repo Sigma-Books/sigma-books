@@ -4,6 +4,8 @@ Référence : spec §6.4, ADR 0007, `crates/integrite`. Menaces couvertes : F2.3
 
 Ce format est **figé**. Toute modification, même d'un caractère, crée une version 2 : on ne modifie jamais la version 1. Les vecteurs de `crates/integrite/tests/vecteurs/` le vérifient.
 
+> **Statut** : l'export v1 n'est plus produit ; Sigma Books écrit l'export **v2** (`format-v2.md`), qui ajoute les jetons d'horodatage. `sigma-verifier` lit toujours la v1. L'écriture canonique (§2) et la chaîne (§3) restent celles décrites ici.
+
 ## 1. Règles communes
 - Texte UTF-8, sans BOM. Chaque ligne se termine par `\n` (jamais `\r\n`), **y compris la dernière**.
 - Une donnée par ligne, sous la forme `cle=valeur`. La valeur commence après le premier `=` et va jusqu'à la fin de la ligne ; elle peut contenir `=`.

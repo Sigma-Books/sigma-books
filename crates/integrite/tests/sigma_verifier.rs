@@ -80,3 +80,48 @@ fn aide_et_version() {
     assert_eq!(code, 0);
     assert!(sortie.starts_with("sigma-verifier "));
 }
+
+fn fichier(nom: &str) -> String {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(nom)
+        .to_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn export_v2_horodate_code_0() {
+    let (code, sortie, _) = lancer(&[
+        "--dossier",
+        "dossier-test",
+        &fichier("tests/vecteurs/export-v2.txt"),
+    ]);
+    assert_eq!(code, 0, "{sortie}");
+    assert!(sortie.contains("(export v2)"), "{sortie}");
+    assert!(sortie.contains("2 jeton(s) vérifié(s)"), "{sortie}");
+    assert!(!sortie.contains("Attention"), "{sortie}");
+}
+
+#[test]
+fn ancre_supplementaire() {
+    // Une racine déjà intégrée, fournie en DER : acceptée, sans effet sur le verdict.
+    let (code, sortie, _) = lancer(&[
+        "--ancre",
+        &fichier("src/horodatage/ancres/digicert-trusted-root-g4.der"),
+        &fichier("tests/vecteurs/export-v2.txt"),
+    ]);
+    assert_eq!(code, 0, "{sortie}");
+    for arguments in [
+        &["--ancre", "/chemin/inexistant", "x"][..],
+        &[
+            "--ancre",
+            fichier("tests/vecteurs/export-v1.txt").as_str(),
+            "x",
+        ],
+        &["--ancre"],
+    ] {
+        let (code, _, erreur) = lancer(arguments);
+        assert_eq!(code, 2, "{arguments:?}");
+        assert!(erreur.contains("--ancre"), "{erreur}");
+    }
+}
