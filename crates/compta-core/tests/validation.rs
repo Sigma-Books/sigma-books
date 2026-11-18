@@ -492,14 +492,24 @@ fn date_de_valeur_comptable_editee() {
         .unwrap();
     let filtre =
         compta_core::Filtre::exercice(exercice, &d.journaux, date!(2026 - 12 - 31)).unwrap();
-    let journaux =
-        compta_core::journaux(&d.livre, &[], compta_core::Mode::Definitif, &filtre).unwrap();
+    let journaux = compta_core::journaux(
+        d.livre.ecritures(),
+        &[],
+        compta_core::Mode::Definitif,
+        &filtre,
+    )
+    .unwrap();
     assert_eq!(
         journaux[0].ecritures[0].date_valeur_comptable,
         Some(date!(2026 - 01 - 31))
     );
-    let grand_livre =
-        compta_core::grand_livre(&d.livre, &[], compta_core::Mode::Definitif, &filtre).unwrap();
+    let grand_livre = compta_core::grand_livre(
+        d.livre.ecritures(),
+        &[],
+        compta_core::Mode::Definitif,
+        &filtre,
+    )
+    .unwrap();
     assert!(
         grand_livre
             .iter()

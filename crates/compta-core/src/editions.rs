@@ -36,7 +36,7 @@ use crate::compte::NumeroCompte;
 use crate::ecriture::{EcritureEquilibree, IdTiers, Ligne};
 use crate::exercice::Exercice;
 use crate::journal::{CodeJournal, Journaux, TypeJournal};
-use crate::livre::Livre;
+use crate::livre::EcritureValidee;
 use crate::numerotation::NumeroEcriture;
 use crate::texte::TexteCourt;
 
@@ -199,11 +199,11 @@ struct Source<'a> {
 }
 
 fn sources<'a>(
-    livre: &'a Livre,
+    validees: &'a [EcritureValidee],
     brouillard: &'a [EcritureEquilibree],
     mode: Mode,
 ) -> impl Iterator<Item = Source<'a>> {
-    let validees = livre.ecritures().iter().map(|e| Source {
+    let validees = validees.iter().map(|e| Source {
         numero: Some(e.numero()),
         journal: e.journal(),
         date: e.date(),
@@ -320,17 +320,21 @@ pub struct Balance {
 impl Balance {
     /// Calcule la balance : une ligne par compte (ou tronc) mouvementé, triée par clé.
     ///
+    /// `validees` : écritures validées d'**un seul dossier**, sans doublon (chacune une fois) ;
+    /// l'ordre est indifférent. Au lot L2, l'API passe celles de l'exercice du filtre jusqu'à sa
+    /// date de fin : les écritures antérieures à la période alimentent l'ouverture.
+    ///
     /// # Errors
     /// Dépassement de capacité.
     pub fn calculer(
-        livre: &Livre,
+        validees: &[EcritureValidee],
         brouillard: &[EcritureEquilibree],
         mode: Mode,
         filtre: &Filtre,
         regroupement: Regroupement,
     ) -> Result<Self, ErreurEdition> {
         let mut lignes: BTreeMap<String, LigneBalance> = BTreeMap::new();
-        for source in sources(livre, brouillard, mode) {
+        for source in sources(validees, brouillard, mode) {
             let ouverture = filtre.dans_ouverture(&source);
             if !(ouverture || filtre.dans_periode(&source))
                 || !filtre.retient_journal(source.journal)
@@ -438,10 +442,14 @@ pub struct CompteGrandLivre {
 
 /// Grand livre général : un bloc par compte mouvementé, trié par numéro.
 ///
+/// `validees` : écritures validées d'**un seul dossier**, sans doublon (chacune une fois) ;
+/// l'ordre est indifférent. Au lot L2, l'API passe celles de l'exercice du filtre jusqu'à sa
+/// date de fin : les écritures antérieures à la période alimentent l'ouverture.
+///
 /// # Errors
 /// Dépassement de capacité.
 pub fn grand_livre(
-    livre: &Livre,
+    validees: &[EcritureValidee],
     brouillard: &[EcritureEquilibree],
     mode: Mode,
     filtre: &Filtre,
@@ -451,7 +459,7 @@ pub fn grand_livre(
         lignes: Vec<LigneGrandLivre>,
     }
     let mut comptes: BTreeMap<NumeroCompte, Brut> = BTreeMap::new();
-    for source in sources(livre, brouillard, mode) {
+    for source in sources(validees, brouillard, mode) {
         let ouverture = filtre.dans_ouverture(&source);
         if !(ouverture || filtre.dans_periode(&source)) || !filtre.retient_journal(source.journal) {
             continue;
@@ -539,16 +547,20 @@ pub struct EditionJournal {
 /// Journaux de la période : un bloc par journal retenu et mouvementé, trié par code. Le filtre
 /// de comptes ne s'applique pas : une écriture figure toujours en entier dans son journal.
 ///
+/// `validees` : écritures validées d'**un seul dossier**, sans doublon (chacune une fois) ;
+/// l'ordre est indifférent. Au lot L2, l'API passe celles de l'exercice du filtre jusqu'à sa
+/// date de fin : les écritures antérieures à la période alimentent l'ouverture.
+///
 /// # Errors
 /// Dépassement de capacité.
 pub fn journaux(
-    livre: &Livre,
+    validees: &[EcritureValidee],
     brouillard: &[EcritureEquilibree],
     mode: Mode,
     filtre: &Filtre,
 ) -> Result<Vec<EditionJournal>, ErreurEdition> {
     let mut blocs: BTreeMap<CodeJournal, Vec<EcritureJournal>> = BTreeMap::new();
-    for source in sources(livre, brouillard, mode) {
+    for source in sources(validees, brouillard, mode) {
         // Édition d'un journal : les à-nouveaux figurent dans le journal AN à leur date.
         if !filtre.dans_bornes(source.date) || !filtre.retient_journal(source.journal) {
             continue;

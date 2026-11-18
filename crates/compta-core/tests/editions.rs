@@ -81,7 +81,7 @@ fn balance_huit_colonnes_et_totaux() {
     let (dos, brouillard) = dossier();
     let filtre = filtre_mars(&dos);
     let balance = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &brouillard,
         Mode::Definitif,
         &filtre,
@@ -151,7 +151,7 @@ fn mode_provisoire_ajoute_le_brouillard() {
     let (dos, brouillard) = dossier();
     let filtre = filtre_mars(&dos);
     let provisoire = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &brouillard,
         Mode::Provisoire,
         &filtre,
@@ -165,7 +165,7 @@ fn mode_provisoire_ajoute_le_brouillard() {
         .unwrap();
     assert_eq!(ventes.mouvements(), (d("0"), d("200")));
     let definitif = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &brouillard,
         Mode::Definitif,
         &filtre,
@@ -198,7 +198,7 @@ fn agregation_par_tronc_et_filtres() {
     .unwrap();
     let filtre = filtre_mars(&dos);
     let par_tronc = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &[],
         Mode::Definitif,
         &filtre,
@@ -218,7 +218,7 @@ fn agregation_par_tronc_et_filtres() {
 
     let filtre_comptes = filtre_mars(&dos).comptes([n("41")]);
     let clients = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &[],
         Mode::Definitif,
         &filtre_comptes,
@@ -234,7 +234,7 @@ fn agregation_par_tronc_et_filtres() {
 
     let filtre_journaux = filtre_mars(&dos).journaux([j("BQ1")]);
     let banque = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &[],
         Mode::Definitif,
         &filtre_journaux,
@@ -291,7 +291,13 @@ fn grand_livre_solde_progressif() {
     )
     .unwrap()
     .comptes([n("4011")]);
-    let gl = grand_livre(&dos.livre, &brouillard, Mode::Provisoire, &filtre).unwrap();
+    let gl = grand_livre(
+        dos.livre.ecritures(),
+        &brouillard,
+        Mode::Provisoire,
+        &filtre,
+    )
+    .unwrap();
     assert_eq!(gl.len(), 1);
     let f = &gl[0];
     assert_eq!(f.compte, n("4011"));
@@ -310,7 +316,7 @@ fn grand_livre_solde_progressif() {
 
     // Sur mars seul, janvier passe dans l'ouverture.
     let gl = grand_livre(
-        &dos.livre,
+        dos.livre.ecritures(),
         &brouillard,
         Mode::Provisoire,
         &filtre_mars(&dos).comptes([n("4011")]),
@@ -334,7 +340,7 @@ fn grand_livre_brouillard_sans_numero_en_fin_de_journee() {
         ],
     ));
     let gl = grand_livre(
-        &dos.livre,
+        dos.livre.ecritures(),
         &brouillard,
         Mode::Provisoire,
         &filtre_mars(&dos).comptes([n("521")]),
@@ -362,7 +368,13 @@ fn edition_des_journaux() {
         date!(2026 - 12 - 31),
     )
     .unwrap();
-    let editions = journaux(&dos.livre, &brouillard, Mode::Provisoire, &filtre).unwrap();
+    let editions = journaux(
+        dos.livre.ecritures(),
+        &brouillard,
+        Mode::Provisoire,
+        &filtre,
+    )
+    .unwrap();
     let codes: Vec<&str> = editions.iter().map(|e| e.journal.as_str()).collect();
     assert_eq!(codes, ["AC", "BQ1", "VT"]);
     let ventes = &editions[2];
@@ -372,7 +384,7 @@ fn edition_des_journaux() {
         (ventes.total_debit, ventes.total_credit),
         (d("3200"), d("3200"))
     );
-    let definitif = journaux(&dos.livre, &brouillard, Mode::Definitif, &filtre).unwrap();
+    let definitif = journaux(dos.livre.ecritures(), &brouillard, Mode::Definitif, &filtre).unwrap();
     assert_eq!(definitif[2].ecritures.len(), 1);
 }
 
@@ -408,7 +420,7 @@ fn a_nouveaux_dans_la_colonne_d_ouverture() {
         .unwrap();
     let filtre = Filtre::exercice(exercice, &dos.journaux, date!(2026 - 12 - 31)).unwrap();
     let balance = Balance::calculer(
-        &dos.livre,
+        dos.livre.ecritures(),
         &[a_nouveau],
         Mode::Provisoire,
         &filtre,
@@ -432,7 +444,7 @@ fn a_nouveaux_dans_la_colonne_d_ouverture() {
     assert_eq!(colonnes("6052"), [z, z, d("100"), z, d("100"), z]);
     // Le journal AN reste édité à sa date.
     let journaux = compta_core::journaux(
-        &dos.livre,
+        dos.livre.ecritures(),
         &[equilibree(
             "AN",
             date!(2026 - 01 - 01),

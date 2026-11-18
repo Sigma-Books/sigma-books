@@ -102,7 +102,7 @@ proptest! {
         }
         let filtre = filtre(&dos, du, au);
         for regroupement in [Regroupement::ParCompte, Regroupement::ParTronc] {
-            let balance = Balance::calculer(&dos.livre, &[], Mode::Definitif, &filtre, regroupement).unwrap();
+            let balance = Balance::calculer(dos.livre.ecritures(), &[], Mode::Definitif, &filtre, regroupement).unwrap();
             for format in FORMATS {
                 let totaux = balance.totaux(format).unwrap();
                 for paire in totaux.chunks(2) {
@@ -126,7 +126,7 @@ proptest! {
             );
             prop_assert!(dos.valider(e).is_ok());
         }
-        let editions = compta_core::journaux(&dos.livre, &[], Mode::Definitif, &filtre(&dos, 1, 365)).unwrap();
+        let editions = compta_core::journaux(dos.livre.ecritures(), &[], Mode::Definitif, &filtre(&dos, 1, 365)).unwrap();
         let cles: Vec<_> = editions[0]
             .ecritures
             .iter()
@@ -148,7 +148,7 @@ proptest! {
             dos.contre_passer(numero, date_de(365)).unwrap();
         }
         let balance = Balance::calculer(
-            &dos.livre, &[], Mode::Definitif, &filtre(&dos, 1, 365), Regroupement::ParCompte,
+            dos.livre.ecritures(), &[], Mode::Definitif, &filtre(&dos, 1, 365), Regroupement::ParCompte,
         ).unwrap();
         for ligne in balance.lignes() {
             prop_assert_eq!(

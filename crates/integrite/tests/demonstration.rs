@@ -302,7 +302,7 @@ impl Dossier {
             .unwrap();
         let filtre = Filtre::exercice(exercice, &self.journaux, exercice.fin()).unwrap();
         Balance::calculer(
-            &self.livre,
+            self.livre.ecritures(),
             &[],
             Mode::Definitif,
             &filtre,
