@@ -33,7 +33,7 @@ use crate::ecriture::{
     VersionParametres,
 };
 use crate::exercice::{
-    CodeExercice, Exercice, Exercices, Periode, StatutExercice, StatutPeriode, echeance_de_cloture,
+    CodeExercice, Exercice, Exercices, StatutExercice, StatutPeriode, echeance_de_cloture,
 };
 use crate::journal::{CodeJournal, Journal, Journaux};
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
@@ -156,13 +156,37 @@ pub enum ErreurValidation {
         date: Date,
     },
     /// Date de valeur comptable dans une période ouverte : l'écriture doit simplement être
-    /// datée de ce jour-là.
+    /// datée de ce jour-là (AUDCIF art. 16 al. 3).
     #[error(
         "la date de valeur comptable {0} tombe dans une période ouverte : datez l'écriture de ce jour"
     )]
     DateValeurDansPeriodeOuverte(Date),
-    /// Opération tardive mal datée : elle doit l'être du premier jour de la plus ancienne
-    /// période ouverte, postérieure à sa date de valeur, qui accepte son journal (art. 22 4°).
+    /// Date de valeur comptable dans une période verrouillée, qui n'est pas clôturée : pas de
+    /// report (AUDCIF art. 22 4° ne vise que la clôture).
+    #[error(
+        "la date de valeur comptable {0} tombe dans une période verrouillée, non clôturée : \
+         déverrouillez-la (motif journalisé) et datez l'écriture de ce jour"
+    )]
+    DateValeurDansPeriodeVerrouillee(Date),
+    /// Date de valeur comptable dans une période dont l'échéance de clôture est passée.
+    #[error(
+        "la période commençant le {periode} devait être clôturée au plus tard le {echeance} : \
+         clôturez-la, puis enregistrez l'opération au premier jour de la période suivante"
+    )]
+    DateValeurDansPeriodeEchue {
+        /// Premier jour de la période.
+        periode: Date,
+        /// Échéance de clôture.
+        echeance: Date,
+    },
+    /// La période qui doit accueillir l'opération tardive est verrouillée.
+    #[error(
+        "l'opération tardive doit être enregistrée au premier jour de la période commençant le \
+         {0}, qui est verrouillée : déverrouillez-la (motif journalisé)"
+    )]
+    PeriodeAccueilVerrouillee(Date),
+    /// Opération tardive mal datée : elle doit l'être du premier jour de la première période
+    /// non clôturée qui admet son journal (art. 22 4°).
     #[error("opération tardive datée du {date} : {}", date_attendue(.attendue.as_ref()))]
     DateComptableTardive {
         /// Date comptable fournie.
@@ -462,15 +486,18 @@ impl Livre {
 /// clôturée, l'opération concernée est enregistrée au premier jour de la période non encore
 /// clôturée » ; la date de valeur comptable est « mentionnée distinctement ».
 ///
-/// Décision du mainteneur du 2026-11-18 : la date de valeur comptable tombe dans une période
-/// qui n'**accueille** pas l'écriture ; l'écriture est datée du premier jour de la plus ancienne
-/// période qui l'accueille **et qui commence après la date de valeur** (une écriture ne peut
-/// précéder sa propre date de valeur, même si une période plus ancienne a été déverrouillée).
-///
-/// Une période accueille l'écriture si elle est ouverte, si son exercice accepte le journal
-/// (ouvert, ou en clôture pour un journal admis) et si son échéance de clôture n'est pas passée
-/// à la date de validation. Sinon : période verrouillée ou clôturée, exercice clôturé, exercice
-/// en clôture qui n'admet pas le journal, échéance passée, ou date antérieure au dossier.
+/// Décisions du mainteneur du 2026-11-18 (E a, F a), après recherche dans les textes et les
+/// moteurs de référence :
+/// - le report est une **exception** à l'enregistrement à la date de valeur (art. 16 al. 3) ;
+///   il ne vaut que si la date de valeur tombe dans une période **clôturée** (clôture
+///   informatique, art. 22 3°), dans un exercice clôturé (art. 61 ou art. 20), avant le
+///   dossier, ou dans un exercice en clôture qui n'admet pas le journal ;
+/// - l'écriture est alors datée du premier jour de la **première période non clôturée** dont
+///   l'exercice admet le journal (postérieure à la date de valeur : les clôtures se font dans
+///   l'ordre) ; cette période doit être ouverte ;
+/// - une période seulement **verrouillée** (réversible) n'est pas clôturée : l'écriture est
+///   refusée et doit être datée de sa date de valeur après un déverrouillage motivé ;
+/// - une période dont l'échéance de clôture est passée doit d'abord être clôturée.
 fn controler_date_valeur_comptable(
     date_valeur: Date,
     date: Date,
@@ -481,33 +508,57 @@ fn controler_date_valeur_comptable(
     if date_valeur >= date {
         return Err(ErreurValidation::DateValeurNonAnterieure { date_valeur, date });
     }
-    let accueille = |e: &Exercice, p: &Periode| -> Result<bool, ErreurValidation> {
-        let journal_admis = match e.statut() {
-            StatutExercice::Ouvert => true,
-            StatutExercice::EnCloture => journal.admis_en_cloture(),
-            StatutExercice::Cloture => false,
-        };
-        Ok(journal_admis
-            && p.statut() == StatutPeriode::Ouverte
-            && date_validation <= echeance_de_cloture(e, p)?)
+    let admet = |e: &Exercice| match e.statut() {
+        StatutExercice::Ouvert => true,
+        StatutExercice::EnCloture => journal.admis_en_cloture(),
+        StatutExercice::Cloture => false,
     };
+    // Situation de la date de valeur : seuls les cas de report passent ce bloc.
     if let Some(e) = exercices.exercice_contenant(date_valeur)
+        && admet(e)
         && let Some(p) = e.periode_contenant(date_valeur)
-        && accueille(e, p)?
     {
-        return Err(ErreurValidation::DateValeurDansPeriodeOuverte(date_valeur));
-    }
-    let mut attendue = None;
-    'recherche: for e in exercices.exercices() {
-        for p in e.periodes() {
-            if p.debut() > date_valeur && accueille(e, p)? {
-                attendue = Some(p.debut());
-                break 'recherche;
+        match p.statut() {
+            StatutPeriode::Cloturee => {}
+            StatutPeriode::Verrouillee => {
+                return Err(ErreurValidation::DateValeurDansPeriodeVerrouillee(
+                    date_valeur,
+                ));
+            }
+            StatutPeriode::Ouverte => {
+                let echeance = echeance_de_cloture(e, p)?;
+                if date_validation > echeance {
+                    return Err(ErreurValidation::DateValeurDansPeriodeEchue {
+                        periode: p.debut(),
+                        echeance,
+                    });
+                }
+                return Err(ErreurValidation::DateValeurDansPeriodeOuverte(date_valeur));
             }
         }
     }
-    if attendue != Some(date) {
-        return Err(ErreurValidation::DateComptableTardive { date, attendue });
+    // Période d'accueil : la première période non clôturée, postérieure à la date de valeur,
+    // dont l'exercice admet le journal.
+    let accueil = exercices
+        .exercices()
+        .iter()
+        .filter(|e| admet(e))
+        .flat_map(|e| e.periodes().iter())
+        .find(|p| p.statut() != StatutPeriode::Cloturee && p.debut() > date_valeur);
+    let Some(accueil) = accueil else {
+        return Err(ErreurValidation::DateComptableTardive {
+            date,
+            attendue: None,
+        });
+    };
+    if accueil.statut() == StatutPeriode::Verrouillee {
+        return Err(ErreurValidation::PeriodeAccueilVerrouillee(accueil.debut()));
+    }
+    if date != accueil.debut() {
+        return Err(ErreurValidation::DateComptableTardive {
+            date,
+            attendue: Some(accueil.debut()),
+        });
     }
     Ok(())
 }
@@ -516,11 +567,10 @@ fn controler_date_valeur_comptable(
 fn date_attendue(attendue: Option<&Date>) -> String {
     match attendue {
         Some(d) => format!(
-            "datez-la du {d}, premier jour de la plus ancienne période ouverte postérieure à sa \
-             date de valeur comptable"
+            "datez-la du {d}, premier jour de la première période non clôturée (AUDCIF art. 22 4°)"
         ),
-        None => "aucune période ouverte postérieure à sa date de valeur comptable n'accepte \
-                 son journal"
+        None => "aucune période non clôturée, postérieure à sa date de valeur comptable, \
+                 n'admet son journal"
             .to_owned(),
     }
 }
