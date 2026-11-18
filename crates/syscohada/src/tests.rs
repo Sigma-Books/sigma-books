@@ -156,7 +156,7 @@ fn sens_normal_de_quelques_comptes() {
 fn comptes_collectifs_de_tiers() {
     let r = officiel();
     let plan = r.plan_comptes().unwrap();
-    for numero in ["4011", "4111", "4211", "4041", "4131", "4621"] {
+    for numero in ["4011", "4111", "4211", "4041", "4131", "4621", "488"] {
         assert!(plan.compte(&n(numero)).unwrap().est_collectif(), "{numero}");
     }
     for numero in ["6011", "5211", "4431", "101"] {

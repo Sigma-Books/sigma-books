@@ -6,20 +6,25 @@
 //!   écritures équilibrées du brouillard).
 //! - **Filtre** : bornes de dates dans un exercice, comptes (un compte retenu englobe ses
 //!   sous-comptes et auxiliaires), journaux.
-//! - **Ouverture** : mouvements de l'exercice antérieurs à la date de début (à-nouveaux
-//!   compris, puisqu'ils sont datés du premier jour de l'exercice).
+//! - **Ouverture** : écritures des journaux d'à-nouveaux, toujours, et mouvements de
+//!   l'exercice antérieurs à la date de début. Les à-nouveaux ne sont jamais des mouvements de
+//!   la période, même si elle commence le premier jour de l'exercice (Guide d'application,
+//!   Application 127 : colonne « SOLDE N-1 » de la balance N).
 //!
-//! Colonnes de la balance (à valider par l'expert-comptable, inspirées de la balance d'OCA
-//! `account-financial-reporting` : solde initial, débit, crédit, solde final) :
+//! Colonnes de la balance :
 //!
-//! | Format | Colonnes |
-//! |---|---|
-//! | 2 | solde final débiteur, créditeur |
-//! | 4 | cumul débit, cumul crédit, solde final débiteur, créditeur |
-//! | 6 | solde d'ouverture D, C ; mouvements de la période D, C ; solde final D, C |
-//! | 8 | solde d'ouverture D, C ; mouvements D, C ; cumul D, C ; solde final D, C |
+//! | Format | Colonnes | Statut |
+//! |---|---|---|
+//! | 6 | solde d'ouverture D, C ; mouvements D, C ; solde final D, C | **balance générale** (AUDCIF art. 19, p. PDF 22) quand la période part du début de l'exercice ([`Filtre::exercice`]) |
+//! | 2 | solde final D, C | balance de travail, à valider par l'expert-comptable |
+//! | 4 | totaux D, C ; solde final D, C | balance de travail, à valider |
+//! | 8 | solde d'ouverture D, C ; mouvements D, C ; totaux D, C ; solde final D, C | balance de travail, à valider |
 //!
-//! « Cumul » = solde d'ouverture + mouvements de la période, par colonne.
+//! L'art. 19 décrit la balance générale par le solde à l'ouverture de l'exercice, « le cumul
+//! depuis l'ouverture de l'exercice des mouvements débiteurs et […] créditeurs » et le solde à
+//! la date considérée ; le modèle du Guide d'application (Application 127) a ces six colonnes.
+//! « Totaux » = solde d'ouverture + mouvements, par colonne. Le mot « cumul » est réservé au
+//! sens de l'art. 19 (mouvements depuis l'ouverture).
 //! Tous les calculs sont exacts ; un dépassement de capacité est une erreur, jamais une panique.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,7 +35,7 @@ use time::Date;
 use crate::compte::NumeroCompte;
 use crate::ecriture::{EcritureEquilibree, IdTiers, Ligne};
 use crate::exercice::Exercice;
-use crate::journal::CodeJournal;
+use crate::journal::{CodeJournal, Journaux, TypeJournal};
 use crate::livre::Livre;
 use crate::numerotation::NumeroEcriture;
 use crate::texte::TexteCourt;
@@ -77,11 +82,11 @@ pub enum Regroupement {
 pub enum FormatBalance {
     /// Soldes.
     Deux,
-    /// Cumuls et soldes.
+    /// Totaux et soldes.
     Quatre,
-    /// Ouverture, mouvements, soldes.
+    /// Ouverture, mouvements, soldes : la balance générale de l'AUDCIF (art. 19).
     Six,
-    /// Ouverture, mouvements, cumuls, soldes.
+    /// Ouverture, mouvements, totaux, soldes.
     Huit,
 }
 
@@ -93,14 +98,21 @@ pub struct Filtre {
     au: Date,
     comptes: Vec<NumeroCompte>,
     journaux: BTreeSet<CodeJournal>,
+    a_nouveaux: BTreeSet<CodeJournal>,
 }
 
 impl Filtre {
-    /// Période `[du, au]` dans l'exercice ; tous les comptes et tous les journaux.
+    /// Période `[du, au]` dans l'exercice ; tous les comptes et tous les journaux. Les
+    /// journaux d'à-nouveaux du dossier alimentent toujours la colonne d'ouverture.
     ///
     /// # Errors
     /// Bornes inversées ou hors de l'exercice.
-    pub fn nouveau(exercice: &Exercice, du: Date, au: Date) -> Result<Self, ErreurEdition> {
+    pub fn nouveau(
+        exercice: &Exercice,
+        journaux: &Journaux,
+        du: Date,
+        au: Date,
+    ) -> Result<Self, ErreurEdition> {
         if du > au {
             return Err(ErreurEdition::BornesInversees { du, au });
         }
@@ -115,7 +127,25 @@ impl Filtre {
             au,
             comptes: Vec::new(),
             journaux: BTreeSet::new(),
+            a_nouveaux: journaux
+                .journaux()
+                .filter(|j| j.genre() == TypeJournal::ANouveaux)
+                .map(|j| j.code().clone())
+                .collect(),
         })
+    }
+
+    /// Du début de l'exercice à `au` : avec le format 6, c'est la balance générale de
+    /// l'AUDCIF (art. 19).
+    ///
+    /// # Errors
+    /// Date hors de l'exercice.
+    pub fn exercice(
+        exercice: &Exercice,
+        journaux: &Journaux,
+        au: Date,
+    ) -> Result<Self, ErreurEdition> {
+        Self::nouveau(exercice, journaux, exercice.debut(), au)
     }
 
     /// Restreint aux comptes donnés et à leurs descendants.
@@ -140,12 +170,20 @@ impl Filtre {
         self.comptes.is_empty() || self.comptes.iter().any(|c| c.est_ascendant_ou_egal(compte))
     }
 
-    fn dans_ouverture(&self, date: Date) -> bool {
-        self.debut_exercice <= date && date < self.du
+    fn dans_ouverture(&self, source: &Source<'_>) -> bool {
+        if self.a_nouveaux.contains(source.journal) {
+            self.debut_exercice <= source.date && source.date <= self.au
+        } else {
+            self.debut_exercice <= source.date && source.date < self.du
+        }
     }
 
-    fn dans_periode(&self, date: Date) -> bool {
+    fn dans_bornes(&self, date: Date) -> bool {
         self.du <= date && date <= self.au
+    }
+
+    fn dans_periode(&self, source: &Source<'_>) -> bool {
+        !self.a_nouveaux.contains(source.journal) && self.dans_bornes(source.date)
     }
 }
 
@@ -235,11 +273,11 @@ impl LigneBalance {
         )?))
     }
 
-    /// Cumul (débit, crédit) : solde d'ouverture + mouvements de la période.
+    /// Totaux (débit, crédit) : solde d'ouverture + mouvements de la période.
     ///
     /// # Errors
     /// Dépassement de capacité.
-    pub fn cumul(&self) -> Result<(Decimal, Decimal), ErreurEdition> {
+    pub fn totaux(&self) -> Result<(Decimal, Decimal), ErreurEdition> {
         let (od, oc) = self.solde_ouverture()?;
         Ok((somme(od, self.debit)?, somme(oc, self.credit)?))
     }
@@ -249,7 +287,7 @@ impl LigneBalance {
     /// # Errors
     /// Dépassement de capacité.
     pub fn solde_final(&self) -> Result<(Decimal, Decimal), ErreurEdition> {
-        let (d, c) = self.cumul()?;
+        let (d, c) = self.totaux()?;
         Ok(repartir(difference(d, c)?))
     }
 
@@ -259,7 +297,7 @@ impl LigneBalance {
     /// Dépassement de capacité.
     pub fn colonnes(&self, format: FormatBalance) -> Result<Vec<Decimal>, ErreurEdition> {
         let (od, oc) = self.solde_ouverture()?;
-        let (cd, cc) = self.cumul()?;
+        let (cd, cc) = self.totaux()?;
         let (sd, sc) = self.solde_final()?;
         Ok(match format {
             FormatBalance::Deux => vec![sd, sc],
@@ -290,8 +328,8 @@ impl Balance {
     ) -> Result<Self, ErreurEdition> {
         let mut lignes: BTreeMap<String, LigneBalance> = BTreeMap::new();
         for source in sources(livre, brouillard, mode) {
-            let ouverture = filtre.dans_ouverture(source.date);
-            if !(ouverture || filtre.dans_periode(source.date))
+            let ouverture = filtre.dans_ouverture(&source);
+            if !(ouverture || filtre.dans_periode(&source))
                 || !filtre.retient_journal(source.journal)
             {
                 continue;
@@ -408,10 +446,8 @@ pub fn grand_livre(
     }
     let mut comptes: BTreeMap<NumeroCompte, Brut> = BTreeMap::new();
     for source in sources(livre, brouillard, mode) {
-        let ouverture = filtre.dans_ouverture(source.date);
-        if !(ouverture || filtre.dans_periode(source.date))
-            || !filtre.retient_journal(source.journal)
-        {
+        let ouverture = filtre.dans_ouverture(&source);
+        if !(ouverture || filtre.dans_periode(&source)) || !filtre.retient_journal(source.journal) {
             continue;
         }
         for ligne in source.lignes {
@@ -503,7 +539,8 @@ pub fn journaux(
 ) -> Result<Vec<EditionJournal>, ErreurEdition> {
     let mut blocs: BTreeMap<CodeJournal, Vec<EcritureJournal>> = BTreeMap::new();
     for source in sources(livre, brouillard, mode) {
-        if !filtre.dans_periode(source.date) || !filtre.retient_journal(source.journal) {
+        // Édition d'un journal : les à-nouveaux figurent dans le journal AN à leur date.
+        if !filtre.dans_bornes(source.date) || !filtre.retient_journal(source.journal) {
             continue;
         }
         blocs

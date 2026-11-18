@@ -58,7 +58,7 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
   - **Comptes de regroupement** : un compte dont les sous-comptes ont des sens différents est variable.
 - **`collectif`** : compte collectif de tiers (spec §5.1, invariant 4 du §6.2) ; les sous-comptes en héritent dans le plan du dossier.
   - **Repris des comptes `party_required` du module Tryton `account_syscohada`** : 103, 109, 181 à 185, 401, 402, 408, 409, 411, 412, 414 à 416, 418, 419, 421, 451, 452, 461 à 463, 465, 466, 481, 482, 485.
-  - **Ajouts de Sigma Books**, comptes de tiers de la liste officielle absents de Tryton : 404, 413, 467.
+  - **Ajouts de Sigma Books**, comptes de tiers de la liste officielle absents de Tryton : 404, 413, 467 et 488 « Autres créances H.A.O. » (créances sur cessions d'immobilisations notamment ; décision du mainteneur du 2026-11-18, en accord avec Odoo `l10n_syscohada`, qui rend 488 lettrable).
   - Voir `docs/provenance/tryton.md`.
 
 ## Comparaison avec Tryton et Odoo

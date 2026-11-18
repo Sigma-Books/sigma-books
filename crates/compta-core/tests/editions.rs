@@ -67,7 +67,13 @@ fn filtre_mars(dos: &Dossier) -> Filtre {
         .exercices
         .exercice(&CodeExercice::parse("2026").unwrap())
         .unwrap();
-    Filtre::nouveau(exercice, date!(2026 - 03 - 01), date!(2026 - 03 - 31)).unwrap()
+    Filtre::nouveau(
+        exercice,
+        &dos.journaux,
+        date!(2026 - 03 - 01),
+        date!(2026 - 03 - 31),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -251,11 +257,21 @@ fn filtre_refuse_des_bornes_incoherentes() {
         .exercice(&CodeExercice::parse("2026").unwrap())
         .unwrap();
     assert!(matches!(
-        Filtre::nouveau(exercice, date!(2026 - 03 - 31), date!(2026 - 03 - 01)),
+        Filtre::nouveau(
+            exercice,
+            &dos.journaux,
+            date!(2026 - 03 - 31),
+            date!(2026 - 03 - 01)
+        ),
         Err(ErreurEdition::BornesInversees { .. })
     ));
     assert_eq!(
-        Filtre::nouveau(exercice, date!(2026 - 03 - 01), date!(2027 - 01 - 01)),
+        Filtre::nouveau(
+            exercice,
+            &dos.journaux,
+            date!(2026 - 03 - 01),
+            date!(2027 - 01 - 01)
+        ),
         Err(ErreurEdition::HorsExercice(date!(2027 - 01 - 01)))
     );
 }
@@ -267,9 +283,14 @@ fn grand_livre_solde_progressif() {
         .exercices
         .exercice(&CodeExercice::parse("2026").unwrap())
         .unwrap();
-    let filtre = Filtre::nouveau(exercice, date!(2026 - 01 - 01), date!(2026 - 03 - 31))
-        .unwrap()
-        .comptes([n("4011")]);
+    let filtre = Filtre::nouveau(
+        exercice,
+        &dos.journaux,
+        date!(2026 - 01 - 01),
+        date!(2026 - 03 - 31),
+    )
+    .unwrap()
+    .comptes([n("4011")]);
     let gl = grand_livre(&dos.livre, &brouillard, Mode::Provisoire, &filtre).unwrap();
     assert_eq!(gl.len(), 1);
     let f = &gl[0];
@@ -334,7 +355,13 @@ fn edition_des_journaux() {
         .exercices
         .exercice(&CodeExercice::parse("2026").unwrap())
         .unwrap();
-    let filtre = Filtre::nouveau(exercice, date!(2026 - 01 - 01), date!(2026 - 12 - 31)).unwrap();
+    let filtre = Filtre::nouveau(
+        exercice,
+        &dos.journaux,
+        date!(2026 - 01 - 01),
+        date!(2026 - 12 - 31),
+    )
+    .unwrap();
     let editions = journaux(&dos.livre, &brouillard, Mode::Provisoire, &filtre).unwrap();
     let codes: Vec<&str> = editions.iter().map(|e| e.journal.as_str()).collect();
     assert_eq!(codes, ["AC", "BQ1", "VT"]);
@@ -347,4 +374,77 @@ fn edition_des_journaux() {
     );
     let definitif = journaux(&dos.livre, &brouillard, Mode::Definitif, &filtre).unwrap();
     assert_eq!(definitif[2].ecritures.len(), 1);
+}
+
+/// AUDCIF art. 19 et Guide d'application, Application 127 : dans la balance générale (format 6,
+/// depuis le début de l'exercice), les à-nouveaux forment la colonne d'ouverture, jamais les
+/// mouvements, bien qu'ils soient datés du premier jour de l'exercice.
+#[test]
+fn a_nouveaux_dans_la_colonne_d_ouverture() {
+    let mut dos = Dossier::nouveau();
+    dos.valider(equilibree(
+        "AC",
+        date!(2026 - 01 - 01),
+        "Achat du 1er janvier",
+        vec![
+            ligne("6052", Sens::Debit, "100"),
+            ligne("521", Sens::Credit, "100"),
+        ],
+    ))
+    .unwrap();
+    // Le journal AN refuse la saisie (générés en L6) : l'à-nouveau est pris au brouillard.
+    let a_nouveau = equilibree(
+        "AN",
+        date!(2026 - 01 - 01),
+        "À-nouveaux",
+        vec![
+            ligne("521", Sens::Debit, "1000"),
+            ligne_tiers("4011", Sens::Credit, "1000", "FOURNISSEUR-1"),
+        ],
+    );
+    let exercice = dos
+        .exercices
+        .exercice(&CodeExercice::parse("2026").unwrap())
+        .unwrap();
+    let filtre = Filtre::exercice(exercice, &dos.journaux, date!(2026 - 12 - 31)).unwrap();
+    let balance = Balance::calculer(
+        &dos.livre,
+        &[a_nouveau],
+        Mode::Provisoire,
+        &filtre,
+        Regroupement::ParCompte,
+    )
+    .unwrap();
+    let colonnes = |compte: &str| {
+        balance
+            .lignes()
+            .iter()
+            .find(|l| l.cle() == compte)
+            .unwrap()
+            .colonnes(FormatBalance::Six)
+            .unwrap()
+    };
+    let d = |texte: &str| texte.parse::<Decimal>().unwrap();
+    let z = Decimal::ZERO;
+    // 521 : ouverture 1 000 D ; mouvement 100 C (achat du 1er janvier) ; solde 900 D.
+    assert_eq!(colonnes("521"), [d("1000"), z, z, d("100"), d("900"), z]);
+    assert_eq!(colonnes("4011"), [z, d("1000"), z, z, z, d("1000")]);
+    assert_eq!(colonnes("6052"), [z, z, d("100"), z, d("100"), z]);
+    // Le journal AN reste édité à sa date.
+    let journaux = compta_core::journaux(
+        &dos.livre,
+        &[equilibree(
+            "AN",
+            date!(2026 - 01 - 01),
+            "À-nouveaux",
+            vec![
+                ligne("521", Sens::Debit, "1000"),
+                ligne_tiers("4011", Sens::Credit, "1000", "FOURNISSEUR-1"),
+            ],
+        )],
+        Mode::Provisoire,
+        &filtre,
+    )
+    .unwrap();
+    assert!(journaux.iter().any(|j| j.journal.as_str() == "AN"));
 }

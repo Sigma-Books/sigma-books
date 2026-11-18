@@ -15,7 +15,8 @@
 # - sens : sens normal du solde. Il ne figure PAS dans la liste officielle : convention de Sigma Books
 #   (règles dans crates/syscohada/README.md), À VALIDER par un expert-comptable.
 # - collectif : compte collectif de tiers (spec §5.1) ; hérité par les sous-comptes. Repris des comptes
-#   « party_required » du module Tryton account_syscohada (docs/provenance/), complétés de 404, 413, 467.
+#   « party_required » du module Tryton account_syscohada (docs/provenance/), complétés de 404, 413, 467
+#   et 488 (liste dans crates/syscohada/README.md).
 
 [source]
 document = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes »"
@@ -5545,6 +5546,7 @@ intitule = "AUTRES CRÉANCES HORS ACTIVITÉS ORDINAIRES (H.A.O.)"
 page = 247
 nature = "bilan"
 sens = "debiteur"
+collectif = true
 
 [[compte]]
 numero = "49"
