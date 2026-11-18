@@ -20,6 +20,8 @@
 //!   `cloturee` est la **clôture informatique** de l'AUDCIF (art. 22 3°, p. PDF 24) :
 //!   irréversible, dans l'ordre des périodes, au plus tard à son **échéance**
 //!   ([`echeance_de_cloture`]). La dernière période d'un exercice se clôture avec lui.
+//!   Aucune période ni aucun exercice ne se clôture tant qu'une écriture du brouillard y est
+//!   datée (décision du mainteneur du 2026-11-18 ; [`Exercices::cloturer_periode`]).
 //!
 //! Aucune lecture d'horloge : toutes les dates sont des paramètres. Une opération refusée
 //! laisse l'état inchangé.
@@ -73,6 +75,28 @@ pub enum ErreurExercice {
     /// Un exercice plus ancien doit d'abord avancer.
     #[error("l'exercice {0}, plus ancien, doit être clôturé (ou en clôture) avant")]
     ExerciceAnterieurNonClos(CodeExercice),
+    /// Des écritures du brouillard sont datées dans ce qui serait clôturé : elles doivent être
+    /// validées (ou supprimées) avant la clôture (AUDCIF art. 22 2° ; décision du mainteneur du
+    /// 2026-11-18).
+    #[error(
+        "{nombre} écriture(s) du brouillard datée(s) du {du} au {au} : validez-les avant la clôture"
+    )]
+    BrouillardNonValide {
+        /// Premier jour de ce qui serait clôturé.
+        du: Date,
+        /// Dernier jour de ce qui serait clôturé.
+        au: Date,
+        /// Nombre d'écritures du brouillard concernées.
+        nombre: usize,
+    },
+}
+
+/// Nombre de dates du brouillard comprises dans `[du, au]`.
+fn brouillard_entre(brouillard: impl IntoIterator<Item = Date>, du: Date, au: Date) -> usize {
+    brouillard
+        .into_iter()
+        .filter(|d| du <= *d && *d <= au)
+        .count()
 }
 
 /// Code d'un exercice : son **année de clôture**, sur quatre chiffres, reprise dans la
@@ -396,9 +420,19 @@ impl Exercices {
     /// Clôture un exercice en clôture : irréversible ; toutes ses périodes sont clôturées.
     /// Les exercices plus anciens doivent être clôturés.
     ///
+    /// `brouillard` : dates comptables des écritures du brouillard du dossier (l'appelant peut
+    /// ne fournir que celles de l'exercice). Aucune ne doit tomber dans l'exercice : clôturer
+    /// l'exercice clôture toutes ses périodes, et une période n'est pas clôturée tant qu'il y
+    /// reste du brouillard ([`Exercices::cloturer_periode`]).
+    ///
     /// # Errors
-    /// Exercice inconnu, pas en clôture, ou exercice antérieur non clôturé.
-    pub fn cloturer(&mut self, code: &CodeExercice) -> Result<(), ErreurExercice> {
+    /// Exercice inconnu, pas en clôture, exercice antérieur non clôturé, ou brouillard non
+    /// validé dans l'exercice ([`ErreurExercice::BrouillardNonValide`]).
+    pub fn cloturer(
+        &mut self,
+        code: &CodeExercice,
+        brouillard: impl IntoIterator<Item = Date>,
+    ) -> Result<(), ErreurExercice> {
         let index = self.index(code)?;
         if self.exercices[index].statut != StatutExercice::EnCloture {
             return Err(ErreurExercice::TransitionInterdite(
@@ -412,6 +446,11 @@ impl Exercices {
             return Err(ErreurExercice::ExerciceAnterieurNonClos(
                 anterieur.code.clone(),
             ));
+        }
+        let (du, au) = (self.exercices[index].debut, self.exercices[index].fin);
+        let nombre = brouillard_entre(brouillard, du, au);
+        if nombre > 0 {
+            return Err(ErreurExercice::BrouillardNonValide { du, au, nombre });
         }
         let exercice = &mut self.exercices[index];
         exercice.statut = StatutExercice::Cloture;
@@ -464,10 +503,25 @@ impl Exercices {
     /// irréversible, aucune réouverture. Les périodes se clôturent dans l'ordre ; la dernière
     /// période d'un exercice se clôture avec lui ([`Exercices::cloturer`]).
     ///
+    /// **Brouillard** : la clôture est refusée tant qu'une écriture du brouillard est datée
+    /// dans la période (décision du mainteneur du 2026-11-18). Les textes ne le disent pas en
+    /// toutes lettres : l'art. 22 2° exige la validation « au terme de chaque période qui ne
+    /// peut excéder un mois », le 3° fige la chronologie, sans faire de la validation un
+    /// préalable de la clôture. Tous les moteurs de référence bloquent : Tryton
+    /// (`Period.close`), Odoo (verrou définitif, `_validate_locks`), Dolibarr (clôture proposée
+    /// seulement sans ligne à valider), OCA (`account_fiscal_year_closing`, en option).
+    /// `brouillard` : dates comptables des écritures du brouillard du dossier (l'appelant peut
+    /// ne fournir que celles de la période), lues dans la transaction de la clôture.
+    ///
     /// # Errors
     /// Aucune période ne contient la date, période déjà clôturée, dernière période de
-    /// l'exercice, ou période antérieure non clôturée.
-    pub fn cloturer_periode(&mut self, date: Date) -> Result<(), ErreurExercice> {
+    /// l'exercice, période antérieure non clôturée, ou brouillard non validé dans la période
+    /// ([`ErreurExercice::BrouillardNonValide`]).
+    pub fn cloturer_periode(
+        &mut self,
+        date: Date,
+        brouillard: impl IntoIterator<Item = Date>,
+    ) -> Result<(), ErreurExercice> {
         let anterieure = self
             .exercices
             .iter()
@@ -497,6 +551,14 @@ impl Exercices {
         }
         if let Some(debut) = anterieure {
             return Err(ErreurExercice::PeriodeAnterieureNonCloturee(debut));
+        }
+        let nombre = brouillard_entre(brouillard, periode.debut, periode.fin);
+        if nombre > 0 {
+            return Err(ErreurExercice::BrouillardNonValide {
+                du: periode.debut,
+                au: periode.fin,
+                nombre,
+            });
         }
         periode.statut = StatutPeriode::Cloturee;
         Ok(())
@@ -614,7 +676,7 @@ mod tests {
     fn cloture_informatique_dans_l_ordre_et_irreversible() {
         let mut exercices = dossier(date!(2026 - 01 - 01));
         assert_eq!(
-            exercices.cloturer_periode(date!(2026 - 02 - 10)),
+            exercices.cloturer_periode(date!(2026 - 02 - 10), []),
             Err(ErreurExercice::PeriodeAnterieureNonCloturee(date!(
                 2026 - 01 - 01
             )))
@@ -622,7 +684,9 @@ mod tests {
         exercices
             .verrouiller_periode(date!(2026 - 01 - 10))
             .unwrap();
-        exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+        exercices
+            .cloturer_periode(date!(2026 - 01 - 10), [])
+            .unwrap();
         let janvier = |e: &Exercices| e.exercices()[0].periodes()[0].statut();
         assert_eq!(janvier(&exercices), StatutPeriode::Cloturee);
         // Aucune réouverture, aucun verrouillage, pas de double clôture.
@@ -636,18 +700,26 @@ mod tests {
                 .verrouiller_periode(date!(2026 - 01 - 10))
                 .is_err()
         );
-        assert!(exercices.cloturer_periode(date!(2026 - 01 - 10)).is_err());
+        assert!(
+            exercices
+                .cloturer_periode(date!(2026 - 01 - 10), [])
+                .is_err()
+        );
         assert_eq!(janvier(&exercices), StatutPeriode::Cloturee);
         // Février à novembre ; décembre se clôture avec l'exercice.
         for mois in 2..=11u8 {
             let jour = Date::from_calendar_date(2026, Month::try_from(mois).unwrap(), 1).unwrap();
-            exercices.cloturer_periode(jour).unwrap();
+            exercices.cloturer_periode(jour, []).unwrap();
         }
         assert!(matches!(
-            exercices.cloturer_periode(date!(2026 - 12 - 01)),
+            exercices.cloturer_periode(date!(2026 - 12 - 01), []),
             Err(ErreurExercice::TransitionInterdite(_))
         ));
-        assert!(exercices.cloturer_periode(date!(2030 - 01 - 01)).is_err());
+        assert!(
+            exercices
+                .cloturer_periode(date!(2030 - 01 - 01), [])
+                .is_err()
+        );
     }
 
     #[test]
@@ -666,8 +738,84 @@ mod tests {
         assert_eq!(echeances[16].fin, date!(2027 - 12 - 31));
         assert_eq!(echeances[16].echeance, date!(2028 - 04 - 30));
         assert!(echeances.iter().all(|e| e.statut == StatutPeriode::Ouverte));
-        exercices.cloturer_periode(date!(2026 - 08 - 20)).unwrap();
+        exercices
+            .cloturer_periode(date!(2026 - 08 - 20), [])
+            .unwrap();
         assert_eq!(exercices.echeances_de_cloture().unwrap().len(), 16);
+    }
+
+    #[test]
+    fn cloture_de_periode_refusee_tant_qu_il_reste_du_brouillard() {
+        let mut exercices = dossier(date!(2026 - 01 - 01));
+        let avant = exercices.clone();
+        // Deux brouillons de janvier (premier et dernier jour), un de mars : refus, état
+        // inchangé.
+        let brouillard = [
+            date!(2026 - 03 - 05),
+            date!(2026 - 01 - 31),
+            date!(2026 - 01 - 01),
+        ];
+        assert_eq!(
+            exercices.cloturer_periode(date!(2026 - 01 - 10), brouillard),
+            Err(ErreurExercice::BrouillardNonValide {
+                du: date!(2026 - 01 - 01),
+                au: date!(2026 - 01 - 31),
+                nombre: 2,
+            })
+        );
+        assert_eq!(exercices, avant);
+        // Les règles d'ordre passent avant : février ne se clôture pas avant janvier.
+        assert_eq!(
+            exercices.cloturer_periode(date!(2026 - 02 - 10), brouillard),
+            Err(ErreurExercice::PeriodeAnterieureNonCloturee(date!(
+                2026 - 01 - 01
+            )))
+        );
+        // Brouillard hors de la période (veille et lendemain) : clôture permise.
+        exercices
+            .cloturer_periode(
+                date!(2026 - 01 - 10),
+                [date!(2025 - 12 - 31), date!(2026 - 02 - 01)],
+            )
+            .unwrap();
+        assert_eq!(
+            exercices
+                .exercice_contenant(date!(2026 - 01 - 10))
+                .and_then(|e| e.periode_contenant(date!(2026 - 01 - 10)))
+                .map(Periode::statut),
+            Some(StatutPeriode::Cloturee)
+        );
+    }
+
+    #[test]
+    fn cloture_d_exercice_refusee_tant_qu_il_reste_du_brouillard() {
+        let mut exercices = dossier(date!(2026 - 01 - 01));
+        exercices.ouvrir_suivant().unwrap();
+        exercices.passer_en_cloture(&code("2026")).unwrap();
+        let avant = exercices.clone();
+        // Un brouillon dans une période non encore clôturée de 2026 (juin) et un dans la
+        // dernière (décembre), qui se clôture avec l'exercice ; un en 2027, hors exercice.
+        let brouillard = [
+            date!(2026 - 06 - 15),
+            date!(2026 - 12 - 31),
+            date!(2027 - 01 - 01),
+        ];
+        assert_eq!(
+            exercices.cloturer(&code("2026"), brouillard),
+            Err(ErreurExercice::BrouillardNonValide {
+                du: date!(2026 - 01 - 01),
+                au: date!(2026 - 12 - 31),
+                nombre: 2,
+            })
+        );
+        assert_eq!(exercices, avant);
+        exercices
+            .cloturer(&code("2026"), [date!(2027 - 01 - 01)])
+            .unwrap();
+        assert_eq!(
+            exercices.exercice(&code("2026")).unwrap().statut(),
+            StatutExercice::Cloture
+        );
     }
 
     #[test]
@@ -749,16 +897,16 @@ mod tests {
             Err(ErreurExercice::ExerciceAnterieurNonClos(code("2026")))
         );
         assert!(
-            exercices.cloturer(&code("2026")).is_err(),
+            exercices.cloturer(&code("2026"), []).is_err(),
             "pas encore en clôture"
         );
         exercices.passer_en_cloture(&code("2026")).unwrap();
         exercices.passer_en_cloture(&code("2027")).unwrap();
         assert_eq!(
-            exercices.cloturer(&code("2027")),
+            exercices.cloturer(&code("2027"), []),
             Err(ErreurExercice::ExerciceAnterieurNonClos(code("2026")))
         );
-        exercices.cloturer(&code("2026")).unwrap();
+        exercices.cloturer(&code("2026"), []).unwrap();
         let e = exercices.exercice(&code("2026")).unwrap();
         assert!(
             e.periodes()
@@ -766,7 +914,7 @@ mod tests {
                 .all(|p| p.statut() == StatutPeriode::Cloturee)
         );
         assert!(exercices.passer_en_cloture(&code("2026")).is_err());
-        assert!(exercices.cloturer(&code("2026")).is_err());
+        assert!(exercices.cloturer(&code("2026"), []).is_err());
         assert!(
             exercices
                 .verrouiller_periode(date!(2026 - 05 - 10))
@@ -774,7 +922,7 @@ mod tests {
         );
         assert_eq!(exercices.ouvrir_suivant().unwrap().code(), &code("2028"));
         assert_eq!(
-            exercices.cloturer(&code("1999")),
+            exercices.cloturer(&code("1999"), []),
             Err(ErreurExercice::ExerciceInconnu(code("1999")))
         );
     }
@@ -1043,12 +1191,12 @@ mod tests {
                 let resultat = match &op {
                     Operation::Suivant => exercices.ouvrir_suivant().map(|_| ()),
                     Operation::EnCloture(i) => exercices.passer_en_cloture(&codes[i % codes.len()]),
-                    Operation::Cloturer(i) => exercices.cloturer(&codes[i % codes.len()]),
+                    Operation::Cloturer(i) => exercices.cloturer(&codes[i % codes.len()], []),
                     Operation::Verrouiller(d) => exercices.verrouiller_periode(jour(*d)),
                     Operation::Deverrouiller(d) => exercices.deverrouiller_periode(jour(*d), motif()).map(|_| ()),
                     Operation::CloturerPeriode(cible) => {
                         let date = date_cible(&avant, cible);
-                        let resultat = exercices.cloturer_periode(date);
+                        let resultat = exercices.cloturer_periode(date, []);
                         prop_assert_eq!(
                             resultat.is_ok(),
                             cloture_periode_acceptable(&avant, date),
@@ -1074,6 +1222,52 @@ mod tests {
                 }
                 invariants_de_transition(&avant, &exercices)?;
                 invariants(&exercices)?;
+            }
+        }
+    }
+
+    proptest! {
+        /// Décision du mainteneur du 2026-11-18 : une période (ou un exercice) n'est clôturée
+        /// que si aucune date du brouillard n'y tombe ; un refus laisse l'état inchangé et
+        /// compte exactement les brouillons concernés.
+        #[test]
+        fn le_brouillard_bloque_la_cloture(
+            decalages in proptest::collection::vec(-40i64..600, 0..8),
+        ) {
+            let brouillard: Vec<Date> =
+                decalages.iter().map(|d| DEBUT_ACTIVITE + Duration::days(*d)).collect();
+            let dans = |du: Date, au: Date| brouillard.iter().filter(|d| du <= **d && **d <= au).count();
+
+            // Première période (juillet 2026, partielle) : clôturable sans brouillard.
+            let mut exercices = Exercices::new();
+            exercices.ouvrir_premier(DEBUT_ACTIVITE, FinPremierExercice::AnneeSuivante).unwrap();
+            let avant = exercices.clone();
+            let (du, au) = {
+                let p = &avant.exercices()[0].periodes()[0];
+                (p.debut(), p.fin())
+            };
+            let nombre = dans(du, au);
+            let resultat = exercices.cloturer_periode(DEBUT_ACTIVITE, brouillard.iter().copied());
+            if nombre == 0 {
+                prop_assert!(resultat.is_ok());
+            } else {
+                prop_assert_eq!(resultat, Err(ErreurExercice::BrouillardNonValide { du, au, nombre }));
+                prop_assert_eq!(&exercices, &avant);
+            }
+
+            // Exercice entier (14/07/2026 au 31/12/2027).
+            let mut exercices = avant;
+            let code = exercices.exercices()[0].code().clone();
+            exercices.passer_en_cloture(&code).unwrap();
+            let avant = exercices.clone();
+            let (du, au) = (avant.exercices()[0].debut(), avant.exercices()[0].fin());
+            let nombre = dans(du, au);
+            let resultat = exercices.cloturer(&code, brouillard.iter().copied());
+            if nombre == 0 {
+                prop_assert!(resultat.is_ok());
+            } else {
+                prop_assert_eq!(resultat, Err(ErreurExercice::BrouillardNonValide { du, au, nombre }));
+                prop_assert_eq!(&exercices, &avant);
             }
         }
     }

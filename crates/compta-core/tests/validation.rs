@@ -175,7 +175,7 @@ fn invariant_5_date_periode_et_exercice() {
     );
     assert!(d.valider(inventaire).is_ok());
 
-    d.exercices.cloturer(&code).unwrap();
+    d.exercices.cloturer(&code, []).unwrap();
     let od = equilibree(
         "OD",
         date!(2026 - 12 - 31),
@@ -431,8 +431,12 @@ fn chronologie_figee_par_la_cloture() {
     avant.changer_date(date!(2026 - 03 - 09));
     assert!(d.valider(avant.valider_equilibre().unwrap()).is_ok());
     // Clôture de janvier et février : février n'accepte plus rien, mars reste ouvert.
-    d.exercices.cloturer_periode(date!(2026 - 01 - 15)).unwrap();
-    d.exercices.cloturer_periode(date!(2026 - 02 - 15)).unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 01 - 15), [])
+        .unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 02 - 15), [])
+        .unwrap();
     let mut fevrier = achat().en_brouillon();
     fevrier.changer_date(date!(2026 - 02 - 27));
     assert_eq!(
@@ -483,7 +487,9 @@ fn achat_tardif(date: time::Date, date_valeur: time::Date) -> compta_core::Ecrit
 #[test]
 fn date_de_valeur_comptable_editee() {
     let mut d = Dossier::nouveau();
-    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 01 - 10), [])
+        .unwrap();
     d.valider(achat_tardif(date!(2026 - 02 - 01), date!(2026 - 01 - 31)))
         .unwrap();
     let exercice = d
@@ -524,8 +530,12 @@ fn date_de_valeur_comptable_editee() {
 #[test]
 fn operation_tardive_reportee_apres_une_periode_cloturee() {
     let mut d = Dossier::nouveau();
-    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
-    d.exercices.cloturer_periode(date!(2026 - 02 - 10)).unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 01 - 10), [])
+        .unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 02 - 10), [])
+        .unwrap();
     for date_valeur in [date!(2026 - 01 - 20), date!(2026 - 02 - 25)] {
         assert_eq!(
             d.valider(achat_tardif(date!(2026 - 03 - 05), date_valeur)),
@@ -591,7 +601,9 @@ fn pas_de_report_hors_periode_cloturee() {
 #[test]
 fn periode_d_accueil_verrouillee() {
     let mut d = Dossier::nouveau();
-    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 01 - 10), [])
+        .unwrap();
     d.exercices
         .verrouiller_periode(date!(2026 - 02 - 10))
         .unwrap();
@@ -631,7 +643,7 @@ fn date_de_valeur_dans_une_periode_echue() {
         date!(2026 - 02 - 10),
         date!(2026 - 03 - 10),
     ] {
-        d.exercices.cloturer_periode(jour).unwrap();
+        d.exercices.cloturer_periode(jour, []).unwrap();
     }
     assert!(
         d.valider_le(
@@ -675,7 +687,7 @@ fn operation_tardive_et_exercices() {
     // Exercice clôturé : l'achat va au premier jour de l'exercice suivant.
     let mut d = Dossier::nouveau();
     d.exercices.passer_en_cloture(&code).unwrap();
-    d.exercices.cloturer(&code).unwrap();
+    d.exercices.cloturer(&code, []).unwrap();
     assert!(
         d.valider(achat_tardif(date!(2027 - 01 - 01), date!(2026 - 06 - 10)))
             .is_ok()
@@ -687,7 +699,9 @@ fn operation_tardive_et_exercices() {
 #[test]
 fn contre_passation_d_une_operation_tardive() {
     let mut d = Dossier::nouveau();
-    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.exercices
+        .cloturer_periode(date!(2026 - 01 - 10), [])
+        .unwrap();
     let origine = d
         .valider(achat_tardif(date!(2026 - 02 - 01), date!(2026 - 01 - 25)))
         .unwrap();
