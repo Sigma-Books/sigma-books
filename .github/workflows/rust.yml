@@ -1,5 +1,6 @@
-# Contrôles Rust : format, lints, tests, politique de dépendances.
-# docs/lots/L0.md §4 — checks requis sur main (docs/github.md).
+# Contrôles Rust : format, lints, tests (dont l'isolation sur PostgreSQL), métadonnées sqlx,
+# politique de dépendances.
+# docs/lots/L0.md §4, docs/lots/L2.md (PR 4) — checks requis sur main (docs/github.md).
 name: Rust
 
 on:
@@ -42,18 +43,115 @@ jobs:
         with:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # Requêtes `sqlx::query!` vérifiées sur les métadonnées versionnées `.sqlx/`, sans base
+      # (leur fraîcheur est contrôlée par rust-sqlx).
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+        env:
+          SQLX_OFFLINE: "true"
 
   test:
     name: rust-test
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
+    services:
+      # PostgreSQL réel (jamais de simulacre, Fondations §8), même version majeure qu'en
+      # développement (crates/api/README.md), image épinglée par empreinte.
+      postgres:
+        image: postgres:17@sha256:58b1ad1807d86ca43d0e37fded9f0a899a7ab8763fa9576a63059a52de223e1b
+        env:
+          # Conteneur éphémère, joignable du seul runner : aucun mot de passe dans le dépôt.
+          # Les mots de passe des rôles de Sigma Books sont tirés au hasard à chaque exécution.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: sigma_books
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sigma_books"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SQLX_CLI_VERSION: "0.9.1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo test --all --all-features --locked
+      - name: Installer sqlx-cli (version épinglée, dépendances verrouillées)
+        run: |
+          cargo install sqlx-cli --locked --version "$SQLX_CLI_VERSION" \
+            --no-default-features --features postgres,rustls
+      - name: Tirer les mots de passe des rôles (masqués dans les journaux)
+        run: |
+          for nom in MIGRATION APPLICATION LECTURE_AUDIT; do
+            mdp="$(openssl rand -hex 24)"
+            echo "::add-mask::$mdp"
+            echo "SIGMA_MDP_${nom}=$mdp" >> "$GITHUB_ENV"
+          done
+      - name: Approvisionner PostgreSQL et appliquer les migrations
+        run: scripts/preparer-base.sh
+        env:
+          SIGMA_PG_SUPER_URL: postgres://postgres@localhost:5432
+          SIGMA_PG_HOTE_PORT: localhost:5432
+      # `--all-features` active `tests-postgres` : tests d'isolation (catalogue, RLS, requête)
+      # contre la base de service (ADR 0011). Compilation sur les métadonnées `.sqlx/`.
+      - name: Tests, dont l'isolation entre tenants sur PostgreSQL
+        run: |
+          export SIGMA_TEST_APPLICATION_URL="postgres://sigma_application:${SIGMA_MDP_APPLICATION}@localhost:5432/sigma_books"
+          cargo test --all --all-features --locked
+        env:
+          SQLX_OFFLINE: "true"
+          SIGMA_TEST_ADMIN_URL: postgres://postgres@localhost:5432/sigma_books
+
+  sqlx:
+    name: rust-sqlx
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      # PostgreSQL réel (jamais de simulacre, Fondations §8), même version majeure qu'en
+      # développement (crates/api/README.md), image épinglée par empreinte.
+      postgres:
+        image: postgres:17@sha256:58b1ad1807d86ca43d0e37fded9f0a899a7ab8763fa9576a63059a52de223e1b
+        env:
+          # Conteneur éphémère, joignable du seul runner : aucun mot de passe dans le dépôt.
+          # Les mots de passe des rôles de Sigma Books sont tirés au hasard à chaque exécution.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: sigma_books
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sigma_books"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      SQLX_CLI_VERSION: "0.9.1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Installer sqlx-cli (version épinglée, dépendances verrouillées)
+        run: |
+          cargo install sqlx-cli --locked --version "$SQLX_CLI_VERSION" \
+            --no-default-features --features postgres,rustls
+      - name: Tirer les mots de passe des rôles (masqués dans les journaux)
+        run: |
+          for nom in MIGRATION APPLICATION LECTURE_AUDIT; do
+            mdp="$(openssl rand -hex 24)"
+            echo "::add-mask::$mdp"
+            echo "SIGMA_MDP_${nom}=$mdp" >> "$GITHUB_ENV"
+          done
+      - name: Approvisionner PostgreSQL et appliquer les migrations
+        run: scripts/preparer-base.sh
+        env:
+          SIGMA_PG_SUPER_URL: postgres://postgres@localhost:5432
+          SIGMA_PG_HOTE_PORT: localhost:5432
+      # Les métadonnées `.sqlx/` versionnées correspondent aux requêtes et au schéma migré.
+      - name: Vérifier les métadonnées sqlx hors ligne
+        run: |
+          export DATABASE_URL="postgres://sigma_migration:${SIGMA_MDP_MIGRATION}@localhost:5432/sigma_books"
+          cargo sqlx prepare --workspace --check -- --locked
 
   deny:
     name: rust-deny

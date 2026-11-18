@@ -21,10 +21,10 @@ Ce document suit l'application des réglages décrits dans `docs/collaboration.m
 | Compte machine `fhdiop-ccode` | rôle `Write`, hors `core` | `write` | ✅ |
 | Étiquettes (`.github/labels.yml`) | présentes | présentes | ✅ |
 | Jalons L0 à L9 | présents | présents | ✅ |
-| Ruleset « Protection de main » | actif, conforme à `ruleset-main.json` (avec `merge_queue` et `code_scanning`, #88) | actif depuis le 2026-11-17 : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request`, `required_status_checks` (12 checks), `merge_queue`, `code_scanning` | ✅ |
+| Ruleset « Protection de main » | actif, conforme à `ruleset-main.json` (avec `merge_queue` et `code_scanning`, #88) | actif depuis le 2026-11-17 : `deletion`, `non_fast_forward`, `required_linear_history`, `required_signatures`, `pull_request`, `required_status_checks` (12 checks), `merge_queue`, `code_scanning` | ⚠️ `rust-sqlx` à ajouter (ligne « Checks requis ») |
 | Ruleset « Protection des tags de version » | actif, conforme à `ruleset-tags.json` | actif : `deletion`, `non_fast_forward`, `update`, `required_signatures` ; **ne restreint pas la création** | ✅ |
 | Ruleset « Création des tags de version » | actif : `creation` sur `refs/tags/v*`, contournement `core` (`ruleset-tags-creation.json`) | actif depuis le 2026-11-14 (id 27275387) : `creation`, contournement équipe `core` (id 20664322) | ✅ |
-| **Checks requis** dans « Protection de main » | liste du §3 (12 checks), file de fusion à la place de « branche à jour » | les 12 checks, sources fixées, « branche à jour » désactivée | ✅ |
+| **Checks requis** dans « Protection de main » | liste du §3 (13 checks), file de fusion à la place de « branche à jour » | 12 checks, sources fixées, « branche à jour » désactivée ; `rust-sqlx` (L2-11) à ajouter par l'administrateur une fois le job présent sur `main` | ⚠️ |
 | Actions autorisées | GitHub + actions épinglées par hash | politique de l'organisation (voir ci-dessous) | ✅ déclaré |
 | Environnement `publication` | approbation requise, tags `v*` | relecteurs `core`, auto-approbation interdite, contournement par les admins interdit, tags `v*` seulement | ✅ |
 | Catégories Discussions | §4 | catégories par défaut de GitHub (décision : les garder) | ✅ |
@@ -62,7 +62,8 @@ Noms exacts, relevés sur les PR du lot L0 (pile #40 → #50). Tous sont produit
 |---|---|---|
 | `rust-fmt` | `rust.yml` | GitHub Actions |
 | `rust-clippy` | `rust.yml` | GitHub Actions |
-| `rust-test` | `rust.yml` | GitHub Actions |
+| `rust-test` | `rust.yml` (avec un service PostgreSQL : tests d'isolation de l'ADR 0011) | GitHub Actions |
+| `rust-sqlx` | `rust.yml` (métadonnées `.sqlx/` à jour, `cargo sqlx prepare --check`) | GitHub Actions |
 | `rust-deny` | `rust.yml` | GitHub Actions |
 | `web` | `web.yml` | GitHub Actions |
 | `site` | `web.yml` | GitHub Actions |
@@ -91,6 +92,7 @@ Cette règle est versionnée dans `scripts/github/ruleset-main.json` (`rules`) :
       { "context": "rust-fmt", "integration_id": 15368 },
       { "context": "rust-clippy", "integration_id": 15368 },
       { "context": "rust-test", "integration_id": 15368 },
+      { "context": "rust-sqlx", "integration_id": 15368 },
       { "context": "rust-deny", "integration_id": 15368 },
       { "context": "web", "integration_id": 15368 },
       { "context": "site", "integration_id": 15368 },
