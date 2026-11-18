@@ -193,6 +193,7 @@ struct Source<'a> {
     numero: Option<&'a NumeroEcriture>,
     journal: &'a CodeJournal,
     date: Date,
+    date_valeur_comptable: Option<Date>,
     libelle: &'a TexteCourt,
     lignes: &'a [Ligne],
 }
@@ -206,6 +207,7 @@ fn sources<'a>(
         numero: Some(e.numero()),
         journal: e.journal(),
         date: e.date(),
+        date_valeur_comptable: e.date_valeur_comptable(),
         libelle: e.libelle(),
         lignes: e.lignes(),
     });
@@ -216,6 +218,7 @@ fn sources<'a>(
             numero: None,
             journal: e.journal(),
             date: e.date(),
+            date_valeur_comptable: e.date_valeur_comptable(),
             libelle: e.libelle(),
             lignes: e.lignes(),
         });
@@ -401,6 +404,9 @@ pub struct LigneGrandLivre {
     pub journal: CodeJournal,
     /// Numéro définitif ; `None` pour une écriture du brouillard (mode provisoire).
     pub numero: Option<NumeroEcriture>,
+    /// Date de valeur comptable d'une opération tardive, mentionnée distinctement (AUDCIF
+    /// art. 22 4°).
+    pub date_valeur_comptable: Option<Date>,
     /// Libellé de l'écriture.
     pub libelle: TexteCourt,
     /// Tiers de la ligne.
@@ -465,6 +471,7 @@ pub fn grand_livre(
                     date: source.date,
                     journal: source.journal.clone(),
                     numero: source.numero.cloned(),
+                    date_valeur_comptable: source.date_valeur_comptable,
                     libelle: source.libelle.clone(),
                     tiers: ligne.tiers().cloned(),
                     debit: ligne.debit(),
@@ -507,6 +514,9 @@ pub struct EcritureJournal {
     pub numero: Option<NumeroEcriture>,
     /// Date comptable.
     pub date: Date,
+    /// Date de valeur comptable d'une opération tardive, mentionnée distinctement (AUDCIF
+    /// art. 22 4°).
+    pub date_valeur_comptable: Option<Date>,
     /// Libellé.
     pub libelle: TexteCourt,
     /// Lignes, dans l'ordre de saisie.
@@ -549,6 +559,7 @@ pub fn journaux(
             .push(EcritureJournal {
                 numero: source.numero.cloned(),
                 date: source.date,
+                date_valeur_comptable: source.date_valeur_comptable,
                 libelle: source.libelle.clone(),
                 lignes: source.lignes.to_vec(),
             });

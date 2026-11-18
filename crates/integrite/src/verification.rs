@@ -428,6 +428,7 @@ impl fmt::Display for Rapport {
         let version = match self.version {
             Some(Version::V1) => "export v1",
             Some(Version::V2) => "export v2",
+            Some(Version::V3) => "export v3",
             None => "export illisible",
         };
         writeln!(f, "Sigma Books — vérification d'intégrité ({version})")?;

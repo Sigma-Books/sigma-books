@@ -244,6 +244,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 3. Tous les comptes existent, sont actifs et sont des comptes de **mouvement** (pas un compte de regroupement).
 4. Une ligne sur un compte collectif porte un tiers.
 5. La date est dans une période `ouverte` d'un exercice `ouvert` (ou `en_cloture` pour les journaux OD/IN).
+   **Opération tardive** (AUDCIF art. 22 4°) : si la date de valeur comptable de l'opération tombe dans une période qui ne peut plus l'accueillir (période verrouillée ou clôturée, échéance de clôture passée, exercice clôturé, exercice en clôture qui n'admet pas le journal, date antérieure au dossier), l'écriture est datée du **premier jour de la plus ancienne période ouverte qui l'accueille et qui commence après la date de valeur comptable** ; la **date de valeur comptable** est conservée à part, mentionnée distinctement dans les éditions et incluse dans le contenu haché. Une contre-passation de l'opération est une nouvelle opération, sans date de valeur comptable. Si l'opération relève d'un exercice clôturé, l'art. 61 (produits et charges de l'exercice en cours, mention en annexe) ou l'art. 20 (report à nouveau, erreur significative) s'applique selon le cas.
 6. Au moins une pièce rattachée, externe ou interne (§2, principe 2), quel que soit le journal.
 7. Le journal accepte ce type d'écriture (ex. une écriture du journal BQ1 mouvemente le compte de trésorerie associé).
 

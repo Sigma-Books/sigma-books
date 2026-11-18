@@ -4,6 +4,8 @@ Référence : spec §6.4, ADR 0007 et 0010, `crates/integrite`. Menaces couverte
 
 Ce format est **figé** : toute modification crée une version 3. Le vecteur `crates/integrite/tests/vecteurs/export-v2.txt` le vérifie.
 
+> **Statut** : l'export v2 n'est plus produit ; Sigma Books écrit l'export **v3** (`format-v3.md`), qui admet en plus les écritures canoniques v2 (date de valeur comptable). `sigma-verifier` lit toujours la v2.
+
 ## 1. Ce qui change par rapport à la v1
 - L'en-tête devient `sigma-books export v2`.
 - Des **jetons d'horodatage** RFC 3161 suivent la tête et le nombre d'écritures.

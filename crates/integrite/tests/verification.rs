@@ -33,7 +33,7 @@ fn contenus(octets: &[u8]) -> Vec<String> {
 /// recalculés. Simule un attaquant qui maîtrise tout l'export.
 fn forger(dossier: &IdDossier, contenus: &[String]) -> Vec<u8> {
     let mut tete = genese(dossier);
-    let mut s = format!("sigma-books export v1\ndossier={dossier}\n");
+    let mut s = format!("sigma-books export v3\ndossier={dossier}\n");
     for c in contenus {
         tete = chainer(&tete, c.as_bytes());
         s.push_str(c);
@@ -48,10 +48,10 @@ fn export_integre() {
     let export = export_de_reference();
     let rapport = verifier_octets(&export, &Options::default());
     assert!(rapport.est_integre(), "{rapport}");
-    assert_eq!(rapport.nombre, 5);
+    assert_eq!(rapport.nombre, 6);
     let (premiere, derniere) = rapport.bornes.clone().unwrap();
     assert_eq!(premiere.to_string(), "VT-2026-000001");
-    assert_eq!(derniere.to_string(), "VT-2027-000001");
+    assert_eq!(derniere.to_string(), "OD-2026-000002");
     let plages: Vec<String> = rapport
         .sequences
         .iter()
@@ -59,7 +59,7 @@ fn export_integre() {
         .collect();
     assert_eq!(
         plages,
-        ["BQ1 2026 1-1", "OD 2026 1-1", "VT 2026 1-2", "VT 2027 1-1"]
+        ["BQ1 2026 1-1", "OD 2026 1-2", "VT 2026 1-2", "VT 2027 1-1"]
     );
     let texte = rapport.to_string();
     assert!(texte.contains("RÉSULTAT : INTÈGRE"), "{texte}");
@@ -256,16 +256,19 @@ fn reecriture_complete_detectee_par_les_jetons() {
         .collect();
     let forge = String::from_utf8(forger(&dossier_id(), &c))
         .unwrap()
-        .replacen("sigma-books export v1", "sigma-books export v2", 1)
         .replace(
             "fin-export\n",
             &format!("{}fin-export\n", blocs_de_jetons()),
         );
     let rapport = verifier_octets(forge.as_bytes(), &Options::default());
+    // Les jetons sur 5 et 6 écritures couvrent l'écriture modifiée : ils ne correspondent plus.
     assert!(
         matches!(
             rapport.anomalies.as_slice(),
-            [Anomalie::TemoinDifferent { nombre: 5, .. }]
+            [
+                Anomalie::TemoinDifferent { nombre: 5, .. },
+                Anomalie::TemoinDifferent { nombre: 6, .. }
+            ]
         ),
         "{rapport}"
     );

@@ -408,6 +408,7 @@ pub struct EcritureBrouillon {
     lignes: Vec<Ligne>,
     justification: Option<Justification>,
     version_parametres: Option<VersionParametres>,
+    date_valeur_comptable: Option<Date>,
 }
 
 impl EcritureBrouillon {
@@ -421,6 +422,7 @@ impl EcritureBrouillon {
             lignes: Vec::new(),
             justification: None,
             version_parametres: None,
+            date_valeur_comptable: None,
         }
     }
 
@@ -489,6 +491,21 @@ impl EcritureBrouillon {
     /// Renseigne la justification.
     pub fn justifier(&mut self, justification: Justification) {
         self.justification = Some(justification);
+    }
+
+    /// Mentionne la **date de valeur comptable** d'une opération qui relève d'une période déjà
+    /// fermée (AUDCIF art. 22 4°) : l'écriture est alors datée du premier jour de la plus
+    /// ancienne période ouverte, et cette date est conservée à part. `None` l'efface.
+    ///
+    /// Ne pas confondre avec la « date de valeur » bancaire (SYSCOHADA, Titre VI).
+    pub fn mentionner_date_valeur_comptable(&mut self, date: Option<Date>) {
+        self.date_valeur_comptable = date;
+    }
+
+    /// Date de valeur comptable mentionnée, s'il y en a une.
+    #[must_use]
+    pub fn date_valeur_comptable(&self) -> Option<Date> {
+        self.date_valeur_comptable
     }
 
     /// Renseigne la version des paramètres fiscaux utilisée.
@@ -606,6 +623,12 @@ impl EcritureEquilibree {
     #[must_use]
     pub fn version_parametres(&self) -> Option<&VersionParametres> {
         self.brouillon.version_parametres.as_ref()
+    }
+
+    /// Date de valeur comptable (AUDCIF art. 22 4°), s'il y en a une.
+    #[must_use]
+    pub fn date_valeur_comptable(&self) -> Option<Date> {
+        self.brouillon.date_valeur_comptable
     }
 
     /// Total des débits (égal au total des crédits) en XOF.

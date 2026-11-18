@@ -471,3 +471,211 @@ fn validation_refusee_apres_l_echeance() {
         Err(ErreurValidation::EcheanceDepassee { .. })
     ));
 }
+
+fn achat_tardif(date: time::Date, date_valeur: time::Date) -> compta_core::EcritureEquilibree {
+    let mut b = achat().en_brouillon();
+    b.changer_date(date);
+    b.mentionner_date_valeur_comptable(Some(date_valeur));
+    b.valider_equilibre().unwrap()
+}
+
+/// AUDCIF art. 22 4° : une opération dont la date de valeur comptable tombe dans une période
+/// fermée est datée du premier jour de la plus ancienne période ouverte ; sa date de valeur
+/// comptable est conservée à part.
+#[test]
+fn operation_tardive_datee_du_premier_jour_ouvert() {
+    let mut d = Dossier::nouveau();
+    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.exercices
+        .verrouiller_periode(date!(2026 - 02 - 10))
+        .unwrap();
+    // Date de valeur en janvier (clôturé) ou en février (verrouillé) : 1er mars.
+    for date_valeur in [date!(2026 - 01 - 20), date!(2026 - 02 - 25)] {
+        assert_eq!(
+            d.valider(achat_tardif(date!(2026 - 03 - 05), date_valeur)),
+            Err(ErreurValidation::DateComptableTardive {
+                date: date!(2026 - 03 - 05),
+                attendue: Some(date!(2026 - 03 - 01)),
+            })
+        );
+        let numero = d
+            .valider(achat_tardif(date!(2026 - 03 - 01), date_valeur))
+            .unwrap();
+        let e = d.livre.ecriture(&numero).unwrap();
+        assert_eq!(e.date(), date!(2026 - 03 - 01));
+        assert_eq!(e.date_valeur_comptable(), Some(date_valeur));
+    }
+    // Date de valeur dans une période ouverte : l'écriture doit simplement en être datée.
+    assert_eq!(
+        d.valider(achat_tardif(date!(2026 - 03 - 20), date!(2026 - 03 - 02))),
+        Err(ErreurValidation::DateValeurDansPeriodeOuverte(date!(
+            2026 - 03 - 02
+        )))
+    );
+    // La date de valeur précède toujours la date comptable.
+    assert_eq!(
+        d.valider(achat_tardif(date!(2026 - 03 - 01), date!(2026 - 03 - 01))),
+        Err(ErreurValidation::DateValeurNonAnterieure {
+            date_valeur: date!(2026 - 03 - 01),
+            date: date!(2026 - 03 - 01),
+        })
+    );
+}
+
+/// Exercice en clôture : il n'accepte pas les achats ; un achat tardif de cet exercice va au
+/// premier jour du suivant. Un journal admis en clôture (OD) reste dans l'exercice en clôture.
+#[test]
+fn operation_tardive_et_exercice_en_cloture() {
+    let mut d = Dossier::nouveau();
+    d.exercices
+        .passer_en_cloture(&CodeExercice::parse("2026").unwrap())
+        .unwrap();
+    assert!(
+        d.valider(achat_tardif(date!(2027 - 01 - 01), date!(2026 - 11 - 15)))
+            .is_ok()
+    );
+    let mut od = achat().en_brouillon();
+    od.changer_journal(j("OD"));
+    od.changer_date(date!(2026 - 01 - 01));
+    od.mentionner_date_valeur_comptable(Some(date!(2025 - 12 - 20)));
+    // Date de valeur antérieure au dossier : premier jour ouvert du dossier pour OD.
+    assert!(d.valider(od.valider_equilibre().unwrap()).is_ok());
+}
+
+/// La date de valeur comptable figure distinctement dans les éditions (art. 22 4°).
+#[test]
+fn date_de_valeur_comptable_editee() {
+    let mut d = Dossier::nouveau();
+    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    d.valider(achat_tardif(date!(2026 - 02 - 01), date!(2026 - 01 - 31)))
+        .unwrap();
+    let exercice = d
+        .exercices
+        .exercice(&CodeExercice::parse("2026").unwrap())
+        .unwrap();
+    let filtre =
+        compta_core::Filtre::exercice(exercice, &d.journaux, date!(2026 - 12 - 31)).unwrap();
+    let journaux =
+        compta_core::journaux(&d.livre, &[], compta_core::Mode::Definitif, &filtre).unwrap();
+    assert_eq!(
+        journaux[0].ecritures[0].date_valeur_comptable,
+        Some(date!(2026 - 01 - 31))
+    );
+    let grand_livre =
+        compta_core::grand_livre(&d.livre, &[], compta_core::Mode::Definitif, &filtre).unwrap();
+    assert!(
+        grand_livre
+            .iter()
+            .flat_map(|c| c.lignes.iter())
+            .all(|l| l.date_valeur_comptable == Some(date!(2026 - 01 - 31)))
+    );
+}
+
+/// Cas limites de l'opération tardive (relecture) : la date retenue est toujours postérieure à
+/// la date de valeur, et les périodes échues ou fermées pour le journal sont écartées.
+#[test]
+fn operation_tardive_cas_limites() {
+    // Période plus ancienne déverrouillée : l'opération ne peut précéder sa date de valeur.
+    let mut d = Dossier::nouveau();
+    d.exercices
+        .verrouiller_periode(date!(2026 - 01 - 10))
+        .unwrap();
+    d.exercices
+        .verrouiller_periode(date!(2026 - 02 - 10))
+        .unwrap();
+    d.exercices
+        .deverrouiller_periode(date!(2026 - 01 - 10), t("Correction"))
+        .unwrap();
+    assert!(
+        d.valider(achat_tardif(date!(2026 - 03 - 01), date!(2026 - 02 - 20)))
+            .is_ok()
+    );
+    assert_eq!(
+        d.valider(achat_tardif(date!(2026 - 01 - 01), date!(2026 - 02 - 20))),
+        Err(ErreurValidation::DateValeurNonAnterieure {
+            date_valeur: date!(2026 - 02 - 20),
+            date: date!(2026 - 01 - 01),
+        })
+    );
+
+    // Deux exercices : 2026 en clôture (OD admis, décembre ouvert), janvier 2027 verrouillé.
+    let mut d = Dossier::nouveau();
+    d.exercices
+        .passer_en_cloture(&CodeExercice::parse("2026").unwrap())
+        .unwrap();
+    d.exercices
+        .verrouiller_periode(date!(2027 - 01 - 10))
+        .unwrap();
+    let mut od = achat().en_brouillon();
+    od.changer_journal(j("OD"));
+    od.changer_date(date!(2027 - 02 - 01));
+    od.mentionner_date_valeur_comptable(Some(date!(2027 - 01 - 15)));
+    assert!(d.valider(od.valider_equilibre().unwrap()).is_ok());
+
+    // Exercice clôturé : l'achat va au premier jour de l'exercice suivant.
+    let mut d = Dossier::nouveau();
+    let code = CodeExercice::parse("2026").unwrap();
+    d.exercices.passer_en_cloture(&code).unwrap();
+    d.exercices.cloturer(&code).unwrap();
+    assert!(
+        d.valider(achat_tardif(date!(2027 - 01 - 01), date!(2026 - 06 - 10)))
+            .is_ok()
+    );
+
+    // Échéance passée : mars (échéance au 30 juin) n'accueille plus rien le 2 juillet ; le
+    // premier jour d'avril, encore dans son échéance, est retenu.
+    let mut d = Dossier::nouveau();
+    assert_eq!(
+        d.valider_le(
+            achat_tardif(date!(2026 - 04 - 05), date!(2026 - 03 - 10)),
+            date!(2026 - 07 - 02)
+        ),
+        Err(ErreurValidation::DateComptableTardive {
+            date: date!(2026 - 04 - 05),
+            attendue: Some(date!(2026 - 04 - 01)),
+        })
+    );
+    assert!(
+        d.valider_le(
+            achat_tardif(date!(2026 - 04 - 01), date!(2026 - 03 - 10)),
+            date!(2026 - 07 - 02)
+        )
+        .is_ok()
+    );
+}
+
+/// La contre-passation d'une opération tardive est une nouvelle opération, datée dans une
+/// période ouverte : elle ne reprend pas la date de valeur comptable.
+#[test]
+fn contre_passation_d_une_operation_tardive() {
+    let mut d = Dossier::nouveau();
+    d.exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+    let origine = d
+        .valider(achat_tardif(date!(2026 - 02 - 01), date!(2026 - 01 - 25)))
+        .unwrap();
+    let miroir = d.contre_passer(&origine, date!(2026 - 02 - 05)).unwrap();
+    let miroir = d.livre.ecriture(&miroir).unwrap();
+    assert_eq!(miroir.date_valeur_comptable(), None);
+    assert_eq!(miroir.origine(), Some(&origine));
+}
+
+#[test]
+fn message_de_l_operation_tardive() {
+    let avec = ErreurValidation::DateComptableTardive {
+        date: date!(2026 - 03 - 05),
+        attendue: Some(date!(2026 - 03 - 01)),
+    };
+    assert!(
+        avec.to_string().contains("datez-la du 2026-03-01"),
+        "{avec}"
+    );
+    let sans = ErreurValidation::DateComptableTardive {
+        date: date!(2026 - 03 - 05),
+        attendue: None,
+    };
+    assert!(
+        sans.to_string().contains("aucune période ouverte"),
+        "{sans}"
+    );
+    assert!(!sans.to_string().contains("None"));
+}

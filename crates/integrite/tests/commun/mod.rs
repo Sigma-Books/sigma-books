@@ -126,7 +126,53 @@ impl Dossier {
         justification: Justification,
         parametres: Option<&str>,
     ) -> NumeroEcriture {
+        self.valider_complet(
+            journal,
+            (date, None),
+            libelle,
+            lignes,
+            justification,
+            parametres,
+        )
+    }
+
+    /// Opération tardive (AUDCIF art. 22 4°) : écriture datée de `date`, date de valeur
+    /// comptable `date_valeur`.
+    pub fn valider_tardive(
+        &mut self,
+        journal: &str,
+        date: Date,
+        date_valeur: Date,
+        libelle: &str,
+        lignes: Vec<Ligne>,
+        justification: Justification,
+    ) -> NumeroEcriture {
+        self.valider_complet(
+            journal,
+            (date, Some(date_valeur)),
+            libelle,
+            lignes,
+            justification,
+            None,
+        )
+    }
+
+    /// Clôture informatique de la période contenant la date.
+    pub fn cloturer_periode(&mut self, date: Date) {
+        self.exercices.cloturer_periode(date).unwrap();
+    }
+
+    fn valider_complet(
+        &mut self,
+        journal: &str,
+        (date, date_valeur): (Date, Option<Date>),
+        libelle: &str,
+        lignes: Vec<Ligne>,
+        justification: Justification,
+        parametres: Option<&str>,
+    ) -> NumeroEcriture {
         let mut e = EcritureBrouillon::nouvelle(j(journal), date, t(libelle));
+        e.mentionner_date_valeur_comptable(date_valeur);
         for l in lignes {
             e.ajouter_ligne(l);
         }
@@ -188,7 +234,8 @@ pub fn piece(octet: &str) -> Justification {
 }
 
 /// Dossier de référence des vecteurs figés : deux exercices, trois journaux, devise, tiers,
-/// pièces multiples, « sans pièce », version de paramètres et contre-passation.
+/// pièces multiples, version de paramètres, contre-passation et opération tardive avec date de
+/// valeur comptable.
 pub fn dossier_de_reference() -> Dossier {
     let mut d = Dossier::nouveau();
     let vente = d.valider(
@@ -241,15 +288,29 @@ pub fn dossier_de_reference() -> Dossier {
         ],
         piece("3d"),
     );
+    // Opération tardive (format canonique v2) : janvier 2026 clôturé, frais de janvier
+    // enregistrés au 1er février avec leur date de valeur comptable.
+    d.cloturer_periode(date!(2026 - 01 - 31));
+    d.valider_tardive(
+        "OD",
+        date!(2026 - 02 - 01),
+        date!(2026 - 01 - 28),
+        "Frais bancaires de janvier, relevé reçu tardivement",
+        vec![
+            xof(Sens::Debit, "605", "1500"),
+            xof(Sens::Credit, "521", "1500"),
+        ],
+        piece("5f"),
+    );
     d
 }
 
-/// Export (v2) du dossier de référence, sans jeton.
+/// Export (v3) du dossier de référence, sans jeton.
 pub fn export_de_reference() -> Vec<u8> {
     export_avec_jetons(&[])
 }
 
-/// Export (v2) du dossier de référence, avec les jetons donnés.
+/// Export (v3) du dossier de référence, avec les jetons donnés.
 pub fn export_avec_jetons(jetons: &[integrite::JetonExporte]) -> Vec<u8> {
     let d = dossier_de_reference();
     let mut sortie = Vec::new();
@@ -258,7 +319,7 @@ pub fn export_avec_jetons(jetons: &[integrite::JetonExporte]) -> Vec<u8> {
 }
 
 /// Jetons réels du dossier de référence (obtenus le 2026-11-18) : `Sectigo` sur les 3 premières
-/// écritures, `DigiCert` sur les 5 (vecteur `export-v2-reference.txt`).
+/// écritures, `DigiCert` sur les 5, `Sectigo` sur les 6 (vecteur `export-v3-reference.txt`).
 pub fn jetons_de_reference() -> Vec<integrite::JetonExporte> {
     let tete = |e: &str| integrite::Empreinte::parse(e).unwrap();
     vec![
@@ -271,6 +332,11 @@ pub fn jetons_de_reference() -> Vec<integrite::JetonExporte> {
             nombre: 5,
             tete: tete("116649fdda079968b86eb09e4e5f165e5f6215da22ab559dc00060c95e6a3c35"),
             der: include_bytes!("../vecteurs/horodatage/reference-digicert-5.tst").to_vec(),
+        },
+        integrite::JetonExporte {
+            nombre: 6,
+            tete: tete("c55a13aabadadccb3b92249cc2241ddbc5f4c2040dc01cbbba542202844666f9"),
+            der: include_bytes!("../vecteurs/horodatage/reference-sectigo-6.tst").to_vec(),
         },
     ]
 }
