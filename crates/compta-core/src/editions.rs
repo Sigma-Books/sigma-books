@@ -162,7 +162,7 @@ impl Filtre {
         self
     }
 
-    fn retient_journal(&self, journal: &CodeJournal) -> bool {
+    pub(crate) fn retient_journal(&self, journal: &CodeJournal) -> bool {
         self.journaux.is_empty() || self.journaux.contains(journal)
     }
 
@@ -178,8 +178,18 @@ impl Filtre {
         }
     }
 
-    fn dans_bornes(&self, date: Date) -> bool {
+    pub(crate) fn dans_bornes(&self, date: Date) -> bool {
         self.du <= date && date <= self.au
+    }
+
+    /// Bornes `(du, au)` de la période.
+    pub(crate) fn bornes(&self) -> (Date, Date) {
+        (self.du, self.au)
+    }
+
+    /// Vrai pour un journal d'à-nouveaux du dossier (toujours rangé en ouverture).
+    pub(crate) fn est_a_nouveaux(&self, journal: &CodeJournal) -> bool {
+        self.a_nouveaux.contains(journal)
     }
 
     fn dans_periode(&self, source: &Source<'_>) -> bool {
