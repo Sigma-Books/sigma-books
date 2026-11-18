@@ -818,6 +818,10 @@ mod tests {
         );
     }
 
+    /// Début d'activité du dossier de la propriété `transitions` : second semestre, premier
+    /// exercice prolongé jusqu'au 31 décembre de l'année suivante (18 périodes).
+    const DEBUT_ACTIVITE: Date = date!(2026 - 07 - 14);
+
     #[derive(Debug, Clone)]
     enum Operation {
         Suivant,
@@ -825,18 +829,96 @@ mod tests {
         Cloturer(usize),
         Verrouiller(i64),
         Deverrouiller(i64),
+        CloturerPeriode(CiblePeriode),
+    }
+
+    /// Cible d'une clôture informatique de période (AUDCIF art. 22 3°).
+    #[derive(Debug, Clone)]
+    enum CiblePeriode {
+        /// Période de rang `rang` compté depuis la première période non clôturée de tous les
+        /// exercices (0 : la suivante dans l'ordre chronologique ; négatif : une période déjà
+        /// clôturée ; positif : une période qui n'est pas la suivante), un jour quelconque de
+        /// la période (`jour` modulo sa durée). Hors de la liste : une date hors de tout exercice.
+        Relative(i64, u8),
+        /// Jour quelconque compté depuis le début d'activité (souvent hors de l'ordre, parfois
+        /// hors de tout exercice).
+        Jour(i64),
+    }
+
+    fn cible_periode() -> impl Strategy<Value = CiblePeriode> {
+        let rang = prop_oneof![6 => Just(0i64), 1 => -3i64..0, 1 => 1i64..4];
+        prop_oneof![
+            4 => (rang, any::<u8>()).prop_map(|(rang, jour)| CiblePeriode::Relative(rang, jour)),
+            1 => (-400i64..2500).prop_map(CiblePeriode::Jour),
+        ]
     }
 
     fn operation() -> impl Strategy<Value = Operation> {
         prop_oneof![
-            Just(Operation::Suivant),
-            (0usize..6).prop_map(Operation::EnCloture),
-            (0usize..6).prop_map(Operation::Cloturer),
-            (0i64..2500).prop_map(Operation::Verrouiller),
-            (0i64..2500).prop_map(Operation::Deverrouiller),
+            1 => Just(Operation::Suivant),
+            1 => (0usize..6).prop_map(Operation::EnCloture),
+            1 => (0usize..6).prop_map(Operation::Cloturer),
+            1 => (0i64..2500).prop_map(Operation::Verrouiller),
+            1 => (0i64..2500).prop_map(Operation::Deverrouiller),
+            4 => cible_periode().prop_map(Operation::CloturerPeriode),
         ]
     }
 
+    /// Toutes les périodes de tous les exercices, dans l'ordre chronologique.
+    fn toutes_les_periodes(exercices: &Exercices) -> Vec<Periode> {
+        exercices
+            .exercices()
+            .iter()
+            .flat_map(|e| e.periodes().iter().copied())
+            .collect()
+    }
+
+    /// Date visée par une clôture de période, calculée sur l'état avant l'opération.
+    fn date_cible(exercices: &Exercices, cible: &CiblePeriode) -> Date {
+        match *cible {
+            CiblePeriode::Jour(d) => DEBUT_ACTIVITE + Duration::days(d),
+            CiblePeriode::Relative(rang, jour) => {
+                let periodes = toutes_les_periodes(exercices);
+                let premiere = periodes
+                    .iter()
+                    .position(|p| p.statut() != StatutPeriode::Cloturee)
+                    .unwrap_or(periodes.len());
+                let index = i64::try_from(premiere).unwrap() + rang;
+                let decalage = Duration::days(1 + i64::from(jour));
+                match usize::try_from(index).ok().and_then(|i| periodes.get(i)) {
+                    Some(p) => {
+                        let duree = (p.fin() - p.debut()).whole_days() + 1;
+                        p.debut() + Duration::days(i64::from(jour) % duree)
+                    }
+                    None if index < 0 => periodes[0].debut() - decalage,
+                    None => periodes[periodes.len() - 1].fin() + decalage,
+                }
+            }
+        }
+    }
+
+    /// Oracle de la clôture informatique (AUDCIF art. 22 3°) : elle est acceptée si et
+    /// seulement si la date tombe dans la première période non clôturée de tous les
+    /// exercices (ordre chronologique) et que cette période n'est pas la dernière de son
+    /// exercice (qui se clôture avec lui).
+    fn cloture_periode_acceptable(exercices: &Exercices, date: Date) -> bool {
+        exercices
+            .exercices()
+            .iter()
+            .flat_map(|e| e.periodes().iter().map(move |p| (e.fin(), p)))
+            .find(|(_, p)| p.statut() != StatutPeriode::Cloturee)
+            .is_some_and(|(fin_exercice, p)| p.contient(date) && p.fin() != fin_exercice)
+    }
+
+    fn rang_statut(statut: StatutExercice) -> u8 {
+        match statut {
+            StatutExercice::Ouvert => 0,
+            StatutExercice::EnCloture => 1,
+            StatutExercice::Cloture => 2,
+        }
+    }
+
+    /// Invariants d'un état.
     fn invariants(exercices: &Exercices) -> Result<(), TestCaseError> {
         let liste = exercices.exercices();
         let non_clotures = liste
@@ -870,12 +952,50 @@ mod tests {
             for paire in p.windows(2) {
                 prop_assert_eq!(paire[0].fin().next_day(), Some(paire[1].debut()));
             }
-            let toutes_cloturees = p.iter().all(|x| x.statut() == StatutPeriode::Cloturee);
-            let aucune_cloturee = p.iter().all(|x| x.statut() != StatutPeriode::Cloturee);
             if e.statut() == StatutExercice::Cloture {
-                prop_assert!(toutes_cloturees);
+                // La clôture de l'exercice clôture toutes ses périodes.
+                prop_assert!(p.iter().all(|x| x.statut() == StatutPeriode::Cloturee));
             } else {
-                prop_assert!(aucune_cloturee);
+                // La dernière période se clôture avec l'exercice, jamais avant (art. 22 3°).
+                prop_assert_ne!(p.last().map(Periode::statut), Some(StatutPeriode::Cloturee));
+            }
+        }
+        // Clôture informatique dans l'ordre (AUDCIF art. 22 3°) : les périodes clôturées
+        // forment un préfixe chronologique de toutes les périodes de tous les exercices.
+        let periodes = toutes_les_periodes(exercices);
+        let prefixe = periodes
+            .iter()
+            .take_while(|p| p.statut() == StatutPeriode::Cloturee)
+            .count();
+        prop_assert!(
+            periodes[prefixe..]
+                .iter()
+                .all(|p| p.statut() != StatutPeriode::Cloturee),
+            "période clôturée après une période non clôturée"
+        );
+        Ok(())
+    }
+
+    /// Invariants d'une transition, que l'opération ait réussi ou échoué.
+    fn invariants_de_transition(avant: &Exercices, apres: &Exercices) -> Result<(), TestCaseError> {
+        // Les exercices s'ajoutent à la fin ; leurs bornes et leurs périodes ne bougent pas.
+        prop_assert!(avant.exercices().len() <= apres.exercices().len());
+        for (a, b) in avant.exercices().iter().zip(apres.exercices()) {
+            prop_assert_eq!(a.code(), b.code());
+            prop_assert_eq!((a.debut(), a.fin()), (b.debut(), b.fin()));
+            prop_assert_eq!(a.periodes().len(), b.periodes().len());
+            // Statut de l'exercice : ouvert → en clôture → clôturé, sans retour.
+            prop_assert!(rang_statut(a.statut()) <= rang_statut(b.statut()));
+            // Un exercice clôturé ne change plus jamais.
+            if a.statut() == StatutExercice::Cloture {
+                prop_assert_eq!(a, b);
+            }
+            // Clôture informatique irréversible (AUDCIF art. 22 3°).
+            for (pa, pb) in a.periodes().iter().zip(b.periodes()) {
+                prop_assert_eq!((pa.debut(), pa.fin()), (pb.debut(), pb.fin()));
+                if pa.statut() == StatutPeriode::Cloturee {
+                    prop_assert_eq!(pb.statut(), StatutPeriode::Cloturee);
+                }
             }
         }
         Ok(())
@@ -902,32 +1022,57 @@ mod tests {
                 }
             }
         }
+    }
 
-        /// Aucune suite d'opérations ne viole les invariants ; une opération refusée laisse
-        /// l'état inchangé ; un exercice clôturé ne change plus jamais.
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(1024))]
+
+        /// Aucune suite d'opérations ne viole les invariants, vérifiés après chaque opération
+        /// réussie ou refusée ; une opération refusée laisse l'état strictement inchangé ; la
+        /// clôture informatique (AUDCIF art. 22 3°) est acceptée exactement quand l'oracle
+        /// l'attend, ne clôture que la période visée et reste irréversible.
         #[test]
-        fn transitions(ops in proptest::collection::vec(operation(), 0..40)) {
+        fn transitions(ops in proptest::collection::vec(operation(), 0..80)) {
             let mut exercices = Exercices::new();
-            exercices.ouvrir_premier(date!(2026 - 07 - 14), FinPremierExercice::AnneeSuivante).unwrap();
+            exercices.ouvrir_premier(DEBUT_ACTIVITE, FinPremierExercice::AnneeSuivante).unwrap();
+            invariants(&exercices)?;
             for op in ops {
                 let avant = exercices.clone();
                 let codes: Vec<CodeExercice> = exercices.exercices().iter().map(|e| e.code().clone()).collect();
-                let jour = |d: i64| date!(2026 - 07 - 14) + Duration::days(d);
-                let resultat = match op {
+                let jour = |d: i64| DEBUT_ACTIVITE + Duration::days(d);
+                let resultat = match &op {
                     Operation::Suivant => exercices.ouvrir_suivant().map(|_| ()),
                     Operation::EnCloture(i) => exercices.passer_en_cloture(&codes[i % codes.len()]),
                     Operation::Cloturer(i) => exercices.cloturer(&codes[i % codes.len()]),
-                    Operation::Verrouiller(d) => exercices.verrouiller_periode(jour(d)),
-                    Operation::Deverrouiller(d) => exercices.deverrouiller_periode(jour(d), motif()).map(|_| ()),
+                    Operation::Verrouiller(d) => exercices.verrouiller_periode(jour(*d)),
+                    Operation::Deverrouiller(d) => exercices.deverrouiller_periode(jour(*d), motif()).map(|_| ()),
+                    Operation::CloturerPeriode(cible) => {
+                        let date = date_cible(&avant, cible);
+                        let resultat = exercices.cloturer_periode(date);
+                        prop_assert_eq!(
+                            resultat.is_ok(),
+                            cloture_periode_acceptable(&avant, date),
+                            "clôture de la période du {} : {:?}", date, resultat
+                        );
+                        if resultat.is_ok() {
+                            // Seule la période visée change, et elle devient clôturée.
+                            let attendu: Vec<StatutPeriode> = toutes_les_periodes(&avant)
+                                .iter()
+                                .map(|p| if p.contient(date) { StatutPeriode::Cloturee } else { p.statut() })
+                                .collect();
+                            let obtenu: Vec<StatutPeriode> =
+                                toutes_les_periodes(&exercices).iter().map(Periode::statut).collect();
+                            prop_assert_eq!(attendu, obtenu);
+                            let statuts = |e: &Exercices| e.exercices().iter().map(Exercice::statut).collect::<Vec<_>>();
+                            prop_assert_eq!(statuts(&avant), statuts(&exercices));
+                        }
+                        resultat
+                    }
                 };
                 if resultat.is_err() {
-                    prop_assert_eq!(&exercices, &avant);
+                    prop_assert_eq!(&exercices, &avant, "{:?} refusée a modifié l'état", op);
                 }
-                for (a, b) in avant.exercices().iter().zip(exercices.exercices()) {
-                    if a.statut() == StatutExercice::Cloture {
-                        prop_assert_eq!(a, b);
-                    }
-                }
+                invariants_de_transition(&avant, &exercices)?;
                 invariants(&exercices)?;
             }
         }
