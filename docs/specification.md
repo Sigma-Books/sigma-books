@@ -247,6 +247,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 ### 6.3 Numérotation
 - Format : `{journal}-{exercice}-{séquence sur 6 chiffres}` (ex. `AC-2026-000231`), `{exercice}` étant l'année de clôture (§4.2).
 - Séquence continue sans trou par journal et par exercice, attribuée dans la même transaction que la validation (verrou sur la séquence).
+- **Chronologie** (AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4°) : dans un journal et un exercice, une écriture n'est jamais datée avant la dernière écriture validée. La date comptable est la date de la pièce interne, ou la date de **réception** de la pièce externe (art. 16 al. 3).
 
 ### 6.4 Chaîne de hachage
 - Pour chaque dossier : `hash_n = SHA-256(hash_{n-1} ‖ contenu canonique de l'écriture n)`. Le contenu canonique est une sérialisation déterministe (ordre des champs, format des montants, lignes triées par ordre).
@@ -645,7 +646,7 @@ Données de la répartition reprises dans la note correspondante.
 ## 17. États financiers et éditions
 
 ### 17.1 Éditions courantes
-Journaux, grand livre (général et auxiliaire), balance générale (2, 4, 6 ou 8 colonnes), balance auxiliaire, balance âgée, centralisateur des journaux, état de rapprochement, tableau des immobilisations, état de TVA.
+Journaux, grand livre (général et auxiliaire), balance générale (6 colonnes, AUDCIF art. 19 : solde à l'ouverture de l'exercice, à-nouveaux compris ; mouvements depuis l'ouverture ; solde à la date — chacun débiteur et créditeur), balances de travail en 2, 4 ou 8 colonnes, balance auxiliaire, balance âgée, centralisateur des journaux, état de rapprochement, tableau des immobilisations, état de TVA.
 
 Chaque édition : filtres (période, comptes, journaux, tiers), mode « provisoire » (avec brouillard) ou « définitif » (validé seulement), export PDF et Excel.
 
@@ -885,6 +886,9 @@ Ces points touchent à l'exactitude comptable et fiscale. Ils doivent être conf
 | 9 | ~~Durée minimale et maximale d'un premier exercice~~ **Tranché** par le texte (AUDCIF art. 7, JO OHADA du 15/02/2017, p. 15) : voir §4.2 | L1 |
 | 10 | Impôt minimum forfaitaire et modalités de l'impôt sur le résultat | L6 |
 | 11 | Reclassements des soldes inversés selon les tableaux de correspondance | L7 |
+| 12 | Forme de la correction d'erreur : contre-passation par inversion du débit et du crédit (choix retenu) ou « inscription en négatif des éléments erronés » (AUDCIF art. 20, p. PDF 23) | L1 |
+| 13 | Colonnes des balances de travail en 2, 4 et 8 colonnes (la balance générale à 6 colonnes suit l'AUDCIF art. 19) | L1 |
+| 14 | Sens normal des comptes (règle du chiffre 9, AUDCIF p. PDF 216-217) et incohérence 5261/5265 entre la fiche du compte 52 (p. PDF 416) et la liste officielle | L1 |
 
 ---
 

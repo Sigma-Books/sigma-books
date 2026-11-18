@@ -56,9 +56,12 @@ fn date_de(jour: u16) -> Date {
     Date::from_ordinal_date(2026, jour).unwrap()
 }
 
+/// Valide les écritures dans l'ordre des dates (chronologie, AUDCIF art. 22 3°).
 fn valider_tout(dos: &mut Dossier, modeles: &[Modele]) -> Vec<compta_core::NumeroEcriture> {
+    let mut modeles = modeles.to_vec();
+    modeles.sort_by_key(|m| m.jour);
     let mut numeros = Vec::new();
-    for m in modeles {
+    for m in &modeles {
         let mut lignes = Vec::new();
         for (debit, credit, montant) in &m.lignes {
             lignes.push(ligne_test(*debit, Sens::Debit, *montant));
@@ -75,7 +78,13 @@ fn filtre(dos: &Dossier, du: u16, au: u16) -> Filtre {
         .exercices
         .exercice(&CodeExercice::parse("2026").unwrap())
         .unwrap();
-    Filtre::nouveau(exercice, date_de(du.min(au)), date_de(du.max(au))).unwrap()
+    Filtre::nouveau(
+        exercice,
+        &dos.journaux,
+        date_de(du.min(au)),
+        date_de(du.max(au)),
+    )
+    .unwrap()
 }
 
 proptest! {
@@ -106,14 +115,38 @@ proptest! {
     }
 
     #[test]
+    fn chronologie_par_journal(jours in proptest::collection::vec(1u16..=365, 1..30)) {
+        let mut dos = Dossier::nouveau();
+        let mut derniere: Option<u16> = None;
+        for jour in jours {
+            let e = equilibree(
+                "OD",
+                date_de(jour),
+                "Écriture générée",
+                vec![ligne_test(0, Sens::Debit, Decimal::ONE), ligne_test(1, Sens::Credit, Decimal::ONE)],
+            );
+            let resultat = dos.valider(e);
+            if derniere.is_some_and(|d| jour < d) {
+                prop_assert!(
+                    matches!(resultat, Err(ErreurValidation::DateAnterieureAuJournal { .. })),
+                    "{:?}", resultat
+                );
+            } else {
+                prop_assert!(resultat.is_ok(), "{:?}", resultat);
+                derniere = Some(jour);
+            }
+        }
+    }
+
+    #[test]
     fn contre_passation_annule_exactement(
         modeles in proptest::collection::vec(modele(), 1..15),
     ) {
         let mut dos = Dossier::nouveau();
         let numeros = valider_tout(&mut dos, &modeles);
+        // Contre-passations au 31 décembre : jamais avant la dernière écriture du journal.
         for numero in &numeros {
-            let date = dos.livre.ecriture(numero).unwrap().date();
-            dos.contre_passer(numero, date).unwrap();
+            dos.contre_passer(numero, date_de(365)).unwrap();
         }
         let balance = Balance::calculer(
             &dos.livre, &[], Mode::Definitif, &filtre(&dos, 1, 365), Regroupement::ParCompte,
@@ -128,8 +161,7 @@ proptest! {
         }
         // Aucune écriture n'est contre-passée deux fois.
         for numero in &numeros {
-            let date = dos.livre.ecriture(numero).unwrap().date();
-            let refus = dos.contre_passer(numero, date);
+            let refus = dos.contre_passer(numero, date_de(365));
             prop_assert!(
                 matches!(refus, Err(ErreurValidation::DejaContrePassee { .. })),
                 "{:?}", refus

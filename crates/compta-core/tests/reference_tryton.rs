@@ -55,7 +55,13 @@ fn scenario_move_cancel_reversal() {
         .exercice(&CodeExercice::parse("2026").unwrap())
         .unwrap()
         .clone();
-    let filtre = Filtre::nouveau(&exercice, date!(2026 - 01 - 01), date!(2026 - 12 - 31)).unwrap();
+    let filtre = Filtre::nouveau(
+        &exercice,
+        &dos.journaux,
+        date!(2026 - 01 - 01),
+        date!(2026 - 12 - 31),
+    )
+    .unwrap();
     let mouvements = |dos: &Dossier, compte: &str| {
         Balance::calculer(
             &dos.livre,

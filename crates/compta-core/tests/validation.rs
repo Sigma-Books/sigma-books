@@ -425,3 +425,32 @@ fn usage_des_comptes_et_journaux() {
         Err(ErreurPlan::CompteMouvemente(n("4111-C1")))
     );
 }
+
+/// AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4° : enregistrement dans l'ordre des dates
+/// de valeur, sans insertion intercalaire. Contrôle par journal et par exercice.
+#[test]
+fn chronologie_par_journal_et_exercice() {
+    let mut d = Dossier::nouveau();
+    d.valider(achat()).unwrap(); // AC, 10 mars
+    let mut avant = achat().en_brouillon();
+    avant.changer_date(date!(2026 - 03 - 09));
+    assert_eq!(
+        d.valider(avant.clone().valider_equilibre().unwrap()),
+        Err(ErreurValidation::DateAnterieureAuJournal {
+            date: date!(2026 - 03 - 09),
+            journal: j("AC"),
+            derniere: date!(2026 - 03 - 10),
+        })
+    );
+    // Même date : accepté. Autre journal, date antérieure : accepté (chronologie par journal).
+    assert!(d.valider(achat()).is_ok());
+    avant.changer_journal(j("OD"));
+    assert!(d.valider(avant.valider_equilibre().unwrap()).is_ok());
+    // Exercice suivant : sa propre chronologie.
+    let mut suivant = achat().en_brouillon();
+    suivant.changer_date(date!(2027 - 01 - 05));
+    assert!(d.valider(suivant.valider_equilibre().unwrap()).is_ok());
+    // La contre-passation suit la même règle.
+    let origine = d.valider(achat()).unwrap();
+    assert!(d.contre_passer(&origine, date!(2026 - 03 - 10)).is_ok());
+}

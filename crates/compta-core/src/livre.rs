@@ -8,11 +8,16 @@
 //! - [`Livre::contre_passer`] crée l'écriture miroir (sens inversés, mêmes comptes, montants,
 //!   devises et tiers), validée et liée à l'originale dans les deux sens ; une écriture n'est
 //!   contre-passée qu'une fois.
+//! - **Chronologie** : dans un journal et un exercice, une écriture n'est jamais datée avant
+//!   la dernière écriture validée (AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4° :
+//!   enregistrement dans l'ordre des dates de valeur, sans insertion intercalaire). Une pièce
+//!   externe reçue en retard prend sa date de réception (art. 16 al. 3).
 //!
 //! Comme Tryton (`account.move.post`, `cancel(reversal=True)`) : le numéro est attribué à la
 //! validation, la contre-passation inverse débit et crédit et garde le lien vers l'origine.
 //! Écarté : l'annulation par montants négatifs de Tryton (`reversal=False`), contraire à
-//! l'invariant 2.
+//! l'invariant 2. L'AUDCIF (art. 20) parle d'« inscription en négatif des éléments erronés » :
+//! la forme de la correction est soumise à l'expert-comptable (spec §26).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -124,6 +129,20 @@ pub enum ErreurValidation {
         origine: NumeroEcriture,
         /// Contre-passation existante.
         par: NumeroEcriture,
+    },
+    /// Écriture datée avant la dernière écriture validée du même journal et du même exercice :
+    /// l'enregistrement suit l'ordre des dates de valeur, sans insertion intercalaire
+    /// (AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4°).
+    #[error(
+        "chronologie : l'écriture du {date} précède la dernière écriture validée du journal {journal} ({derniere})"
+    )]
+    DateAnterieureAuJournal {
+        /// Date de l'écriture.
+        date: Date,
+        /// Journal.
+        journal: CodeJournal,
+        /// Date de la dernière écriture validée de ce journal dans l'exercice.
+        derniere: Date,
     },
     /// Contre-passation datée avant l'écriture d'origine.
     #[error("la contre-passation ({date}) ne peut précéder l'écriture d'origine ({origine})")]
@@ -259,7 +278,8 @@ pub struct Livre {
     ecritures: Vec<EcritureValidee>,
     index: BTreeMap<NumeroEcriture, usize>,
     contre_passations: BTreeMap<NumeroEcriture, NumeroEcriture>,
-    dernieres_sequences: BTreeMap<(CodeJournal, CodeExercice), u32>,
+    /// Dernière séquence et dernière date validées, par journal et exercice.
+    derniers: BTreeMap<(CodeJournal, CodeExercice), (u32, Date)>,
 }
 
 impl Livre {
@@ -406,11 +426,21 @@ impl Livre {
             });
         }
         let cle = (ecriture.journal().clone(), exercice);
-        let attendue = self.dernieres_sequences.get(&cle).copied().unwrap_or(0);
+        let (attendue, derniere) = match self.derniers.get(&cle) {
+            Some(&(sequence, date)) => (sequence, Some(date)),
+            None => (0, None),
+        };
         if compteur.dernier() != attendue {
             return Err(ErreurValidation::CompteurDesynchronise {
                 fournie: compteur.dernier(),
                 attendue,
+            });
+        }
+        if let Some(derniere) = derniere.filter(|&d| ecriture.date() < d) {
+            return Err(ErreurValidation::DateAnterieureAuJournal {
+                date: ecriture.date(),
+                journal: ecriture.journal().clone(),
+                derniere,
             });
         }
         let (numero, suivant) = compteur.suivant()?;
@@ -425,7 +455,7 @@ impl Livre {
             date_validation,
             origine: origine.clone(),
         };
-        self.dernieres_sequences.insert(cle, numero.sequence());
+        self.derniers.insert(cle, (numero.sequence(), validee.date));
         self.index.insert(numero.clone(), self.ecritures.len());
         if let Some(origine) = origine {
             self.contre_passations.insert(origine, numero.clone());
