@@ -41,3 +41,6 @@ Identique à l'export v2 (`format-v2.md`), avec deux différences :
 La chaîne de hachage (`format-v1.md` §3), les jetons (`format-v2.md` §3) et le témoin (`format-v2.md` §4) sont inchangés.
 
 Sigma Books écrit la v3. `sigma-verifier` lit les v1, v2 et v3.
+
+## 4. Vérification
+`sigma-verifier` contrôle l'intégrité (forme, chaîne, numérotation, équilibre, jetons), comme pour les versions précédentes. Il ne contrôle **pas** les règles de datation de l'opération tardive (date de valeur antérieure à la date comptable, période retenue) : elles sont appliquées par le moteur à la validation, et l'écriture validée est ensuite figée par la chaîne.

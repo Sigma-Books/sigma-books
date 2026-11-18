@@ -374,7 +374,15 @@ impl<'a> Lecteur<'a> {
         let libelle = self.valeur("libelle", TexteCourt::parse)?;
         let origine = self.valeur_optionnelle("origine", NumeroEcriture::parse)?;
         let parametres = self.valeur_optionnelle("parametres", VersionParametres::parse)?;
+        let rang_justification = self.rang_courant();
         let justification = self.justification()?;
+        // `sans-piece=` n'existe qu'en v1 (exports anciens) : le format v2 exige des pièces.
+        if v2 && matches!(justification, JustificationCanonique::SansPiece(_)) {
+            return Err(ErreurCanonique::Attendu {
+                ligne: rang_justification,
+                attendu: "piece",
+            });
+        }
         let mut lignes = Vec::new();
         loop {
             match self.suivante() {
@@ -560,6 +568,18 @@ mod tests {
         assert!(EcritureCanonique::lire(&v1_avec).is_err());
         let v2_sans = v1.replacen("ecriture v1\n", "ecriture v2\n", 1);
         assert!(EcritureCanonique::lire(&v2_sans).is_err());
+        // « sans-piece= » : admis en v1 (exports anciens), refusé en v2.
+        let piece = format!("piece={}\n", "ab".repeat(32));
+        let v1_sans_piece = v1.replacen(&piece, "sans-piece=Motif\n", 1);
+        assert!(EcritureCanonique::lire(&v1_sans_piece).is_ok());
+        let v2_sans_piece = v2.replacen(&piece, "sans-piece=Motif\n", 1);
+        assert_eq!(
+            EcritureCanonique::lire(&v2_sans_piece),
+            Err(ErreurCanonique::Attendu {
+                ligne: 9,
+                attendu: "piece"
+            })
+        );
         assert!(
             EcritureCanonique::lire(&v1.replacen("ecriture v1\n", "ecriture v3\n", 1)).is_err()
         );
@@ -661,6 +681,7 @@ mod tests {
                 origine in proptest::option::of(1u32..999_999),
                 parametres in proptest::option::of("[a-z0-9.-]{1,12}"),
                 pieces in proptest::collection::btree_set("[0-9a-f]{64}", 1..4),
+                sans_piece in proptest::option::weighted(0.2, texte()),
                 lignes in proptest::collection::vec(ligne(), 1..6),
             ) -> EcritureCanonique {
                 let numero = |r: u32| NumeroEcriture::parse(&format!("OD-2026-{r:06}")).unwrap();
@@ -672,9 +693,15 @@ mod tests {
                     libelle,
                     origine: origine.map(numero),
                     parametres: parametres.map(|p| VersionParametres::parse(&p).unwrap()),
-                    justification: JustificationCanonique::Pieces(
-                        pieces.iter().map(|p| ReferencePiece::parse(p).unwrap()).collect(),
-                    ),
+                    // « Sans pièce » n'existe qu'en v1 (exports anciens, lecture seule).
+                    justification: match sans_piece {
+                        Some(motif) if date_valeur_comptable.is_none() => {
+                            JustificationCanonique::SansPiece(motif)
+                        }
+                        _ => JustificationCanonique::Pieces(
+                            pieces.iter().map(|p| ReferencePiece::parse(p).unwrap()).collect(),
+                        ),
+                    },
                     lignes,
                 }
             }
