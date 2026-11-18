@@ -26,8 +26,8 @@ pub use editions::{
     FormatBalance, LigneBalance, LigneGrandLivre, Mode, Regroupement, grand_livre, journaux,
 };
 pub use exercice::{
-    CodeExercice, Deverrouillage, ErreurExercice, Exercice, Exercices, FinPremierExercice, Periode,
-    StatutExercice, StatutPeriode,
+    CodeExercice, Deverrouillage, EcheanceCloture, ErreurExercice, Exercice, Exercices,
+    FinPremierExercice, Periode, StatutExercice, StatutPeriode, echeance_de_cloture,
 };
 pub use journal::{
     CodeJournal, ErreurJournal, Journal, Journaux, ModeleJournal, TypeJournal, journaux_par_defaut,
