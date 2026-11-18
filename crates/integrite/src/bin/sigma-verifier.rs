@@ -1,6 +1,6 @@
 //! `sigma-verifier` : vérification hors ligne de la chaîne de hachage d'un export.
 //!
-//! Usage : `sigma-verifier [--dossier ID] [--tete EMPREINTE] <export | ->`
+//! Usage : `sigma-verifier [--dossier ID] [--tete EMPREINTE] [--ancre FICHIER]… <export | ->`
 //!
 //! Codes de retour : 0 intègre, 1 anomalie constatée, 2 usage incorrect ou lecture impossible.
 //! L'outil ne se connecte à rien : il ne lit que l'export.
@@ -11,16 +11,19 @@ use std::fs::File;
 use std::io::{self, BufReader, Write};
 use std::process::ExitCode;
 
-use integrite::{Empreinte, IdDossier, Options, verifier};
+use integrite::{Ancre, Empreinte, IdDossier, Options, verifier};
 
 const USAGE: &str = "\
-Usage : sigma-verifier [--dossier ID] [--tete EMPREINTE] <export | ->
+Usage : sigma-verifier [--dossier ID] [--tete EMPREINTE] [--ancre FICHIER]… <export | ->
 
 Vérifie hors ligne un export d'intégrité Sigma Books : recalcule la chaîne de hachage,
-contrôle la numérotation, l'équilibre des écritures et les contre-passations.
+contrôle la numérotation, l'équilibre des écritures et les contre-passations, et vérifie les
+jetons d'horodatage RFC 3161 de l'export.
 
   --dossier ID         identifiant du dossier attendu
-  --tete EMPREINTE     empreinte de tête attendue (jeton d'horodatage, témoin externe)
+  --tete EMPREINTE     empreinte de tête attendue (témoin externe)
+  --ancre FICHIER      certificat racine supplémentaire d'une autorité d'horodatage (PEM ou
+                       DER) ; les racines de DigiCert et de Sectigo sont intégrées
   -                    lit l'export sur l'entrée standard
 
 Codes de retour : 0 intègre, 1 anomalie constatée, 2 usage incorrect ou lecture impossible.";
@@ -47,6 +50,18 @@ fn analyser(arguments: impl IntoIterator<Item = String>) -> Result<Commande, Str
             "--tete" => {
                 let v = arguments.next().ok_or("--tete : valeur manquante")?;
                 options.tete = Some(Empreinte::parse(&v).map_err(|e| format!("--tete : {e}"))?);
+            }
+            "--ancre" => {
+                let v = arguments.next().ok_or("--ancre : valeur manquante")?;
+                let octets =
+                    std::fs::read(&v).map_err(|e| format!("--ancre : lecture de « {v} » : {e}"))?;
+                let ancres = if octets.starts_with(b"-----BEGIN") {
+                    Ancre::depuis_pem(&octets)
+                } else {
+                    Ancre::depuis_der(&octets).map(|a| vec![a])
+                }
+                .map_err(|e| format!("--ancre : {e}"))?;
+                options.ancres.extend(ancres);
             }
             option if option.starts_with("--") => {
                 return Err(format!("option inconnue : {option}"));

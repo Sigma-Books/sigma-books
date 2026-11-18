@@ -235,3 +235,93 @@ fn export_vide_et_tete() {
     assert!(rapport.bornes.is_none());
     let _: Empreinte = rapport.tete.unwrap();
 }
+
+/// Blocs `jeton … fin-jeton` de l'export horodaté de référence.
+fn blocs_de_jetons() -> String {
+    let export =
+        String::from_utf8(commun::export_avec_jetons(&commun::jetons_de_reference())).unwrap();
+    let debut = export.find("jeton\n").unwrap();
+    let fin = export.rfind("fin-export\n").unwrap();
+    export[debut..fin].to_owned()
+}
+
+/// Menace F2.4 : réécriture complète avec chaîne recalculée, jetons d'origine conservés. Le
+/// jeton qui couvre l'écriture modifiée ne correspond plus ; celui qui la précède reste valable.
+#[test]
+fn reecriture_complete_detectee_par_les_jetons() {
+    let export = export_de_reference();
+    let c: Vec<String> = contenus(&export)
+        .into_iter()
+        .map(|c| c.replace("Facture 2027-001", "Facture 2027-002"))
+        .collect();
+    let forge = String::from_utf8(forger(&dossier_id(), &c))
+        .unwrap()
+        .replacen("sigma-books export v1", "sigma-books export v2", 1)
+        .replace(
+            "fin-export\n",
+            &format!("{}fin-export\n", blocs_de_jetons()),
+        );
+    let rapport = verifier_octets(forge.as_bytes(), &Options::default());
+    assert!(
+        matches!(
+            rapport.anomalies.as_slice(),
+            [Anomalie::TemoinDifferent { nombre: 5, .. }]
+        ),
+        "{rapport}"
+    );
+    // Les 3 premières écritures, intactes, restent couvertes par le jeton Sectigo.
+    assert_eq!(rapport.horodatages.len(), 1);
+    assert_eq!(rapport.horodatages[0].nombre, 3);
+}
+
+#[test]
+fn jeton_altere_ou_deplace_detecte() {
+    let export =
+        String::from_utf8(commun::export_avec_jetons(&commun::jetons_de_reference())).unwrap();
+    // Un caractère base64 modifié au cœur du jeton DigiCert (le base64 reste valide).
+    let position = export.rfind("der=").unwrap() - 300;
+    let mut altere = export.clone().into_bytes();
+    altere[position] = if altere[position] == b'A' { b'B' } else { b'A' };
+    let rapport = verifier_octets(&altere, &Options::default());
+    assert!(
+        matches!(
+            rapport.anomalies.as_slice(),
+            [Anomalie::JetonInvalide { .. } | Anomalie::Illisible { .. }]
+        ),
+        "{rapport}"
+    );
+    // Jeton rattaché à un autre état de la chaîne.
+    let deplace = export.replacen("jeton\nnombre=3\n", "jeton\nnombre=4\n", 1);
+    let rapport = verifier_octets(deplace.as_bytes(), &Options::default());
+    assert!(
+        matches!(
+            rapport.anomalies.as_slice(),
+            [Anomalie::TemoinDifferent { nombre: 4, .. }]
+        ),
+        "{rapport}"
+    );
+    // Témoin au-delà de la chaîne.
+    let au_dela = export.replacen("jeton\nnombre=5\n", "jeton\nnombre=6\n", 1);
+    let rapport = verifier_octets(au_dela.as_bytes(), &Options::default());
+    assert!(matches!(
+        rapport.anomalies.as_slice(),
+        [Anomalie::TemoinDifferent { nombre: 6, .. }]
+    ));
+}
+
+#[test]
+fn jeton_d_un_autre_dossier_refuse() {
+    // Même chaîne, autre dossier : la genèse change, donc les têtes aussi ; le jeton ne peut
+    // pas être réutilisé.
+    let export =
+        String::from_utf8(commun::export_avec_jetons(&commun::jetons_de_reference())).unwrap();
+    let autre = export.replacen("dossier=dossier-test", "dossier=autre", 1);
+    let rapport = verifier_octets(autre.as_bytes(), &Options::default());
+    assert!(rapport.horodatages.is_empty(), "{rapport}");
+    assert!(
+        rapport
+            .anomalies
+            .iter()
+            .any(|a| matches!(a, Anomalie::TemoinDifferent { .. }))
+    );
+}

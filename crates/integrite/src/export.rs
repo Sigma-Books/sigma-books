@@ -1,19 +1,29 @@
-//! Export d'intégrité, format **v1** : les écritures validées d'un dossier dans l'ordre de la
-//! chaîne, chacune suivie de son empreinte, puis la tête et le nombre d'écritures.
+//! Export d'intégrité : les écritures validées d'un dossier dans l'ordre de la chaîne, chacune
+//! suivie de son empreinte, puis la tête, le nombre d'écritures et, en **v2**, les jetons
+//! d'horodatage RFC 3161 de la chaîne.
 //!
-//! Format décrit dans `docs/integrite/format-v1.md`. La lecture traite le fichier comme
-//! **hostile** : lecture ligne à ligne bornée, aucune allocation proportionnelle à une valeur
-//! lue, erreurs typées avec numéro de ligne, aucune panique.
+//! Formats décrits dans `docs/integrite/format-v1.md` et `format-v2.md`. L'écriture produit la
+//! v2 ; la lecture accepte la v1 (figée) et la v2. Elle traite le fichier comme **hostile** :
+//! lecture ligne à ligne bornée, aucune allocation proportionnelle à une valeur lue, erreurs
+//! typées avec numéro de ligne, aucune panique.
 
 use std::io::{self, BufRead, Read as _, Write};
 
+use base64ct::{Base64, Encoding};
 use compta_core::EcritureValidee;
 
 use crate::canonique::{self, EcritureCanonique};
 use crate::chaine::{Chaine, Empreinte, IdDossier};
+use crate::horodatage::JETON_MAX;
 
-/// Première ligne d'un export v1.
+/// Première ligne d'un export v1 (lecture seule).
 pub const ENTETE_EXPORT_V1: &str = "sigma-books export v1";
+/// Première ligne d'un export v2.
+pub const ENTETE_EXPORT_V2: &str = "sigma-books export v2";
+/// Longueur d'une ligne `der=` complète (base64), la dernière pouvant être plus courte.
+pub const BASE64_LIGNE: usize = 64;
+/// Nombre maximal de jetons dans un export (un par jour pendant plus de 25 ans).
+pub const JETONS_MAX: usize = 10_000;
 /// Dernière ligne d'un export.
 pub const FIN_EXPORT: &str = "fin-export";
 /// Longueur maximale d'une ligne, fin de ligne comprise (un texte court fait au plus
@@ -58,6 +68,33 @@ pub enum ErreurExport {
     /// Données après `fin-export`.
     #[error("données après « {FIN_EXPORT} »")]
     DonneesApresFin,
+    /// Jeton mal encodé (base64 non canonique, découpage ou taille).
+    #[error("jeton mal encodé : {0}")]
+    JetonMalEncode(&'static str),
+    /// Plus de [`JETONS_MAX`] jetons.
+    #[error("plus de {JETONS_MAX} jetons")]
+    TropDeJetons,
+}
+
+/// Version du format d'export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    /// v1 : écritures, tête, nombre.
+    V1,
+    /// v2 : v1 et jetons d'horodatage.
+    V2,
+}
+
+/// Jeton d'horodatage de la chaîne, tel qu'exporté : le témoin (nombre d'écritures et tête à
+/// cet instant) et le jeton RFC 3161 (DER).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JetonExporte {
+    /// Nombre d'écritures chaînées au moment du témoin.
+    pub nombre: u64,
+    /// Empreinte de tête à ce moment.
+    pub tete: Empreinte,
+    /// Jeton RFC 3161 (`TimeStampToken`, DER).
+    pub der: Vec<u8>,
 }
 
 /// Erreur de lecture : défaut de forme (avec la ligne du fichier, à partir de 1) ou erreur
@@ -93,7 +130,14 @@ pub enum Element {
         /// Ligne de l'empreinte déclarée.
         ligne_empreinte: u64,
     },
-    /// Fin de l'export.
+    /// Jeton d'horodatage (v2), après la fin de la chaîne.
+    Jeton {
+        /// Ligne du marqueur `jeton`.
+        ligne: u64,
+        /// Jeton lu.
+        jeton: Box<JetonExporte>,
+    },
+    /// Fin de la chaîne (tête et nombre déclarés) ; en v2, les jetons suivent.
     Fin {
         /// Tête déclarée.
         tete: Empreinte,
@@ -104,7 +148,7 @@ pub enum Element {
     },
 }
 
-/// Écrit un export v1, écriture par écriture.
+/// Écrit un export v2, écriture par écriture.
 pub struct EcrivainExport<W: Write> {
     sortie: W,
     chaine: Chaine,
@@ -116,7 +160,7 @@ impl<W: Write> EcrivainExport<W> {
     /// # Errors
     /// Erreur d'écriture.
     pub fn nouveau(dossier: &IdDossier, mut sortie: W) -> io::Result<Self> {
-        writeln!(sortie, "{ENTETE_EXPORT_V1}")?;
+        writeln!(sortie, "{ENTETE_EXPORT_V2}")?;
         writeln!(sortie, "dossier={dossier}")?;
         Ok(Self {
             sortie,
@@ -140,38 +184,74 @@ impl<W: Write> EcrivainExport<W> {
     ///
     /// # Errors
     /// Erreur d'écriture.
-    pub fn terminer(mut self) -> io::Result<(W, Empreinte)> {
+    pub fn terminer(self) -> io::Result<(W, Empreinte)> {
+        self.terminer_avec(&[])
+    }
+
+    /// Écrit la tête, le nombre d'écritures et les jetons d'horodatage (dans l'ordre donné),
+    /// puis rend la sortie et la tête.
+    ///
+    /// # Errors
+    /// Erreur d'écriture.
+    pub fn terminer_avec(mut self, jetons: &[JetonExporte]) -> io::Result<(W, Empreinte)> {
         let tete = *self.chaine.tete();
         writeln!(self.sortie, "tete={tete}")?;
         writeln!(self.sortie, "nombre={}", self.chaine.longueur())?;
+        for jeton in jetons {
+            writeln!(self.sortie, "jeton")?;
+            writeln!(self.sortie, "nombre={}", jeton.nombre)?;
+            writeln!(self.sortie, "tete={}", jeton.tete)?;
+            let base64 = Base64::encode_string(&jeton.der);
+            for morceau in base64.as_bytes().chunks(BASE64_LIGNE) {
+                self.sortie.write_all(b"der=")?;
+                self.sortie.write_all(morceau)?;
+                self.sortie.write_all(b"\n")?;
+            }
+            writeln!(self.sortie, "fin-jeton")?;
+        }
         writeln!(self.sortie, "{FIN_EXPORT}")?;
         self.sortie.flush()?;
         Ok((self.sortie, tete))
     }
 }
 
-/// Exporte des écritures validées, dans l'ordre de la chaîne. Renvoie la tête.
+/// Exporte des écritures validées, dans l'ordre de la chaîne, et leurs jetons. Renvoie la
+/// tête.
 ///
 /// # Errors
 /// Erreur d'écriture.
 pub fn exporter<W: Write>(
     dossier: &IdDossier,
     ecritures: &[EcritureValidee],
+    jetons: &[JetonExporte],
     sortie: W,
 ) -> io::Result<Empreinte> {
     let mut ecrivain = EcrivainExport::nouveau(dossier, sortie)?;
     for e in ecritures {
         ecrivain.ecriture(e)?;
     }
-    ecrivain.terminer().map(|(_, tete)| tete)
+    ecrivain.terminer_avec(jetons).map(|(_, tete)| tete)
 }
 
-/// Lit un export v1 élément par élément, sans le charger en mémoire.
+/// Étape de la lecture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Etape {
+    /// Écritures, puis tête et nombre.
+    Chaine,
+    /// Jetons (v2), puis `fin-export`.
+    Jetons,
+    /// `fin-export` lu.
+    Termine,
+}
+
+/// Lit un export v1 ou v2 élément par élément, sans le charger en mémoire.
 pub struct LecteurExport<R: BufRead> {
     entree: R,
     ligne: u64,
     tampon: Vec<u8>,
-    termine: bool,
+    version: Version,
+    etape: Etape,
+    jetons: usize,
 }
 
 impl<R: BufRead> LecteurExport<R> {
@@ -184,16 +264,25 @@ impl<R: BufRead> LecteurExport<R> {
             entree,
             ligne: 0,
             tampon: Vec::with_capacity(LIGNE_MAX + 1),
-            termine: false,
+            version: Version::V2,
+            etape: Etape::Chaine,
+            jetons: 0,
         };
-        let entete = lecteur.ligne_requise()?;
-        if entete != ENTETE_EXPORT_V1 {
-            return Err(lecteur.erreur(ErreurExport::Attendu(ENTETE_EXPORT_V1)));
-        }
+        lecteur.version = match lecteur.ligne_requise()?.as_str() {
+            ENTETE_EXPORT_V2 => Version::V2,
+            ENTETE_EXPORT_V1 => Version::V1,
+            _ => return Err(lecteur.erreur(ErreurExport::Attendu(ENTETE_EXPORT_V2))),
+        };
         let dossier = lecteur.valeur("dossier")?;
         let dossier = IdDossier::parse(&dossier)
             .map_err(|_| lecteur.erreur(ErreurExport::DossierInvalide))?;
         Ok((lecteur, dossier))
+    }
+
+    /// Version du format lu.
+    #[must_use]
+    pub fn version(&self) -> Version {
+        self.version
     }
 
     /// Numéro de la dernière ligne lue.
@@ -207,26 +296,22 @@ impl<R: BufRead> LecteurExport<R> {
     /// # Errors
     /// Défaut de forme ou erreur d'entrée-sortie.
     pub fn suivant(&mut self) -> Result<Option<Element>, ErreurLecture> {
-        if self.termine {
-            return Ok(None);
+        match self.etape {
+            Etape::Termine => return Ok(None),
+            Etape::Jetons => return self.jeton_ou_fin(),
+            Etape::Chaine => {}
         }
         let premiere = self.ligne_requise()?;
         let debut = self.ligne;
         if let Some(tete) = premiere.strip_prefix("tete=") {
             let tete =
                 Empreinte::parse(tete).map_err(|_| self.erreur(ErreurExport::EmpreinteInvalide))?;
-            let nombre = self.valeur("nombre")?;
-            let nombre =
-                lire_nombre(&nombre).ok_or_else(|| self.erreur(ErreurExport::NombreInvalide))?;
-            if self.ligne_requise()? != FIN_EXPORT {
-                return Err(self.erreur(ErreurExport::Attendu(FIN_EXPORT)));
+            let nombre = self.nombre()?;
+            if self.version == Version::V1 {
+                self.fin()?;
+            } else {
+                self.etape = Etape::Jetons;
             }
-            let mut reste = [0u8; 1];
-            if self.entree.read(&mut reste)? != 0 {
-                self.ligne += 1;
-                return Err(self.erreur(ErreurExport::DonneesApresFin));
-            }
-            self.termine = true;
             return Ok(Some(Element::Fin {
                 tete,
                 nombre,
@@ -272,6 +357,80 @@ impl<R: BufRead> LecteurExport<R> {
             empreinte,
             ligne_empreinte: self.ligne,
         }))
+    }
+
+    /// v2 : jeton suivant, ou `fin-export`.
+    fn jeton_ou_fin(&mut self) -> Result<Option<Element>, ErreurLecture> {
+        let premiere = self.ligne_requise()?;
+        if premiere == FIN_EXPORT {
+            self.verifier_fin_de_fichier()?;
+            return Ok(None);
+        }
+        if premiere != "jeton" {
+            return Err(self.erreur(ErreurExport::Attendu("jeton » ou « fin-export")));
+        }
+        let debut = self.ligne;
+        self.jetons += 1;
+        if self.jetons > JETONS_MAX {
+            return Err(self.erreur(ErreurExport::TropDeJetons));
+        }
+        let nombre = self.nombre()?;
+        let tete = self.valeur("tete")?;
+        let tete =
+            Empreinte::parse(&tete).map_err(|_| self.erreur(ErreurExport::EmpreinteInvalide))?;
+        let mut base64 = String::new();
+        loop {
+            let l = self.ligne_requise()?;
+            if l == "fin-jeton" {
+                break;
+            }
+            let Some(morceau) = l.strip_prefix("der=") else {
+                return Err(self.erreur(ErreurExport::Attendu("der » ou « fin-jeton")));
+            };
+            // Toutes les lignes ont 64 caractères, sauf la dernière (1 à 64).
+            if morceau.is_empty()
+                || morceau.len() > BASE64_LIGNE
+                || !base64.len().is_multiple_of(BASE64_LIGNE)
+            {
+                return Err(self.erreur(ErreurExport::JetonMalEncode("découpage des lignes")));
+            }
+            if base64.len() + morceau.len() > JETON_MAX.div_ceil(3) * 4 {
+                return Err(self.erreur(ErreurExport::JetonMalEncode("jeton trop volumineux")));
+            }
+            base64.push_str(morceau);
+        }
+        let der = Base64::decode_vec(&base64)
+            .map_err(|_| self.erreur(ErreurExport::JetonMalEncode("base64 invalide")))?;
+        if der.is_empty() || Base64::encode_string(&der) != base64 {
+            return Err(self.erreur(ErreurExport::JetonMalEncode("base64 non canonique")));
+        }
+        Ok(Some(Element::Jeton {
+            ligne: debut,
+            jeton: Box::new(JetonExporte { nombre, tete, der }),
+        }))
+    }
+
+    fn nombre(&mut self) -> Result<u64, ErreurLecture> {
+        let nombre = self.valeur("nombre")?;
+        lire_nombre(&nombre).ok_or_else(|| self.erreur(ErreurExport::NombreInvalide))
+    }
+
+    /// `fin-export`, puis plus rien.
+    fn fin(&mut self) -> Result<(), ErreurLecture> {
+        if self.ligne_requise()? != FIN_EXPORT {
+            return Err(self.erreur(ErreurExport::Attendu(FIN_EXPORT)));
+        }
+        self.verifier_fin_de_fichier()
+    }
+
+    fn verifier_fin_de_fichier(&mut self) -> Result<(), ErreurLecture> {
+        let mut reste = [0u8; 1];
+        if self.entree.read(&mut reste)? != 0 {
+            self.ligne += 1;
+            return Err(self.erreur(ErreurExport::DonneesApresFin));
+        }
+        self.etape = Etape::Termine;
+        Ok(())
     }
 
     fn erreur(&self, erreur: ErreurExport) -> ErreurLecture {
@@ -334,11 +493,60 @@ mod tests {
         }
     }
 
+    fn avec_jeton(lignes_der: &[&str]) -> String {
+        let tete = crate::chaine::genese(&IdDossier::parse("demo").unwrap());
+        let mut s = format!(
+            "{ENTETE_EXPORT_V2}\ndossier=demo\ntete={tete}\nnombre=0\njeton\nnombre=0\ntete={tete}\n"
+        );
+        for l in lignes_der {
+            s.push_str("der=");
+            s.push_str(l);
+            s.push('\n');
+        }
+        s.push_str("fin-jeton\nfin-export\n");
+        s
+    }
+
+    #[test]
+    fn jetons_lus_et_defauts_d_encodage() {
+        let ligne = "A".repeat(BASE64_LIGNE);
+        // Lecture : 64 + 4 caractères → 51 octets.
+        let texte = avec_jeton(&[&ligne, "AAAA"]);
+        let (mut lecteur, _) = LecteurExport::ouvrir(texte.as_bytes()).unwrap();
+        assert!(matches!(
+            lecteur.suivant().unwrap(),
+            Some(Element::Fin { .. })
+        ));
+        match lecteur.suivant().unwrap() {
+            Some(Element::Jeton { jeton, ligne: 5 }) => assert_eq!(jeton.der.len(), 51),
+            autre => panic!("{autre:?}"),
+        }
+        assert_eq!(lecteur.suivant().unwrap(), None);
+        // Découpage non canonique, base64 invalide ou non canonique, jeton vide.
+        for (lignes, ligne_attendue) in [
+            (vec!["AAAA", "AAAA"], 9),
+            (vec![ligne.as_str(), ""], 9),
+            (vec!["A*AA"], 9),
+            (vec!["AB=="], 9),
+        ] {
+            let (l, e) = erreur(avec_jeton(&lignes).as_bytes());
+            assert_eq!(l, ligne_attendue, "{lignes:?}");
+            assert!(
+                matches!(e, ErreurExport::JetonMalEncode(_)),
+                "{lignes:?} {e:?}"
+            );
+        }
+        assert!(matches!(
+            erreur(avec_jeton(&[]).as_bytes()).1,
+            ErreurExport::JetonMalEncode(_)
+        ));
+    }
+
     #[test]
     fn export_vide() {
         let dossier = IdDossier::parse("demo").unwrap();
         let mut sortie = Vec::new();
-        let tete = exporter(&dossier, &[], &mut sortie).unwrap();
+        let tete = exporter(&dossier, &[], &[], &mut sortie).unwrap();
         assert_eq!(tete, crate::chaine::genese(&dossier));
         let (mut lecteur, lu) = LecteurExport::ouvrir(sortie.as_slice()).unwrap();
         assert_eq!(lu, dossier);
@@ -351,6 +559,7 @@ mod tests {
             })
         );
         assert_eq!(lecteur.suivant().unwrap(), None);
+        assert_eq!(lecteur.version(), Version::V2);
     }
 
     fn erreur(texte: &[u8]) -> (u64, ErreurExport) {
@@ -371,8 +580,8 @@ mod tests {
             format!("{ENTETE_EXPORT_V1}\ndossier=demo\ntete={tete}\nnombre=0\nfin-export\n");
         assert_eq!(erreur(b""), (1, ErreurExport::Tronque));
         assert_eq!(
-            erreur(b"sigma-books export v2\n").1,
-            ErreurExport::Attendu(ENTETE_EXPORT_V1)
+            erreur(b"sigma-books export v3\n").1,
+            ErreurExport::Attendu(ENTETE_EXPORT_V2)
         );
         assert_eq!(
             erreur(valide.trim_end().as_bytes()),
@@ -398,6 +607,12 @@ mod tests {
         assert_eq!(
             erreur(longue.as_bytes()),
             (2, ErreurExport::LigneTropLongue)
+        );
+        // v1 : pas de jeton.
+        let v1 = format!("{ENTETE_EXPORT_V1}\ndossier=demo\ntete={tete}\nnombre=0\njeton\n");
+        assert_eq!(
+            erreur(v1.as_bytes()),
+            (5, ErreurExport::Attendu(FIN_EXPORT))
         );
         let mut pas_utf8 = valide.clone().into_bytes();
         pas_utf8[25] = 0xff;

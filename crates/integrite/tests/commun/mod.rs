@@ -249,10 +249,33 @@ pub fn dossier_de_reference() -> Dossier {
     d
 }
 
-/// Export v1 du dossier de référence.
+/// Export (v2) du dossier de référence, sans jeton.
 pub fn export_de_reference() -> Vec<u8> {
+    export_avec_jetons(&[])
+}
+
+/// Export (v2) du dossier de référence, avec les jetons donnés.
+pub fn export_avec_jetons(jetons: &[integrite::JetonExporte]) -> Vec<u8> {
     let d = dossier_de_reference();
     let mut sortie = Vec::new();
-    integrite::exporter(&dossier_id(), d.ecritures(), &mut sortie).unwrap();
+    integrite::exporter(&dossier_id(), d.ecritures(), jetons, &mut sortie).unwrap();
     sortie
+}
+
+/// Jetons réels du dossier de référence (obtenus le 2026-11-18) : `Sectigo` sur les 3 premières
+/// écritures, `DigiCert` sur les 5.
+pub fn jetons_de_reference() -> Vec<integrite::JetonExporte> {
+    let tete = |e: &str| integrite::Empreinte::parse(e).unwrap();
+    vec![
+        integrite::JetonExporte {
+            nombre: 3,
+            tete: tete("7ad8a78204d7b061fc9970084dbd53db80a2e3b245f17efab8d4ddfc89e00cda"),
+            der: include_bytes!("../vecteurs/horodatage/jeton-sectigo-3.tst").to_vec(),
+        },
+        integrite::JetonExporte {
+            nombre: 5,
+            tete: tete("13b4cf3aa80611d5f46d9bdb6fdc110d1adcc51f9ce1be0a737146af7b6a9e62"),
+            der: include_bytes!("../vecteurs/horodatage/jeton-digicert-5.tst").to_vec(),
+        },
+    ]
 }

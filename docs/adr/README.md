@@ -13,5 +13,6 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0007 | Écriture validée = définitive ; intégrité par chaîne de hachage | Acceptée |
 | 0008 | L'IA propose, l'humain valide | Acceptée |
 | 0009 | Licence AGPL-3.0-or-later, CLA, marque réservée | Acceptée |
+| 0010 | Horodatage RFC 3161 de la tête de chaîne : DigiCert, Sectigo en secours | Proposée |
 
 Modèle : copier `0000-modele.md`.
