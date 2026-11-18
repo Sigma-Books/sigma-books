@@ -26,7 +26,7 @@ Les clés apparaissent **dans cet ordre**. Les clés facultatives sont omises qu
 | `origine=` | contre-passation seulement | numéro de l'écriture contre-passée |
 | `parametres=` | si renseigné | version des paramètres fiscaux |
 | `piece=` | une ou plusieurs (justification par pièces) | empreinte SHA-256 de la pièce, 64 caractères `0-9a-f`, dans l'ordre de rattachement, sans doublon |
-| `sans-piece=` | à la place de `piece=` | motif « sans pièce » |
+| `sans-piece=` | à la place de `piece=` | motif « sans pièce ». **Plus produit** depuis que le moteur exige une pièce pour toute écriture (AUDCIF art. 17 et 22) ; reste lu pour vérifier les exports anciens |
 | `ligne` | une par ligne d'écriture, dans l'ordre de saisie | marqueur, suivi des clés de la ligne : |
 | `compte=` | toujours | numéro de compte |
 | `sens=` | toujours | `D` (débit) ou `C` (crédit) |

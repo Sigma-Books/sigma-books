@@ -19,7 +19,7 @@
 //! l'invariant 2. L'AUDCIF (art. 20) parle d'« inscription en négatif des éléments erronés » :
 //! la forme de la correction est soumise à l'expert-comptable (spec §26).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use rust_decimal::Decimal;
 use time::Date;
@@ -84,11 +84,8 @@ pub enum ErreurValidation {
         compte: NumeroCompte,
     },
     /// Aucune justification (inv. 6).
-    #[error("aucune pièce ni motif « sans pièce »")]
+    #[error("aucune pièce justificative (AUDCIF art. 17 et 22)")]
     JustificationManquante,
-    /// Motif « sans pièce » dans un journal qui ne l'autorise pas (inv. 6).
-    #[error("le journal {0} n'autorise pas les écritures sans pièce")]
-    SansPieceInterdit(CodeJournal),
     /// Compteur d'un autre journal ou d'un autre exercice que l'écriture.
     #[error(
         "compteur {compteur_journal}-{compteur_exercice} fourni pour une écriture {journal}-{exercice}"
@@ -154,35 +151,6 @@ pub enum ErreurValidation {
     },
 }
 
-/// Règles de justification propres au dossier : journaux où le motif « sans pièce » est admis
-/// (spec §6.2, invariant 6). Paramètre du dossier ; aucun journal par défaut.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ReglesJustification {
-    sans_piece: BTreeSet<CodeJournal>,
-}
-
-impl ReglesJustification {
-    /// Aucun journal n'admet d'écriture sans pièce.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Journaux qui admettent le motif « sans pièce ».
-    #[must_use]
-    pub fn sans_piece_admis(journaux: impl IntoIterator<Item = CodeJournal>) -> Self {
-        Self {
-            sans_piece: journaux.into_iter().collect(),
-        }
-    }
-
-    /// Vrai si le journal admet le motif « sans pièce ».
-    #[must_use]
-    pub fn admet_sans_piece(&self, journal: &CodeJournal) -> bool {
-        self.sans_piece.contains(journal)
-    }
-}
-
 /// État du dossier nécessaire à la validation : référentiel et calendrier, en lecture seule.
 #[derive(Debug, Clone, Copy)]
 pub struct Contexte<'a> {
@@ -192,8 +160,6 @@ pub struct Contexte<'a> {
     pub journaux: &'a Journaux,
     /// Exercices et périodes.
     pub exercices: &'a Exercices,
-    /// Règles de justification.
-    pub regles: &'a ReglesJustification,
 }
 
 /// Écriture validée : définitive, numérotée, en lecture seule. Ne se construit que par
@@ -519,13 +485,9 @@ fn controler(
             });
         }
     }
-    // Invariant 6 : pièce, ou motif « sans pièce » admis par le journal.
-    match ecriture.justification() {
-        None => return Err(ErreurValidation::JustificationManquante),
-        Some(Justification::SansPiece(_)) if !contexte.regles.admet_sans_piece(code) => {
-            return Err(ErreurValidation::SansPieceInterdit(code.clone()));
-        }
-        Some(_) => {}
+    // Invariant 6 : au moins une pièce (AUDCIF art. 17 et 22 : aucune écriture sans pièce).
+    if ecriture.justification().is_none() {
+        return Err(ErreurValidation::JustificationManquante);
     }
     // Invariant 7 : une écriture d'un journal de trésorerie mouvemente son compte.
     if let Some(tresorerie) = journal.compte_tresorerie()

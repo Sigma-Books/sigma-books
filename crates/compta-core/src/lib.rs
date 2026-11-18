@@ -32,7 +32,7 @@ pub use exercice::{
 pub use journal::{
     CodeJournal, ErreurJournal, Journal, Journaux, ModeleJournal, TypeJournal, journaux_par_defaut,
 };
-pub use livre::{Contexte, EcritureValidee, ErreurValidation, Livre, ReglesJustification};
+pub use livre::{Contexte, EcritureValidee, ErreurValidation, Livre};
 pub use montant::{Cours, Devise, ErreurMontant, Montant};
 pub use numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 pub use plan::{Compte, CompteReference, ErreurPlan, GenreCompte, PlanComptes, SensNormal, Usage};

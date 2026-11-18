@@ -191,14 +191,15 @@ impl ReferencePiece {
     }
 }
 
-/// Justification d'une écriture (spec §2 principe 2 ; §6.2, invariant 6).
+/// Justification d'une écriture (spec §2 principe 2 ; §6.2, invariant 6) : une ou plusieurs
+/// pièces, sans doublon, dans l'ordre de rattachement.
+///
+/// L'AUDCIF n'admet aucune écriture sans pièce (art. 17 3° et 5°, art. 22 7°) ; il admet les
+/// pièces **internes** émises par l'entité (art. 16) : état d'inventaire, tableau
+/// d'amortissement, balance de clôture pour les à-nouveaux, note d'opérations diverses… La
+/// nature d'une pièce (interne ou externe) est une propriété de la pièce, pas de l'écriture.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Justification {
-    /// Une ou plusieurs pièces, sans doublon, dans l'ordre de rattachement.
-    Pieces(Vec<ReferencePiece>),
-    /// Motif explicite « sans pièce » ; accepté seulement pour les journaux qui l'autorisent.
-    SansPiece(TexteCourt),
-}
+pub struct Justification(Vec<ReferencePiece>);
 
 impl Justification {
     /// Justification par pièces : au moins une, doublons retirés (ordre conservé).
@@ -217,13 +218,13 @@ impl Justification {
         if liste.is_empty() {
             return Err(ErreurEcriture::AucunePiece);
         }
-        Ok(Self::Pieces(liste))
+        Ok(Self(liste))
     }
 
-    /// Justification « sans pièce », avec son motif.
+    /// Références des pièces, dans l'ordre de rattachement (au moins une).
     #[must_use]
-    pub fn sans_piece(motif: TexteCourt) -> Self {
-        Self::SansPiece(motif)
+    pub fn references(&self) -> &[ReferencePiece] {
+        &self.0
     }
 }
 
@@ -826,7 +827,7 @@ pub(crate) mod tests {
         assert!(ReferencePiece::parse(&"g".repeat(64)).is_err());
         let p = ReferencePiece::parse(&bonne).unwrap();
         let j = Justification::pieces([p.clone(), p.clone()]).unwrap();
-        assert_eq!(j, Justification::Pieces(vec![p]), "doublons retirés");
+        assert_eq!(j.references(), [p], "doublons retirés");
         assert_eq!(
             Justification::pieces(Vec::new()).unwrap_err(),
             ErreurEcriture::AucunePiece

@@ -10,7 +10,7 @@ use compta_core::{
     CodeExercice, CodeJournal, CompteReference, Compteur, Contexte, Devise, EcritureBrouillon,
     EcritureEquilibree, ErreurValidation, Exercices, FinPremierExercice, IdTiers, Journal,
     Journaux, Justification, Ligne, Livre, Montant, NumeroCompte, NumeroEcriture, PlanComptes,
-    ReferencePiece, ReglesJustification, Sens, SensNormal, TexteCourt, TypeJournal,
+    ReferencePiece, Sens, SensNormal, TexteCourt, TypeJournal,
 };
 use time::Date;
 use time::macros::date;
@@ -73,7 +73,6 @@ pub struct Dossier {
     pub plan: PlanComptes,
     pub journaux: Journaux,
     pub exercices: Exercices,
-    pub regles: ReglesJustification,
     pub livre: Livre,
     pub compteurs: BTreeMap<(CodeJournal, CodeExercice), Compteur>,
 }
@@ -130,7 +129,6 @@ impl Dossier {
             plan,
             journaux,
             exercices,
-            regles: ReglesJustification::sans_piece_admis([j("OD"), j("IN")]),
             livre: Livre::new(),
             compteurs: BTreeMap::new(),
         }
@@ -141,7 +139,6 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
-            regles: &self.regles,
         }
     }
 
@@ -173,7 +170,6 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
-            regles: &self.regles,
         };
         let (numero, suivant) = self
             .livre
@@ -194,7 +190,6 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
-            regles: &self.regles,
         };
         let (numero, suivant) = self.livre.contre_passer(
             origine,
