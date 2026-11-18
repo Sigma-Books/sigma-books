@@ -1,6 +1,6 @@
 # 0015 — Pièces justificatives en L2 : stockage objet WORM, sans analyse ni rendu
 
-- **Statut :** proposée
+- **Statut :** acceptée (2026-11-18, par le mainteneur)
 - **Date :** 2026-11-18
 
 ## Contexte
