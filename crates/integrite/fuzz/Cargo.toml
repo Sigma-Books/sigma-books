@@ -1,0 +1,25 @@
+# Cibles de fuzzing de `integrite` (cargo-fuzz, chaîne nightly). Hors du workspace :
+# `cargo +nightly fuzz run export` depuis `crates/integrite/`. Voir `fuzz/README.md`.
+[package]
+name = "integrite-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+integrite = { path = ".." }
+libfuzzer-sys = "0.4.13"
+
+[[bin]]
+name = "export"
+path = "fuzz_targets/export.rs"
+test = false
+doc = false
+bench = false
+
+# Paquet autonome : n'appartient pas au workspace racine.
+[workspace]
