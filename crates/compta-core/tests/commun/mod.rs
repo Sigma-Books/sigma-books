@@ -163,10 +163,21 @@ impl Dossier {
         );
     }
 
-    /// Valide une écriture équilibrée avec le compteur courant de son journal et exercice.
+    /// Valide une écriture équilibrée avec le compteur courant de son journal et exercice,
+    /// le jour même de sa date.
     pub fn valider(
         &mut self,
         ecriture: EcritureEquilibree,
+    ) -> Result<NumeroEcriture, ErreurValidation> {
+        let jour = ecriture.date();
+        self.valider_le(ecriture, jour)
+    }
+
+    /// Valide une écriture à une date de validation donnée.
+    pub fn valider_le(
+        &mut self,
+        ecriture: EcritureEquilibree,
+        date_validation: Date,
     ) -> Result<NumeroEcriture, ErreurValidation> {
         let compteur = self.compteur(ecriture.journal(), ecriture.date());
         let contexte = Contexte {
@@ -177,7 +188,7 @@ impl Dossier {
         };
         let (numero, suivant) = self
             .livre
-            .valider(ecriture, &contexte, &compteur, date!(2026 - 12 - 31))
+            .valider(ecriture, &contexte, &compteur, date_validation)
             .map_err(|refus| refus.decomposer().1)?;
         self.enregistrer(suivant);
         Ok(numero)
@@ -202,7 +213,7 @@ impl Dossier {
             t("Contre-passation"),
             &contexte,
             &compteur,
-            date!(2026 - 12 - 31),
+            date,
         )?;
         self.enregistrer(suivant);
         Ok(numero)

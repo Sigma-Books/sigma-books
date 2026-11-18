@@ -164,7 +164,10 @@ Cabinet (tenant)
 |---|---|
 | `ouverte` | Saisie autorisée |
 | `verrouillee` | Plus aucune validation dans la période (ex. après déclaration de TVA). Déverrouillage par un rôle habilité, motif obligatoire, journalisé. |
-| `cloturee` | Suit la clôture de l'exercice ; irréversible |
+| `cloturee` | **Clôture informatique** (AUDCIF art. 22 3°) : irréversible, aucune réouverture ; les périodes se clôturent dans l'ordre. La dernière période d'un exercice se clôture avec lui. |
+
+- **Échéance de la clôture informatique** : au plus tard le dernier jour du **troisième mois** qui suit la fin de la période (art. 22 3° : « au moins trimestrielle et mise en œuvre au plus tard à la fin du trimestre qui suit », lecture prudente) ; pour la dernière période de l'exercice, le dernier jour du **quatrième mois** qui suit la fin de l'exercice (délai d'arrêté des comptes, art. 23), ce qui laisse passer les écritures d'inventaire.
+- Alerte avant l'échéance ; une fois l'échéance passée, plus aucune validation dans la période tant qu'elle n'est pas clôturée.
 
 ---
 
@@ -247,7 +250,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 ### 6.3 Numérotation
 - Format : `{journal}-{exercice}-{séquence sur 6 chiffres}` (ex. `AC-2026-000231`), `{exercice}` étant l'année de clôture (§4.2).
 - Séquence continue sans trou par journal et par exercice, attribuée dans la même transaction que la validation (verrou sur la séquence).
-- **Chronologie** (AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4°) : dans un journal et un exercice, une écriture n'est jamais datée avant la dernière écriture validée. La date comptable est la date de la pièce interne, ou la date de **réception** de la pièce externe (art. 16 al. 3).
+- **Chronologie** (AUDCIF art. 16 al. 3, art. 22 3° et 4°) : aucune écriture dans une période qui n'est pas ouverte ; la clôture informatique d'une période (§4.3) fige sa chronologie. Dans une période ouverte, l'ordre des numéros peut différer de celui des dates : les éditions classent par date puis par numéro. La date comptable est la date de la pièce interne, ou la date de **réception** de la pièce externe (art. 16 al. 3).
 
 ### 6.4 Chaîne de hachage
 - Pour chaque dossier : `hash_n = SHA-256(hash_{n-1} ‖ contenu canonique de l'écriture n)`. Le contenu canonique est une sérialisation déterministe (ordre des champs, format des montants, lignes triées par ordre).
@@ -889,6 +892,7 @@ Ces points touchent à l'exactitude comptable et fiscale. Ils doivent être conf
 | 12 | Forme de la correction d'erreur : contre-passation par inversion du débit et du crédit (choix retenu) ou « inscription en négatif des éléments erronés » (AUDCIF art. 20, p. PDF 23) | L1 |
 | 13 | Colonnes des balances de travail en 2, 4 et 8 colonnes (la balance générale à 6 colonnes suit l'AUDCIF art. 19) | L1 |
 | 14 | Sens normal des comptes (règle du chiffre 9, AUDCIF p. PDF 216-217) et incohérence 5261/5265 entre la fiche du compte 52 (p. PDF 416) et la liste officielle | L1 |
+| 15 | Clôture informatique (AUDCIF art. 22 3°) : lecture du délai pour une période mensuelle (3 mois après la période, retenu, ou fin du trimestre civil suivant) ; échéance de la dernière période alignée sur l'arrêté des comptes (art. 23) pour les écritures d'inventaire | L1 |
 
 ---
 

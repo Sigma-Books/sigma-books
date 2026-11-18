@@ -56,12 +56,10 @@ fn date_de(jour: u16) -> Date {
     Date::from_ordinal_date(2026, jour).unwrap()
 }
 
-/// Valide les écritures dans l'ordre des dates (chronologie, AUDCIF art. 22 3°).
+/// Valide les écritures dans l'ordre donné, chacune le jour de sa date.
 fn valider_tout(dos: &mut Dossier, modeles: &[Modele]) -> Vec<compta_core::NumeroEcriture> {
-    let mut modeles = modeles.to_vec();
-    modeles.sort_by_key(|m| m.jour);
     let mut numeros = Vec::new();
-    for m in &modeles {
+    for m in modeles {
         let mut lignes = Vec::new();
         for (debit, credit, montant) in &m.lignes {
             lignes.push(ligne_test(*debit, Sens::Debit, *montant));
@@ -114,28 +112,29 @@ proptest! {
         }
     }
 
+    /// Dans une période ouverte, l'ordre de validation est libre (AUDCIF art. 22 : l'ordre
+    /// n'est figé qu'à la clôture) ; l'édition du journal classe par date puis par numéro.
     #[test]
-    fn chronologie_par_journal(jours in proptest::collection::vec(1u16..=365, 1..30)) {
+    fn ordre_libre_et_edition_classee(jours in proptest::collection::vec(1u16..=365, 1..30)) {
         let mut dos = Dossier::nouveau();
-        let mut derniere: Option<u16> = None;
-        for jour in jours {
+        for jour in &jours {
             let e = equilibree(
                 "OD",
-                date_de(jour),
+                date_de(*jour),
                 "Écriture générée",
-                vec![ligne_test(0, Sens::Debit, Decimal::ONE), ligne_test(1, Sens::Credit, Decimal::ONE)],
+                vec![ligne_test(4, Sens::Debit, Decimal::ONE), ligne_test(5, Sens::Credit, Decimal::ONE)],
             );
-            let resultat = dos.valider(e);
-            if derniere.is_some_and(|d| jour < d) {
-                prop_assert!(
-                    matches!(resultat, Err(ErreurValidation::DateAnterieureAuJournal { .. })),
-                    "{:?}", resultat
-                );
-            } else {
-                prop_assert!(resultat.is_ok(), "{:?}", resultat);
-                derniere = Some(jour);
-            }
+            prop_assert!(dos.valider(e).is_ok());
         }
+        let editions = compta_core::journaux(&dos.livre, &[], Mode::Definitif, &filtre(&dos, 1, 365)).unwrap();
+        let cles: Vec<_> = editions[0]
+            .ecritures
+            .iter()
+            .map(|e| (e.date, e.numero.clone()))
+            .collect();
+        let mut triees = cles.clone();
+        triees.sort();
+        prop_assert_eq!(cles, triees);
     }
 
     #[test]

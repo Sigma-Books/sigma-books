@@ -17,7 +17,9 @@
 //!   clôture et se clôturent dans l'ordre chronologique ;
 //! - période (mois civil, le premier éventuellement partiel) : `ouverte` ⇄ `verrouillee` ;
 //!   le déverrouillage exige un **motif**, renvoyé à l'appelant pour la journalisation (L2) ;
-//!   `cloturee` suit la clôture de l'exercice.
+//!   `cloturee` est la **clôture informatique** de l'AUDCIF (art. 22 3°, p. PDF 24) :
+//!   irréversible, dans l'ordre des périodes, au plus tard à son **échéance**
+//!   ([`echeance_de_cloture`]). La dernière période d'un exercice se clôture avec lui.
 //!
 //! Aucune lecture d'horloge : toutes les dates sont des paramètres. Une opération refusée
 //! laisse l'état inchangé.
@@ -65,6 +67,9 @@ pub enum ErreurExercice {
     /// Transition de statut interdite.
     #[error("transition interdite : {0}")]
     TransitionInterdite(&'static str),
+    /// Une période antérieure doit être clôturée d'abord (art. 22 3° et 4°).
+    #[error("la période commençant le {0} doit être clôturée avant")]
+    PeriodeAnterieureNonCloturee(Date),
     /// Un exercice plus ancien doit d'abord avancer.
     #[error("l'exercice {0}, plus ancien, doit être clôturé (ou en clôture) avant")]
     ExerciceAnterieurNonClos(CodeExercice),
@@ -137,7 +142,7 @@ pub enum StatutPeriode {
     Ouverte,
     /// Plus aucune validation dans la période.
     Verrouillee,
-    /// Suit la clôture de l'exercice ; irréversible.
+    /// Clôture informatique (AUDCIF art. 22 3°) ; irréversible.
     Cloturee,
 }
 
@@ -173,6 +178,37 @@ impl Periode {
     pub fn contient(&self, date: Date) -> bool {
         self.debut <= date && date <= self.fin
     }
+}
+
+/// Échéance de la clôture informatique d'une période (AUDCIF art. 22 3°, décision du mainteneur
+/// du 2026-11-18) : le dernier jour du **troisième mois** qui suit la fin de la période. Pour
+/// la dernière période d'un exercice, qui se clôture avec lui : le dernier jour du
+/// **quatrième mois** qui suit la fin de l'exercice, délai d'arrêté des comptes (art. 23).
+///
+/// # Errors
+/// [`ErreurExercice::DateHorsPlage`].
+pub fn echeance_de_cloture(exercice: &Exercice, periode: &Periode) -> Result<Date, ErreurExercice> {
+    let mois = if periode.fin == exercice.fin { 4 } else { 3 };
+    let mut debut = periode.fin;
+    for _ in 0..=mois {
+        debut = premier_du_mois_suivant(debut)?;
+    }
+    debut.previous_day().ok_or(ErreurExercice::DateHorsPlage)
+}
+
+/// Période non clôturée et son échéance de clôture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcheanceCloture {
+    /// Exercice.
+    pub exercice: CodeExercice,
+    /// Premier jour de la période.
+    pub debut: Date,
+    /// Dernier jour de la période.
+    pub fin: Date,
+    /// Dernier jour pour la clôturer.
+    pub echeance: Date,
+    /// Statut actuel (ouverte ou verrouillée).
+    pub statut: StatutPeriode,
 }
 
 /// Exercice comptable.
@@ -424,6 +460,71 @@ impl Exercices {
         })
     }
 
+    /// Clôture informatique de la période contenant la date (AUDCIF art. 22 3°) :
+    /// irréversible, aucune réouverture. Les périodes se clôturent dans l'ordre ; la dernière
+    /// période d'un exercice se clôture avec lui ([`Exercices::cloturer`]).
+    ///
+    /// # Errors
+    /// Aucune période ne contient la date, période déjà clôturée, dernière période de
+    /// l'exercice, ou période antérieure non clôturée.
+    pub fn cloturer_periode(&mut self, date: Date) -> Result<(), ErreurExercice> {
+        let anterieure = self
+            .exercices
+            .iter()
+            .flat_map(|e| e.periodes.iter())
+            .find(|p| p.fin < date && p.statut != StatutPeriode::Cloturee)
+            .map(|p| p.debut);
+        let exercice = self
+            .exercices
+            .iter_mut()
+            .find(|e| e.contient(date))
+            .ok_or(ErreurExercice::PeriodeInconnue(date))?;
+        let fin_exercice = exercice.fin;
+        let periode = exercice
+            .periodes
+            .iter_mut()
+            .find(|p| p.contient(date))
+            .ok_or(ErreurExercice::PeriodeInconnue(date))?;
+        if periode.statut == StatutPeriode::Cloturee {
+            return Err(ErreurExercice::TransitionInterdite(
+                "la période est déjà clôturée",
+            ));
+        }
+        if periode.fin == fin_exercice {
+            return Err(ErreurExercice::TransitionInterdite(
+                "la dernière période se clôture avec l'exercice",
+            ));
+        }
+        if let Some(debut) = anterieure {
+            return Err(ErreurExercice::PeriodeAnterieureNonCloturee(debut));
+        }
+        periode.statut = StatutPeriode::Cloturee;
+        Ok(())
+    }
+
+    /// Périodes non clôturées et leurs échéances, dans l'ordre chronologique : de quoi
+    /// alerter avant l'échéance (L2).
+    ///
+    /// # Errors
+    /// [`ErreurExercice::DateHorsPlage`].
+    pub fn echeances_de_cloture(&self) -> Result<Vec<EcheanceCloture>, ErreurExercice> {
+        let mut echeances = Vec::new();
+        for exercice in &self.exercices {
+            for periode in &exercice.periodes {
+                if periode.statut != StatutPeriode::Cloturee {
+                    echeances.push(EcheanceCloture {
+                        exercice: exercice.code.clone(),
+                        debut: periode.debut,
+                        fin: periode.fin,
+                        echeance: echeance_de_cloture(exercice, periode)?,
+                        statut: periode.statut,
+                    });
+                }
+            }
+        }
+        Ok(echeances)
+    }
+
     fn pousser(&mut self, exercice: Exercice) -> &Exercice {
         self.exercices.push(exercice);
         let dernier = self.exercices.len() - 1;
@@ -507,6 +608,66 @@ mod tests {
             .ouvrir_premier(debut, FinPremierExercice::AnneeDeDebut)
             .unwrap();
         exercices
+    }
+
+    #[test]
+    fn cloture_informatique_dans_l_ordre_et_irreversible() {
+        let mut exercices = dossier(date!(2026 - 01 - 01));
+        assert_eq!(
+            exercices.cloturer_periode(date!(2026 - 02 - 10)),
+            Err(ErreurExercice::PeriodeAnterieureNonCloturee(date!(
+                2026 - 01 - 01
+            )))
+        );
+        exercices
+            .verrouiller_periode(date!(2026 - 01 - 10))
+            .unwrap();
+        exercices.cloturer_periode(date!(2026 - 01 - 10)).unwrap();
+        let janvier = |e: &Exercices| e.exercices()[0].periodes()[0].statut();
+        assert_eq!(janvier(&exercices), StatutPeriode::Cloturee);
+        // Aucune réouverture, aucun verrouillage, pas de double clôture.
+        assert!(
+            exercices
+                .deverrouiller_periode(date!(2026 - 01 - 10), motif())
+                .is_err()
+        );
+        assert!(
+            exercices
+                .verrouiller_periode(date!(2026 - 01 - 10))
+                .is_err()
+        );
+        assert!(exercices.cloturer_periode(date!(2026 - 01 - 10)).is_err());
+        assert_eq!(janvier(&exercices), StatutPeriode::Cloturee);
+        // Février à novembre ; décembre se clôture avec l'exercice.
+        for mois in 2..=11u8 {
+            let jour = Date::from_calendar_date(2026, Month::try_from(mois).unwrap(), 1).unwrap();
+            exercices.cloturer_periode(jour).unwrap();
+        }
+        assert!(matches!(
+            exercices.cloturer_periode(date!(2026 - 12 - 01)),
+            Err(ErreurExercice::TransitionInterdite(_))
+        ));
+        assert!(exercices.cloturer_periode(date!(2030 - 01 - 01)).is_err());
+    }
+
+    #[test]
+    fn echeances_de_cloture() {
+        let mut exercices = Exercices::new();
+        exercices
+            .ouvrir_premier(date!(2026 - 08 - 17), FinPremierExercice::AnneeSuivante)
+            .unwrap();
+        let echeances = exercices.echeances_de_cloture().unwrap();
+        // Août 2026 (partiel) : fin novembre ; novembre : fin février (année non bissextile) ;
+        // décembre 2027, dernière période : fin avril 2028 (art. 23).
+        assert_eq!(echeances.len(), 17);
+        assert_eq!(echeances[0].debut, date!(2026 - 08 - 17));
+        assert_eq!(echeances[0].echeance, date!(2026 - 11 - 30));
+        assert_eq!(echeances[3].echeance, date!(2027 - 02 - 28));
+        assert_eq!(echeances[16].fin, date!(2027 - 12 - 31));
+        assert_eq!(echeances[16].echeance, date!(2028 - 04 - 30));
+        assert!(echeances.iter().all(|e| e.statut == StatutPeriode::Ouverte));
+        exercices.cloturer_periode(date!(2026 - 08 - 20)).unwrap();
+        assert_eq!(exercices.echeances_de_cloture().unwrap().len(), 16);
     }
 
     #[test]

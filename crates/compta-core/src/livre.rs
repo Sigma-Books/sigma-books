@@ -8,10 +8,13 @@
 //! - [`Livre::contre_passer`] crée l'écriture miroir (sens inversés, mêmes comptes, montants,
 //!   devises et tiers), validée et liée à l'originale dans les deux sens ; une écriture n'est
 //!   contre-passée qu'une fois.
-//! - **Chronologie** : dans un journal et un exercice, une écriture n'est jamais datée avant
-//!   la dernière écriture validée (AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4° :
-//!   enregistrement dans l'ordre des dates de valeur, sans insertion intercalaire). Une pièce
-//!   externe reçue en retard prend sa date de réception (art. 16 al. 3).
+//! - **Chronologie** (AUDCIF art. 16 al. 3, art. 22 3° et 4°) : aucune écriture dans une
+//!   période qui n'est pas ouverte ; une période clôturée (clôture informatique) est figée.
+//!   Dans une période ouverte, l'ordre des numéros ne suit pas forcément celui des dates : les
+//!   éditions classent par date puis par numéro. Une pièce externe reçue en retard prend sa
+//!   date de réception (art. 16 al. 3).
+//! - **Échéance de clôture** : passé l'échéance de sa période ([`echeance_de_cloture`]), une
+//!   écriture n'est plus validée ; la période doit être clôturée.
 //!
 //! Comme Tryton (`account.move.post`, `cancel(reversal=True)`) : le numéro est attribué à la
 //! validation, la contre-passation inverse débit et crédit et garde le lien vers l'origine.
@@ -29,7 +32,9 @@ use crate::ecriture::{
     EcritureBrouillon, EcritureEquilibree, ErreurEcriture, Justification, Ligne, Refus,
     VersionParametres,
 };
-use crate::exercice::{CodeExercice, Exercices, StatutExercice, StatutPeriode};
+use crate::exercice::{
+    CodeExercice, Exercices, StatutExercice, StatutPeriode, echeance_de_cloture,
+};
 use crate::journal::{CodeJournal, Journaux};
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 use crate::plan::{ErreurPlan, PlanComptes, Usage};
@@ -130,20 +135,21 @@ pub enum ErreurValidation {
         /// Contre-passation existante.
         par: NumeroEcriture,
     },
-    /// Écriture datée avant la dernière écriture validée du même journal et du même exercice :
-    /// l'enregistrement suit l'ordre des dates de valeur, sans insertion intercalaire
-    /// (AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4°).
+    /// Échéance de la clôture informatique dépassée : la période doit être clôturée et
+    /// n'accepte plus d'écriture (AUDCIF art. 22 3°).
     #[error(
-        "chronologie : l'écriture du {date} précède la dernière écriture validée du journal {journal} ({derniere})"
+        "la période commençant le {periode} devait être clôturée au plus tard le {echeance} : \
+         plus aucune écriture n'y est validée"
     )]
-    DateAnterieureAuJournal {
-        /// Date de l'écriture.
-        date: Date,
-        /// Journal.
-        journal: CodeJournal,
-        /// Date de la dernière écriture validée de ce journal dans l'exercice.
-        derniere: Date,
+    EcheanceDepassee {
+        /// Premier jour de la période.
+        periode: Date,
+        /// Échéance de clôture.
+        echeance: Date,
     },
+    /// Calcul de date impossible.
+    #[error("exercice : {0}")]
+    Exercice(#[from] crate::exercice::ErreurExercice),
     /// Contre-passation datée avant l'écriture d'origine.
     #[error("la contre-passation ({date}) ne peut précéder l'écriture d'origine ({origine})")]
     DateAnterieureAOrigine {
@@ -278,8 +284,8 @@ pub struct Livre {
     ecritures: Vec<EcritureValidee>,
     index: BTreeMap<NumeroEcriture, usize>,
     contre_passations: BTreeMap<NumeroEcriture, NumeroEcriture>,
-    /// Dernière séquence et dernière date validées, par journal et exercice.
-    derniers: BTreeMap<(CodeJournal, CodeExercice), (u32, Date)>,
+    /// Dernière séquence validée, par journal et exercice.
+    dernieres_sequences: BTreeMap<(CodeJournal, CodeExercice), u32>,
 }
 
 impl Livre {
@@ -412,7 +418,7 @@ impl Livre {
         compteur: &Compteur,
         date_validation: Date,
     ) -> Result<(NumeroEcriture, Compteur), ErreurValidation> {
-        let exercice = controler(ecriture, contexte)?;
+        let exercice = controler(ecriture, contexte, date_validation)?;
         let justification = ecriture
             .justification()
             .cloned()
@@ -426,21 +432,11 @@ impl Livre {
             });
         }
         let cle = (ecriture.journal().clone(), exercice);
-        let (attendue, derniere) = match self.derniers.get(&cle) {
-            Some(&(sequence, date)) => (sequence, Some(date)),
-            None => (0, None),
-        };
+        let attendue = self.dernieres_sequences.get(&cle).copied().unwrap_or(0);
         if compteur.dernier() != attendue {
             return Err(ErreurValidation::CompteurDesynchronise {
                 fournie: compteur.dernier(),
                 attendue,
-            });
-        }
-        if let Some(derniere) = derniere.filter(|&d| ecriture.date() < d) {
-            return Err(ErreurValidation::DateAnterieureAuJournal {
-                date: ecriture.date(),
-                journal: ecriture.journal().clone(),
-                derniere,
             });
         }
         let (numero, suivant) = compteur.suivant()?;
@@ -455,7 +451,7 @@ impl Livre {
             date_validation,
             origine: origine.clone(),
         };
-        self.derniers.insert(cle, (numero.sequence(), validee.date));
+        self.dernieres_sequences.insert(cle, numero.sequence());
         self.index.insert(numero.clone(), self.ecritures.len());
         if let Some(origine) = origine {
             self.contre_passations.insert(origine, numero.clone());
@@ -470,6 +466,7 @@ impl Livre {
 fn controler(
     ecriture: &EcritureEquilibree,
     contexte: &Contexte<'_>,
+    date_validation: Date,
 ) -> Result<CodeExercice, ErreurValidation> {
     let code = ecriture.journal();
     // Invariant 7 : journal existant, ouvert à la saisie.
@@ -497,11 +494,17 @@ fn controler(
             return Err(ErreurValidation::ExerciceCloture(exercice.code().clone()));
         }
     }
-    let periode_ouverte = exercice
+    let periode = exercice
         .periode_contenant(date)
-        .is_some_and(|p| p.statut() == StatutPeriode::Ouverte);
-    if !periode_ouverte {
-        return Err(ErreurValidation::PeriodeFermee(date));
+        .filter(|p| p.statut() == StatutPeriode::Ouverte)
+        .ok_or(ErreurValidation::PeriodeFermee(date))?;
+    // Échéance de la clôture informatique (art. 22 3°) : au-delà, la période est figée.
+    let echeance = echeance_de_cloture(exercice, periode)?;
+    if date_validation > echeance {
+        return Err(ErreurValidation::EcheanceDepassee {
+            periode: periode.debut(),
+            echeance,
+        });
     }
     // Invariants 3 et 4 : comptes de mouvement actifs ; tiers sur les comptes collectifs.
     for (indice, ligne) in ecriture.lignes().iter().enumerate() {

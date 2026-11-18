@@ -32,7 +32,7 @@ fn validation_attribue_un_numero_continu() {
     assert_eq!(b.to_string(), "AC-2026-000002");
     let e = d.livre.ecriture(&a).unwrap();
     assert_eq!(e.date(), date!(2026 - 03 - 10));
-    assert_eq!(e.date_validation(), date!(2026 - 12 - 31));
+    assert_eq!(e.date_validation(), date!(2026 - 03 - 10));
     assert_eq!(e.libelle().as_str(), "Facture F-001");
     assert_eq!(e.total().to_string(), "118000");
     assert!(e.origine().is_none());
@@ -426,31 +426,54 @@ fn usage_des_comptes_et_journaux() {
     );
 }
 
-/// AUDCIF art. 16 al. 3, art. 17 4°, art. 22 3° et 4° : enregistrement dans l'ordre des dates
-/// de valeur, sans insertion intercalaire. Contrôle par journal et par exercice.
+/// AUDCIF art. 22 3° et 4° : l'ordre des dates n'est figé qu'à la clôture informatique. Dans
+/// une période ouverte, une écriture peut précéder une écriture déjà validée (décision du
+/// mainteneur du 2026-11-18) ; une période clôturée n'accepte plus rien.
 #[test]
-fn chronologie_par_journal_et_exercice() {
+fn chronologie_figee_par_la_cloture() {
     let mut d = Dossier::nouveau();
     d.valider(achat()).unwrap(); // AC, 10 mars
     let mut avant = achat().en_brouillon();
     avant.changer_date(date!(2026 - 03 - 09));
+    assert!(d.valider(avant.valider_equilibre().unwrap()).is_ok());
+    // Clôture de janvier et février : février n'accepte plus rien, mars reste ouvert.
+    d.exercices.cloturer_periode(date!(2026 - 01 - 15)).unwrap();
+    d.exercices.cloturer_periode(date!(2026 - 02 - 15)).unwrap();
+    let mut fevrier = achat().en_brouillon();
+    fevrier.changer_date(date!(2026 - 02 - 27));
     assert_eq!(
-        d.valider(avant.clone().valider_equilibre().unwrap()),
-        Err(ErreurValidation::DateAnterieureAuJournal {
-            date: date!(2026 - 03 - 09),
-            journal: j("AC"),
-            derniere: date!(2026 - 03 - 10),
+        d.valider(fevrier.valider_equilibre().unwrap()),
+        Err(ErreurValidation::PeriodeFermee(date!(2026 - 02 - 27)))
+    );
+    // Une contre-passation ne peut pas viser une période clôturée.
+    let origine = d.valider(achat()).unwrap();
+    assert!(d.contre_passer(&origine, date!(2026 - 02 - 28)).is_err());
+    assert!(d.contre_passer(&origine, date!(2026 - 03 - 10)).is_ok());
+}
+
+/// Échéance de la clôture informatique (art. 22 3°) : fin du 3e mois qui suit la période ;
+/// au-delà, plus aucune validation dans la période.
+#[test]
+fn validation_refusee_apres_l_echeance() {
+    let mut d = Dossier::nouveau();
+    assert!(d.valider_le(achat(), date!(2026 - 06 - 30)).is_ok());
+    assert_eq!(
+        d.valider_le(achat(), date!(2026 - 07 - 01)),
+        Err(ErreurValidation::EcheanceDepassee {
+            periode: date!(2026 - 03 - 01),
+            echeance: date!(2026 - 06 - 30),
         })
     );
-    // Même date : accepté. Autre journal, date antérieure : accepté (chronologie par journal).
-    assert!(d.valider(achat()).is_ok());
-    avant.changer_journal(j("OD"));
-    assert!(d.valider(avant.valider_equilibre().unwrap()).is_ok());
-    // Exercice suivant : sa propre chronologie.
-    let mut suivant = achat().en_brouillon();
-    suivant.changer_date(date!(2027 - 01 - 05));
-    assert!(d.valider(suivant.valider_equilibre().unwrap()).is_ok());
-    // La contre-passation suit la même règle.
-    let origine = d.valider(achat()).unwrap();
-    assert!(d.contre_passer(&origine, date!(2026 - 03 - 10)).is_ok());
+    // Décembre, dernière période : échéance au 30 avril suivant (art. 23).
+    let mut decembre = achat().en_brouillon();
+    decembre.changer_date(date!(2026 - 12 - 31));
+    let decembre = decembre.valider_equilibre().unwrap();
+    assert!(
+        d.valider_le(decembre.clone(), date!(2027 - 04 - 30))
+            .is_ok()
+    );
+    assert!(matches!(
+        d.valider_le(decembre, date!(2027 - 05 - 01)),
+        Err(ErreurValidation::EcheanceDepassee { .. })
+    ));
 }
