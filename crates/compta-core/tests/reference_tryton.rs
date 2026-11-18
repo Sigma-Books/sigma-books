@@ -64,7 +64,7 @@ fn scenario_move_cancel_reversal() {
     .unwrap();
     let mouvements = |dos: &Dossier, compte: &str| {
         Balance::calculer(
-            &dos.livre,
+            dos.livre.ecritures(),
             &[],
             Mode::Definitif,
             &filtre,

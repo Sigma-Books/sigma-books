@@ -2,7 +2,10 @@
 //!
 //! - [`Livre::valider`] contrôle les invariants du §6.2 sur une [`EcritureEquilibree`], attribue
 //!   le numéro définitif (compteur passé en paramètre, fonction pure côté numérotation) et
-//!   inscrit l'écriture. C'est la **seule** voie vers une [`EcritureValidee`].
+//!   inscrit l'écriture. Il délègue à [`crate::validation::valider`], la même validation sans
+//!   livre en mémoire (lot L2 : écritures en base). Ces deux voies, et la contre-passation,
+//!   sont les **seules** qui créent une [`EcritureValidee`] ;
+//!   [`EcritureValidee::reconstituer`] ne fait que relire une écriture déjà validée.
 //! - Le livre est en **ajout seul** : aucune fonction ne modifie ni ne retire une écriture
 //!   validée, aucune ne rend de `&mut` sur l'une d'elles (règle absolue 5).
 //! - [`Livre::contre_passer`] crée l'écriture miroir (sens inversés, mêmes comptes, montants,
@@ -29,8 +32,7 @@ use time::Date;
 
 use crate::compte::NumeroCompte;
 use crate::ecriture::{
-    EcritureBrouillon, EcritureEquilibree, ErreurEcriture, Justification, Ligne, Refus,
-    VersionParametres,
+    EcritureEquilibree, ErreurEcriture, Justification, Ligne, Refus, VersionParametres,
 };
 use crate::exercice::{
     CodeExercice, Exercice, Exercices, StatutExercice, StatutPeriode, echeance_de_cloture,
@@ -39,6 +41,7 @@ use crate::journal::{CodeJournal, Journal, Journaux};
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 use crate::plan::{ErreurPlan, PlanComptes, Usage};
 use crate::texte::TexteCourt;
+use crate::validation;
 
 /// Motifs de refus d'une validation ou d'une contre-passation.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -215,8 +218,46 @@ pub struct Contexte<'a> {
     pub exercices: &'a Exercices,
 }
 
-/// Écriture validée : définitive, numérotée, en lecture seule. Ne se construit que par
-/// [`Livre::valider`] ou [`Livre::contre_passer`].
+/// Motifs de refus d'une reconstitution ([`EcritureValidee::reconstituer`]) : la donnée relue
+/// n'a pas la forme d'une écriture validée.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ErreurReconstitution {
+    /// Le numéro n'appartient pas au journal de l'écriture.
+    #[error("le numéro {numero} n'appartient pas au journal {journal} de l'écriture")]
+    JournalDifferent {
+        /// Numéro relu.
+        numero: NumeroEcriture,
+        /// Journal de l'écriture relue.
+        journal: CodeJournal,
+    },
+    /// Aucune justification (inv. 6) : aucune écriture validée n'en est dépourvue.
+    #[error("aucune pièce justificative (AUDCIF art. 17 et 22)")]
+    JustificationManquante,
+    /// Date de valeur comptable qui n'est pas antérieure à la date comptable.
+    #[error("la date de valeur comptable ({date_valeur}) doit précéder la date comptable ({date})")]
+    DateValeurNonAnterieure {
+        /// Date de valeur comptable.
+        date_valeur: Date,
+        /// Date comptable.
+        date: Date,
+    },
+    /// Contre-passation dont l'origine est dans un autre journal.
+    #[error("la contre-passation {numero} cite une origine {origine} d'un autre journal")]
+    OrigineAutreJournal {
+        /// Numéro de la contre-passation.
+        numero: NumeroEcriture,
+        /// Origine citée.
+        origine: NumeroEcriture,
+    },
+    /// Écriture qui se cite elle-même comme origine.
+    #[error("l'écriture {0} se cite elle-même comme origine")]
+    OrigineIdentique(NumeroEcriture),
+}
+
+/// Écriture validée : définitive, numérotée, en lecture seule. Ne se crée que par la
+/// validation ([`Livre::valider`], [`crate::validation::valider`]) ou la contre-passation
+/// ([`Livre::contre_passer`], [`crate::validation::contre_passer`]) ; une écriture déjà
+/// validée, relue de la base, se reconstitue par [`EcritureValidee::reconstituer`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EcritureValidee {
     numero: NumeroEcriture,
@@ -231,6 +272,94 @@ pub struct EcritureValidee {
 }
 
 impl EcritureValidee {
+    /// Assemble une écriture validée. Réservé à la validation et à la reconstitution, qui ont
+    /// fait leurs contrôles.
+    pub(crate) fn assembler(
+        ecriture: EcritureEquilibree,
+        numero: NumeroEcriture,
+        justification: Justification,
+        date_validation: Date,
+        origine: Option<NumeroEcriture>,
+    ) -> Self {
+        let version_parametres = ecriture.version_parametres().cloned();
+        let date_valeur_comptable = ecriture.date_valeur_comptable();
+        let brouillon = ecriture.decomposer();
+        Self {
+            numero,
+            date: brouillon.date(),
+            libelle: brouillon.libelle().clone(),
+            lignes: brouillon.lignes().to_vec(),
+            justification,
+            version_parametres,
+            date_valeur_comptable,
+            date_validation,
+            origine,
+        }
+    }
+
+    /// Reconstitue une écriture **déjà validée**, relue de la persistance (lot L2) : son
+    /// contenu (`ecriture`, rebâtie au brouillard puis équilibrée), son numéro, sa date de
+    /// validation et, pour une contre-passation, son origine.
+    ///
+    /// **Seul usage : relire la persistance. Ce n'est pas une voie de validation.** Une
+    /// écriture du brouillard passe par [`crate::validation::valider`] ou [`Livre::valider`].
+    ///
+    /// Les contrôles sont **structurels** seulement : équilibre (garanti par le type
+    /// [`EcritureEquilibree`]), numéro dans le journal de l'écriture, justification présente
+    /// (inv. 6), date de valeur comptable antérieure à la date, origine éventuelle dans le même
+    /// journal et distincte du numéro. Les contrôles de contexte (périodes ouvertes, comptes
+    /// actifs, échéance de clôture) ne sont **pas** rejoués : ils valaient au jour de la
+    /// validation, et la période peut avoir été clôturée depuis, un compte désactivé.
+    /// L'intégrité du contenu relu n'est pas établie ici : elle l'est par la chaîne de hachage
+    /// (`crates/integrite`, ADR 0007), dont le contenu canonique d'une écriture reconstituée
+    /// est identique à celui de l'écriture validée d'origine.
+    ///
+    /// # Errors
+    /// [`ErreurReconstitution`] : la donnée relue n'a pas la forme d'une écriture validée.
+    pub fn reconstituer(
+        ecriture: EcritureEquilibree,
+        numero: NumeroEcriture,
+        date_validation: Date,
+        origine: Option<NumeroEcriture>,
+    ) -> Result<Self, ErreurReconstitution> {
+        if numero.journal() != ecriture.journal() {
+            return Err(ErreurReconstitution::JournalDifferent {
+                numero,
+                journal: ecriture.journal().clone(),
+            });
+        }
+        let justification = ecriture
+            .justification()
+            .cloned()
+            .ok_or(ErreurReconstitution::JustificationManquante)?;
+        if let Some(date_valeur) = ecriture.date_valeur_comptable()
+            && date_valeur >= ecriture.date()
+        {
+            return Err(ErreurReconstitution::DateValeurNonAnterieure {
+                date_valeur,
+                date: ecriture.date(),
+            });
+        }
+        if let Some(origine) = &origine {
+            if origine.journal() != numero.journal() {
+                return Err(ErreurReconstitution::OrigineAutreJournal {
+                    numero,
+                    origine: origine.clone(),
+                });
+            }
+            if origine == &numero {
+                return Err(ErreurReconstitution::OrigineIdentique(numero));
+            }
+        }
+        Ok(Self::assembler(
+            ecriture,
+            numero,
+            justification,
+            date_validation,
+            origine,
+        ))
+    }
+
     /// Numéro définitif.
     #[must_use]
     pub fn numero(&self) -> &NumeroEcriture {
@@ -362,6 +491,9 @@ impl Livre {
     /// suivant du `compteur` et l'inscrit au livre. Renvoie le numéro et le compteur à
     /// enregistrer à la place de l'ancien (dans la même transaction, lot L2).
     ///
+    /// Délègue à [`crate::validation::valider`] ; le livre y ajoute le contrôle du compteur
+    /// contre ses propres séquences ([`ErreurValidation::CompteurDesynchronise`]).
+    ///
     /// # Errors
     /// Invariant non respecté, compteur inadapté ou désynchronisé. L'écriture est rendue
     /// intacte avec le motif ; le livre n'est pas modifié.
@@ -372,14 +504,18 @@ impl Livre {
         compteur: &Compteur,
         date_validation: Date,
     ) -> Result<(NumeroEcriture, Compteur), Refus<EcritureEquilibree, ErreurValidation>> {
-        match self.inscrire(&ecriture, None, contexte, compteur, date_validation) {
-            Ok(resultat) => Ok(resultat),
-            Err(erreur) => Err(Refus::nouveau(ecriture, erreur)),
-        }
+        let (validee, suivant) =
+            validation::valider_avec(ecriture, None, contexte, compteur, date_validation, |c| {
+                self.verifier_compteur(c)
+            })?;
+        Ok((self.inscrire(validee), suivant))
     }
 
     /// Contre-passe l'écriture `origine` : écriture miroir dans le même journal, à la `date`
     /// donnée, avec la même justification, validée selon les mêmes contrôles.
+    ///
+    /// Délègue à [`crate::validation::contre_passer`], avec l'écriture d'origine et son état
+    /// de contre-passation tirés du livre.
     ///
     /// # Errors
     /// Écriture inconnue ou déjà contre-passée, date antérieure à l'origine, ou invariant non
@@ -396,89 +532,48 @@ impl Livre {
         let source = self
             .ecriture(origine)
             .ok_or_else(|| ErreurValidation::EcritureInconnue(origine.clone()))?;
-        if let Some(par) = self.contre_passations.get(origine) {
-            return Err(ErreurValidation::DejaContrePassee {
-                origine: origine.clone(),
-                par: par.clone(),
-            });
-        }
-        if date < source.date {
-            return Err(ErreurValidation::DateAnterieureAOrigine {
-                date,
-                origine: source.date,
-            });
-        }
-        let mut miroir = EcritureBrouillon::nouvelle(source.journal().clone(), date, libelle);
-        for ligne in &source.lignes {
-            miroir.ajouter_ligne(ligne.miroir());
-        }
-        miroir.justifier(source.justification.clone());
-        if let Some(version) = &source.version_parametres {
-            miroir.utiliser_parametres(version.clone());
-        }
-        // Le miroir d'une écriture équilibrée l'est aussi : l'échec est impossible, mais il
-        // est traité comme une erreur plutôt que par un `expect`.
-        let miroir = miroir
-            .valider_equilibre()
-            .map_err(|refus| ErreurValidation::Equilibre(refus.decomposer().1))?;
-        self.inscrire(
-            &miroir,
+        let miroir = validation::miroir(source, self.contre_passee_par(origine), date, libelle)?;
+        let (validee, suivant) = validation::valider_avec(
+            miroir,
             Some(origine.clone()),
             contexte,
             compteur,
             date_validation,
+            |c| self.verifier_compteur(c),
         )
+        .map_err(|refus| refus.decomposer().1)?;
+        Ok((self.inscrire(validee), suivant))
     }
 
-    fn inscrire(
-        &mut self,
-        ecriture: &EcritureEquilibree,
-        origine: Option<NumeroEcriture>,
-        contexte: &Contexte<'_>,
-        compteur: &Compteur,
-        date_validation: Date,
-    ) -> Result<(NumeroEcriture, Compteur), ErreurValidation> {
-        let exercice = controler(ecriture, contexte, date_validation)?;
-        let justification = ecriture
-            .justification()
-            .cloned()
-            .ok_or(ErreurValidation::JustificationManquante)?;
-        if compteur.journal() != ecriture.journal() || compteur.exercice() != &exercice {
-            return Err(ErreurValidation::CompteurInadapte {
-                compteur_journal: compteur.journal().clone(),
-                compteur_exercice: compteur.exercice().clone(),
-                journal: ecriture.journal().clone(),
-                exercice,
-            });
-        }
-        let cle = (ecriture.journal().clone(), exercice);
+    /// Le compteur fourni doit être le dernier enregistré pour son journal et son exercice :
+    /// un compteur périmé produirait un doublon, un compteur en avance un trou.
+    fn verifier_compteur(&self, compteur: &Compteur) -> Result<(), ErreurValidation> {
+        let cle = (compteur.journal().clone(), compteur.exercice().clone());
         let attendue = self.dernieres_sequences.get(&cle).copied().unwrap_or(0);
-        if compteur.dernier() != attendue {
-            return Err(ErreurValidation::CompteurDesynchronise {
+        if compteur.dernier() == attendue {
+            Ok(())
+        } else {
+            Err(ErreurValidation::CompteurDesynchronise {
                 fournie: compteur.dernier(),
                 attendue,
-            });
+            })
         }
-        let (numero, suivant) = compteur.suivant()?;
-        let brouillon = ecriture.clone().decomposer();
-        let validee = EcritureValidee {
-            numero: numero.clone(),
-            date: brouillon.date(),
-            libelle: brouillon.libelle().clone(),
-            lignes: brouillon.lignes().to_vec(),
-            justification,
-            version_parametres: ecriture.version_parametres().cloned(),
-            date_valeur_comptable: ecriture.date_valeur_comptable(),
-            date_validation,
-            origine: origine.clone(),
-        };
-        self.dernieres_sequences.insert(cle, numero.sequence());
+    }
+
+    /// Inscrit une écriture que la validation vient de créer, et renvoie son numéro.
+    fn inscrire(&mut self, validee: EcritureValidee) -> NumeroEcriture {
+        let numero = validee.numero.clone();
+        self.dernieres_sequences.insert(
+            (numero.journal().clone(), numero.exercice().clone()),
+            numero.sequence(),
+        );
         self.index.insert(numero.clone(), self.ecritures.len());
-        if let Some(origine) = origine {
-            self.contre_passations.insert(origine, numero.clone());
+        if let Some(origine) = &validee.origine {
+            self.contre_passations
+                .insert(origine.clone(), numero.clone());
         }
         self.ecritures.push(validee);
-        Ok((numero, suivant))
+        numero
     }
 }
 
@@ -577,7 +672,7 @@ fn date_attendue(attendue: Option<&Date>) -> String {
 
 /// Contrôle des invariants 3 à 7 du §6.2 (1 et 2 sont garantis par les types). Renvoie le code
 /// de l'exercice qui contient la date.
-fn controler(
+pub(crate) fn controler(
     ecriture: &EcritureEquilibree,
     contexte: &Contexte<'_>,
     date_validation: Date,

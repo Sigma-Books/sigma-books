@@ -286,7 +286,14 @@ impl Cas {
             .exercice(&CodeExercice::parse("2026").unwrap())
             .unwrap();
         let filtre = Filtre::exercice(exercice, &self.journaux, exercice.fin()).unwrap();
-        Balance::calculer(&self.livre, &self.brouillard, mode, &filtre, regroupement).unwrap()
+        Balance::calculer(
+            self.livre.ecritures(),
+            &self.brouillard,
+            mode,
+            &filtre,
+            regroupement,
+        )
+        .unwrap()
     }
 }
 
