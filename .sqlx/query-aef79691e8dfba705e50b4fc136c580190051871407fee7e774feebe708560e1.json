@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, nom, separation_taches, cree_le FROM cabinet WHERE id = $1",
+  "query": "SELECT c.id, c.nom, c.separation_taches, c.cree_le FROM cabinet c WHERE c.id = $1 AND EXISTS ( SELECT 1 FROM appartenance a WHERE a.cabinet_id = c.id AND a.utilisateur_id = $2 AND a.actif)",
   "describe": {
     "columns": [
       {
@@ -50,6 +50,7 @@
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Uuid"
       ]
     },
@@ -60,5 +61,5 @@
       false
     ]
   },
-  "hash": "45b4c2e9527d2fdf98f9268870dd40b3b41a135cee5aada9cd98726921cffdee"
+  "hash": "aef79691e8dfba705e50b4fc136c580190051871407fee7e774feebe708560e1"
 }

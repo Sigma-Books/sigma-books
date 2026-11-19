@@ -36,6 +36,16 @@ uuid = { version = "1.29.3", default-features = false, features = ["std", "v4"] 
 # Autorisation (ADR 0005). Extensions ipaddr et decimal désactivées ; datetime est réactivée
 # d'office par cedar-policy-formatter (chrono, RUSTSEC-2026-0543 ignoré, #145).
 cedar-policy = { version = "4.15.0", default-features = false }
+# Serveur HTTP du crate `api` (ADR 0002, Fondations §6.3 ; L2 PR 6). HTTP/1.1 seul : TLS et
+# HTTP/2 relèvent du mandataire inverse (Fondations §3.3, L9).
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "tokio"] }
+hyper = { version = "1.12.0", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["http1", "server", "tokio"] }
+tower = { version = "0.5.3", default-features = false, features = ["util"] }
+tower-http = { version = "0.7.1", default-features = false, features = ["catch-panic", "fs", "limit"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std", "registry"] }
+serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
