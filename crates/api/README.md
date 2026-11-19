@@ -20,15 +20,15 @@ une migration : un rôle se crée au niveau du cluster et le rôle de migration 
 
 | Fichier | Contenu |
 |---|---|
-| `sql/approvisionnement.sql` | Rôles, base, droits de connexion. Mots de passe reçus en variables psql, aucun dans le dépôt. |
+| `sql/approvisionnement.sql` | Rôles, base, droits de connexion. Mots de passe lus dans l'environnement (`\getenv`), aucun dans le dépôt. |
 | `migrations/` | Migrations `sqlx` : tables, RLS, politiques, `GRANT`. |
-| `tables-instance.toml` | Liste justifiée des tables d'instance, sans RLS, lue par le test de catalogue. |
+| `catalogue.toml` | Listes justifiées lues par le test de catalogue : tables d'instance, tables de dossier sans dossier en contexte, tables en ajout seul, fonctions `SECURITY DEFINER`. |
 | `../../scripts/preparer-base.sh` | Approvisionnement puis migrations (développement et CI). |
 | `../../.sqlx/` | Métadonnées des requêtes `query!`, versionnées : la compilation se passe de base. |
 
 ## Démarrer
 
-Prérequis : Docker, `psql`, et `sqlx-cli` à la version de la CI :
+Prérequis : Docker, `psql` 15 ou plus (`\getenv`), et `sqlx-cli` à la version de la CI :
 
 ```sh
 cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features postgres,rustls
@@ -42,9 +42,11 @@ cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features
 2. Démarrer PostgreSQL 17 (même version majeure que la CI), joignable de la seule machine :
    ```sh
    docker run -d --name sigma-books-pg -p 127.0.0.1:5432:5432 \
-     -e POSTGRES_PASSWORD="<mot de passe de SIGMA_PG_SUPER_URL>" postgres:17
+     -e POSTGRES_PASSWORD="$PGPASSWORD" postgres:17
    ```
-3. Approvisionner et migrer (idempotent) :
+3. Approvisionner et migrer (idempotent). Aucun mot de passe ne passe en argument de commande :
+   psql lit ceux des rôles par `\getenv`, le super-utilisateur s'authentifie par `PGPASSWORD`
+   (ou `~/.pgpass`), sqlx-cli reçoit `DATABASE_URL` par l'environnement.
    ```sh
    scripts/preparer-base.sh
    ```
@@ -73,9 +75,12 @@ de test.
 ## Nouvelle table
 
 1. Migration : `cabinet_id` (et `dossier_id` pour une table de dossier), clés étrangères
-   composites, index en tête sur `cabinet_id`, `ENABLE` et `FORCE ROW LEVEL SECURITY`, politique
-   `USING` et `WITH CHECK` lisant `NULLIF(current_setting('sigma.cabinet', true), '')::uuid`,
-   `GRANT` minimal au rôle applicatif.
-2. Table d'instance (sans cabinet) : seulement avec une entrée justifiée dans
-   `tables-instance.toml`.
+   composites, index en tête sur `cabinet_id`, `ENABLE` et `FORCE ROW LEVEL SECURITY`, `GRANT`
+   minimal au rôle applicatif, et des politiques `USING` et `WITH CHECK` de la forme exacte :
+   `cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid`, plus, pour une table
+   de dossier, `AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid`.
+2. Exceptions, chacune justifiée dans `catalogue.toml` : table d'instance (sans cabinet, avec ou
+   sans RLS), table de dossier visible sans dossier en contexte, table en ajout seul (ni `UPDATE`
+   ni `DELETE`), fonction `SECURITY DEFINER`. Toute fonction retire `EXECUTE` à `PUBLIC` ; aucun
+   `ALTER DEFAULT PRIVILEGES`.
 3. `cargo test --all --all-features` : le test de catalogue refuse toute table oubliée.

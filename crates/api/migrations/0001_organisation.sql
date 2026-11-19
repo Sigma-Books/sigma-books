@@ -4,11 +4,12 @@
 -- jamais par le binaire `api`. Les rôles existent déjà : ils relèvent de l'approvisionnement.
 --
 -- Règles communes (vérifiées par le test de catalogue, crates/api/tests/catalogue.rs) :
--- - toute table hors `tables-instance.toml` a la RLS activée et forcée, et une politique
---   `USING` et `WITH CHECK` pour toutes les commandes ;
+-- - toute table a la RLS activée et forcée, et une politique `USING` et `WITH CHECK` pour
+--   toutes les commandes, sauf les tables d'instance sans RLS de `catalogue.toml` ;
 -- - les politiques lisent `NULLIF(current_setting('sigma.cabinet', true), '')::uuid` :
 --   contexte absent => aucune ligne (une comparaison à NULL n'est jamais vraie) ;
--- - une table qui porte `dossier_id` se restreint aussi au dossier du contexte quand il est posé ;
+-- - une table qui porte `dossier_id` se restreint au dossier du contexte ; seules les tables
+--   listées dans `catalogue.toml` (`dossier_facultatif`) voient tout le cabinet sans dossier ;
 -- - clés étrangères composites (`cabinet_id`, `id`), index en tête sur `cabinet_id` ;
 -- - identifiants UUID v4 tirés par `api` (aucune valeur par défaut), instants en `timestamptz`.
 
@@ -37,7 +38,8 @@ GRANT SELECT, INSERT ON cabinet TO sigma_application;
 GRANT UPDATE (nom, separation_taches) ON cabinet TO sigma_application;
 
 -- Utilisateur : table d'instance (identité, ADR 0011 et 0012) ; un utilisateur peut appartenir
--- à plusieurs cabinets (spec §4.1). Facteurs et sessions : PR 8. Aucune donnée comptable.
+-- à plusieurs cabinets (spec §4.1), il n'a donc pas de `cabinet_id`. Facteurs et sessions : PR 8.
+-- Aucune donnée comptable. Sous RLS malgré tout (politiques après `appartenance`).
 CREATE TABLE utilisateur (
     id uuid PRIMARY KEY,
     courriel text NOT NULL CHECK (length(courriel) BETWEEN 3 AND 254 AND position('@' IN courriel) > 1),
@@ -45,9 +47,6 @@ CREATE TABLE utilisateur (
     cree_le timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX utilisateur_courriel_unique ON utilisateur (lower(courriel));
-
-GRANT SELECT, INSERT ON utilisateur TO sigma_application;
-GRANT UPDATE (courriel, nom) ON utilisateur TO sigma_application;
 
 -- Appartenance d'un utilisateur à un cabinet, avec son rôle par défaut (spec §20, hors client).
 CREATE TABLE appartenance (
@@ -67,6 +66,34 @@ CREATE POLICY appartenance_tenant ON appartenance
 
 GRANT SELECT, INSERT, DELETE ON appartenance TO sigma_application;
 GRANT UPDATE (role) ON appartenance TO sigma_application;
+
+-- RLS de `utilisateur` : sont visibles l'utilisateur du contexte et les membres du cabinet du
+-- contexte (la sous-requête lit `appartenance`, elle-même sous RLS : limitée à ce cabinet).
+-- Sans contexte, aucune ligne. Aucun UPDATE ni DELETE accordé : aucune fonction ne s'en sert.
+-- Création (invitation, PR 9) : seulement dans le contexte d'un cabinet ; la ligne créée n'est
+-- visible qu'une fois l'appartenance insérée (pas de `RETURNING` sur l'insertion).
+-- La recherche par courriel à la connexion, sans contexte de cabinet, sera conçue en PR 8
+-- (ADR 0012), par exemple par une fonction dédiée et auditée : elle n'élargit pas cette lecture.
+ALTER TABLE utilisateur ENABLE ROW LEVEL SECURITY;
+ALTER TABLE utilisateur FORCE ROW LEVEL SECURITY;
+CREATE POLICY utilisateur_lecture ON utilisateur
+    FOR SELECT
+    USING (
+        id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid
+        OR EXISTS (SELECT 1 FROM appartenance a WHERE a.utilisateur_id = utilisateur.id)
+    );
+CREATE POLICY utilisateur_creation ON utilisateur
+    FOR INSERT
+    WITH CHECK (NULLIF(current_setting('sigma.cabinet', true), '') IS NOT NULL);
+CREATE POLICY utilisateur_modification ON utilisateur
+    FOR UPDATE
+    USING (id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid)
+    WITH CHECK (id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid);
+CREATE POLICY utilisateur_suppression ON utilisateur
+    FOR DELETE
+    USING (id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid);
+
+GRANT SELECT, INSERT ON utilisateur TO sigma_application;
 
 -- Dossier : une entité juridique tenue par le cabinet (spec §4.1).
 -- Sans dossier en contexte (action du cabinet), tous les dossiers du cabinet sont visibles ;

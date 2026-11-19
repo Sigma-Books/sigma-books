@@ -7,8 +7,8 @@
 mod commun;
 
 use api::base::{
-    ContexteTenant, ErreurBase, ReglagesPool, TransactionTenant, ouvrir_pool_application,
-    ouvrir_transaction,
+    ContexteTenant, ErreurBase, IdUtilisateur, ReglagesPool, TransactionTenant,
+    ouvrir_pool_application, ouvrir_transaction, verifier_role_application,
 };
 use commun::{CabinetTest, code_sql, creer_cabinet, env, variable};
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -173,12 +173,17 @@ async fn update_et_delete_sur_un_autre_cabinet_n_affectent_rien() {
     tx.confirmer().await.unwrap();
 
     // Le rôle applicatif n'a ni DELETE sur cabinet et dossier, ni UPDATE de leurs clés.
+    // WITH CHECK sur UPDATE (« ligne de A déplacée vers B ») : aucune colonne de tenant
+    // (`id`, `cabinet_id`, `dossier_id`, `utilisateur_id`) n'est modifiable aujourd'hui, l'UPDATE
+    // est refusé dès le droit (ci-dessous). Le cas sera testé dès qu'une telle colonne le deviendra.
     for requete in [
         "DELETE FROM cabinet WHERE id = $1",
         "DELETE FROM dossier WHERE cabinet_id = $1",
         "UPDATE dossier SET cabinet_id = $1",
         "UPDATE cabinet SET id = $1",
         "TRUNCATE dossier",
+        "UPDATE utilisateur SET nom = 'piraté' WHERE id = $1",
+        "DELETE FROM utilisateur WHERE id = $1",
     ] {
         let mut tx = transaction_de(&env.application, &a).await;
         let mut q = sqlx::query(requete);
@@ -226,6 +231,7 @@ async fn sans_contexte_aucune_ligne() {
         ("appartenance", "SELECT count(*) FROM appartenance"),
         ("dossier", "SELECT count(*) FROM dossier"),
         ("acces_dossier", "SELECT count(*) FROM acces_dossier"),
+        ("utilisateur", "SELECT count(*) FROM utilisateur"),
     ] {
         let n: i64 = sqlx::query_scalar(requete)
             .fetch_one(&mut *tx)
@@ -350,4 +356,108 @@ async fn le_pool_applicatif_refuse_un_role_qui_contourne_la_rls() {
     )
     .await
     .expect("rôle applicatif refusé");
+}
+
+#[tokio::test]
+async fn utilisateur_visible_seulement_depuis_son_cabinet_ou_par_lui_meme() {
+    let env = env().await;
+    let a = creer_cabinet(&env.admin, "A").await;
+    let b = creer_cabinet(&env.admin, "B").await;
+
+    // Contexte du cabinet A : ses deux membres, aucun de B.
+    let mut tx = transaction_de(&env.application, &a).await;
+    let mut visibles: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM utilisateur ORDER BY id")
+        .fetch_all(tx.connexion())
+        .await
+        .unwrap();
+    let mut attendus = vec![a.administrateur.uuid(), a.collaborateur.uuid()];
+    attendus.sort();
+    visibles.sort();
+    assert_eq!(visibles, attendus);
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM utilisateur WHERE id = ANY($1)")
+        .bind(vec![b.administrateur.uuid(), b.collaborateur.uuid()])
+        .fetch_one(tx.connexion())
+        .await
+        .unwrap();
+    assert_eq!(n, 0, "membres de B visibles depuis A");
+
+    // Création dans le contexte d'un cabinet : admise, puis visible une fois membre.
+    let nouveau = IdUtilisateur::nouveau();
+    sqlx::query("INSERT INTO utilisateur (id, courriel, nom) VALUES ($1, $2, 'Invité')")
+        .bind(nouveau.uuid())
+        .bind(format!("{nouveau}@exemple.invalid"))
+        .execute(tx.connexion())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO appartenance (cabinet_id, utilisateur_id, role) VALUES ($1, $2, 'auditeur')",
+    )
+    .bind(a.cabinet.uuid())
+    .bind(nouveau.uuid())
+    .execute(tx.connexion())
+    .await
+    .unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM utilisateur WHERE id = $1")
+        .bind(nouveau.uuid())
+        .fetch_one(tx.connexion())
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    tx.annuler().await.unwrap();
+
+    // Sans contexte : ni lecture, ni création.
+    let mut tx = env.application.begin().await.unwrap();
+    let erreur = sqlx::query("INSERT INTO utilisateur (id, courriel, nom) VALUES ($1, $2, 'x')")
+        .bind(Uuid::new_v4())
+        .bind("intrus@exemple.invalid")
+        .execute(&mut *tx)
+        .await
+        .expect_err("création sans contexte");
+    assert_eq!(code_sql(&erreur).as_deref(), Some(REFUS), "{erreur}");
+}
+
+/// Rôle de test `NOINHERIT` membre de `sigma_migration` : il n'hérite pas des droits, mais peut
+/// devenir propriétaire par `SET ROLE`. Le pool doit le refuser.
+#[tokio::test]
+async fn le_pool_refuse_un_membre_noinherit_du_role_de_migration() {
+    use sqlx::Executor;
+
+    let env = env().await;
+    env.admin
+        .execute(
+            "DO $$ BEGIN \
+                 CREATE ROLE sigma_test_noinherit NOLOGIN NOINHERIT; \
+             EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; \
+             END $$",
+        )
+        .await
+        .unwrap();
+    env.admin
+        .execute("GRANT sigma_migration TO sigma_test_noinherit")
+        .await
+        .unwrap();
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(|connexion, _| {
+            Box::pin(async move {
+                connexion.execute("SET ROLE sigma_test_noinherit").await?;
+                Ok(())
+            })
+        })
+        .connect(&variable("SIGMA_TEST_ADMIN_URL"))
+        .await
+        .unwrap();
+    let resultat = verifier_role_application(&pool).await;
+    pool.close().await;
+    env.admin
+        .execute("DROP ROLE sigma_test_noinherit")
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            resultat,
+            Err(ErreurBase::RoleTropPrivilegie("membre de sigma_migration"))
+        ),
+        "{resultat:?}"
+    );
 }

@@ -88,11 +88,14 @@ jobs:
             echo "::add-mask::$mdp"
             echo "SIGMA_MDP_${nom}=$mdp" >> "$GITHUB_ENV"
           done
+      # psql 16 de l'image ubuntu-24.04 (\getenv exige psql 15 ou plus). Super-utilisateur par les
+      # variables libpq, sans mot de passe (trust) ; aucun mot de passe en argument de commande.
       - name: Approvisionner PostgreSQL et appliquer les migrations
         run: scripts/preparer-base.sh
         env:
-          SIGMA_PG_SUPER_URL: postgres://postgres@localhost:5432
-          SIGMA_PG_HOTE_PORT: localhost:5432
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
       # `--all-features` active `tests-postgres` : tests d'isolation (catalogue, RLS, requête)
       # contre la base de service (ADR 0011). Compilation sur les métadonnées `.sqlx/`.
       - name: Tests, dont l'isolation entre tenants sur PostgreSQL
@@ -142,11 +145,14 @@ jobs:
             echo "::add-mask::$mdp"
             echo "SIGMA_MDP_${nom}=$mdp" >> "$GITHUB_ENV"
           done
+      # psql 16 de l'image ubuntu-24.04 (\getenv exige psql 15 ou plus). Super-utilisateur par les
+      # variables libpq, sans mot de passe (trust) ; aucun mot de passe en argument de commande.
       - name: Approvisionner PostgreSQL et appliquer les migrations
         run: scripts/preparer-base.sh
         env:
-          SIGMA_PG_SUPER_URL: postgres://postgres@localhost:5432
-          SIGMA_PG_HOTE_PORT: localhost:5432
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
       # Les métadonnées `.sqlx/` versionnées correspondent aux requêtes et au schéma migré.
       - name: Vérifier les métadonnées sqlx hors ligne
         run: |

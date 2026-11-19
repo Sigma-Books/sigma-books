@@ -1,60 +1,125 @@
 //! Test de catalogue (ADR 0011, « Tests ») : le schéma, lu dans les catalogues de PostgreSQL,
 //! respecte les règles de l'isolation. Une table oubliée fait échouer la CI (F2.7).
 //!
-//! Règles vérifiées :
-//! - toute table hors `tables-instance.toml` a la RLS activée et forcée, une politique permissive
-//!   pour chaque commande, des expressions `USING` et `WITH CHECK` qui lisent `sigma.cabinet` ;
-//! - une table d'instance existe, et ne porte ni `cabinet_id` ni `dossier_id` ;
+//! Règles vérifiées (listes d'exceptions : `crates/api/catalogue.toml`) :
+//! - toute table, hors tables d'instance sans RLS, a la RLS activée et forcée et une politique
+//!   permissive pour chaque commande, avec `USING` et `WITH CHECK` selon la commande ;
+//! - **forme exacte** des politiques d'une table de cabinet, telle que PostgreSQL l'affiche :
+//!   `cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid` (`id` pour `cabinet`) ;
+//!   pour une table qui porte `dossier_id` (et pour `dossier`, par son `id`), la même condition
+//!   **et** `dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid` ; la variante
+//!   « dossier absent ⇒ tout le cabinet » n'est admise que pour la liste `dossier_facultatif` ;
+//! - tables d'instance : existantes, sans `cabinet_id` ni `dossier_id` ; sous RLS si `rls = true`,
+//!   avec des politiques qui lisent le contexte ;
 //! - aucune vue sans `security_invoker`, aucune vue matérialisée ni table étrangère ;
-//! - les rôles applicatif et de lecture d'audit ne possèdent rien (même par appartenance à un
-//!   rôle), n'ont ni `CREATE` sur le schéma ou la base, ni `TEMPORARY`, ni `TRUNCATE`, `TRIGGER`,
-//!   `MAINTAIN` sur une table (ces droits échappent à la RLS) ;
+//! - les rôles applicatif et de lecture d'audit ne possèdent rien (même par appartenance), n'ont
+//!   ni `CREATE` sur le schéma ou la base, ni `TEMPORARY`, ni `TRUNCATE`, `TRIGGER`, `MAINTAIN`,
+//!   `REFERENCES` sur une table, ni aucun droit sur une séquence (identifiants UUID : aucune n'est
+//!   nécessaire) ; ni `UPDATE` ni `DELETE` sur une table en ajout seul ;
+//! - aucune fonction `SECURITY DEFINER` hors liste, aucun `EXECUTE` accordé à `PUBLIC` sur nos
+//!   fonctions, aucun droit par défaut (`pg_default_acl`) ;
 //! - les trois rôles existent, sans `SUPERUSER`, `BYPASSRLS`, `CREATEROLE`, `CREATEDB` ni
-//!   `REPLICATION` ; aucun rôle hors super-utilisateurs n'a `BYPASSRLS`, sauf le rôle de test ;
+//!   `REPLICATION` ; hors super-utilisateurs, seul le rôle de test `sigma_test_contournement`,
+//!   `NOLOGIN`, a `BYPASSRLS` ;
 //! - aucune colonne `real`, `double precision` (règle absolue 2), `money`, ni `timestamp` sans
 //!   fuseau (instants en `timestamptz`).
 //!
-//! Le second test ajoute des écarts dans une base jetable et vérifie que chacun est détecté.
+//! Le second test introduit des écarts dans une base jetable et vérifie que chacun est détecté.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 mod commun;
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
 use commun::{MIGRATEUR, env, variable};
 use serde::Deserialize;
 use sqlx::postgres::{PgConnectOptions, PgConnection};
 use sqlx::{Connection, Executor};
+use tokio::sync::Mutex;
 
-/// Base jetable du test de non-régression du catalogue.
-const BASE_JETABLE: &str = "sigma_test_catalogue_jetable";
+/// Les deux tests lisent les rôles du cluster ; le second en modifie un temporairement.
+static VERROU_ROLES: Mutex<()> = Mutex::const_new(());
+
+// --- Listes versionnées -------------------------------------------------------------------
 
 #[derive(Deserialize)]
-struct ListeTablesInstance {
-    table: Vec<TableInstance>,
+#[serde(deny_unknown_fields)]
+struct FichierCatalogue {
+    ajout_seul: Vec<Entree>,
+    security_definer: Vec<Entree>,
+    instance: Vec<Instance>,
+    dossier_facultatif: Vec<Entree>,
 }
 
 #[derive(Deserialize)]
-struct TableInstance {
+#[serde(deny_unknown_fields)]
+struct Entree {
     nom: String,
     justification: String,
 }
 
-/// Noms des tables d'instance, lus dans la liste versionnée.
-fn tables_instance() -> Vec<String> {
-    let liste: ListeTablesInstance = toml::from_str(include_str!("../tables-instance.toml"))
-        .expect("tables-instance.toml illisible");
-    for t in &liste.table {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Instance {
+    nom: String,
+    rls: bool,
+    justification: String,
+}
+
+/// Listes du catalogue (tables et fonctions du schéma `public`).
+#[derive(Clone)]
+struct Regles {
+    instances: Vec<String>,
+    instances_sans_rls: Vec<String>,
+    instances_avec_rls: Vec<String>,
+    dossier_facultatif: Vec<String>,
+    ajout_seul: Vec<String>,
+    security_definer: Vec<String>,
+}
+
+fn regles() -> Regles {
+    let f: FichierCatalogue =
+        toml::from_str(include_str!("../catalogue.toml")).expect("catalogue.toml illisible");
+    let mut noms = BTreeSet::new();
+    let justifiees = f
+        .ajout_seul
+        .iter()
+        .chain(&f.security_definer)
+        .chain(&f.dossier_facultatif)
+        .map(|e| (&e.nom, &e.justification))
+        .chain(f.instance.iter().map(|e| (&e.nom, &e.justification)));
+    for (nom, justification) in justifiees {
+        assert!(!justification.trim().is_empty(), "{nom} sans justification");
         assert!(
-            !t.justification.trim().is_empty(),
-            "table d'instance {} sans justification",
-            t.nom
+            noms.insert(nom.clone()),
+            "{nom} figure deux fois dans catalogue.toml"
         );
     }
-    liste.table.into_iter().map(|t| t.nom).collect()
+    let noms_de = |v: &[Entree]| v.iter().map(|e| e.nom.clone()).collect::<Vec<_>>();
+    Regles {
+        instances: f.instance.iter().map(|i| i.nom.clone()).collect(),
+        instances_sans_rls: f
+            .instance
+            .iter()
+            .filter(|i| !i.rls)
+            .map(|i| i.nom.clone())
+            .collect(),
+        instances_avec_rls: f
+            .instance
+            .iter()
+            .filter(|i| i.rls)
+            .map(|i| i.nom.clone())
+            .collect(),
+        dossier_facultatif: noms_de(&f.dossier_facultatif),
+        ajout_seul: noms_de(&f.ajout_seul),
+        security_definer: noms_de(&f.security_definer),
+    }
 }
+
+// --- Contrôles SQL ------------------------------------------------------------------------
 
 /// Schémas de l'application (hors schémas système).
 macro_rules! schemas {
@@ -78,138 +143,203 @@ macro_rules! roles_tous {
     };
 }
 
-/// Requêtes de contrôle : chacune renvoie une ligne de texte par écart. `$1` : tables d'instance.
-/// Textes constants, assemblés à la compilation.
-const CONTROLES: &[&str] = &[
+/// Liste passée en paramètre (`$1`) d'un contrôle.
+#[derive(Clone, Copy)]
+enum Liste {
+    Aucune,
+    InstancesSansRls,
+    Instances,
+    AjoutSeul,
+    SecurityDefiner,
+}
+
+/// Contrôles : chacun renvoie une ligne de texte par écart. Textes constants, assemblés à la
+/// compilation.
+const CONTROLES: &[(Liste, &str)] = &[
     // RLS activée et forcée.
-    concat!(
-        "SELECT format('%I.%I : RLS %s', n.nspname, c.relname, \
-                    CASE WHEN c.relrowsecurity THEN 'non forcée' ELSE 'non activée' END) \
-             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
-             WHERE ",
-        schemas!(),
-        " AND c.relkind IN ('r', 'p') \
-               AND NOT (n.nspname = 'public' AND c.relname = ANY($1)) \
-               AND NOT (c.relrowsecurity AND c.relforcerowsecurity)"
+    (
+        Liste::InstancesSansRls,
+        concat!(
+            "SELECT format('%I.%I : RLS %s', n.nspname, c.relname, \
+                 CASE WHEN c.relrowsecurity THEN 'non forcée' ELSE 'non activée' END) \
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
+            schemas!(),
+            " AND c.relkind IN ('r', 'p') \
+              AND NOT (n.nspname = 'public' AND c.relname = ANY($1)) \
+              AND NOT (c.relrowsecurity AND c.relforcerowsecurity)"
+        ),
     ),
     // Une politique permissive pour chaque commande.
-    concat!(
-        "SELECT format('%I.%I : aucune politique pour %s', n.nspname, c.relname, cmd.nom) \
+    (
+        Liste::InstancesSansRls,
+        concat!(
+            "SELECT format('%I.%I : aucune politique pour %s', n.nspname, c.relname, cmd.nom) \
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
              CROSS JOIN (VALUES ('r', 'SELECT'), ('a', 'INSERT'), ('w', 'UPDATE'), ('d', 'DELETE')) \
-                 AS cmd (code, nom) \
-             WHERE ",
-        schemas!(),
-        " AND c.relkind IN ('r', 'p') \
-               AND NOT (n.nspname = 'public' AND c.relname = ANY($1)) \
-               AND NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid \
-                               AND p.polpermissive AND p.polcmd::text IN (cmd.code, '*')) \
+                 AS cmd (code, nom) WHERE ",
+            schemas!(),
+            " AND c.relkind IN ('r', 'p') \
+              AND NOT (n.nspname = 'public' AND c.relname = ANY($1)) \
+              AND NOT EXISTS (SELECT 1 FROM pg_policy p WHERE p.polrelid = c.oid \
+                              AND p.polpermissive AND p.polcmd::text IN (cmd.code, '*')) \
              ORDER BY 1"
-    ),
-    // USING et WITH CHECK présents, et lisant le cabinet du contexte.
-    concat!(
-        "SELECT format('%I.%I : politique %I %s', n.nspname, c.relname, p.polname, defaut) \
-             FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid \
-             JOIN pg_namespace n ON n.oid = c.relnamespace \
-             CROSS JOIN LATERAL (VALUES \
-                 (p.polcmd::text IN ('*', 'r', 'w', 'd') AND p.polqual IS NULL, 'sans USING'), \
-                 (p.polcmd::text IN ('*', 'a', 'w') AND p.polwithcheck IS NULL, 'sans WITH CHECK'), \
-                 (p.polqual IS NOT NULL AND pg_get_expr(p.polqual, p.polrelid) \
-                     NOT LIKE '%current_setting(''sigma.cabinet''::text, true)%', \
-                  'dont USING ne lit pas sigma.cabinet'), \
-                 (p.polwithcheck IS NOT NULL AND pg_get_expr(p.polwithcheck, p.polrelid) \
-                     NOT LIKE '%current_setting(''sigma.cabinet''::text, true)%', \
-                  'dont WITH CHECK ne lit pas sigma.cabinet') \
-             ) AS e (ecart, defaut) \
-             WHERE ",
-        schemas!(),
-        " AND e.ecart ORDER BY 1"
+        ),
     ),
     // Tables d'instance : existantes, sans clé de tenant.
-    "SELECT format('table d''instance %s absente du schéma', e) \
+    (
+        Liste::Instances,
+        "SELECT format('table d''instance %s absente du schéma', e) \
          FROM unnest($1::text[]) AS e \
          WHERE NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
                            WHERE n.nspname = 'public' AND c.relname = e AND c.relkind IN ('r', 'p'))",
-    "SELECT format('table d''instance %I avec la colonne %I', c.relname, a.attname) \
+    ),
+    (
+        Liste::Instances,
+        "SELECT format('table d''instance %I avec la colonne %I', c.relname, a.attname) \
          FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid \
          JOIN pg_namespace n ON n.oid = c.relnamespace \
          WHERE n.nspname = 'public' AND c.relname = ANY($1) AND a.attnum > 0 \
            AND NOT a.attisdropped AND a.attname IN ('cabinet_id', 'dossier_id')",
+    ),
     // Vues, vues matérialisées, tables étrangères.
-    concat!(
-        "SELECT format('%I.%I : %s', n.nspname, c.relname, \
-                    CASE c.relkind WHEN 'v' THEN 'vue sans security_invoker' \
-                                   WHEN 'm' THEN 'vue matérialisée (sans RLS)' \
-                                   ELSE 'table étrangère' END) \
-             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
-             WHERE ",
-        schemas!(),
-        " AND (c.relkind IN ('m', 'f') OR (c.relkind = 'v' \
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('%I.%I : %s', n.nspname, c.relname, \
+                 CASE c.relkind WHEN 'v' THEN 'vue sans security_invoker' \
+                                WHEN 'm' THEN 'vue matérialisée (sans RLS)' \
+                                ELSE 'table étrangère' END) \
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
+            schemas!(),
+            " AND (c.relkind IN ('m', 'f') OR (c.relkind = 'v' \
                    AND NOT coalesce('security_invoker=true' = ANY(c.reloptions) \
                                     OR 'security_invoker=on' = ANY(c.reloptions), false)))"
+        ),
     ),
     // Propriété : ni directe, ni par appartenance à un rôle propriétaire.
-    concat!(
-        "SELECT format('%s possède %s', r.nom, o.objet) FROM ",
-        roles_app!(),
-        " \
-             JOIN ( \
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('%s possède %s', r.nom, o.objet) FROM ",
+            roles_app!(),
+            " JOIN ( \
                  SELECT format('la relation %I.%I', n.nspname, c.relname) AS objet, c.relowner AS proprio \
                  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
-        schemas!(),
-        " \
-                 UNION ALL SELECT format('le schéma %I', n.nspname), n.nspowner \
+            schemas!(),
+            " UNION ALL SELECT format('le schéma %I', n.nspname), n.nspowner \
                  FROM pg_namespace n WHERE ",
-        schemas!(),
-        " \
-                 UNION ALL SELECT format('la fonction %I.%I', n.nspname, p.proname), p.proowner \
+            schemas!(),
+            " UNION ALL SELECT format('la fonction %I.%I', n.nspname, p.proname), p.proowner \
                  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE ",
-        schemas!(),
-        " \
-                 UNION ALL SELECT format('le type %I.%I', n.nspname, t.typname), t.typowner \
+            schemas!(),
+            " UNION ALL SELECT format('le type %I.%I', n.nspname, t.typname), t.typowner \
                  FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE ",
-        schemas!(),
-        " \
-                 UNION ALL SELECT format('la base %I', d.datname), d.datdba \
+            schemas!(),
+            " UNION ALL SELECT format('la base %I', d.datname), d.datdba \
                  FROM pg_database d WHERE d.datname = current_database() \
              ) AS o ON pg_has_role(r.nom, o.proprio, 'MEMBER') \
              ORDER BY 1"
+        ),
     ),
     // Droits sur le schéma et la base.
-    concat!(
-        "SELECT format('%s a CREATE sur le schéma %I', r.nom, n.nspname) \
-             FROM ",
-        roles_app!(),
-        " CROSS JOIN pg_namespace n \
-             WHERE ",
-        schemas!(),
-        " AND has_schema_privilege(r.nom, n.oid, 'CREATE') \
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('%s a CREATE sur le schéma %I', r.nom, n.nspname) FROM ",
+            roles_app!(),
+            " CROSS JOIN pg_namespace n WHERE ",
+            schemas!(),
+            " AND has_schema_privilege(r.nom, n.oid, 'CREATE') \
              UNION ALL \
-             SELECT format('%s a %s sur la base', r.nom, d.droit) \
-             FROM ",
-        roles_app!(),
-        " CROSS JOIN (VALUES ('CREATE'), ('TEMPORARY')) AS d (droit) \
+             SELECT format('%s a %s sur la base', r.nom, d.droit) FROM ",
+            roles_app!(),
+            " CROSS JOIN (VALUES ('CREATE'), ('TEMPORARY')) AS d (droit) \
              WHERE has_database_privilege(r.nom, current_database(), d.droit)"
+        ),
     ),
     // Droits de table qui échappent à la RLS.
-    concat!(
-        "SELECT format('%s a %s sur %I.%I', r.nom, d.droit, n.nspname, c.relname) \
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('%s a %s sur %I.%I', r.nom, d.droit, n.nspname, c.relname) FROM ",
+            roles_app!(),
+            " CROSS JOIN (VALUES ('TRUNCATE'), ('TRIGGER'), ('MAINTAIN'), ('REFERENCES')) AS d (droit) \
+              CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
+            schemas!(),
+            " AND c.relkind IN ('r', 'p') \
+              AND has_table_privilege(r.nom, c.oid, d.droit) ORDER BY 1"
+        ),
+    ),
+    // Séquences : aucun droit (identifiants UUID tirés par `api`).
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('%s a %s sur la séquence %I.%I', r.nom, d.droit, n.nspname, c.relname) \
              FROM ",
-        roles_app!(),
-        " \
-             CROSS JOIN (VALUES ('TRUNCATE'), ('TRIGGER'), ('MAINTAIN'), ('REFERENCES')) AS d (droit) \
-             CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
-             WHERE ",
-        schemas!(),
-        " AND c.relkind IN ('r', 'p') \
-               AND has_table_privilege(r.nom, c.oid, d.droit) ORDER BY 1"
+            roles_app!(),
+            " CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE')) AS d (droit) \
+              CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
+            schemas!(),
+            " AND c.relkind = 'S' AND has_sequence_privilege(r.nom, c.oid, d.droit) ORDER BY 1"
+        ),
+    ),
+    // Tables en ajout seul : existantes, ni UPDATE (même sur une colonne) ni DELETE.
+    (
+        Liste::AjoutSeul,
+        "SELECT format('table en ajout seul %s absente du schéma', e) \
+         FROM unnest($1::text[]) AS e \
+         WHERE NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+                           WHERE n.nspname = 'public' AND c.relname = e AND c.relkind IN ('r', 'p'))",
+    ),
+    (
+        Liste::AjoutSeul,
+        concat!(
+            "SELECT format('%s a %s sur %I.%I (ajout seul)', r.nom, d.droit, n.nspname, c.relname) \
+             FROM ",
+            roles_app!(),
+            " CROSS JOIN (VALUES ('UPDATE'), ('DELETE')) AS d (droit) \
+              CROSS JOIN pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = 'public' AND c.relname = ANY($1) AND c.relkind IN ('r', 'p') \
+               AND (has_table_privilege(r.nom, c.oid, d.droit) \
+                    OR (d.droit = 'UPDATE' AND has_any_column_privilege(r.nom, c.oid, 'UPDATE'))) \
+             ORDER BY 1"
+        ),
+    ),
+    // Fonctions SECURITY DEFINER hors liste.
+    (
+        Liste::SecurityDefiner,
+        concat!(
+            "SELECT format('fonction %I.%I : SECURITY DEFINER hors liste', n.nspname, p.proname) \
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE ",
+            schemas!(),
+            " AND p.prosecdef AND NOT (n.nspname = 'public' AND p.proname = ANY($1)) ORDER BY 1"
+        ),
+    ),
+    // EXECUTE accordé à PUBLIC (accordé par défaut à la création d'une fonction).
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('fonction %I.%I : EXECUTE accordé à PUBLIC', n.nspname, p.proname) \
+             FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE ",
+            schemas!(),
+            " AND EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a \
+                          WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE') ORDER BY 1"
+        ),
+    ),
+    // Droits par défaut : toute attribution doit être explicite, table par table.
+    (
+        Liste::Aucune,
+        "SELECT format('droits par défaut de %s (%s) : %s', pg_get_userbyid(d.defaclrole), \
+                       coalesce(n.nspname, 'toute la base'), d.defaclacl::text) \
+         FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace ORDER BY 1",
     ),
     // Attributs des rôles.
-    concat!(
-        "SELECT format('rôle %s absent', r.nom) FROM ",
-        roles_tous!(),
-        " \
-             WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r.nom) \
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('rôle %s absent', r.nom) FROM ",
+            roles_tous!(),
+            " WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r.nom) \
              UNION ALL \
              SELECT format('rôle %s : %s', g.rolname, a.attribut) \
              FROM pg_roles g CROSS JOIN LATERAL (VALUES \
@@ -221,39 +351,175 @@ const CONTROLES: &[&str] = &[
              UNION ALL \
              SELECT format('rôle %s : BYPASSRLS sans être super-utilisateur', g.rolname) \
              FROM pg_roles g \
-             WHERE g.rolbypassrls AND NOT g.rolsuper AND g.rolname <> 'sigma_test_contournement' \
+             WHERE g.rolbypassrls AND NOT g.rolsuper \
+               AND NOT (g.rolname = 'sigma_test_contournement' AND NOT g.rolcanlogin) \
              UNION ALL \
              SELECT format('%s est membre de sigma_migration', r.nom) FROM ",
-        roles_app!(),
-        " \
-             WHERE pg_has_role(r.nom, 'sigma_migration', 'MEMBER')"
+            roles_app!(),
+            " WHERE pg_has_role(r.nom, 'sigma_migration', 'MEMBER')"
+        ),
     ),
     // Types interdits, y compris en tableau ou en domaine.
-    concat!(
-        "SELECT format('%I.%I.%I : type %s interdit', n.nspname, c.relname, a.attname, \
+    (
+        Liste::Aucune,
+        concat!(
+            "SELECT format('%I.%I.%I : type %s interdit', n.nspname, c.relname, a.attname, \
                            format_type(a.atttypid, a.atttypmod)) \
              FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid \
              JOIN pg_namespace n ON n.oid = c.relnamespace \
              JOIN pg_type t ON t.oid = a.atttypid \
-             LEFT JOIN pg_type e ON e.oid = t.typelem AND t.typcategory = 'A' \
-             WHERE ",
-        schemas!(),
-        " AND c.relkind IN ('r', 'p', 'v', 'm', 'f') \
-               AND a.attnum > 0 AND NOT a.attisdropped \
-               AND ARRAY[a.atttypid, NULLIF(t.typbasetype, 0), e.oid, NULLIF(e.typbasetype, 0)] \
-                   && ARRAY['real'::regtype, 'double precision'::regtype, 'money'::regtype, \
-                            'timestamp without time zone'::regtype]::oid[] \
+             LEFT JOIN pg_type e ON e.oid = t.typelem AND t.typcategory = 'A' WHERE ",
+            schemas!(),
+            " AND c.relkind IN ('r', 'p', 'v', 'm', 'f') \
+              AND a.attnum > 0 AND NOT a.attisdropped \
+              AND ARRAY[a.atttypid, NULLIF(t.typbasetype, 0), e.oid, NULLIF(e.typbasetype, 0)] \
+                  && ARRAY['real'::regtype, 'double precision'::regtype, 'money'::regtype, \
+                           'timestamp without time zone'::regtype]::oid[] \
              ORDER BY 1"
+        ),
     ),
 ];
 
-/// Écarts du catalogue de la base de la connexion.
-async fn ecarts(connexion: &mut PgConnection, exceptions: &[String]) -> Vec<String> {
+// --- Forme des politiques -----------------------------------------------------------------
+
+/// `<cle> = NULLIF(current_setting('sigma.<parametre>', true), '')::uuid`, tel qu'affiché par
+/// PostgreSQL (`pg_get_expr`, `pg_policies`).
+fn egalite_contexte(cle: &str, parametre: &str) -> String {
+    format!("({cle} = (NULLIF(current_setting('sigma.{parametre}'::text, true), ''::text))::uuid)")
+}
+
+/// Formes admises pour les expressions des politiques d'une table de tenant.
+fn formes_admises(table: &str, dossier_id: bool, regles: &Regles) -> Vec<String> {
+    let cle_cabinet = if table == "cabinet" {
+        "id"
+    } else {
+        "cabinet_id"
+    };
+    let cabinet = egalite_contexte(cle_cabinet, "cabinet");
+    let cle_dossier = if table == "dossier" {
+        Some("id")
+    } else if dossier_id {
+        Some("dossier_id")
+    } else {
+        None
+    };
+    let Some(cle_dossier) = cle_dossier else {
+        return vec![cabinet];
+    };
+    let dossier = egalite_contexte(cle_dossier, "dossier");
+    let mut formes = vec![format!("({cabinet} AND {dossier})")];
+    if regles.dossier_facultatif.iter().any(|t| t == table) {
+        formes.push(format!(
+            "({cabinet} AND ((NULLIF(current_setting('sigma.dossier'::text, true), ''::text) \
+             IS NULL) OR {dossier}))"
+        ));
+    }
+    formes
+}
+
+/// Politique lue au catalogue : schéma, table, nom, commande, `USING`, `WITH CHECK`.
+type Politique = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+);
+
+/// Écarts de forme des politiques, et tables de tenant sans clé de cabinet.
+async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
+    // Tables des schémas de l'application, avec leurs clés de tenant.
+    let tables: Vec<(String, String, bool, bool)> = sqlx::query_as(concat!(
+        "SELECT n.nspname::text, c.relname::text, \
+                EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid \
+                        AND a.attname = 'cabinet_id' AND NOT a.attisdropped), \
+                EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid \
+                        AND a.attname = 'dossier_id' AND NOT a.attisdropped) \
+         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
+        schemas!(),
+        " AND c.relkind IN ('r', 'p') ORDER BY 1, 2"
+    ))
+    .fetch_all(&mut *connexion)
+    .await
+    .unwrap();
+    let politiques: Vec<Politique> = sqlx::query_as(concat!(
+        "SELECT n.nspname::text, c.relname::text, p.polname::text, p.polcmd::text, \
+                    pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) \
+             FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
+        schemas!(),
+        " ORDER BY 1, 2, 3"
+    ))
+    .fetch_all(&mut *connexion)
+    .await
+    .unwrap();
+
+    let dans = |liste: &[String], schema: &str, table: &str| {
+        schema == "public" && liste.iter().any(|t| t == table)
+    };
     let mut ecarts = Vec::new();
-    for requete in CONTROLES {
+    let mut formes: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for (schema, table, cabinet_id, dossier_id) in tables {
+        if dans(&regles.instances, &schema, &table) {
+            continue;
+        }
+        if table != "cabinet" && !cabinet_id {
+            ecarts.push(format!(
+                "{schema}.{table} : table de tenant sans colonne cabinet_id"
+            ));
+        }
+        let admises = formes_admises(&table, dossier_id, regles);
+        formes.insert((schema, table), admises);
+    }
+
+    for (schema, table, nom, commande, using, check) in politiques {
+        if dans(&regles.instances_sans_rls, &schema, &table) {
+            continue;
+        }
+        let prefixe = format!("{schema}.{table} : politique {nom}");
+        if matches!(commande.as_str(), "*" | "r" | "w" | "d") && using.is_none() {
+            ecarts.push(format!("{prefixe} sans USING"));
+        }
+        if matches!(commande.as_str(), "*" | "a" | "w") && check.is_none() {
+            ecarts.push(format!("{prefixe} sans WITH CHECK"));
+        }
+        for (clause, expression) in [("USING", &using), ("WITH CHECK", &check)] {
+            let Some(expression) = expression else {
+                continue;
+            };
+            if dans(&regles.instances_avec_rls, &schema, &table) {
+                if !expression.contains("current_setting('sigma.") {
+                    ecarts.push(format!(
+                        "{prefixe} : {clause} ne lit aucun contexte (« {expression} »)"
+                    ));
+                }
+            } else if let Some(admises) = formes.get(&(schema.clone(), table.clone()))
+                && !admises.iter().any(|f| f == expression)
+            {
+                ecarts.push(format!(
+                    "{prefixe} : {clause} hors forme admise (« {expression} »)"
+                ));
+            }
+        }
+    }
+    ecarts
+}
+
+/// Écarts du catalogue de la base de la connexion.
+async fn ecarts(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
+    let mut ecarts = Vec::new();
+    for (liste, requete) in CONTROLES {
+        let valeurs = match liste {
+            Liste::Aucune => None,
+            Liste::InstancesSansRls => Some(&regles.instances_sans_rls),
+            Liste::Instances => Some(&regles.instances),
+            Liste::AjoutSeul => Some(&regles.ajout_seul),
+            Liste::SecurityDefiner => Some(&regles.security_definer),
+        };
         let mut q = sqlx::query_scalar(*requete);
-        if requete.contains("$1") {
-            q = q.bind(exceptions);
+        if let Some(valeurs) = valeurs {
+            q = q.bind(valeurs);
         }
         let lignes: Vec<String> = q
             .fetch_all(&mut *connexion)
@@ -261,14 +527,67 @@ async fn ecarts(connexion: &mut PgConnection, exceptions: &[String]) -> Vec<Stri
             .unwrap_or_else(|e| panic!("contrôle de catalogue en échec ({e}) :\n{requete}"));
         ecarts.extend(lignes);
     }
+    ecarts.extend(ecarts_politiques(connexion, regles).await);
     ecarts
 }
 
+/// Écarts introduits dans la base jetable par le propriétaire (droits par défaut en dernier).
+const ECARTS_PROPRIETAIRE: &str = "CREATE TABLE table_oubliee (id uuid PRIMARY KEY, cabinet_id uuid NOT NULL); \
+             CREATE TABLE rls_non_forcee (cabinet_id uuid NOT NULL); \
+             ALTER TABLE rls_non_forcee ENABLE ROW LEVEL SECURITY; \
+             CREATE TABLE politique_partielle (cabinet_id uuid NOT NULL); \
+             ALTER TABLE politique_partielle ENABLE ROW LEVEL SECURITY; \
+             ALTER TABLE politique_partielle FORCE ROW LEVEL SECURITY; \
+             CREATE POLICY lecture ON politique_partielle FOR SELECT USING (true); \
+             CREATE TABLE contexte_non_nul (cabinet_id uuid NOT NULL); \
+             ALTER TABLE contexte_non_nul ENABLE ROW LEVEL SECURITY; \
+             ALTER TABLE contexte_non_nul FORCE ROW LEVEL SECURITY; \
+             CREATE POLICY tenant ON contexte_non_nul FOR ALL \
+                 USING (current_setting('sigma.cabinet', true) IS NOT NULL) \
+                 WITH CHECK (current_setting('sigma.cabinet', true) IS NOT NULL); \
+             CREATE TABLE piece_laxiste (cabinet_id uuid NOT NULL, dossier_id uuid NOT NULL); \
+             ALTER TABLE piece_laxiste ENABLE ROW LEVEL SECURITY; \
+             ALTER TABLE piece_laxiste FORCE ROW LEVEL SECURITY; \
+             CREATE POLICY tenant ON piece_laxiste FOR ALL \
+                 USING (cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid) \
+                 WITH CHECK (cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid); \
+             CREATE TABLE piece_stricte (cabinet_id uuid NOT NULL, dossier_id uuid NOT NULL); \
+             ALTER TABLE piece_stricte ENABLE ROW LEVEL SECURITY; \
+             ALTER TABLE piece_stricte FORCE ROW LEVEL SECURITY; \
+             CREATE POLICY tenant ON piece_stricte FOR ALL \
+                 USING (cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid \
+                        AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid) \
+                 WITH CHECK (cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid \
+                        AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid); \
+             ALTER TABLE utilisateur ADD COLUMN solde double precision; \
+             ALTER TABLE utilisateur ADD COLUMN cabinet_id uuid; \
+             ALTER TABLE dossier ADD COLUMN ouvert_le timestamp; \
+             CREATE VIEW vue_dossiers AS SELECT * FROM dossier; \
+             GRANT TRUNCATE ON dossier TO sigma_application; \
+             CREATE FUNCTION f_definer() RETURNS int LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'; \
+             REVOKE EXECUTE ON FUNCTION f_definer() FROM PUBLIC; \
+             CREATE FUNCTION f_publique() RETURNS int LANGUAGE sql AS 'SELECT 1'; \
+             CREATE SEQUENCE seq_test; \
+             GRANT USAGE ON SEQUENCE seq_test TO sigma_application; \
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO sigma_application;";
+
+/// Écarts introduits par le super-utilisateur, dont un rôle du cluster (rétabli aussitôt après
+/// la lecture des écarts).
+const ECARTS_SUPERUTILISATEUR: &str = "CREATE TABLE possedee (cabinet_id uuid NOT NULL); \
+             ALTER TABLE possedee OWNER TO sigma_application; \
+             GRANT CREATE ON SCHEMA public TO sigma_application; \
+             DO $$ BEGIN \
+                 CREATE ROLE sigma_test_contournement NOLOGIN BYPASSRLS; \
+             EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; \
+             END $$; \
+             ALTER ROLE sigma_test_contournement LOGIN;";
+
 #[tokio::test]
 async fn le_catalogue_respecte_les_regles_d_isolation() {
+    let _verrou = VERROU_ROLES.lock().await;
     let env = env().await;
     let mut connexion = env.admin.acquire().await.unwrap();
-    let ecarts = ecarts(&mut connexion, &tables_instance()).await;
+    let ecarts = ecarts(&mut connexion, &regles()).await;
     assert!(
         ecarts.is_empty(),
         "écarts du catalogue :\n{}",
@@ -278,6 +597,7 @@ async fn le_catalogue_respecte_les_regles_d_isolation() {
 
 #[tokio::test]
 async fn une_table_oubliee_fait_echouer_le_controle() {
+    let _verrou = VERROU_ROLES.lock().await;
     let url_admin = variable("SIGMA_TEST_ADMIN_URL");
     // Vérifie aussi l'environnement (base principale migrée).
     let env = env().await;
@@ -304,64 +624,58 @@ async fn une_table_oubliee_fait_echouer_le_controle() {
 
     let options = PgConnectOptions::from_str(&url_admin)
         .unwrap()
-        .database(BASE_JETABLE);
+        .database("sigma_test_catalogue_jetable");
     let mut jetable = PgConnection::connect_with(&options).await.unwrap();
     // Migrations exécutées sous le rôle de migration, comme `sqlx migrate run`.
     jetable.execute("SET ROLE sigma_migration").await.unwrap();
     MIGRATEUR.run(&mut jetable).await.unwrap();
 
-    let exceptions = tables_instance();
-    let initiaux = ecarts(&mut jetable, &exceptions).await;
+    let regles = regles();
+    let initiaux = ecarts(&mut jetable, &regles).await;
     assert!(initiaux.is_empty(), "base neuve : {initiaux:?}");
 
     // Écarts introduits par le propriétaire, puis par le super-utilisateur.
-    jetable
-        .execute(
-            "CREATE TABLE table_oubliee (id uuid PRIMARY KEY, cabinet_id uuid NOT NULL); \
-             CREATE TABLE rls_non_forcee (cabinet_id uuid NOT NULL); \
-             ALTER TABLE rls_non_forcee ENABLE ROW LEVEL SECURITY; \
-             CREATE TABLE politique_partielle (cabinet_id uuid NOT NULL); \
-             ALTER TABLE politique_partielle ENABLE ROW LEVEL SECURITY; \
-             ALTER TABLE politique_partielle FORCE ROW LEVEL SECURITY; \
-             CREATE POLICY lecture ON politique_partielle FOR SELECT USING (true); \
-             ALTER TABLE utilisateur ADD COLUMN solde double precision; \
-             ALTER TABLE utilisateur ADD COLUMN cabinet_id uuid; \
-             ALTER TABLE dossier ADD COLUMN ouvert_le timestamp; \
-             CREATE VIEW vue_dossiers AS SELECT * FROM dossier; \
-             GRANT TRUNCATE ON dossier TO sigma_application;",
-        )
-        .await
-        .unwrap();
+    jetable.execute(ECARTS_PROPRIETAIRE).await.unwrap();
     jetable.execute("RESET ROLE").await.unwrap();
+    jetable.execute(ECARTS_SUPERUTILISATEUR).await.unwrap();
+
+    let trouves = ecarts(&mut jetable, &regles).await;
     jetable
-        .execute(
-            "CREATE TABLE possedee (cabinet_id uuid NOT NULL); \
-             ALTER TABLE possedee OWNER TO sigma_application; \
-             GRANT CREATE ON SCHEMA public TO sigma_application;",
-        )
+        .execute("ALTER ROLE sigma_test_contournement NOLOGIN")
         .await
         .unwrap();
-
-    let trouves = ecarts(&mut jetable, &exceptions).await;
-    let tables_instance_plus_absente: Vec<String> = exceptions
-        .iter()
-        .cloned()
-        .chain(["table_disparue".to_owned()])
-        .collect();
-    let trouves_absente = ecarts(&mut jetable, &tables_instance_plus_absente).await;
+    // Listes augmentées : table d'instance absente ; tables en ajout seul (l'une absente,
+    // l'autre avec UPDATE et DELETE accordés).
+    let mut regles_augmentees = regles.clone();
+    regles_augmentees
+        .instances
+        .push("table_disparue".to_owned());
+    regles_augmentees.ajout_seul = vec!["acces_dossier".to_owned(), "journal_absent".to_owned()];
+    let trouves_listes = ecarts(&mut jetable, &regles_augmentees).await;
     jetable.close().await.unwrap();
     admin
         .execute("DROP DATABASE sigma_test_catalogue_jetable WITH (FORCE)")
         .await
         .unwrap();
 
+    let detecte = |trouves: &[String], attendu: &str| {
+        assert!(
+            trouves.iter().any(|e| e.starts_with(attendu)),
+            "écart non détecté : {attendu}\nécarts trouvés :\n{}",
+            trouves.join("\n")
+        );
+    };
     for attendu in [
         "public.table_oubliee : RLS non activée",
         "public.table_oubliee : aucune politique pour SELECT",
         "public.rls_non_forcee : RLS non forcée",
         "public.politique_partielle : aucune politique pour INSERT",
         "public.politique_partielle : aucune politique pour DELETE",
-        "public.politique_partielle : politique lecture dont USING ne lit pas sigma.cabinet",
+        "public.politique_partielle : politique lecture : USING hors forme admise",
+        "public.contexte_non_nul : politique tenant : USING hors forme admise",
+        "public.contexte_non_nul : politique tenant : WITH CHECK hors forme admise",
+        "public.piece_laxiste : politique tenant : USING hors forme admise",
+        "public.piece_laxiste : politique tenant : WITH CHECK hors forme admise",
         "public.utilisateur.solde : type double precision interdit",
         "table d'instance utilisateur avec la colonne cabinet_id",
         "public.dossier.ouvert_le : type timestamp without time zone interdit",
@@ -369,17 +683,32 @@ async fn une_table_oubliee_fait_echouer_le_controle() {
         "sigma_application a TRUNCATE sur public.dossier",
         "sigma_application possède la relation public.possedee",
         "sigma_application a CREATE sur le schéma public",
+        "fonction public.f_definer : SECURITY DEFINER hors liste",
+        "fonction public.f_publique : EXECUTE accordé à PUBLIC",
+        "sigma_application a USAGE sur la séquence public.seq_test",
+        "droits par défaut de sigma_migration (public)",
+        "rôle sigma_test_contournement : BYPASSRLS sans être super-utilisateur",
+    ] {
+        detecte(&trouves, attendu);
+    }
+    // La table de dossier stricte est conforme ; la fonction SECURITY DEFINER n'ouvre pas
+    // EXECUTE à PUBLIC.
+    for conforme in [
+        "public.piece_stricte",
+        "fonction public.f_definer : EXECUTE",
     ] {
         assert!(
-            trouves.iter().any(|e| e == attendu),
-            "écart non détecté : {attendu}\nécarts trouvés :\n{}",
+            !trouves.iter().any(|e| e.starts_with(conforme)),
+            "faux positif : {conforme}\n{}",
             trouves.join("\n")
         );
     }
-    assert!(
-        trouves_absente
-            .iter()
-            .any(|e| e == "table d'instance table_disparue absente du schéma"),
-        "{trouves_absente:?}"
-    );
+    for attendu in [
+        "table d'instance table_disparue absente du schéma",
+        "table en ajout seul journal_absent absente du schéma",
+        "sigma_application a UPDATE sur public.acces_dossier (ajout seul)",
+        "sigma_application a DELETE sur public.acces_dossier (ajout seul)",
+    ] {
+        detecte(&trouves_listes, attendu);
+    }
 }

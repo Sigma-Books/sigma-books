@@ -5,14 +5,16 @@
 -- ce n'est donc pas une migration. Le script est exécuté par un super-utilisateur
 -- (en développement et en CI), avant `sqlx migrate run`. Il est idempotent.
 --
--- Il ne contient aucun mot de passe : ils sont passés en variables psql.
+-- Il ne contient aucun mot de passe. Ceux des rôles sont lus dans l'environnement par
+-- `\getenv` (psql 15 ou plus) : ils ne figurent ni dans le dépôt, ni dans les arguments de la
+-- commande (visibles par `ps`). Le super-utilisateur s'authentifie par les variables libpq
+-- (`PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`) ou un fichier `~/.pgpass`.
 --
---   psql "<URL du super-utilisateur>" -X -v ON_ERROR_STOP=1 \
---        -v base=sigma_books \
---        -v mdp_migration="$SIGMA_MDP_MIGRATION" \
---        -v mdp_application="$SIGMA_MDP_APPLICATION" \
---        -v mdp_lecture_audit="$SIGMA_MDP_LECTURE_AUDIT" \
+--   SIGMA_MDP_MIGRATION=… SIGMA_MDP_APPLICATION=… SIGMA_MDP_LECTURE_AUDIT=… \
+--   psql -X -d postgres -v ON_ERROR_STOP=1 -v base=sigma_books \
 --        -f crates/api/sql/approvisionnement.sql
+--
+-- (scripts/preparer-base.sh fait cet appel.)
 --
 -- Rôles :
 --   sigma_migration      propriétaire de la base, du schéma et des tables ; `sqlx migrate` seulement.
@@ -22,25 +24,29 @@
 
 \set ON_ERROR_STOP on
 
--- Variables obligatoires et non vides.
 \if :{?base}
 \else
   \echo 'approvisionnement : variable « base » manquante (-v base=...)'
   SELECT 1 / 0 AS variable_manquante;
 \endif
+
+-- Mots de passe, depuis l'environnement ; absents ou vides : arrêt.
+\getenv mdp_migration SIGMA_MDP_MIGRATION
+\getenv mdp_application SIGMA_MDP_APPLICATION
+\getenv mdp_lecture_audit SIGMA_MDP_LECTURE_AUDIT
 \if :{?mdp_migration}
 \else
-  \echo 'approvisionnement : variable « mdp_migration » manquante'
+  \echo 'approvisionnement : SIGMA_MDP_MIGRATION absente de l''environnement'
   SELECT 1 / 0 AS variable_manquante;
 \endif
 \if :{?mdp_application}
 \else
-  \echo 'approvisionnement : variable « mdp_application » manquante'
+  \echo 'approvisionnement : SIGMA_MDP_APPLICATION absente de l''environnement'
   SELECT 1 / 0 AS variable_manquante;
 \endif
 \if :{?mdp_lecture_audit}
 \else
-  \echo 'approvisionnement : variable « mdp_lecture_audit » manquante'
+  \echo 'approvisionnement : SIGMA_MDP_LECTURE_AUDIT absente de l''environnement'
   SELECT 1 / 0 AS variable_manquante;
 \endif
 

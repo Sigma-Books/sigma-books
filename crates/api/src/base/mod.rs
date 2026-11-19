@@ -170,7 +170,14 @@ pub async fn ouvrir_pool_application(
     Ok(pool)
 }
 
-async fn verifier_role_application(pool: &PgPool) -> Result<(), ErreurBase> {
+/// Vérifie que le rôle courant (`current_user`) des connexions du pool est un rôle applicatif :
+/// ni `SUPERUSER`, ni `BYPASSRLS`, membre (`MEMBER`, que l'héritage soit actif ou non :
+/// `NOINHERIT` n'empêche pas `SET ROLE`) d'aucun propriétaire d'objet du schéma ni de la base,
+/// ni de `sigma_migration`.
+///
+/// # Errors
+/// [`ErreurBase::RoleTropPrivilegie`], ou erreur de PostgreSQL.
+pub async fn verifier_role_application(pool: &PgPool) -> Result<(), ErreurBase> {
     let role = sqlx::query!(
         r#"
         SELECT
@@ -180,8 +187,18 @@ async fn verifier_role_application(pool: &PgPool) -> Result<(), ErreurBase> {
                 SELECT 1
                 FROM pg_catalog.pg_class c
                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public' AND pg_has_role(current_user, c.relowner, 'USAGE')
-            ) AS "proprietaire!"
+                WHERE n.nspname = 'public' AND pg_has_role(current_user, c.relowner, 'MEMBER')
+            ) AS "proprietaire_objet!",
+            EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_database d
+                WHERE d.datname = current_database() AND pg_has_role(current_user, d.datdba, 'MEMBER')
+            ) AS "proprietaire_base!",
+            EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_roles m
+                WHERE m.rolname = 'sigma_migration' AND pg_has_role(current_user, m.oid, 'MEMBER')
+            ) AS "membre_migration!"
         FROM pg_catalog.pg_roles r
         WHERE r.rolname = current_user
         "#
@@ -194,7 +211,13 @@ async fn verifier_role_application(pool: &PgPool) -> Result<(), ErreurBase> {
     if role.contourne_rls {
         return Err(ErreurBase::RoleTropPrivilegie("BYPASSRLS"));
     }
-    if role.proprietaire {
+    if role.membre_migration {
+        return Err(ErreurBase::RoleTropPrivilegie("membre de sigma_migration"));
+    }
+    if role.proprietaire_base {
+        return Err(ErreurBase::RoleTropPrivilegie("propriétaire de la base"));
+    }
+    if role.proprietaire_objet {
         return Err(ErreurBase::RoleTropPrivilegie(
             "propriétaire d'objets du schéma",
         ));
