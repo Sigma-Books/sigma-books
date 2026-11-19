@@ -1,0 +1,80 @@
+// Schéma Cedar de Sigma Books, domaine « cabinet » : rôles, cabinet, appartenance, contexte
+// des décisions de cabinet et actions sur le cabinet (spec §20).
+//
+// Fragment du schéma (`crates/authz/politiques/schema/`) : les fragments forment un seul schéma,
+// composé au chargement (`authz::SCHEMA`) ; un type peut citer ceux d'un autre fragment.
+//
+// Chargé par `crates/authz` au démarrage ; les politiques (`*.cedar`) sont
+// validées contre le schéma composé en mode strict, et le serveur refuse de
+// démarrer sinon.
+//
+// Modélisation (voir `crates/authz/src/lib.rs`) :
+// - le principal d'une action de cabinet est une **appartenance** (un
+//   utilisateur dans un cabinet, avec un seul rôle), jamais l'utilisateur
+//   seul : une décision ne vaut que pour le cabinet de cette appartenance
+//   (F1.14) ;
+// - le principal d'une action de l'utilisateur **sur lui-même** (ses
+//   sessions, ADR 0012 ; ses facteurs, PR 8b et 8c) est l'**utilisateur** :
+//   ces actions ne relèvent d'aucun cabinet ;
+// - les ressources forment une hiérarchie stricte
+//   cabinet ⊃ dossier ⊃ écriture, qui permet `resource in principal.cabinet` ;
+// - brouillon et écriture validée sont deux types distincts, comme dans
+//   `compta-core` et en base (ADR 0011) : aucune action de modification ne
+//   s'applique à une écriture validée (F1.15).
+namespace Sigma {
+  // Rôles par défaut du §20. Pas de rôle dérivé en L2 (Q5.4).
+  // Le rôle `client` existe pour l'appartenance au portail (L4) ; aucune
+  // politique ne lui accorde de droit en L2.
+  entity Role enum ["administrateur", "valideur", "collaborateur", "auditeur", "client"];
+
+  // Le tenant (spec §4.1).
+  entity Cabinet = {
+    // Séparation des tâches (Q5.3) : activée par défaut, désactivable par
+    // l'administrateur avec ré-authentification.
+    separation_des_taches: Bool,
+  };
+
+  // Rôle d'un utilisateur dans un cabinet (spec §4.1 : « chaque appartenance
+  // a son rôle »). Un seul rôle par appartenance.
+  entity Appartenance = {
+    utilisateur: Utilisateur,
+    cabinet: Cabinet,
+    role: Role,
+    // Faux si l'appartenance est suspendue (ADR 0014) : plus aucune action.
+    actif: Bool,
+  };
+
+  type Contexte = {
+    // Facteur vérifié depuis moins de 5 minutes (ADR 0012).
+    session_fraiche: Bool,
+    // Affectation de l'appartenance au dossier de la ressource, si elle existe.
+    acces?: AccesDossier,
+  };
+
+  // ---------------------------------------------------------------------
+  // Actions sur le cabinet
+  // ---------------------------------------------------------------------
+
+  // Voir le cabinet : liste des cabinets de l'utilisateur, avant le choix
+  // du cabinet actif (ADR 0012). Une appartenance suspendue n'y figure pas.
+  action AccederCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // §20 « Gérer cabinet, utilisateurs, facturation » : paramètres du cabinet,
+  // liste des utilisateurs, sessions actives (spec §21).
+  action GererCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // Même ligne : changements de droits (invitation avec un rôle, changement
+  // de rôle, suspension, affectation aux dossiers, délégation de validation).
+  action ModifierDroits appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // Q5.3 : séparation des tâches.
+  action ActiverSeparationDesTaches appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  action DesactiverSeparationDesTaches appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // ADR 0014 : audit de portée cabinet (administration et droits).
+  // ADR 0016 : consultation, vérification et export réservés à
+  // l'administrateur ; export ré-authentifié.
+  action ConsulterAuditCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  action VerifierAuditCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  action ExporterAuditCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // §20 « Créer un dossier, reprise de données » (création).
+  action CreerDossier appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // Lot ultérieur (facturation, hors L2) : déclarée, aucune politique.
+  action GererFacturation appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+}

@@ -1,0 +1,31 @@
+// Schéma Cedar de Sigma Books, domaine « écritures » : brouillon, écriture validée et actions
+// sur une écriture (spec §20).
+//
+// Fragment du schéma (`crates/authz/politiques/schema/`) : les fragments forment un seul schéma,
+// composé au chargement (`authz::SCHEMA`) ; un type peut citer ceux d'un autre fragment.
+
+namespace Sigma {
+  // Écriture au brouillard : modifiable, supprimable (spec §6.1).
+  entity EcritureBrouillon in [Dossier] = {
+    // Créateur et chaque utilisateur qui l'a modifiée : fonde la séparation
+    // des tâches (Q5.3). « Qu'il a lui-même saisie » (§20) : corriger un
+    // brouillon, c'est en saisir une partie.
+    contributeurs: Set<Utilisateur>,
+  };
+
+  // Écriture validée : définitive (spec §2 principe 4). Aucun attribut
+  // modifiable, aucune action de modification.
+  entity EcritureValidee in [Dossier];
+
+  // ---------------------------------------------------------------------
+  // Actions sur une écriture
+  // ---------------------------------------------------------------------
+
+  // §20 « Saisir, corriger dans le brouillard » (modifier, supprimer un brouillon).
+  action CorrigerBrouillard appliesTo { principal: Appartenance, resource: EcritureBrouillon, context: Contexte };
+  // §20 « Valider une écriture ».
+  action ValiderEcriture appliesTo { principal: Appartenance, resource: EcritureBrouillon, context: Contexte };
+  // §20 « Contre-passer » : seule action sur une écriture validée, et elle
+  // ne la modifie pas (elle crée une écriture miroir, spec §6.1).
+  action ContrePasser appliesTo { principal: Appartenance, resource: EcritureValidee, context: Contexte };
+}

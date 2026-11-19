@@ -1,8 +1,13 @@
-//! Actions du schéma Cedar (`politiques/schema.cedarschema`).
+//! Actions du schéma Cedar (`politiques/schema/*.cedarschema`).
 //!
-//! La correspondance entre cette énumération et le schéma est vérifiée au
+//! La correspondance entre ces énumérations et le schéma est vérifiée au
 //! chargement : une action absente du schéma, ou appliquée à un autre type
 //! de ressource, empêche le démarrage.
+//!
+//! Les actions sont classées par domaine, comme les fragments du schéma :
+//! cabinet, dossier, écritures ([`Action`], principal `Appartenance`), puis
+//! utilisateur ([`ActionUtilisateur`], principal `Utilisateur`). Une nouvelle
+//! action s'ajoute en une ligne, dans la section de son domaine.
 
 /// Type de ressource sur lequel porte une action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,6 +65,9 @@ macro_rules! actions {
 }
 
 actions! {
+    // ---------------------------------------------------------------------
+    // Domaine « cabinet » (`schema/cabinet.cedarschema`)
+    // ---------------------------------------------------------------------
     /// Voir le cabinet : le choisir comme cabinet actif parmi les siens
     /// (`GET /api/moi/cabinets`, ADR 0012), tout rôle du cabinet.
     AccederCabinet => Cabinet,
@@ -83,6 +91,10 @@ actions! {
     CreerDossier => Cabinet,
     /// Facturation (§20) : lot ultérieur, aucune politique.
     GererFacturation => Cabinet,
+
+    // ---------------------------------------------------------------------
+    // Domaine « dossier » (`schema/dossier.cedarschema`)
+    // ---------------------------------------------------------------------
     /// Voir un dossier : distingue 403 (visible) de 404 (d'autrui, ADR 0011).
     AccederDossier => Dossier,
     /// Paramétrer plan, journaux, fiscalité (§20).
@@ -126,6 +138,10 @@ actions! {
     TravauxFinExercice => Dossier,
     /// Répondre aux demandes (§20, portail client) : L4, aucune politique.
     RepondreDemande => Dossier,
+
+    // ---------------------------------------------------------------------
+    // Domaine « écritures » (`schema/ecritures.cedarschema`)
+    // ---------------------------------------------------------------------
     /// Modifier ou supprimer un brouillon (§20 « corriger dans le brouillard »).
     CorrigerBrouillard => EcritureBrouillon,
     /// Valider une écriture (§20 ; délégation Q5.2 ; séparation des tâches Q5.3).
@@ -154,54 +170,53 @@ impl TypeRessourceUtilisateur {
     }
 }
 
-/// Action de l'utilisateur **sur lui-même** (ADR 0012), de principal
-/// `Utilisateur` : ses sessions, hors de tout cabinet. Type distinct de
-/// [`Action`], dont le principal est une appartenance : aucune des deux ne
-/// peut être décidée pour l'autre principal (le schéma le refuserait aussi).
-///
-/// Jeu sobre de quatre actions : la déconnexion est la révocation de la
-/// session courante ([`ActionUtilisateur::RevoquerSaSession`]), même
-/// condition et même effet (seul le motif enregistré diffère).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ActionUtilisateur {
-    /// État de sa session courante et jeton anti-CSRF.
-    ConsulterSaSession,
-    /// Rotation du jeton de sa session.
-    TournerSaSession,
-    /// Révocation d'une de ses sessions, déconnexion comprise.
-    RevoquerSaSession,
-    /// Liste de ses sessions (ressource : l'utilisateur lui-même).
-    ListerSesSessions,
+macro_rules! actions_utilisateur {
+    ($( $(#[$doc:meta])* $variante:ident => $ressource:ident ),+ $(,)?) => {
+        /// Action de l'utilisateur **sur lui-même** (ADR 0012), de principal
+        /// `Utilisateur` : ses sessions, hors de tout cabinet. Type distinct de
+        /// [`Action`], dont le principal est une appartenance : aucune des deux ne
+        /// peut être décidée pour l'autre principal (le schéma le refuserait aussi).
+        ///
+        /// Jeu sobre de quatre actions : la déconnexion est la révocation de la
+        /// session courante ([`ActionUtilisateur::RevoquerSaSession`]), même
+        /// condition et même effet (seul le motif enregistré diffère).
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum ActionUtilisateur {
+            $( $(#[$doc])* $variante, )+
+        }
+
+        impl ActionUtilisateur {
+            /// Toutes les actions de l'utilisateur sur lui-même déclarées au schéma.
+            pub const TOUTES: &'static [ActionUtilisateur] =
+                &[ $( ActionUtilisateur::$variante, )+ ];
+
+            /// Identifiant de l'action dans le schéma (`Sigma::Action::"…"`).
+            #[must_use]
+            pub const fn nom(self) -> &'static str {
+                match self { $( ActionUtilisateur::$variante => stringify!($variante), )+ }
+            }
+
+            /// Type de ressource auquel l'action s'applique.
+            #[must_use]
+            pub const fn type_ressource(self) -> TypeRessourceUtilisateur {
+                match self {
+                    $( ActionUtilisateur::$variante => TypeRessourceUtilisateur::$ressource, )+
+                }
+            }
+        }
+    };
 }
 
-impl ActionUtilisateur {
-    /// Toutes les actions de l'utilisateur sur lui-même déclarées au schéma.
-    pub const TOUTES: &'static [ActionUtilisateur] = &[
-        Self::ConsulterSaSession,
-        Self::TournerSaSession,
-        Self::RevoquerSaSession,
-        Self::ListerSesSessions,
-    ];
-
-    /// Identifiant de l'action dans le schéma (`Sigma::Action::"…"`).
-    #[must_use]
-    pub const fn nom(self) -> &'static str {
-        match self {
-            Self::ConsulterSaSession => "ConsulterSaSession",
-            Self::TournerSaSession => "TournerSaSession",
-            Self::RevoquerSaSession => "RevoquerSaSession",
-            Self::ListerSesSessions => "ListerSesSessions",
-        }
-    }
-
-    /// Type de ressource auquel l'action s'applique.
-    #[must_use]
-    pub const fn type_ressource(self) -> TypeRessourceUtilisateur {
-        match self {
-            Self::ConsulterSaSession | Self::TournerSaSession | Self::RevoquerSaSession => {
-                TypeRessourceUtilisateur::Session
-            }
-            Self::ListerSesSessions => TypeRessourceUtilisateur::Utilisateur,
-        }
-    }
+actions_utilisateur! {
+    // ---------------------------------------------------------------------
+    // Domaine « utilisateur » (`schema/utilisateur.cedarschema`)
+    // ---------------------------------------------------------------------
+    /// État de sa session courante et jeton anti-CSRF.
+    ConsulterSaSession => Session,
+    /// Rotation du jeton de sa session.
+    TournerSaSession => Session,
+    /// Révocation d'une de ses sessions, déconnexion comprise.
+    RevoquerSaSession => Session,
+    /// Liste de ses sessions (ressource : l'utilisateur lui-même).
+    ListerSesSessions => Utilisateur,
 }

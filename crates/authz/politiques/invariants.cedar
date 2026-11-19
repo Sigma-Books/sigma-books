@@ -1,7 +1,7 @@
 // Invariants transverses : interdictions (`forbid`).
 //
 // Cedar refuse par défaut (ADR 0005) : seule une politique `permit` autorise
-// (voir `roles.cedar`). Une interdiction l'emporte toujours sur une
+// (voir `roles/`). Une interdiction l'emporte toujours sur une
 // autorisation : les règles ci-dessous valent pour tous les rôles,
 // administrateur compris, quelles que soient les autorisations ajoutées plus
 // tard (rôles dérivés, portail client).
