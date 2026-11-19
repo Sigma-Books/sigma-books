@@ -23,8 +23,8 @@ use super::pipeline::{CabinetAutorise, DossierAutorise, Garde};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
-    affecter_utilisateur_du_contexte, creer_dossier, lire_cabinet, lire_dossier_visible,
-    lister_dossiers_visibles,
+    affecter_utilisateur_du_contexte, creer_dossier, lire_appartenance, lire_cabinet,
+    lire_dossier_visible, lister_dossiers_visibles,
 };
 
 /// Méthode HTTP d'une route.
@@ -325,6 +325,23 @@ pub(crate) async fn executer(
     }
 }
 
+/// Défense en profondeur de la création d'un dossier (ADR 0011) : même si Cedar se trompait,
+/// la requête exige une appartenance **active**, lue en base, de rôle `administrateur` ou
+/// `valideur` (§20 « Créer un dossier »). Appartenance absente ou suspendue : le cabinet est
+/// d'autrui (404) ; autre rôle : action refusée sur une ressource visible (403).
+async fn exiger_createur(tx: &mut TransactionTenant) -> Result<(), ErreurApi> {
+    let appartenance = lire_appartenance(tx)
+        .await?
+        .filter(|a| a.actif)
+        .ok_or(ErreurApi::Introuvable)?;
+    let autorises = [authz::Role::Administrateur, authz::Role::Valideur];
+    if autorises.iter().any(|r| r.nom() == appartenance.role) {
+        Ok(())
+    } else {
+        Err(ErreurApi::Interdit)
+    }
+}
+
 /// Création d'un dossier (action du cabinet) : le dossier, l'affectation de son créateur, puis
 /// deux traces : au cabinet, puis en première entrée de la chaîne du dossier (ADR 0014).
 async fn creer(
@@ -333,6 +350,7 @@ async fn creer(
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
     garde.exiger_cabinet()?;
+    exiger_createur(tx).await?;
     let nom = nom_dossier(requete.corps)?;
     let dossier = creer_dossier(tx, &nom).await?;
     affecter_utilisateur_du_contexte(tx, dossier.id).await?;

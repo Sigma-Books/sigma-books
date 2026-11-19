@@ -506,6 +506,65 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     .await;
     assert_eq!(ids(&reponse), vec![b.dossier.to_string()]);
 
+    creation_refusee_quand_cedar_se_trompe(&env, &routeur, &m).await;
+    audit_refuse_quand_cedar_se_trompe(&routeur, &m, &reference).await;
+}
+
+/// Cedar forcé : la création d'un dossier reste refusée au collaborateur et à l'auditeur.
+async fn creation_refusee_quand_cedar_se_trompe(env: &commun::Env, routeur: &Router, m: &Monde) {
+    let a = &m.a;
+    // Création d'un dossier : la requête exige le rôle d'administrateur ou de valideur lu en
+    // base. Le collaborateur et l'auditeur, visibles dans leur cabinet, reçoivent 403 ; rien
+    // n'est créé ni inscrit à l'audit.
+    let creation = ROUTES
+        .iter()
+        .find(|r| r.cas_usage == CasUsage::CreerDossier)
+        .unwrap();
+    let compter = |sql: &'static str| {
+        let admin = env.admin.clone();
+        let cabinet = a.cabinet.uuid();
+        async move {
+            sqlx::query_scalar::<_, i64>(sql)
+                .bind(cabinet)
+                .fetch_one(&admin)
+                .await
+                .unwrap()
+        }
+    };
+    let etat = || async {
+        (
+            compter("SELECT count(*) FROM dossier WHERE cabinet_id = $1").await,
+            compter("SELECT count(*) FROM acces_dossier WHERE cabinet_id = $1").await,
+            compter("SELECT count(*) FROM audit_cabinet WHERE cabinet_id = $1").await,
+            compter("SELECT count(*) FROM audit_dossier WHERE cabinet_id = $1").await,
+        )
+    };
+    let avant = etat().await;
+    for utilisateur in [a.collaborateur, m.auditeur] {
+        let reponse = appel(
+            routeur,
+            creation,
+            &chemin(creation, a.cabinet.uuid(), a.dossier.uuid()),
+            Some(utilisateur),
+        )
+        .await;
+        assert_eq!(reponse.statut, StatusCode::FORBIDDEN, "{}", reponse.texte());
+    }
+    assert_eq!(etat().await, avant);
+    // Le valideur, lui, crée le dossier.
+    let reponse = appel(
+        routeur,
+        creation,
+        &chemin(creation, a.cabinet.uuid(), a.dossier.uuid()),
+        Some(m.valideur),
+    )
+    .await;
+    assert_eq!(reponse.statut, StatusCode::CREATED, "{}", reponse.texte());
+}
+
+/// Cedar forcé : les routes d'audit restent fermées hors de la portée permise.
+async fn audit_refuse_quand_cedar_se_trompe(routeur: &Router, m: &Monde, reference: &Reponse) {
+    let a = &m.a;
     // Routes d'audit : la requête revérifie la portée. Le collaborateur, le valideur et
     // l'auditeur n'obtiennent ni l'audit du cabinet (administrateur lu en base, ADR 0016) ni
     // celui d'un dossier non affecté ; rien n'est inscrit pour un export refusé.
@@ -522,7 +581,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     for route in routes_audit {
         for utilisateur in [a.collaborateur, m.valideur, m.auditeur] {
             let reponse = appel(
-                &routeur,
+                routeur,
                 route,
                 &chemin(route, a.cabinet.uuid(), a.autre_dossier.uuid()),
                 Some(utilisateur),
@@ -530,13 +589,13 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
             .await;
             verifier_absent(
                 &reponse,
-                &reference,
+                reference,
                 &format!("{} {} : Cedar forcé", route.methode.nom(), route.chemin),
             );
         }
         // L'administrateur, lui, y accède.
         let reponse = appel(
-            &routeur,
+            routeur,
             route,
             &chemin(route, a.cabinet.uuid(), a.autre_dossier.uuid()),
             Some(a.administrateur),
