@@ -1,7 +1,9 @@
-//! Aucune route hors de la table `routes::ROUTES` (L2, « Tests exigés », « chaque route »).
+//! Aucune route hors de la table `routes::ROUTES` (L2, « Tests exigés », « chaque route »),
+//! elle-même assemblée des seules tranches des modules de routes (`routes::MODULES`, test
+//! `la_table_est_l_assemblage_des_tranches`).
 //!
 //! `axum` n'expose pas la liste des routes d'un `Router` : le test « chaque route »
-//! (`isolation.rs`) ne peut énumérer que la table. Ce test garantit donc que **la table est le
+//! (`isolation/`) ne peut énumérer que la table. Ce test garantit donc que **la table est le
 //! routeur** :
 //! 1. **structure** : dans les sources du crate (hors modules de test), le seul `Router::new`,
 //!    les seuls `.route(` et les seuls repli (`fallback`) sont ceux de `serveur::routeur`, qui

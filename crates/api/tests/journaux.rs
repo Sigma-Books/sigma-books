@@ -1,7 +1,7 @@
 //! Journaux techniques en liste blanche (F2.11, VP3 ; L2, « Tests exigés ») : les journaux d'un
 //! scénario ne contiennent que les champs de `journal::CHAMPS`, et ni montant, ni libellé, ni
 //! jeton, ni identifiant tiré du chemin. Scénario sans base ici ; scénario complet avec la base
-//! dans `isolation.rs` (`tests-postgres`).
+//! dans `isolation/` (`tests-postgres`).
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 

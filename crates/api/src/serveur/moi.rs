@@ -50,7 +50,7 @@ use super::Etat;
 use super::authentification::Identite;
 use super::erreur::{CategorieErreur, ErreurApi};
 use super::pipeline::{id_authz, id_chemin, role};
-use super::routes::{ActionRoute, CasUsage, Route};
+use super::routes::{self, ActionRoute, CasUsage, Route};
 use super::session::{JetonSession, cookie, cookie_efface, jeton_de_la_requete};
 use crate::base::organisation::lister_cabinets_de_l_utilisateur;
 use crate::base::session::{self, DureesSession, MotifRevocation, Session};
@@ -70,25 +70,40 @@ pub(crate) async fn executer(
     let mut tx = ouvrir_transaction_utilisateur(&etat.pool, identite.utilisateur).await?;
     let soi = || Soi::new(etat, route, identite);
     let reponse = match route.cas_usage {
-        CasUsage::EtatSession => {
+        CasUsage::Session(routes::session::Cas::EtatSession) => {
             etat_session(&mut tx, &soi()?, parts, identite, maintenant, &durees).await
         }
-        CasUsage::TournerJeton => {
+        CasUsage::Session(routes::session::Cas::TournerJeton) => {
             tourner(&mut tx, &soi()?, parts, identite, maintenant, &durees).await
         }
-        CasUsage::Deconnecter => deconnecter(&mut tx, &soi()?, identite, maintenant).await,
-        CasUsage::ListerSessions => lister(&mut tx, &soi()?, identite, maintenant, &durees).await,
-        CasUsage::RevoquerSession => revoquer(&mut tx, &soi()?, parts, maintenant).await,
-        CasUsage::ListerCabinets => {
+        CasUsage::Session(routes::session::Cas::Deconnecter) => {
+            deconnecter(&mut tx, &soi()?, identite, maintenant).await
+        }
+        CasUsage::Moi(routes::moi::Cas::ListerSessions) => {
+            lister(&mut tx, &soi()?, identite, maintenant, &durees).await
+        }
+        CasUsage::Moi(routes::moi::Cas::RevoquerSession) => {
+            revoquer(&mut tx, &soi()?, parts, maintenant).await
+        }
+        CasUsage::Moi(routes::moi::Cas::ListerCabinets) => {
             lister_cabinets(etat, &mut tx, route, identite, maintenant).await
         }
-        CasUsage::LireCabinet
-        | CasUsage::ListerDossiers
-        | CasUsage::LireDossier
-        | CasUsage::CreerDossier
-        | CasUsage::ConsulterAudit
-        | CasUsage::VerifierAudit
-        | CasUsage::ExporterAudit => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
+        // Cas d'usage d'un cabinet : pipeline complet, jamais ici.
+        CasUsage::Organisation(_) | CasUsage::Audit(_) => {
+            Err(ErreurApi::Interne(CategorieErreur::Donnee))
+        }
+        // Voie authentification (PR 8b, 8c, 9).
+        CasUsage::Facteurs(cas) => match cas {},
+        CasUsage::Passkeys(cas) => match cas {},
+        CasUsage::Administration(cas) => match cas {},
+        // Voie comptabilité (PR 11, 13, 14).
+        CasUsage::Referentiel(cas) => match cas {},
+        CasUsage::Brouillard(cas) => match cas {},
+        CasUsage::Editions(cas) => match cas {},
+        // Voie pièces (PR 12).
+        CasUsage::Pieces(cas) => match cas {},
+        // Voie intégrité et horodatage (PR 15).
+        CasUsage::Integrite(cas) => match cas {},
     }?;
     tx.confirmer().await?;
     Ok(reponse)

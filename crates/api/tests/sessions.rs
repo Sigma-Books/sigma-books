@@ -5,7 +5,7 @@
 //!
 //! Les cas d'isolation de chaque route hors cabinet (un utilisateur ne voit ni ne révoque les
 //! sessions d'un autre ; `/api/moi/cabinets` sans fuite ni appartenance suspendue) sont dans
-//! `isolation.rs`, avec ceux de toutes les routes.
+//! `isolation/`, avec ceux de toutes les routes.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
 #![allow(clippy::expect_used, clippy::unwrap_used)]

@@ -5,10 +5,12 @@
 //! collaborateur affecté au seul premier dossier ; un utilisateur `multi`, administrateur de A
 //! et collaborateur de B affecté au premier dossier de B.
 //!
-//! - **Chaque route** de `routes::ROUTES` doit avoir ses attentes dans [`attentes`] : sinon le
-//!   test échoue. Pour chacune sont vérifiés en outre, de façon générique : une ressource de
-//!   l'autre cabinet donne 404 avec le même corps qu'un identifiant inexistant ; un dossier non
-//!   affecté donne 404 au collaborateur ; sans authentification, 401.
+//! - **Chaque route** de `routes::ROUTES` doit avoir ses attentes ([`attentes`]), lues dans le
+//!   fichier de cas de son module (`tests/isolation/<module>.rs`, un par module de
+//!   `routes::MODULES`) : sinon le test échoue. Pour chacune sont vérifiés en outre, de façon
+//!   générique : une ressource de l'autre cabinet donne 404 avec le même corps qu'un
+//!   identifiant inexistant ; un dossier non affecté donne 404 au collaborateur ; sans
+//!   authentification, 401.
 //! - **Cedar se trompe** : avec une décision forcée à « autorisé », le filtre de la requête et
 //!   la RLS ne livrent toujours rien d'autrui ni d'un dossier non affecté.
 //! - **Journaux** du scénario complet : liste blanche, aucun nom ni identifiant.
@@ -18,20 +20,37 @@
 //! réellement la ressource et l'inscrit au journal d'audit.
 //!
 //! Les routes **hors cabinet** (session courante, ses sessions, ses cabinets : ADR 0012) n'ont
-//! pas de `{cabinet}` à substituer : leurs cas ([`cas_hors_cabinet`]) s'exécutent avec des
+//! pas de `{cabinet}` à substituer : leurs scénarios ([`cas_hors_cabinet`]) s'exécutent avec des
 //! sessions réelles (cookie, jeton anti-CSRF lié) de deux utilisateurs de cabinets différents
 //! et du membre des deux cabinets ; aucun ne voit ni n'agit sur ce qui est à un autre.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+#[path = "../commun/mod.rs"]
 mod commun;
 
+// Un fichier de cas par module de routes (`api::serveur::routes::MODULES`).
+mod administration;
+mod audit;
+mod brouillard;
+mod editions;
+mod facteurs;
+mod integrite;
+mod moi;
+mod organisation;
+mod passkeys;
+mod pieces;
+mod referentiel;
+mod session;
+
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use api::base::session::NatureSession;
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
-use api::serveur::routes::{CasUsage, Methode, ROUTES, Route};
+use api::serveur::routes::{self, CasUsage, MODULES, ROUTES, Route};
 use api::serveur::session::SessionOuverte;
 use api::serveur::{Application, Reglages, routeur};
 use authz::Autorisation;
@@ -139,120 +158,53 @@ fn attendu(
     }
 }
 
-/// Cas d'isolation propres à chaque route, dont le membre des deux cabinets, qui n'agit que
-/// selon son rôle dans le cabinet du chemin. `None` : route sans cas, le test échoue.
-fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
-    use Resultat::{Cree, Liste, Ressource, Statut};
-    let (a, b) = (&m.a, &m.b);
-    let interdit = || Statut(StatusCode::FORBIDDEN);
-    let absent = || Statut(StatusCode::NOT_FOUND);
-    Some(match route.chemin {
-        "/api/cabinets/{cabinet}" => vec![
-            attendu(
-                a.administrateur,
-                a.cabinet,
-                a.dossier,
-                Ressource(a.cabinet.uuid()),
-            ),
-            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
-            attendu(m.multi, a.cabinet, a.dossier, Ressource(a.cabinet.uuid())),
-            attendu(m.multi, b.cabinet, b.dossier, interdit()),
-        ],
-        "/api/cabinets/{cabinet}/dossiers" if route.methode == Methode::Get => vec![
-            attendu(
-                a.administrateur,
-                a.cabinet,
-                a.dossier,
-                Liste(vec![a.dossier, a.autre_dossier]),
-            ),
-            attendu(
-                a.collaborateur,
-                a.cabinet,
-                a.dossier,
-                Liste(vec![a.dossier]),
-            ),
-            attendu(
-                m.multi,
-                a.cabinet,
-                a.dossier,
-                Liste(vec![a.dossier, a.autre_dossier]),
-            ),
-            attendu(m.multi, b.cabinet, b.dossier, Liste(vec![b.dossier])),
-        ],
-        "/api/cabinets/{cabinet}/dossiers/{dossier}" => vec![
-            attendu(
-                a.administrateur,
-                a.cabinet,
-                a.autre_dossier,
-                Ressource(a.autre_dossier.uuid()),
-            ),
-            attendu(
-                a.collaborateur,
-                a.cabinet,
-                a.dossier,
-                Ressource(a.dossier.uuid()),
-            ),
-            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
-            attendu(
-                m.multi,
-                a.cabinet,
-                a.autre_dossier,
-                Ressource(a.autre_dossier.uuid()),
-            ),
-            attendu(m.multi, b.cabinet, b.dossier, Ressource(b.dossier.uuid())),
-            attendu(m.multi, b.cabinet, b.autre_dossier, absent()),
-        ],
-        "/api/cabinets/{cabinet}/dossiers" if route.methode == Methode::Post => vec![
-            attendu(a.administrateur, a.cabinet, a.dossier, Cree),
-            attendu(m.valideur, a.cabinet, a.dossier, Cree),
-            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
-            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
-            attendu(m.multi, a.cabinet, a.dossier, Cree),
-            attendu(m.multi, b.cabinet, b.dossier, interdit()),
-        ],
-        // Audit du cabinet : administrateur seul (ADR 0016), 403 pour les autres membres.
-        "/api/cabinets/{cabinet}/audit"
-        | "/api/cabinets/{cabinet}/audit/verification"
-        | "/api/cabinets/{cabinet}/audit/export" => {
-            let ok = || resultat_audit(route);
-            vec![
-                attendu(a.administrateur, a.cabinet, a.dossier, ok()),
-                attendu(m.valideur, a.cabinet, a.dossier, interdit()),
-                attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
-                attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
-                attendu(m.multi, a.cabinet, a.dossier, ok()),
-                attendu(m.multi, b.cabinet, b.dossier, interdit()),
-            ]
-        }
-        // Audit d'un dossier : administrateur, valideur, auditeur affectés ; collaborateur 403 ;
-        // dossier non affecté 404.
-        "/api/cabinets/{cabinet}/dossiers/{dossier}/audit"
-        | "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/verification"
-        | "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/export" => {
-            let ok = || resultat_audit(route);
-            vec![
-                attendu(a.administrateur, a.cabinet, a.dossier, ok()),
-                attendu(a.administrateur, a.cabinet, a.autre_dossier, ok()),
-                attendu(m.valideur, a.cabinet, a.dossier, ok()),
-                attendu(m.auditeur, a.cabinet, a.dossier, ok()),
-                attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
-                attendu(m.valideur, a.cabinet, a.autre_dossier, absent()),
-                attendu(m.auditeur, a.cabinet, a.autre_dossier, absent()),
-                attendu(m.multi, a.cabinet, a.autre_dossier, ok()),
-                attendu(m.multi, b.cabinet, b.dossier, interdit()),
-            ]
-        }
+/// Cas d'isolation d'un module de routes : un fichier par module (`tests/isolation/<module>.rs`),
+/// pour que deux voies de travail n'ajoutent pas leurs cas au même endroit.
+struct CasModule {
+    /// Attentes d'une route d'un cabinet. `None` : route sans cas, le test échoue.
+    attentes: fn(&Route, &Monde) -> Option<Vec<Attendu>>,
+    /// Scénario d'une route hors cabinet. `None` : route sans cas, le test échoue.
+    hors_cabinet: fn(&Route) -> Option<Scenario>,
+}
+
+impl CasModule {
+    /// Aucun cas : module sans route.
+    const AUCUN: Self = Self {
+        attentes: |_, _| None,
+        hors_cabinet: |_| None,
+    };
+}
+
+/// Scénario d'isolation d'une route hors cabinet.
+type Scenario = for<'c> fn(&'c Ctx<'c>) -> Pin<Box<dyn Future<Output = ()> + 'c>>;
+
+/// Fichier de cas du module de routes `nom` ([`api::serveur::routes::Module::nom`]).
+fn cas_du_module(nom: &str) -> Option<&'static CasModule> {
+    Some(match nom {
+        "organisation" => &organisation::CAS,
+        "audit" => &audit::CAS,
+        "session" => &session::CAS,
+        "moi" => &moi::CAS,
+        "facteurs" => &facteurs::CAS,
+        "passkeys" => &passkeys::CAS,
+        "administration" => &administration::CAS,
+        "referentiel" => &referentiel::CAS,
+        "brouillard" => &brouillard::CAS,
+        "editions" => &editions::CAS,
+        "pieces" => &pieces::CAS,
+        "integrite" => &integrite::CAS,
         _ => return None,
     })
 }
 
-/// Résultat d'un appel autorisé d'une route d'audit.
-fn resultat_audit(route: &Route) -> Resultat {
-    match route.cas_usage {
-        CasUsage::ConsulterAudit => Resultat::PageAudit,
-        CasUsage::VerifierAudit => Resultat::Verification,
-        _ => Resultat::ExportAudit,
-    }
+/// Cas d'isolation d'une route d'un cabinet, lus dans le fichier de son module.
+fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
+    cas_du_module(route.cas_usage.module()).and_then(|cas| (cas.attentes)(route, m))
+}
+
+/// Cas d'isolation d'une route hors cabinet, lu dans le fichier de son module.
+fn cas_hors_cabinet(route: &Route) -> Option<Scenario> {
+    cas_du_module(route.cas_usage.module()).and_then(|cas| (cas.hors_cabinet)(route))
 }
 
 fn ids(reponse: &Reponse) -> Vec<String> {
@@ -427,6 +379,21 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
     reponses
 }
 
+/// Chaque module de routes, même sans route, a son fichier de cas : une voie n'a pas à modifier
+/// [`cas_du_module`] pour y ajouter les siens.
+#[test]
+fn chaque_module_a_son_fichier_de_cas() {
+    let sans_fichier: Vec<&str> = MODULES
+        .iter()
+        .map(|m| m.nom)
+        .filter(|nom| cas_du_module(nom).is_none())
+        .collect();
+    assert!(
+        sans_fichier.is_empty(),
+        "modules sans fichier de cas : {sans_fichier:?}"
+    );
+}
+
 #[tokio::test]
 async fn chaque_route_a_son_cas_d_isolation_et_le_respecte() {
     let env = env().await;
@@ -446,7 +413,8 @@ async fn chaque_route_a_son_cas_d_isolation_et_le_respecte() {
         .collect();
     assert!(
         sans_cas.is_empty(),
-        "routes sans cas d'isolation (ajoutez-les à `attentes` ou à `cas_hors_cabinet`) : \
+        "routes sans cas d'isolation (ajoutez-les au fichier de leur module, \
+         `tests/isolation/<module>.rs`) : \
          {sans_cas:?}"
     );
 
@@ -469,29 +437,6 @@ async fn chaque_route_a_son_cas_d_isolation_et_le_respecte() {
         let cas = cas_hors_cabinet(route).unwrap();
         verifier_hors_cabinet(&env, &horloge, &routeur, cas, &m).await;
     }
-}
-
-/// Cas d'isolation d'une route hors cabinet. `None` : route sans cas, le test échoue.
-#[derive(Debug, Clone, Copy)]
-enum HorsCabinet {
-    EtatSession,
-    Deconnexion,
-    Rotation,
-    ListeSessions,
-    Revocation,
-    Cabinets,
-}
-
-fn cas_hors_cabinet(route: &Route) -> Option<HorsCabinet> {
-    Some(match (route.methode, route.chemin) {
-        (Methode::Get, "/api/session") => HorsCabinet::EtatSession,
-        (Methode::Post, "/api/session/deconnexion") => HorsCabinet::Deconnexion,
-        (Methode::Post, "/api/session/rotation") => HorsCabinet::Rotation,
-        (Methode::Get, "/api/moi/sessions") => HorsCabinet::ListeSessions,
-        (Methode::Delete, "/api/moi/sessions/{session}") => HorsCabinet::Revocation,
-        (Methode::Get, "/api/moi/cabinets") => HorsCabinet::Cabinets,
-        _ => return None,
-    })
 }
 
 /// `GET` au nom d'une session réelle.
@@ -542,7 +487,7 @@ async fn verifier_hors_cabinet(
     env: &commun::Env,
     horloge: &HorlogeTest,
     routeur: &Router,
-    cas: HorsCabinet,
+    cas: Scenario,
     m: &Monde,
 ) {
     let complete = NatureSession::Complete;
@@ -555,222 +500,7 @@ async fn verifier_hors_cabinet(
         sb: ouvrir(env, horloge, m.b.administrateur, complete).await,
         s_multi: ouvrir(env, horloge, m.multi, complete).await,
     };
-    match cas {
-        HorsCabinet::EtatSession => cas_etat_session(&c).await,
-        HorsCabinet::Deconnexion => cas_deconnexion(&c).await,
-        HorsCabinet::Rotation => cas_rotation(&c).await,
-        HorsCabinet::ListeSessions => cas_liste_sessions(&c).await,
-        HorsCabinet::Revocation => cas_revocation(&c).await,
-        HorsCabinet::Cabinets => cas_cabinets(&c).await,
-    }
-}
-
-async fn cas_etat_session(c: &Ctx<'_>) {
-    let Ctx {
-        routeur, sa, sb, ..
-    } = c;
-    assert_eq!(session_vue(routeur, sa).await, Some(sa.id.to_string()));
-    assert_eq!(session_vue(routeur, sb).await, Some(sb.id.to_string()));
-    let r = lire_s(routeur, "/api/session", sa).await;
-    assert_eq!(r.json()["csrf"], sa.jeton.csrf());
-    let r = appeler_session(routeur, "GET", "/api/session", None, None).await;
-    assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
-}
-
-async fn cas_deconnexion(c: &Ctx<'_>) {
-    let Ctx {
-        routeur,
-        sa,
-        sb,
-        s_multi,
-        ..
-    } = c;
-    let chemin = "/api/session/deconnexion";
-    // Jeton anti-CSRF d'une autre session : 403, rien n'est révoqué.
-    let r = muter_s(routeur, "POST", chemin, sa, &sb.jeton.csrf()).await;
-    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
-    assert!(session_vue(routeur, sa).await.is_some());
-    let r = muter_s(routeur, "POST", chemin, sa, &sa.jeton.csrf()).await;
-    assert_eq!(r.statut, StatusCode::NO_CONTENT, "{}", r.texte());
-    assert!(
-        r.entetes["set-cookie"]
-            .to_str()
-            .unwrap()
-            .starts_with("__Host-sigma_session=; Max-Age=0;")
-    );
-    assert_eq!(session_vue(routeur, sa).await, None);
-    // Les sessions des autres restent ouvertes.
-    assert!(session_vue(routeur, sb).await.is_some());
-    assert!(session_vue(routeur, s_multi).await.is_some());
-    let r = appeler_session(routeur, "POST", chemin, None, Some("x")).await;
-    assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
-}
-
-async fn cas_rotation(c: &Ctx<'_>) {
-    let Ctx {
-        routeur,
-        sa,
-        sb,
-        s_multi,
-        ..
-    } = c;
-    let chemin = "/api/session/rotation";
-    let r = muter_s(routeur, "POST", chemin, sa, &sb.jeton.csrf()).await;
-    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
-    let r = muter_s(routeur, "POST", chemin, sa, &sa.jeton.csrf()).await;
-    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
-    let nouveau = r.entetes["set-cookie"]
-        .to_str()
-        .unwrap()
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned();
-    // L'ancien jeton : 401 ; le nouveau désigne la même session.
-    assert_eq!(session_vue(routeur, sa).await, None);
-    let r = appeler_session(routeur, "GET", "/api/session", Some(&nouveau), None).await;
-    assert_eq!(r.json()["id"], sa.id.to_string());
-    // Les sessions des autres sont intactes.
-    assert_eq!(session_vue(routeur, sb).await, Some(sb.id.to_string()));
-    assert!(session_vue(routeur, s_multi).await.is_some());
-}
-
-async fn cas_liste_sessions(c: &Ctx<'_>) {
-    let Ctx {
-        env,
-        horloge,
-        routeur,
-        m,
-        sa,
-        sb,
-        s_multi,
-        ..
-    } = c;
-    let a = &m.a;
-    let complete = NatureSession::Complete;
-    let sa2 = ouvrir(env, horloge, a.administrateur, complete).await;
-    let r = lire_s(routeur, "/api/moi/sessions", sa).await;
-    let vues = ids_json(&r);
-    for s in [sa, &sa2] {
-        assert!(vues.contains(&s.id.to_string()), "{}", r.texte());
-    }
-    for autre in [&sb, &s_multi] {
-        assert!(!vues.contains(&autre.id.to_string()), "{}", r.texte());
-    }
-    // Ni jeton, ni empreinte, ni jeton anti-CSRF.
-    for s in [sa, &sa2] {
-        let cookie = cookie_de(s);
-        let jeton = cookie.split_once('=').unwrap().1;
-        assert!(!r.texte().contains(jeton));
-        assert!(!r.texte().contains(&s.jeton.csrf()));
-    }
-    let cles: Vec<String> = r.json()[0].as_object().unwrap().keys().cloned().collect();
-    for cle in &cles {
-        assert!(
-            [
-                "id",
-                "nature",
-                "methode",
-                "cree_le",
-                "derniere_activite",
-                "echeance",
-                "appareil",
-                "adresse",
-                "courante"
-            ]
-            .contains(&cle.as_str()),
-            "champ inattendu {cle}"
-        );
-    }
-    // B (qui a d'autres sessions ouvertes par les cas précédents) : aucune de A.
-    let vues_b = ids_json(&lire_s(routeur, "/api/moi/sessions", sb).await);
-    assert!(vues_b.contains(&sb.id.to_string()));
-    for autre in [sa, &sa2, s_multi] {
-        assert!(!vues_b.contains(&autre.id.to_string()));
-    }
-}
-
-async fn cas_revocation(c: &Ctx<'_>) {
-    let Ctx {
-        env,
-        horloge,
-        routeur,
-        m,
-        sa,
-        sb,
-        s_multi,
-        ..
-    } = c;
-    let a = &m.a;
-    let complete = NatureSession::Complete;
-    let sa2 = ouvrir(env, horloge, a.administrateur, complete).await;
-    let csrf = sa.jeton.csrf();
-    let reference = muter_s(
-        routeur,
-        "DELETE",
-        &format!("/api/moi/sessions/{}", Uuid::new_v4()),
-        sa,
-        &csrf,
-    )
-    .await;
-    assert_eq!(reference.statut, StatusCode::NOT_FOUND);
-    // La session de B, ou celle du membre des deux cabinets : absente pour A.
-    for autre in [&sb, &s_multi] {
-        let r = muter_s(
-            routeur,
-            "DELETE",
-            &format!("/api/moi/sessions/{}", autre.id),
-            sa,
-            &csrf,
-        )
-        .await;
-        verifier_absent(&r, &reference, "session d'autrui");
-        assert!(session_vue(routeur, autre).await.is_some());
-    }
-    // Sa propre autre session : révoquée aussitôt ; une seconde fois, absente.
-    let chemin = format!("/api/moi/sessions/{}", sa2.id);
-    let r = muter_s(routeur, "DELETE", &chemin, sa, &csrf).await;
-    assert_eq!(r.statut, StatusCode::NO_CONTENT, "{}", r.texte());
-    assert_eq!(session_vue(routeur, &sa2).await, None);
-    let r = muter_s(routeur, "DELETE", &chemin, sa, &csrf).await;
-    verifier_absent(&r, &reference, "session déjà révoquée");
-    assert!(session_vue(routeur, sa).await.is_some());
-}
-
-async fn cas_cabinets(c: &Ctx<'_>) {
-    let Ctx {
-        env,
-        horloge,
-        routeur,
-        m,
-        sa,
-        sb,
-        s_multi,
-        ..
-    } = c;
-    let (a, b) = (&m.a, &m.b);
-    let complete = NatureSession::Complete;
-    let s_collab = ouvrir(env, horloge, a.collaborateur, complete).await;
-    for (s, attendus) in [
-        (sa, vec![a.cabinet]),
-        (sb, vec![b.cabinet]),
-        (&s_collab, vec![a.cabinet]),
-        (s_multi, vec![a.cabinet, b.cabinet]),
-    ] {
-        let r = lire_s(routeur, "/api/moi/cabinets", s).await;
-        let mut attendus: Vec<String> = attendus.iter().map(ToString::to_string).collect();
-        attendus.sort();
-        assert_eq!(ids_json(&r), attendus, "{}", r.texte());
-    }
-    let r = lire_s(routeur, "/api/moi/cabinets", s_multi).await;
-    let json = r.json();
-    let roles: Vec<&str> = json
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|c| c["role"].as_str().unwrap())
-        .collect();
-    assert_eq!(roles, vec!["administrateur", "collaborateur"]);
+    cas(&c).await;
 }
 
 #[tokio::test]
@@ -924,7 +654,7 @@ async fn creation_refusee_quand_cedar_se_trompe(env: &commun::Env, routeur: &Rou
     // n'est créé ni inscrit à l'audit.
     let creation = ROUTES
         .iter()
-        .find(|r| r.cas_usage == CasUsage::CreerDossier)
+        .find(|r| r.cas_usage == CasUsage::Organisation(routes::organisation::Cas::CreerDossier))
         .unwrap();
     let compter = |sql: &'static str| {
         let admin = env.admin.clone();
@@ -979,7 +709,11 @@ async fn audit_refuse_quand_cedar_se_trompe(routeur: &Router, m: &Monde, referen
         .filter(|r| {
             matches!(
                 r.cas_usage,
-                CasUsage::ConsulterAudit | CasUsage::VerifierAudit | CasUsage::ExporterAudit
+                CasUsage::Audit(
+                    routes::audit::Cas::ConsulterAudit
+                        | routes::audit::Cas::VerifierAudit
+                        | routes::audit::Cas::ExporterAudit
+                )
             )
         })
         .collect();
