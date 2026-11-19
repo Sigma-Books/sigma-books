@@ -254,6 +254,43 @@ fn le_plan_du_dossier_reprend_tout_le_referentiel() {
     assert!(plan.compte_de_mouvement_actif(&n("401")).is_err());
 }
 
+#[test]
+fn classe_de_tresorerie_tiree_des_donnees() {
+    // Une seule classe marquée `tresorerie`, celle dont l'intitulé officiel est « COMPTES DE
+    // TRÉSORERIE » (p. PDF 249).
+    let r = Referentiel::officiel().unwrap();
+    let marquees: Vec<&Classe> = r.classes().filter(|c| c.est_de_tresorerie()).collect();
+    assert_eq!(marquees.len(), 1);
+    assert_eq!(marquees[0].intitule().as_str(), "COMPTES DE TRÉSORERIE");
+    assert_eq!(marquees[0].page(), 249);
+    // Le plan du dossier marque exactement les comptes de cette classe, et leurs sous-comptes
+    // en héritent.
+    let mut plan = r.plan_comptes().unwrap();
+    for compte in plan.comptes() {
+        assert_eq!(
+            compte.est_de_tresorerie(),
+            compte.numero().classe() == marquees[0].numero(),
+            "{}",
+            compte.numero()
+        );
+        assert_eq!(
+            compte.est_de_tresorerie(),
+            r.est_de_tresorerie(compte.numero())
+        );
+    }
+    let tresorerie = r
+        .comptes()
+        .find(|c| r.est_de_tresorerie(c.numero()))
+        .unwrap()
+        .numero()
+        .clone();
+    let sous_compte = NumeroCompte::parse(&format!("{tresorerie}-A")).unwrap();
+    let ajoute = plan
+        .ajouter_sous_compte(sous_compte, TexteCourt::parse("A").unwrap())
+        .unwrap();
+    assert!(ajoute.est_de_tresorerie());
+}
+
 const ENTETE: &str = r#"
 [source]
 document = "doc"

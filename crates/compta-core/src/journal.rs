@@ -92,6 +92,10 @@ pub enum ErreurJournal {
     /// Le compte de trésorerie n'est pas utilisable.
     #[error("compte de trésorerie du journal {0} : {1}")]
     CompteTresorerie(CodeJournal, ErreurPlan),
+    /// Le compte d'un journal de trésorerie doit être un compte de trésorerie du référentiel
+    /// ([`crate::Compte::est_de_tresorerie`]).
+    #[error("le compte {1} du journal de trésorerie {0} n'est pas un compte de trésorerie")]
+    CompteHorsTresorerie(CodeJournal, NumeroCompte),
     /// Le code est déjà utilisé.
     #[error("le journal {0} existe déjà")]
     Doublon(CodeJournal),
@@ -261,10 +265,10 @@ pub struct Journal {
 
 impl Journal {
     /// Crée un journal, non admis en clôture. Un journal de trésorerie exige un compte de
-    /// mouvement actif du plan ; les autres n'ont pas de compte associé.
+    /// trésorerie de mouvement actif du plan ; les autres n'ont pas de compte associé.
     ///
     /// # Errors
-    /// Compte manquant, non attendu ou inutilisable.
+    /// Compte manquant, non attendu, inutilisable ou qui n'est pas un compte de trésorerie.
     pub fn nouveau(
         code: CodeJournal,
         intitule: TexteCourt,
@@ -277,8 +281,12 @@ impl Journal {
                 return Err(ErreurJournal::CompteTresorerieManquant(code));
             }
             (TypeJournal::Tresorerie, Some(compte)) => {
-                plan.compte_de_mouvement_actif(compte)
+                let du_plan = plan
+                    .compte_de_mouvement_actif(compte)
                     .map_err(|e| ErreurJournal::CompteTresorerie(code.clone(), e))?;
+                if !du_plan.est_de_tresorerie() {
+                    return Err(ErreurJournal::CompteHorsTresorerie(code, compte.clone()));
+                }
             }
             (_, Some(_)) => return Err(ErreurJournal::CompteNonAttendu(code)),
             (_, None) => {}
@@ -426,7 +434,7 @@ impl Journaux {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::tests::{n, plan_de_test, t};
+    use crate::plan::tests::{compte_de_tresorerie, n, plan_de_test, t};
     use crate::plan::{CompteReference, GenreCompte, SensNormal};
     use proptest::prelude::*;
 
@@ -519,6 +527,91 @@ mod tests {
     }
 
     #[test]
+    fn compte_d_un_journal_de_tresorerie_hors_tresorerie() {
+        let plan = plan_de_test();
+        // Tout compte de mouvement actif qui n'est pas de trésorerie est refusé, avec ou sans
+        // sous-compte ; les comptes de trésorerie sont admis.
+        let mut refuses = 0;
+        for compte in plan.comptes() {
+            let numero = compte.numero().clone();
+            if plan.compte_de_mouvement_actif(&numero).is_err() {
+                continue;
+            }
+            let resultat = Journal::nouveau(
+                c("CA"),
+                t("Caisse"),
+                TypeJournal::Tresorerie,
+                Some(numero.clone()),
+                &plan,
+            );
+            if compte.est_de_tresorerie() {
+                assert!(resultat.is_ok(), "{numero}");
+            } else {
+                refuses += 1;
+                assert_eq!(
+                    resultat,
+                    Err(ErreurJournal::CompteHorsTresorerie(c("CA"), numero.clone()))
+                );
+                let mut avec_sous_compte = plan.clone();
+                let sous_compte = n(&format!("{numero}-X"));
+                avec_sous_compte
+                    .ajouter_sous_compte(sous_compte.clone(), t("X"))
+                    .unwrap();
+                assert_eq!(
+                    Journal::nouveau(
+                        c("CA"),
+                        t("Caisse"),
+                        TypeJournal::Tresorerie,
+                        Some(sous_compte.clone()),
+                        &avec_sous_compte,
+                    ),
+                    Err(ErreurJournal::CompteHorsTresorerie(c("CA"), sous_compte))
+                );
+            }
+        }
+        assert!(refuses > 0);
+        let hors_tresorerie = plan
+            .comptes()
+            .map(|compte| compte.numero().clone())
+            .find(|numero| {
+                plan.compte_de_mouvement_actif(numero)
+                    .is_ok_and(|compte| !compte.est_de_tresorerie())
+            })
+            .unwrap();
+        let refus = Journal::nouveau(
+            c("CA"),
+            t("Caisse"),
+            TypeJournal::Tresorerie,
+            Some(hors_tresorerie.clone()),
+            &plan,
+        )
+        .unwrap_err();
+        assert_eq!(
+            refus.to_string(),
+            format!(
+                "le compte {hors_tresorerie} du journal de trésorerie CA n'est pas un compte de \
+                 trésorerie"
+            )
+        );
+
+        // Les journaux par défaut aussi : le journal de caisse refuse un compte hors trésorerie.
+        let caisse = journaux_par_defaut()
+            .unwrap()
+            .into_iter()
+            .find(|m| m.genre() == TypeJournal::Tresorerie)
+            .unwrap();
+        assert!(matches!(
+            caisse.instancier(Some(hors_tresorerie), &plan),
+            Err(ErreurJournal::CompteHorsTresorerie(_, _))
+        ));
+        assert!(
+            caisse
+                .instancier(Some(compte_de_tresorerie(&plan)), &plan)
+                .is_ok()
+        );
+    }
+
+    #[test]
     fn admission_en_cloture_reservee_aux_operations_diverses() {
         let plan = plan_de_test();
         let od = Journal::nouveau(
@@ -541,9 +634,10 @@ mod tests {
     #[test]
     fn instanciation_et_changement_de_code() {
         let plan = plan_de_test();
+        let caisse = compte_de_tresorerie(&plan);
         let mut journaux = Journaux::new();
         for modele in journaux_par_defaut().unwrap() {
-            let compte = (modele.genre() == TypeJournal::Tresorerie).then(|| n("6052"));
+            let compte = (modele.genre() == TypeJournal::Tresorerie).then(|| caisse.clone());
             journaux
                 .ajouter(modele.instancier(compte, &plan).unwrap())
                 .unwrap();
@@ -650,7 +744,7 @@ mod tests {
     }
 
     /// Ligne plate d'un compte, telle que stockée (colonnes textuelles relues).
-    type LigneCompte = (String, String, GenreCompte, SensNormal, bool, bool);
+    type LigneCompte = (String, String, GenreCompte, SensNormal, bool, bool, bool);
     /// Ligne plate d'un journal, telle que stockée.
     type LigneJournal = (String, String, TypeJournal, bool, Option<String>);
 
@@ -663,6 +757,7 @@ mod tests {
                     c.genre(),
                     c.sens(),
                     c.est_collectif(),
+                    c.est_de_tresorerie(),
                     c.est_actif(),
                 )
             })
@@ -672,11 +767,18 @@ mod tests {
     /// Relit un plan par les seules fonctions publiques existantes : comptes officiels par
     /// [`PlanComptes::depuis_referentiel`], puis comptes créés par le dossier dans l'ordre des
     /// numéros (un parent est un préfixe de son enfant, il le précède), puis désactivations.
-    /// Le sens et le caractère collectif, recalculés, doivent égaler les colonnes relues.
+    /// Le sens et les caractères collectif et de trésorerie, recalculés, doivent égaler les
+    /// colonnes relues.
     fn relire_plan(lignes: &[LigneCompte]) -> PlanComptes {
         let officiels = lignes.iter().filter(|l| l.2 == GenreCompte::Officiel).map(
-            |(numero, intitule, _, sens, collectif, _)| {
-                CompteReference::nouveau(n(numero), t(intitule), *sens, *collectif).unwrap()
+            |(numero, intitule, _, sens, collectif, tresorerie, _)| {
+                let reference =
+                    CompteReference::nouveau(n(numero), t(intitule), *sens, *collectif).unwrap();
+                if *tresorerie {
+                    reference.de_tresorerie()
+                } else {
+                    reference
+                }
             },
         );
         let mut plan = PlanComptes::depuis_referentiel(officiels).unwrap();
@@ -685,15 +787,22 @@ mod tests {
             .filter(|l| l.2 != GenreCompte::Officiel)
             .collect();
         crees.sort_by_key(|l| n(&l.0));
-        for (numero, intitule, genre, sens, collectif, _) in crees {
+        for (numero, intitule, genre, sens, collectif, tresorerie, _) in crees {
             let compte = match genre {
                 GenreCompte::SousCompte => plan.ajouter_sous_compte(n(numero), t(intitule)),
                 _ => plan.ajouter_auxiliaire(n(numero), t(intitule)),
             }
             .unwrap();
-            assert_eq!((compte.sens(), compte.est_collectif()), (*sens, *collectif));
+            assert_eq!(
+                (
+                    compte.sens(),
+                    compte.est_collectif(),
+                    compte.est_de_tresorerie()
+                ),
+                (*sens, *collectif, *tresorerie)
+            );
         }
-        for ligne in lignes.iter().filter(|l| !l.5) {
+        for ligne in lignes.iter().filter(|l| !l.6) {
             plan.desactiver(&n(&ligne.0)).unwrap();
         }
         plan
@@ -773,9 +882,10 @@ mod tests {
             ops in proptest::collection::vec(operation_referentiel(), 0..60),
         ) {
             let mut plan = plan_de_test();
+            let caisse = compte_de_tresorerie(&plan);
             let mut journaux = Journaux::new();
             for modele in journaux_par_defaut().unwrap() {
-                let compte = (modele.genre() == TypeJournal::Tresorerie).then(|| n("6052"));
+                let compte = (modele.genre() == TypeJournal::Tresorerie).then(|| caisse.clone());
                 journaux.ajouter(modele.instancier(compte, &plan).unwrap()).unwrap();
             }
             for op in ops {

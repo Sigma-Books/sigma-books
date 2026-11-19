@@ -37,6 +37,7 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
 - les notes de bas de page.
 
 ## Champs qui ne viennent pas de la liste officielle
+- **`tresorerie`** (champ d'une classe) : marque la classe dont l'intitulé officiel est « COMPTES DE TRÉSORERIE » (p. PDF 249). Ses comptes, et eux seuls, sont des comptes de trésorerie dans le plan du dossier (les sous-comptes en héritent) : seuls eux peuvent être le compte d'un journal de trésorerie (spec §5.2).
 - **`nature`** : déduite de l'intitulé officiel de la classe.
 
   | Comptes | Nature |

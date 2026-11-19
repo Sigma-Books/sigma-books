@@ -97,6 +97,15 @@ pub enum ErreurReferentiel {
         /// Compte cité.
         compte: NumeroCompte,
     },
+    /// Le compte d'un journal par défaut n'est pas un compte de trésorerie
+    /// ([`Referentiel::est_de_tresorerie`]).
+    #[error("compte du journal {code} : {compte} n'est pas un compte de trésorerie")]
+    CompteDeJournalHorsTresorerie {
+        /// Journal.
+        code: CodeJournal,
+        /// Compte cité.
+        compte: NumeroCompte,
+    },
     /// Le compte d'un journal par défaut est subdivisé dans la liste officielle : on ne saisit
     /// que sur un compte sans subdivision.
     #[error("compte du journal {code} : {compte} est subdivisé dans la liste officielle")]
@@ -122,6 +131,7 @@ pub struct Classe {
     numero: u8,
     intitule: TexteCourt,
     page: u16,
+    tresorerie: bool,
 }
 
 impl Classe {
@@ -141,6 +151,12 @@ impl Classe {
     #[must_use]
     pub fn page(&self) -> u16 {
         self.page
+    }
+
+    /// Vrai pour la classe des comptes de trésorerie (champ `tresorerie` des données).
+    #[must_use]
+    pub fn est_de_tresorerie(&self) -> bool {
+        self.tresorerie
     }
 }
 
@@ -238,6 +254,8 @@ struct ClasseBrute {
     numero: u8,
     intitule: String,
     page: u16,
+    #[serde(default)]
+    tresorerie: bool,
 }
 
 #[derive(Deserialize)]
@@ -316,6 +334,7 @@ impl Referentiel {
                 numero: c.numero,
                 intitule: texte(&cle, &c.intitule)?,
                 page: verifier_page(&cle, c.page)?,
+                tresorerie: c.tresorerie,
             };
             if classes.insert(c.numero, classe).is_some() {
                 return Err(ErreurReferentiel::Classe(c.numero));
@@ -399,6 +418,14 @@ impl Referentiel {
         self.comptes.get(numero)
     }
 
+    /// Vrai si le numéro appartient à une classe de trésorerie des données (classe marquée
+    /// `tresorerie`), qu'il figure ou non dans la liste officielle.
+    #[must_use]
+    pub fn est_de_tresorerie(&self, numero: &NumeroCompte) -> bool {
+        self.classe(numero.classe())
+            .is_some_and(Classe::est_de_tresorerie)
+    }
+
     /// Nombre de comptes.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -411,7 +438,8 @@ impl Referentiel {
         self.comptes.is_empty()
     }
 
-    /// Comptes sous la forme d'entrée du plan de comptes d'un dossier (`compta-core`).
+    /// Comptes sous la forme d'entrée du plan de comptes d'un dossier (`compta-core`). Les
+    /// comptes d'une classe de trésorerie y sont marqués comme tels.
     ///
     /// # Errors
     /// [`ErreurPlan`] si un compte n'est pas officiel (impossible après validation).
@@ -419,7 +447,17 @@ impl Referentiel {
         self.comptes
             .values()
             .map(|c| {
-                CompteReference::nouveau(c.numero.clone(), c.intitule.clone(), c.sens, c.collectif)
+                let reference = CompteReference::nouveau(
+                    c.numero.clone(),
+                    c.intitule.clone(),
+                    c.sens,
+                    c.collectif,
+                )?;
+                Ok(if self.est_de_tresorerie(&c.numero) {
+                    reference.de_tresorerie()
+                } else {
+                    reference
+                })
             })
             .collect()
     }

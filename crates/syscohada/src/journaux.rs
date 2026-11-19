@@ -69,7 +69,8 @@ impl Referentiel {
     }
 
     /// Comptes des journaux au format de `data/journaux.toml` : codes valides et uniques,
-    /// comptes de la liste officielle sans subdivision, source et motif renseignés.
+    /// comptes de trésorerie de la liste officielle sans subdivision, source et motif
+    /// renseignés.
     ///
     /// # Errors
     /// [`ErreurReferentiel`] décrivant la première anomalie rencontrée.
@@ -92,6 +93,9 @@ impl Referentiel {
                 })?;
             if self.compte(&compte).is_none() {
                 return Err(ErreurReferentiel::CompteDeJournalInconnu { code, compte });
+            }
+            if !self.est_de_tresorerie(&compte) {
+                return Err(ErreurReferentiel::CompteDeJournalHorsTresorerie { code, compte });
             }
             if self.a_des_subdivisions(&compte) {
                 return Err(ErreurReferentiel::CompteDeJournalSubdivise { code, compte });
@@ -274,6 +278,19 @@ mod tests {
                 compte: n("571")
             })
         );
+        // Compte de la liste officielle, sans subdivision, hors de la classe de trésorerie.
+        let hors_tresorerie = r
+            .comptes()
+            .map(|compte| compte.numero().clone())
+            .find(|numero| !r.est_de_tresorerie(numero) && !r.a_des_subdivisions(numero))
+            .unwrap();
+        assert_eq!(
+            lire(&ligne("CA", hors_tresorerie.as_str(), "p. 252")),
+            Err(ErreurReferentiel::CompteDeJournalHorsTresorerie {
+                code: c("CA"),
+                compte: hors_tresorerie
+            })
+        );
         let double = format!(
             "{}{}",
             ligne("CA", "5711", "p. 252"),
@@ -311,6 +328,28 @@ mod tests {
         assert_eq!(
             instancier(&[compte("CA", "5711"), compte("BQ1", "5211")], &plan),
             Err(ErreurReferentiel::Journal(ErreurJournal::Inconnu(c("BQ1"))))
+        );
+        // Compte de mouvement du plan hors de la classe de trésorerie.
+        let hors_tresorerie = plan
+            .comptes()
+            .map(|compte| compte.numero().clone())
+            .find(|numero| {
+                plan.compte_de_mouvement_actif(numero)
+                    .is_ok_and(|compte| !compte.est_de_tresorerie())
+            })
+            .unwrap();
+        assert_eq!(
+            instancier(
+                &[CompteDeJournal {
+                    code: c("CA"),
+                    compte: hors_tresorerie.clone(),
+                    source: "p. 252".to_owned(),
+                }],
+                &plan
+            ),
+            Err(ErreurReferentiel::Journal(
+                ErreurJournal::CompteHorsTresorerie(c("CA"), hors_tresorerie)
+            ))
         );
         // Compte désactivé dans le plan du dossier.
         let mut inactif = plan.clone();
