@@ -1,7 +1,8 @@
 //! Test de catalogue (ADR 0011, « Tests ») : le schéma, lu dans les catalogues de PostgreSQL,
 //! respecte les règles de l'isolation. Une table oubliée fait échouer la CI (F2.7).
 //!
-//! Règles vérifiées (listes d'exceptions : `crates/api/catalogue.toml`) :
+//! Règles vérifiées (listes d'exceptions : `crates/api/catalogue/*.toml`, un fichier par module ;
+//! une table ou une fonction n'y est déclarée qu'une fois, tous fichiers confondus) :
 //! - toute table, hors tables d'instance sans RLS, a la RLS activée et forcée et une politique
 //!   permissive pour chaque commande, avec `USING` et `WITH CHECK` selon la commande ;
 //! - **forme exacte** des politiques d'une table de cabinet, telle que PostgreSQL l'affiche :
@@ -48,14 +49,70 @@ static VERROU_ROLES: Mutex<()> = Mutex::const_new(());
 
 // --- Listes versionnées -------------------------------------------------------------------
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Un fichier du catalogue (`catalogue/<module>.toml`) : une liste absente y est vide ; une clé
+/// inconnue (liste mal nommée) est refusée.
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 struct FichierCatalogue {
     ajout_seul: Vec<Entree>,
     security_definer: Vec<Entree>,
     instance: Vec<Instance>,
     dossier_facultatif: Vec<Entree>,
     lecture_membre: Vec<Entree>,
+}
+
+impl FichierCatalogue {
+    /// Noms déclarés (tables et fonctions), toutes listes confondues.
+    fn noms(&self) -> impl Iterator<Item = &String> {
+        self.ajout_seul
+            .iter()
+            .chain(&self.security_definer)
+            .chain(&self.dossier_facultatif)
+            .chain(&self.lecture_membre)
+            .map(|e| &e.nom)
+            .chain(self.instance.iter().map(|i| &i.nom))
+    }
+
+    fn etendre(&mut self, autre: Self) {
+        self.ajout_seul.extend(autre.ajout_seul);
+        self.security_definer.extend(autre.security_definer);
+        self.instance.extend(autre.instance);
+        self.dossier_facultatif.extend(autre.dossier_facultatif);
+        self.lecture_membre.extend(autre.lecture_membre);
+    }
+}
+
+/// Les fichiers du catalogue, triés par nom, et leur réunion. Tout fichier du répertoire doit
+/// être un `.toml` lisible.
+fn lire_catalogue() -> (Vec<String>, FichierCatalogue) {
+    let repertoire = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("catalogue");
+    let mut chemins: Vec<_> = std::fs::read_dir(&repertoire)
+        .expect("crates/api/catalogue/ illisible")
+        .map(|e| e.expect("entrée du catalogue").path())
+        .collect();
+    chemins.sort();
+    let mut noms = Vec::new();
+    let mut declarees: BTreeMap<String, String> = BTreeMap::new();
+    let mut reunion = FichierCatalogue::default();
+    for chemin in chemins {
+        let nom = chemin.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            chemin.extension().is_some_and(|e| e == "toml"),
+            "catalogue/{nom} : seuls des fichiers .toml"
+        );
+        let texte = std::fs::read_to_string(&chemin).unwrap();
+        let fichier: FichierCatalogue =
+            toml::from_str(&texte).unwrap_or_else(|e| panic!("catalogue/{nom} illisible : {e}"));
+        for table in fichier.noms() {
+            if let Some(autre) = declarees.insert(table.clone(), nom.clone()) {
+                panic!("{table} déclarée deux fois : catalogue/{autre} et catalogue/{nom}");
+            }
+        }
+        noms.push(nom);
+        reunion.etendre(fichier);
+    }
+    assert!(!noms.is_empty(), "catalogue vide");
+    (noms, reunion)
 }
 
 #[derive(Deserialize)]
@@ -86,8 +143,7 @@ struct Regles {
 }
 
 fn regles() -> Regles {
-    let f: FichierCatalogue =
-        toml::from_str(include_str!("../catalogue.toml")).expect("catalogue.toml illisible");
+    let (fichiers, f) = lire_catalogue();
     let mut noms = BTreeSet::new();
     let justifiees = f
         .ajout_seul
@@ -101,7 +157,7 @@ fn regles() -> Regles {
         assert!(!justification.trim().is_empty(), "{nom} sans justification");
         assert!(
             noms.insert(nom.clone()),
-            "{nom} figure deux fois dans catalogue.toml"
+            "{nom} figure deux fois dans le catalogue ({fichiers:?})"
         );
     }
     let noms_de = |v: &[Entree]| v.iter().map(|e| e.nom.clone()).collect::<Vec<_>>();

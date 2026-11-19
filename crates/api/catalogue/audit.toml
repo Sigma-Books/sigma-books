@@ -1,0 +1,24 @@
+# Catalogue « journal d'audit » : exceptions et listes du test de catalogue
+# (ADR 0011 ; crates/api/tests/catalogue.rs).
+#
+# Un fichier par module (`crates/api/catalogue/<module>.toml`) : une voie de travail n'édite que le
+# sien. Le test les lit tous et refuse une table (ou fonction) déclarée deux fois, même dans deux
+# fichiers. Chaque entrée est justifiée ; toute modification passe par la revue de l'équipe core.
+# Listes possibles : `security_definer`, `ajout_seul`, `instance`, `lecture_membre`,
+# `dossier_facultatif` ; une liste absente d'un fichier y est vide.
+
+# Tables en ajout seul (écritures validées, leurs lignes, chaîne, audit : PR 6 et 7) :
+# le rôle applicatif n'y a ni UPDATE ni DELETE, même sur une colonne. Le test vérifie l'absence
+# d'UPDATE (même sur une colonne) et de DELETE pour les rôles applicatif et de lecture d'audit.
+# Les têtes d'audit n'y figurent pas : état dérivé, mis à jour sous verrou (ADR 0011, 0014).
+[[ajout_seul]]
+nom = "audit_cabinet"
+justification = """
+Entrées de la chaîne d'audit d'un cabinet (ADR 0014) : INSERT seul pour le rôle applicatif \
+(ni SELECT, ni UPDATE, ni DELETE, F2.6), SELECT seul pour le rôle de lecture d'audit."""
+
+[[ajout_seul]]
+nom = "audit_dossier"
+justification = """
+Entrées de la chaîne d'audit d'un dossier (ADR 0014) : INSERT seul pour le rôle applicatif \
+(ni SELECT, ni UPDATE, ni DELETE, F2.6), SELECT seul pour le rôle de lecture d'audit."""
