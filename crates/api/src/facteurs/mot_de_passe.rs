@@ -1,0 +1,205 @@
+//! Mot de passe de la méthode de secours (ADR 0012 ; NIST SP 800-63B §5.1.1.2 ; ASVS 4.0.3
+//! V2.1, V2.4).
+//!
+//! - **Règles** : 12 caractères au moins (caractères Unicode, espaces compris), 128 au plus
+//!   (borne du coût du hachage), aucune règle de composition, refus de tout mot de passe de la
+//!   liste embarquée des mots de passe compromis ([`super::compromis`]).
+//! - **Hachage** : Argon2id, 19 Mio de mémoire, 2 passes, 1 voie (repère OWASP, ADR 0012), sel
+//!   de 128 bits tiré du système ; chaîne PHC stockée (`$argon2id$v=19$m=19456,t=2,p=1$…`).
+//! - **Vérification** : selon les paramètres de la chaîne stockée ; si ceux-ci ne sont plus
+//!   les paramètres courants, l'appelant re-hache le mot de passe vérifié
+//!   ([`Verification::Admis`]).
+//!
+//! Le hachage coûte du temps de calcul et de la mémoire : l'appelant le fait hors de la
+//! boucle asynchrone (`spawn_blocking`) et en borne le nombre simultané.
+
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::{Algorithm, Argon2, Params, Version};
+
+use super::compromis;
+use super::{ErreurAlea, tirer};
+
+/// Longueur minimale, en caractères (ADR 0012).
+pub const LONGUEUR_MIN: usize = 12;
+/// Longueur maximale, en caractères.
+pub const LONGUEUR_MAX: usize = 128;
+/// Mémoire d'Argon2id, en Kio (19 Mio).
+pub const MEMOIRE_KIO: u32 = 19 * 1024;
+/// Passes d'Argon2id.
+pub const PASSES: u32 = 2;
+/// Voies d'Argon2id.
+pub const VOIES: u32 = 1;
+
+/// Motif du refus d'un nouveau mot de passe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusMotDePasse {
+    /// Moins de [`LONGUEUR_MIN`] caractères.
+    TropCourt,
+    /// Plus de [`LONGUEUR_MAX`] caractères.
+    TropLong,
+    /// Présent dans la liste des mots de passe compromis.
+    Compromis,
+}
+
+/// Contrôle un nouveau mot de passe (création ou changement).
+///
+/// # Errors
+/// [`RefusMotDePasse`].
+pub fn valider(mot_de_passe: &str) -> Result<(), RefusMotDePasse> {
+    let longueur = mot_de_passe.chars().count();
+    if longueur < LONGUEUR_MIN {
+        return Err(RefusMotDePasse::TropCourt);
+    }
+    if longueur > LONGUEUR_MAX {
+        return Err(RefusMotDePasse::TropLong);
+    }
+    if compromis::est_compromis(mot_de_passe) {
+        return Err(RefusMotDePasse::Compromis);
+    }
+    Ok(())
+}
+
+/// Le hacheur aux paramètres courants.
+fn argon2() -> Result<Argon2<'static>, ErreurHachage> {
+    let params = Params::new(MEMOIRE_KIO, PASSES, VOIES, None).map_err(|_| ErreurHachage)?;
+    Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+}
+
+/// Échec du hachage (aléa du sel indisponible, paramètres refusés).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("hachage du mot de passe impossible")]
+pub struct ErreurHachage;
+
+impl From<ErreurAlea> for ErreurHachage {
+    fn from(_: ErreurAlea) -> Self {
+        Self
+    }
+}
+
+/// Hache un mot de passe : chaîne PHC d'Argon2id aux paramètres courants.
+///
+/// # Errors
+/// [`ErreurHachage`].
+pub fn hacher(mot_de_passe: &str) -> Result<String, ErreurHachage> {
+    let mut sel = [0u8; 16];
+    tirer(&mut sel)?;
+    let sel = SaltString::encode_b64(&sel).map_err(|_| ErreurHachage)?;
+    let empreinte = argon2()?
+        .hash_password(mot_de_passe.as_bytes(), &sel)
+        .map_err(|_| ErreurHachage)?;
+    Ok(empreinte.to_string())
+}
+
+/// Résultat d'une vérification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verification {
+    /// Mot de passe faux, ou chaîne stockée illisible.
+    Refuse,
+    /// Mot de passe juste ; `a_rehacher` si la chaîne stockée n'a pas les paramètres courants.
+    Admis {
+        /// Paramètres périmés : re-hacher le mot de passe vérifié.
+        a_rehacher: bool,
+    },
+}
+
+/// Vérifie `mot_de_passe` contre la chaîne PHC `stockee`. Un mot de passe trop long est
+/// refusé sans hachage (sa longueur ne dit rien du compte).
+#[must_use]
+pub fn verifier(stockee: &str, mot_de_passe: &str) -> Verification {
+    if mot_de_passe.chars().count() > LONGUEUR_MAX {
+        return Verification::Refuse;
+    }
+    let Ok(empreinte) = PasswordHash::new(stockee) else {
+        return Verification::Refuse;
+    };
+    // Seul Argon2id est admis : une chaîne d'un autre algorithme est refusée.
+    if empreinte.algorithm != Algorithm::Argon2id.ident() {
+        return Verification::Refuse;
+    }
+    let Ok(hacheur) = argon2() else {
+        return Verification::Refuse;
+    };
+    if hacheur
+        .verify_password(mot_de_passe.as_bytes(), &empreinte)
+        .is_err()
+    {
+        return Verification::Refuse;
+    }
+    let a_rehacher = Params::try_from(&empreinte)
+        .is_ok_and(|p| p.m_cost() != MEMOIRE_KIO || p.t_cost() != PASSES || p.p_cost() != VOIES)
+        || empreinte.version != Some(Version::V0x13.into());
+    Verification::Admis { a_rehacher }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn longueur_et_liste_des_mots_de_passe_compromis() {
+        assert_eq!(valider("onze caract"), Err(RefusMotDePasse::TropCourt));
+        assert_eq!(valider(""), Err(RefusMotDePasse::TropCourt));
+        // Douze caractères Unicode (et non douze octets).
+        assert_eq!(valider("éléphant été"), Ok(()));
+        assert_eq!(valider("ééééééééééé"), Err(RefusMotDePasse::TropCourt));
+        assert_eq!(valider(&"a".repeat(129)), Err(RefusMotDePasse::TropLong));
+        assert_eq!(valider(&"a b".repeat(40)), Ok(()));
+        // Présents dans SecLists (Pwdb_top-1000000), quelle que soit la casse ASCII.
+        for compromis in ["q1w2e3r4t5y6", "1qaz2wsx3edc", "Q1W2E3R4T5Y6"] {
+            assert_eq!(
+                valider(compromis),
+                Err(RefusMotDePasse::Compromis),
+                "{compromis}"
+            );
+        }
+        assert_eq!(valider("cheval agrafe pile correcte"), Ok(()));
+    }
+
+    #[test]
+    fn hachage_argon2id_aux_parametres_de_l_adr() {
+        let phc = hacher("cheval agrafe pile correcte").unwrap();
+        assert!(phc.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"), "{phc}");
+        assert!(!phc.contains("cheval"));
+        assert_eq!(
+            verifier(&phc, "cheval agrafe pile correcte"),
+            Verification::Admis { a_rehacher: false }
+        );
+        assert_eq!(
+            verifier(&phc, "cheval agrafe pile correctE"),
+            Verification::Refuse
+        );
+        assert_eq!(verifier(&phc, &"a".repeat(129)), Verification::Refuse);
+        assert_eq!(verifier("illisible", "x"), Verification::Refuse);
+        // Deux hachages du même mot de passe diffèrent (sel).
+        assert_ne!(hacher("cheval agrafe pile correcte").unwrap(), phc);
+    }
+
+    #[test]
+    fn une_chaine_aux_parametres_perimes_est_a_rehacher() {
+        // Argon2id plus faible (m = 8 Mio, t = 1), puis Argon2i : refusé.
+        let faible = Argon2::new(
+            Algorithm::Argon2id,
+            Version::V0x13,
+            Params::new(8 * 1024, 1, 1, None).unwrap(),
+        );
+        let sel = SaltString::encode_b64(&[1; 16]).unwrap();
+        let phc = faible
+            .hash_password(b"ancien mot de passe", &sel)
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            verifier(&phc, "ancien mot de passe"),
+            Verification::Admis { a_rehacher: true }
+        );
+        let argon2i = Argon2::new(
+            Algorithm::Argon2i,
+            Version::V0x13,
+            Params::new(MEMOIRE_KIO, PASSES, VOIES, None).unwrap(),
+        );
+        let phc = argon2i
+            .hash_password(b"ancien mot de passe", &sel)
+            .unwrap()
+            .to_string();
+        assert_eq!(verifier(&phc, "ancien mot de passe"), Verification::Refuse);
+    }
+}

@@ -55,6 +55,23 @@ serde_json = { version = "1.0.154", default-features = false, features = ["std"]
 ctutils = { version = "0.4.8", default-features = false }
 # Effacement du jeton de session à sa libération ; déjà dans l'arbre (`digest`).
 zeroize = { version = "1.9.2", default-features = false }
+# Méthode de secours du crate `api` (ADR 0012 ; L2 PR 8b), RustCrypto, MIT ou Apache-2.0.
+# Mot de passe : Argon2id, chaîne PHC. Série 0.5, celle que tirera `webauthn-rs` (PR 8c).
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "password-hash", "zeroize"] }
+# Secret TOTP chiffré par la clé de l'instance (AEAD, nonce de 96 bits tiré par `getrandom`).
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
+# Sous-clés de la clé de l'instance (HKDF-SHA256) et TOTP (HMAC-SHA1, RFC 6238) ; déjà dans
+# l'arbre (`sqlx`), comme `sha1` déclaré plus haut.
+hkdf = { version = "0.13.0", default-features = false }
+hmac = { version = "0.13.0", default-features = false }
+
+# Argon2 compilé optimisé même en développement : les tests vérifient de vrais mots de passe
+# (19 Mio, 2 passes), sans quoi chaque vérification prendrait plusieurs secondes.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
