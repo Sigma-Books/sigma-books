@@ -92,10 +92,10 @@ pub enum ErreurJournal {
     /// Le compte de trésorerie n'est pas utilisable.
     #[error("compte de trésorerie du journal {0} : {1}")]
     CompteTresorerie(CodeJournal, ErreurPlan),
-    /// Le compte d'un journal de trésorerie doit être un compte de trésorerie du référentiel
-    /// ([`crate::Compte::est_de_tresorerie`]).
-    #[error("le compte {1} du journal de trésorerie {0} n'est pas un compte de trésorerie")]
-    CompteHorsTresorerie(CodeJournal, NumeroCompte),
+    /// Le compte d'un journal de trésorerie doit être admis comme tel par le référentiel
+    /// ([`crate::Compte::est_admis_en_journal_de_tresorerie`]).
+    #[error("le compte {1} n'est pas admis comme compte d'un journal de trésorerie (journal {0})")]
+    CompteNonAdmisEnTresorerie(CodeJournal, NumeroCompte),
     /// Le code est déjà utilisé.
     #[error("le journal {0} existe déjà")]
     Doublon(CodeJournal),
@@ -265,10 +265,11 @@ pub struct Journal {
 
 impl Journal {
     /// Crée un journal, non admis en clôture. Un journal de trésorerie exige un compte de
-    /// trésorerie de mouvement actif du plan ; les autres n'ont pas de compte associé.
+    /// mouvement actif du plan, admis en journal de trésorerie par le référentiel ; les autres
+    /// n'ont pas de compte associé.
     ///
     /// # Errors
-    /// Compte manquant, non attendu, inutilisable ou qui n'est pas un compte de trésorerie.
+    /// Compte manquant, non attendu, inutilisable ou non admis en journal de trésorerie.
     pub fn nouveau(
         code: CodeJournal,
         intitule: TexteCourt,
@@ -284,8 +285,11 @@ impl Journal {
                 let du_plan = plan
                     .compte_de_mouvement_actif(compte)
                     .map_err(|e| ErreurJournal::CompteTresorerie(code.clone(), e))?;
-                if !du_plan.est_de_tresorerie() {
-                    return Err(ErreurJournal::CompteHorsTresorerie(code, compte.clone()));
+                if !du_plan.est_admis_en_journal_de_tresorerie() {
+                    return Err(ErreurJournal::CompteNonAdmisEnTresorerie(
+                        code,
+                        compte.clone(),
+                    ));
                 }
             }
             (_, Some(_)) => return Err(ErreurJournal::CompteNonAttendu(code)),
@@ -544,13 +548,16 @@ mod tests {
                 Some(numero.clone()),
                 &plan,
             );
-            if compte.est_de_tresorerie() {
+            if compte.est_admis_en_journal_de_tresorerie() {
                 assert!(resultat.is_ok(), "{numero}");
             } else {
                 refuses += 1;
                 assert_eq!(
                     resultat,
-                    Err(ErreurJournal::CompteHorsTresorerie(c("CA"), numero.clone()))
+                    Err(ErreurJournal::CompteNonAdmisEnTresorerie(
+                        c("CA"),
+                        numero.clone()
+                    ))
                 );
                 let mut avec_sous_compte = plan.clone();
                 let sous_compte = n(&format!("{numero}-X"));
@@ -565,7 +572,10 @@ mod tests {
                         Some(sous_compte.clone()),
                         &avec_sous_compte,
                     ),
-                    Err(ErreurJournal::CompteHorsTresorerie(c("CA"), sous_compte))
+                    Err(ErreurJournal::CompteNonAdmisEnTresorerie(
+                        c("CA"),
+                        sous_compte
+                    ))
                 );
             }
         }
@@ -575,7 +585,7 @@ mod tests {
             .map(|compte| compte.numero().clone())
             .find(|numero| {
                 plan.compte_de_mouvement_actif(numero)
-                    .is_ok_and(|compte| !compte.est_de_tresorerie())
+                    .is_ok_and(|compte| !compte.est_admis_en_journal_de_tresorerie())
             })
             .unwrap();
         let refus = Journal::nouveau(
@@ -589,8 +599,8 @@ mod tests {
         assert_eq!(
             refus.to_string(),
             format!(
-                "le compte {hors_tresorerie} du journal de trésorerie CA n'est pas un compte de \
-                 trésorerie"
+                "le compte {hors_tresorerie} n'est pas admis comme compte d'un journal de \
+                 trésorerie (journal CA)"
             )
         );
 
@@ -602,7 +612,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             caisse.instancier(Some(hors_tresorerie), &plan),
-            Err(ErreurJournal::CompteHorsTresorerie(_, _))
+            Err(ErreurJournal::CompteNonAdmisEnTresorerie(_, _))
         ));
         assert!(
             caisse
@@ -757,7 +767,7 @@ mod tests {
                     c.genre(),
                     c.sens(),
                     c.est_collectif(),
-                    c.est_de_tresorerie(),
+                    c.est_admis_en_journal_de_tresorerie(),
                     c.est_actif(),
                 )
             })
@@ -775,7 +785,7 @@ mod tests {
                 let reference =
                     CompteReference::nouveau(n(numero), t(intitule), *sens, *collectif).unwrap();
                 if *tresorerie {
-                    reference.de_tresorerie()
+                    reference.admettre_en_journal_de_tresorerie()
                 } else {
                     reference
                 }
@@ -797,7 +807,7 @@ mod tests {
                 (
                     compte.sens(),
                     compte.est_collectif(),
-                    compte.est_de_tresorerie()
+                    compte.est_admis_en_journal_de_tresorerie()
                 ),
                 (*sens, *collectif, *tresorerie)
             );

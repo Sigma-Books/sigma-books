@@ -2,6 +2,7 @@
 //! officielle (AUDCIF + SYSCOHADA, JO OHADA 15/02/2017), rejet des données invalides.
 
 use super::*;
+use compta_core::{Journal, TypeJournal};
 use proptest::prelude::*;
 
 fn n(numero: &str) -> NumeroCompte {
@@ -254,41 +255,126 @@ fn le_plan_du_dossier_reprend_tout_le_referentiel() {
     assert!(plan.compte_de_mouvement_actif(&n("401")).is_err());
 }
 
+/// Comptes admis en journal de trésorerie, et leur fiche de fonctionnement (AUDCIF, Titre VII,
+/// ch. 3) : 52 Banques, 53 Établissements financiers, 55 Monnaie électronique, 57 Caisse.
+const ADMIS: [(&str, u16); 4] = [("52", 417), ("53", 419), ("55", 424), ("57", 428)];
+/// Comptes de la classe 5 exclus (motifs dans data/comptes.toml) ; 581 et 582 en attente du
+/// mainteneur.
+const EXCLUS: [&str; 9] = ["50", "51", "54", "56", "581", "582", "585", "588", "59"];
+
+/// Premier compte de mouvement actif du plan sous `racine` (ou `racine` elle-même).
+fn compte_de_mouvement_sous(plan: &PlanComptes, racine: &str) -> NumeroCompte {
+    let racine = n(racine);
+    plan.comptes()
+        .map(|c| c.numero().clone())
+        .find(|numero| {
+            racine.est_ascendant_ou_egal(numero) && plan.compte_de_mouvement_actif(numero).is_ok()
+        })
+        .unwrap()
+}
+
 #[test]
-fn classe_de_tresorerie_tiree_des_donnees() {
-    // Une seule classe marquée `tresorerie`, celle dont l'intitulé officiel est « COMPTES DE
-    // TRÉSORERIE » (p. PDF 249).
-    let r = Referentiel::officiel().unwrap();
-    let marquees: Vec<&Classe> = r.classes().filter(|c| c.est_de_tresorerie()).collect();
-    assert_eq!(marquees.len(), 1);
-    assert_eq!(marquees[0].intitule().as_str(), "COMPTES DE TRÉSORERIE");
-    assert_eq!(marquees[0].page(), 249);
-    // Le plan du dossier marque exactement les comptes de cette classe, et leurs sous-comptes
-    // en héritent.
+fn comptes_admis_en_journal_de_tresorerie_lus_des_donnees() {
+    let r = officiel();
+    // Les marques des données sont exactement celles instruites, avec leur page.
+    let marques: Vec<(String, u16)> = r
+        .comptes()
+        .filter_map(|c| {
+            c.marque_journal_tresorerie()
+                .map(|page| (c.numero().to_string(), page))
+        })
+        .collect();
+    let attendu: Vec<(String, u16)> = ADMIS.iter().map(|(c, p)| ((*c).to_owned(), *p)).collect();
+    assert_eq!(marques, attendu);
+    // Les comptes exclus existent dans les données, et ni eux ni leurs sous-comptes ne sont admis.
+    for exclu in EXCLUS {
+        let exclu = n(exclu);
+        assert!(r.compte(&exclu).is_some(), "{exclu}");
+        for c in r
+            .comptes()
+            .filter(|c| exclu.est_ascendant_ou_egal(c.numero()))
+        {
+            assert!(
+                !r.admis_en_journal_de_tresorerie(c.numero()),
+                "{}",
+                c.numero()
+            );
+        }
+    }
+    // Le plan du dossier porte la même marque, héritée par les sous-comptes.
     let mut plan = r.plan_comptes().unwrap();
     for compte in plan.comptes() {
         assert_eq!(
-            compte.est_de_tresorerie(),
-            compte.numero().classe() == marquees[0].numero(),
+            compte.est_admis_en_journal_de_tresorerie(),
+            ADMIS
+                .iter()
+                .any(|(admis, _)| n(admis).est_ascendant_ou_egal(compte.numero())),
             "{}",
             compte.numero()
         );
+    }
+    for (admis, _) in ADMIS {
+        let feuille = compte_de_mouvement_sous(&plan, admis);
+        let sous_compte = NumeroCompte::parse(&format!("{feuille}-A")).unwrap();
+        let ajoute = plan
+            .ajouter_sous_compte(sous_compte, TexteCourt::parse("A").unwrap())
+            .unwrap();
+        assert!(ajoute.est_admis_en_journal_de_tresorerie());
+    }
+}
+
+#[test]
+fn journal_de_tresorerie_sur_un_compte_admis_ou_exclu() {
+    let r = officiel();
+    let plan = r.plan_comptes().unwrap();
+    let journal = |compte: NumeroCompte| {
+        Journal::nouveau(
+            CodeJournal::parse("BQ1").unwrap(),
+            TexteCourt::parse("Trésorerie").unwrap(),
+            TypeJournal::Tresorerie,
+            Some(compte),
+            &plan,
+        )
+    };
+    for (admis, _) in ADMIS {
+        let compte = compte_de_mouvement_sous(&plan, admis);
+        assert!(journal(compte.clone()).is_ok(), "{compte}");
+    }
+    for exclu in ["54", "56", "585", "59"] {
+        let compte = compte_de_mouvement_sous(&plan, exclu);
         assert_eq!(
-            compte.est_de_tresorerie(),
-            r.est_de_tresorerie(compte.numero())
+            journal(compte.clone()),
+            Err(ErreurJournal::CompteNonAdmisEnTresorerie(
+                CodeJournal::parse("BQ1").unwrap(),
+                compte
+            ))
         );
     }
-    let tresorerie = r
-        .comptes()
-        .find(|c| r.est_de_tresorerie(c.numero()))
-        .unwrap()
-        .numero()
-        .clone();
-    let sous_compte = NumeroCompte::parse(&format!("{tresorerie}-A")).unwrap();
-    let ajoute = plan
-        .ajouter_sous_compte(sous_compte, TexteCourt::parse("A").unwrap())
-        .unwrap();
-    assert!(ajoute.est_de_tresorerie());
+}
+
+#[test]
+fn rejette_une_marque_de_journal_de_tresorerie_incomplete() {
+    let marque = |suite: &str| avec(&format!("{}{suite}\n", compte("10")));
+    for suite in [
+        "journal_tresorerie = true",
+        "page_fonctionnement = 417",
+        "journal_tresorerie = false\npage_fonctionnement = 417",
+        "journal_tresorerie = true\npage_fonctionnement = 273",
+        "journal_tresorerie = true\npage_fonctionnement = 540",
+    ] {
+        assert_eq!(
+            marque(suite).unwrap_err(),
+            ErreurReferentiel::MarqueJournalTresorerie(n("10")),
+            "{suite}"
+        );
+    }
+    let r = marque("journal_tresorerie = true\npage_fonctionnement = 274").unwrap();
+    assert_eq!(
+        r.compte(&n("10")).unwrap().marque_journal_tresorerie(),
+        Some(274)
+    );
+    assert!(r.admis_en_journal_de_tresorerie(&n("10-A")));
+    assert!(!r.admis_en_journal_de_tresorerie(&n("11")));
 }
 
 const ENTETE: &str = r#"
