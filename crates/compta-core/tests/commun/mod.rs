@@ -103,7 +103,7 @@ impl Dossier {
                     CompteReference::nouveau(n(num), t("Intitulé fictif"), sens, coll).unwrap();
                 // Dernier champ : compte de trésorerie (ses enfants en héritent).
                 if tres {
-                    reference.de_tresorerie()
+                    reference.admettre_en_journal_de_tresorerie()
                 } else {
                     reference
                 }

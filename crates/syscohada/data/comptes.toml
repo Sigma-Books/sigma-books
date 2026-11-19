@@ -5,10 +5,6 @@
 # « Liste des comptes », pages PDF 219 à 272 (pagination imprimée = page PDF - 3).
 # Seuls les numéros et intitulés sont repris du texte (faits), sans les notes de bas de page.
 #
-# Champs de chaque classe : numero, intitule et page (texte officiel), et `tresorerie = true` pour
-# la seule classe dont l'intitulé officiel est « COMPTES DE TRÉSORERIE » (p. PDF 249) : ses comptes,
-# et eux seuls, peuvent être le compte d'un journal de trésorerie (spec §5.2).
-#
 # Champs de chaque compte :
 # - numero, intitule : texte officiel. Coquilles manifestes corrigées, et trois numéros restitués
 #   (champ `note`) ; liste dans crates/syscohada/README.md.
@@ -22,6 +18,20 @@
 # - collectif : compte collectif de tiers (spec §5.1) ; hérité par les sous-comptes. Repris des comptes
 #   « party_required » du module Tryton account_syscohada (docs/provenance/), complétés de 404, 413, 467
 #   et 488 (liste dans crates/syscohada/README.md).
+# - journal_tresorerie, page_fonctionnement : compte admis comme compte d'un journal de trésorerie
+#   (spec §5.2), hérité par ses sous-comptes ; `page_fonctionnement` est la page PDF de la fiche
+#   « Contenu et fonctionnement des comptes » (Titre VII, ch. 3, p. PDF 274 à 539) qui fonde la
+#   marque. Comptes admis : 52 Banques (p. 417), 53 Établissements financiers (p. 419),
+#   55 Instruments de monnaie électronique (p. 424-425), 57 Caisse (p. 428).
+#   Comptes de la classe 5 exclus, et motif :
+#   - 50 Titres de placement (p. 413), 51 Valeurs à encaisser (p. 415) : pas des disponibilités ;
+#   - 54 Instruments de trésorerie : fonctionne contre le 52 ou le 53 (p. 420) ;
+#   - 56 Banques, crédits de trésorerie et d'escompte : une dette, dont la contrepartie est le 52
+#     (p. 426) ;
+#   - 585, 588 Virements internes : comptes de passage à solder, ligne de contrepartie et jamais
+#     compte d'un journal (p. 430-431) ;
+#   - 59 Dépréciations (p. 433) ;
+#   - 581, 582 : en attente du mainteneur (régies d'avances et accréditifs, cas ambigu, p. 430).
 
 [source]
 document = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes »"
@@ -51,7 +61,6 @@ page = 240
 numero = 5
 intitule = "COMPTES DE TRÉSORERIE"
 page = 249
-tresorerie = true
 
 [[classe]]
 numero = 6
@@ -5994,6 +6003,8 @@ intitule = "BANQUES"
 page = 250
 nature = "bilan"
 sens = "variable"
+journal_tresorerie = true
+page_fonctionnement = 417
 
 [[compte]]
 numero = "521"
@@ -6071,6 +6082,8 @@ intitule = "ÉTABLISSEMENTS FINANCIERS ET ASSIMILÉS"
 page = 251
 nature = "bilan"
 sens = "debiteur"
+journal_tresorerie = true
+page_fonctionnement = 419
 
 [[compte]]
 numero = "531"
@@ -6155,6 +6168,8 @@ intitule = "INSTRUMENTS DE MONNAIE ÉLECTRONIQUE"
 page = 251
 nature = "bilan"
 sens = "debiteur"
+journal_tresorerie = true
+page_fonctionnement = 424
 
 [[compte]]
 numero = "551"
@@ -6232,6 +6247,8 @@ intitule = "CAISSE"
 page = 252
 nature = "bilan"
 sens = "debiteur"
+journal_tresorerie = true
+page_fonctionnement = 428
 
 [[compte]]
 numero = "571"

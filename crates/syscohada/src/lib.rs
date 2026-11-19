@@ -33,6 +33,10 @@ const COMPTES_TOML: &str = include_str!("../data/comptes.toml");
 const PAGE_MIN: u16 = 219;
 const PAGE_MAX: u16 = 272;
 
+/// Pages PDF des fiches « Contenu et fonctionnement des comptes » (Titre VII, ch. 3).
+const PAGE_FONCTIONNEMENT_MIN: u16 = 274;
+const PAGE_FONCTIONNEMENT_MAX: u16 = 539;
+
 /// Nature d'un compte, déduite de l'intitulé officiel de sa classe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -97,10 +101,10 @@ pub enum ErreurReferentiel {
         /// Compte cité.
         compte: NumeroCompte,
     },
-    /// Le compte d'un journal par défaut n'est pas un compte de trésorerie
-    /// ([`Referentiel::est_de_tresorerie`]).
-    #[error("compte du journal {code} : {compte} n'est pas un compte de trésorerie")]
-    CompteDeJournalHorsTresorerie {
+    /// Le compte d'un journal par défaut n'est pas admis en journal de trésorerie
+    /// ([`Referentiel::admis_en_journal_de_tresorerie`]).
+    #[error("compte du journal {code} : {compte} n'est pas admis en journal de trésorerie")]
+    CompteDeJournalNonAdmis {
         /// Journal.
         code: CodeJournal,
         /// Compte cité.
@@ -115,6 +119,13 @@ pub enum ErreurReferentiel {
         /// Compte cité.
         compte: NumeroCompte,
     },
+    /// Marque `journal_tresorerie` sans `page_fonctionnement` dans la plage des fiches de
+    /// fonctionnement des comptes, ou page sans marque.
+    #[error(
+        "compte {0} : `journal_tresorerie` exige `page_fonctionnement` entre \
+         {PAGE_FONCTIONNEMENT_MIN} et {PAGE_FONCTIONNEMENT_MAX}, et inversement"
+    )]
+    MarqueJournalTresorerie(NumeroCompte),
     /// Page hors de la plage de la liste officielle.
     #[error("page {page} hors de la source ({PAGE_MIN} à {PAGE_MAX}) pour {numero}")]
     Page {
@@ -131,7 +142,6 @@ pub struct Classe {
     numero: u8,
     intitule: TexteCourt,
     page: u16,
-    tresorerie: bool,
 }
 
 impl Classe {
@@ -152,12 +162,6 @@ impl Classe {
     pub fn page(&self) -> u16 {
         self.page
     }
-
-    /// Vrai pour la classe des comptes de trésorerie (champ `tresorerie` des données).
-    #[must_use]
-    pub fn est_de_tresorerie(&self) -> bool {
-        self.tresorerie
-    }
 }
 
 /// Compte de la liste officielle.
@@ -170,6 +174,7 @@ pub struct CompteOfficiel {
     collectif: bool,
     page: u16,
     note: Option<String>,
+    page_journal_tresorerie: Option<u16>,
 }
 
 impl CompteOfficiel {
@@ -221,6 +226,14 @@ impl CompteOfficiel {
     pub fn note(&self) -> Option<&str> {
         self.note.as_deref()
     }
+
+    /// Marque `journal_tresorerie` portée par ce compte lui-même : page PDF de la fiche de
+    /// fonctionnement qui la fonde. Les sous-comptes en héritent
+    /// ([`Referentiel::admis_en_journal_de_tresorerie`]).
+    #[must_use]
+    pub fn marque_journal_tresorerie(&self) -> Option<u16> {
+        self.page_journal_tresorerie
+    }
 }
 
 /// Liste officielle des comptes, validée.
@@ -254,8 +267,6 @@ struct ClasseBrute {
     numero: u8,
     intitule: String,
     page: u16,
-    #[serde(default)]
-    tresorerie: bool,
 }
 
 #[derive(Deserialize)]
@@ -269,6 +280,9 @@ struct CompteBrut {
     #[serde(default)]
     collectif: bool,
     note: Option<String>,
+    #[serde(default)]
+    journal_tresorerie: bool,
+    page_fonctionnement: Option<u16>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -334,7 +348,6 @@ impl Referentiel {
                 numero: c.numero,
                 intitule: texte(&cle, &c.intitule)?,
                 page: verifier_page(&cle, c.page)?,
-                tresorerie: c.tresorerie,
             };
             if classes.insert(c.numero, classe).is_some() {
                 return Err(ErreurReferentiel::Classe(c.numero));
@@ -354,7 +367,17 @@ impl Referentiel {
             if !classes.contains_key(&numero.classe()) {
                 return Err(ErreurReferentiel::Classe(numero.classe()));
             }
+            let page_journal_tresorerie = match (c.journal_tresorerie, c.page_fonctionnement) {
+                (false, None) => None,
+                (true, Some(page))
+                    if (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page) =>
+                {
+                    Some(page)
+                }
+                _ => return Err(ErreurReferentiel::MarqueJournalTresorerie(numero)),
+            };
             let compte = CompteOfficiel {
+                page_journal_tresorerie,
                 intitule: texte(&c.numero, &c.intitule)?,
                 page: verifier_page(&c.numero, c.page)?,
                 nature: c.nature,
@@ -418,12 +441,15 @@ impl Referentiel {
         self.comptes.get(numero)
     }
 
-    /// Vrai si le numéro appartient à une classe de trésorerie des données (classe marquée
-    /// `tresorerie`), qu'il figure ou non dans la liste officielle.
+    /// Vrai si le numéro, ou l'un de ses ascendants, est un compte de la liste officielle
+    /// marqué `journal_tresorerie` : il peut alors être le compte d'un journal de trésorerie.
     #[must_use]
-    pub fn est_de_tresorerie(&self, numero: &NumeroCompte) -> bool {
-        self.classe(numero.classe())
-            .is_some_and(Classe::est_de_tresorerie)
+    pub fn admis_en_journal_de_tresorerie(&self, numero: &NumeroCompte) -> bool {
+        std::iter::successors(Some(numero.clone()), NumeroCompte::parent).any(|n| {
+            self.comptes
+                .get(&n)
+                .is_some_and(|c| c.page_journal_tresorerie.is_some())
+        })
     }
 
     /// Nombre de comptes.
@@ -439,7 +465,7 @@ impl Referentiel {
     }
 
     /// Comptes sous la forme d'entrée du plan de comptes d'un dossier (`compta-core`). Les
-    /// comptes d'une classe de trésorerie y sont marqués comme tels.
+    /// comptes admis en journal de trésorerie y sont marqués comme tels.
     ///
     /// # Errors
     /// [`ErreurPlan`] si un compte n'est pas officiel (impossible après validation).
@@ -453,8 +479,8 @@ impl Referentiel {
                     c.sens,
                     c.collectif,
                 )?;
-                Ok(if self.est_de_tresorerie(&c.numero) {
-                    reference.de_tresorerie()
+                Ok(if self.admis_en_journal_de_tresorerie(&c.numero) {
+                    reference.admettre_en_journal_de_tresorerie()
                 } else {
                     reference
                 })

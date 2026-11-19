@@ -94,8 +94,8 @@ impl Referentiel {
             if self.compte(&compte).is_none() {
                 return Err(ErreurReferentiel::CompteDeJournalInconnu { code, compte });
             }
-            if !self.est_de_tresorerie(&compte) {
-                return Err(ErreurReferentiel::CompteDeJournalHorsTresorerie { code, compte });
+            if !self.admis_en_journal_de_tresorerie(&compte) {
+                return Err(ErreurReferentiel::CompteDeJournalNonAdmis { code, compte });
             }
             if self.a_des_subdivisions(&compte) {
                 return Err(ErreurReferentiel::CompteDeJournalSubdivise { code, compte });
@@ -278,19 +278,35 @@ mod tests {
                 compte: n("571")
             })
         );
-        // Compte de la liste officielle, sans subdivision, hors de la classe de trésorerie.
-        let hors_tresorerie = r
-            .comptes()
-            .map(|compte| compte.numero().clone())
-            .find(|numero| !r.est_de_tresorerie(numero) && !r.a_des_subdivisions(numero))
-            .unwrap();
-        assert_eq!(
-            lire(&ligne("CA", hors_tresorerie.as_str(), "p. 252")),
-            Err(ErreurReferentiel::CompteDeJournalHorsTresorerie {
-                code: c("CA"),
-                compte: hors_tresorerie
-            })
-        );
+        // Compte de la liste officielle, sans subdivision : admis sous 52, 53, 55 et 57, refusé
+        // sous 54, 56, 585 et 59 (racines vérifiées contre les données).
+        let feuille = |racine: &str| {
+            let racine = n(racine);
+            assert!(r.compte(&racine).is_some(), "{racine}");
+            r.comptes()
+                .map(|compte| compte.numero().clone())
+                .find(|numero| {
+                    racine.est_ascendant_ou_egal(numero) && !r.a_des_subdivisions(numero)
+                })
+                .unwrap()
+        };
+        for admis in ["52", "53", "55", "57"] {
+            let compte = feuille(admis);
+            assert!(
+                lire(&ligne("CA", compte.as_str(), "p. 252")).is_ok(),
+                "{compte}"
+            );
+        }
+        for exclu in ["54", "56", "585", "59"] {
+            let compte = feuille(exclu);
+            assert_eq!(
+                lire(&ligne("CA", compte.as_str(), "p. 252")),
+                Err(ErreurReferentiel::CompteDeJournalNonAdmis {
+                    code: c("CA"),
+                    compte
+                })
+            );
+        }
         let double = format!(
             "{}{}",
             ligne("CA", "5711", "p. 252"),
@@ -329,13 +345,13 @@ mod tests {
             instancier(&[compte("CA", "5711"), compte("BQ1", "5211")], &plan),
             Err(ErreurReferentiel::Journal(ErreurJournal::Inconnu(c("BQ1"))))
         );
-        // Compte de mouvement du plan hors de la classe de trésorerie.
+        // Compte de mouvement du plan non admis en journal de trésorerie.
         let hors_tresorerie = plan
             .comptes()
             .map(|compte| compte.numero().clone())
             .find(|numero| {
                 plan.compte_de_mouvement_actif(numero)
-                    .is_ok_and(|compte| !compte.est_de_tresorerie())
+                    .is_ok_and(|compte| !compte.est_admis_en_journal_de_tresorerie())
             })
             .unwrap();
         assert_eq!(
@@ -348,7 +364,7 @@ mod tests {
                 &plan
             ),
             Err(ErreurReferentiel::Journal(
-                ErreurJournal::CompteHorsTresorerie(c("CA"), hors_tresorerie)
+                ErreurJournal::CompteNonAdmisEnTresorerie(c("CA"), hors_tresorerie)
             ))
         );
         // Compte désactivé dans le plan du dossier.
