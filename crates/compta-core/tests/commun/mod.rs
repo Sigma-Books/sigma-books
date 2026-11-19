@@ -87,9 +87,9 @@ impl Dossier {
             ("411", SensNormal::Debiteur, true, false),
             ("4111", SensNormal::Debiteur, false, false),
             ("52", SensNormal::Debiteur, false, true),
-            ("521", SensNormal::Debiteur, false, false),
+            ("521", SensNormal::Debiteur, false, true),
             ("57", SensNormal::Debiteur, false, true),
-            ("571", SensNormal::Debiteur, false, false),
+            ("571", SensNormal::Debiteur, false, true),
             ("60", SensNormal::Debiteur, false, false),
             ("605", SensNormal::Debiteur, false, false),
             ("6052", SensNormal::Debiteur, false, false),
@@ -101,7 +101,7 @@ impl Dossier {
             |(num, sens, coll, tres)| {
                 let reference =
                     CompteReference::nouveau(n(num), t("Intitulé fictif"), sens, coll).unwrap();
-                // Dernier champ : compte de trésorerie (ses enfants en héritent).
+                // Dernier champ : compte admis en journal de trésorerie.
                 if tres {
                     reference.admettre_en_journal_de_tresorerie()
                 } else {
