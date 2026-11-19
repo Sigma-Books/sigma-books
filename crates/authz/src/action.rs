@@ -60,6 +60,9 @@ macro_rules! actions {
 }
 
 actions! {
+    /// Voir le cabinet : le choisir comme cabinet actif parmi les siens
+    /// (`GET /api/moi/cabinets`, ADR 0012), tout rôle du cabinet.
+    AccederCabinet => Cabinet,
     /// Paramètres du cabinet, utilisateurs, sessions (§20, administrateur).
     GererCabinet => Cabinet,
     /// Changements de droits : invitation, rôle, suspension, affectation,
@@ -129,4 +132,76 @@ actions! {
     ValiderEcriture => EcritureBrouillon,
     /// Contre-passer une écriture validée (§20).
     ContrePasser => EcritureValidee,
+}
+
+/// Type de ressource d'une action de l'utilisateur sur lui-même.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TypeRessourceUtilisateur {
+    /// Une session (ADR 0012).
+    Session,
+    /// L'utilisateur lui-même.
+    Utilisateur,
+}
+
+impl TypeRessourceUtilisateur {
+    /// Nom du type d'entité dans le schéma, sans l'espace de noms.
+    #[must_use]
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Self::Session => "Session",
+            Self::Utilisateur => "Utilisateur",
+        }
+    }
+}
+
+/// Action de l'utilisateur **sur lui-même** (ADR 0012), de principal
+/// `Utilisateur` : ses sessions, hors de tout cabinet. Type distinct de
+/// [`Action`], dont le principal est une appartenance : aucune des deux ne
+/// peut être décidée pour l'autre principal (le schéma le refuserait aussi).
+///
+/// Jeu sobre de quatre actions : la déconnexion est la révocation de la
+/// session courante ([`ActionUtilisateur::RevoquerSaSession`]), même
+/// condition et même effet (seul le motif enregistré diffère).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ActionUtilisateur {
+    /// État de sa session courante et jeton anti-CSRF.
+    ConsulterSaSession,
+    /// Rotation du jeton de sa session.
+    TournerSaSession,
+    /// Révocation d'une de ses sessions, déconnexion comprise.
+    RevoquerSaSession,
+    /// Liste de ses sessions (ressource : l'utilisateur lui-même).
+    ListerSesSessions,
+}
+
+impl ActionUtilisateur {
+    /// Toutes les actions de l'utilisateur sur lui-même déclarées au schéma.
+    pub const TOUTES: &'static [ActionUtilisateur] = &[
+        Self::ConsulterSaSession,
+        Self::TournerSaSession,
+        Self::RevoquerSaSession,
+        Self::ListerSesSessions,
+    ];
+
+    /// Identifiant de l'action dans le schéma (`Sigma::Action::"…"`).
+    #[must_use]
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Self::ConsulterSaSession => "ConsulterSaSession",
+            Self::TournerSaSession => "TournerSaSession",
+            Self::RevoquerSaSession => "RevoquerSaSession",
+            Self::ListerSesSessions => "ListerSesSessions",
+        }
+    }
+
+    /// Type de ressource auquel l'action s'applique.
+    #[must_use]
+    pub const fn type_ressource(self) -> TypeRessourceUtilisateur {
+        match self {
+            Self::ConsulterSaSession | Self::TournerSaSession | Self::RevoquerSaSession => {
+                TypeRessourceUtilisateur::Session
+            }
+            Self::ListerSesSessions => TypeRessourceUtilisateur::Utilisateur,
+        }
+    }
 }

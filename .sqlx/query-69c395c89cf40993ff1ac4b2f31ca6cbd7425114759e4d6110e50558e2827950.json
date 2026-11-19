@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE session SET jeton_hache = $3 WHERE id = $1 AND utilisateur_id = $2 AND revoquee_le IS NULL AND jeton_hache = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "69c395c89cf40993ff1ac4b2f31ca6cbd7425114759e4d6110e50558e2827950"
+}

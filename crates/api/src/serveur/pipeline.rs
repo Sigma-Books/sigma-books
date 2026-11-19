@@ -1,8 +1,12 @@
 //! Pipeline d'une requête de l'API (`crates/api/CLAUDE.md` ; ADR 0011 ; L2, « Ordre de
 //! traitement d'une requête ») :
 //!
-//! 1. **authentification** ([`super::Authentification`]) : 401 sans identité ; puis limitation
-//!    de débit par utilisateur (429) ;
+//! 1. **authentification** ([`super::Authentification`]) : 401 sans identité, ou pour une
+//!    session restreinte ou d'enrôlement hors des routes de la session elle-même (ADR 0012) ;
+//!    pour une mutation, 403 si l'en-tête anti-CSRF n'est pas le jeton lié à la session ; puis
+//!    limitation de débit par utilisateur (429). L'activité de la session n'est notée qu'à la
+//!    fin d'une requête admise ([`super::Authentification::noter_activite`]). Les routes hors cabinet (portées
+//!    [`Portee::Utilisateur`] et [`Portee::Session`]) passent ensuite au module [`super::moi`] ;
 //! 2. **contexte** : cabinet et dossier sont lus **dans le chemin** (UUID, 400 sinon), jamais dans
 //!    une session ni un corps (F1.14). La transaction s'ouvre aussitôt avec ce contexte
 //!    ([`ouvrir_transaction`]) : la RLS borne ainsi dès la première lecture tout ce que le
@@ -32,17 +36,19 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource, Role, Session, Verdict};
+use authz::{
+    Action, ActionUtilisateur, Autorisation, Contexte, Decision, Entites, Ressource,
+    RessourceUtilisateur, Role, Session, Verdict,
+};
 use axum::extract::{FromRequestParts, RawPathParams, Request};
 use axum::response::{IntoResponse, Response};
-use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::Etat;
 use super::audit::inscrire_traces;
 use super::csrf::est_mutation;
 use super::erreur::{CategorieErreur, ErreurApi};
-use super::routes::{Portee, Requete, Route, executer};
+use super::routes::{ActionRoute, Portee, Requete, Route, executer};
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
     AccesDossier, Appartenance, Cabinet, Dossier, DossierVisible, lire_acces_dossier,
@@ -66,6 +72,15 @@ pub trait Decideur: Send + Sync + 'static {
         ressource: Ressource,
         entites: &Entites,
         contexte: &Contexte,
+    ) -> Verdict;
+
+    /// Décide si l'utilisateur `principal` peut effectuer `action` sur lui-même (ses sessions,
+    /// ADR 0012), ressource lue en base ([`Autorisation::verdict_utilisateur`]).
+    fn verdict_utilisateur(
+        &self,
+        principal: authz::IdUtilisateur,
+        action: ActionUtilisateur,
+        ressource: RessourceUtilisateur,
     ) -> Verdict;
 
     /// La décision seule.
@@ -92,6 +107,15 @@ impl Decideur for Autorisation {
         contexte: &Contexte,
     ) -> Verdict {
         Autorisation::verdict(self, principal, action, ressource, entites, contexte)
+    }
+
+    fn verdict_utilisateur(
+        &self,
+        principal: authz::IdUtilisateur,
+        action: ActionUtilisateur,
+        ressource: RessourceUtilisateur,
+    ) -> Verdict {
+        Autorisation::verdict_utilisateur(self, principal, action, ressource)
     }
 }
 
@@ -170,7 +194,9 @@ fn ressource_chemin(
         (Portee::Cabinet, None) => Ok(RessourceChemin::Cabinet),
         (Portee::DossiersDuCabinet, None) => Ok(RessourceChemin::DossiersDuCabinet),
         (Portee::Dossier, Some(dossier)) => Ok(RessourceChemin::Dossier(dossier)),
-        (Portee::Cabinet | Portee::DossiersDuCabinet, Some(_)) | (Portee::Dossier, None) => {
+        (Portee::Cabinet | Portee::DossiersDuCabinet, Some(_))
+        | (Portee::Dossier, None)
+        | (Portee::Utilisateur | Portee::Session, _) => {
             Err(ErreurApi::Interne(CategorieErreur::Donnee))
         }
     }
@@ -352,14 +378,14 @@ impl Garde {
 }
 
 /// Convertit un identifiant lu en base en identifiant de `authz` (qui refuse l'UUID nul).
-fn id_authz<T>(
+pub(crate) fn id_authz<T>(
     uuid: Uuid,
     nouveau: fn(Uuid) -> Result<T, authz::ErreurIdentifiant>,
 ) -> Result<T, ErreurApi> {
     nouveau(uuid).map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))
 }
 
-fn role(texte: &str) -> Result<Role, ErreurApi> {
+pub(crate) fn role(texte: &str) -> Result<Role, ErreurApi> {
     Role::TOUS
         .into_iter()
         .find(|r| r.nom() == texte)
@@ -368,7 +394,7 @@ fn role(texte: &str) -> Result<Role, ErreurApi> {
 
 /// Identifiant lu dans le chemin : 400 s'il n'est pas un UUID (sans écho), 404 pour l'UUID nul
 /// ou maximal, jamais attribués (même réponse qu'un identifiant inexistant).
-fn id_chemin(parametres: &RawPathParams, nom: &str) -> Result<Uuid, ErreurApi> {
+pub(crate) fn id_chemin(parametres: &RawPathParams, nom: &str) -> Result<Uuid, ErreurApi> {
     let texte = parametres
         .iter()
         .find_map(|(cle, valeur)| (cle == nom).then_some(valeur))
@@ -402,6 +428,14 @@ async fn traiter_requete(
         .await
         .map_err(|_| ErreurApi::Interne(CategorieErreur::Authentification))?
         .ok_or(ErreurApi::NonAuthentifie)?;
+    // Session restreinte ou d'enrôlement : seulement la session elle-même (ADR 0012, F1.12).
+    if !route.portee.admet(identite.nature) {
+        return Err(ErreurApi::NonAuthentifie);
+    }
+    // Mutation : jeton anti-CSRF lié à la session, comparé en temps constant (F1.4).
+    if est_mutation(&route.methode.methode()) && !identite.csrf_lie {
+        return Err(ErreurApi::Interdit);
+    }
     etat.limiteur_utilisateur
         .verifier(identite.utilisateur, Instant::now())
         .map_err(|reessayer_dans| ErreurApi::TropDeRequetes { reessayer_dans })?;
@@ -411,16 +445,26 @@ async fn traiter_requete(
         .await
         .map_err(|_| ErreurApi::CorpsTropGrand)?;
 
+    // Hors cabinet : session courante et ressources propres de l'utilisateur.
+    if !route.portee.du_cabinet() {
+        let reponse = super::moi::executer(etat, route, &mut parts, &identite).await?;
+        etat.authentification.noter_activite(&identite).await;
+        return Ok(reponse);
+    }
+
     // 2. Contexte : chemin, puis transaction au contexte du chemin.
     let parametres = RawPathParams::from_request_parts(&mut parts, &())
         .await
         .map_err(|_| ErreurApi::RequeteInvalide)?;
     let cabinet = IdCabinet::depuis_uuid(id_chemin(&parametres, "cabinet")?);
     let dossier = match route.portee {
-        Portee::Cabinet | Portee::DossiersDuCabinet => None,
+        Portee::Cabinet | Portee::DossiersDuCabinet | Portee::Utilisateur | Portee::Session => None,
         Portee::Dossier => Some(IdDossier::depuis_uuid(id_chemin(&parametres, "dossier")?)),
     };
     let ressource_chemin = ressource_chemin(route.portee, dossier)?;
+    let ActionRoute::Cabinet(action) = route.action else {
+        return Err(ErreurApi::Interne(CategorieErreur::Donnee));
+    };
     let contexte = match dossier {
         None => ContexteTenant::cabinet(cabinet, identite.utilisateur),
         Some(d) => ContexteTenant::dossier(cabinet, d, identite.utilisateur),
@@ -428,7 +472,7 @@ async fn traiter_requete(
     // Transaction au contexte du tenant : jusqu'à la décision, lectures seules sous RLS.
     let mut tx = ouvrir_transaction(&etat.pool, contexte).await?;
 
-    let mut garde = etablir(etat, route, &mut tx, &identite, utilisateur).await?;
+    let mut garde = etablir(etat, action, &mut tx, &identite, utilisateur).await?;
 
     // 3. Décision Cedar sur la ressource du chemin.
     match ressource_chemin {
@@ -473,6 +517,8 @@ async fn traiter_requete(
     exiger_traces(route, &resultat.traces)?;
     inscrire_traces(&mut tx, &garde, resultat.traces).await?;
     tx.confirmer().await?;
+    // Requête admise et traitée : seule une telle requête prolonge la session.
+    etat.authentification.noter_activite(&identite).await;
     Ok(resultat.reponse)
 }
 
@@ -490,7 +536,7 @@ fn exiger_traces(route: &Route, traces: &[super::audit::Trace]) -> Result<(), Er
 /// le cabinet est d'autrui (la politique `invariant-appartenance-active` le refuserait aussi).
 async fn etablir(
     etat: &Etat,
-    route: &'static Route,
+    action: Action,
     tx: &mut TransactionTenant,
     identite: &super::Identite,
     utilisateur: authz::IdUtilisateur,
@@ -529,8 +575,8 @@ async fn etablir(
             id: id_cabinet,
             separation_des_taches: cabinet_lu.separation_taches,
         },
-        session: Session::depuis(identite.derniere_verification, OffsetDateTime::now_utc()),
-        action: route.action,
+        session: Session::depuis(identite.derniere_verification, etat.horloge.maintenant()),
+        action,
         decidee: None,
         utilisateur: id_utilisateur,
         id_session: identite.session,
@@ -540,6 +586,8 @@ async fn etablir(
 
 #[cfg(test)]
 mod tests {
+    use time::OffsetDateTime;
+
     use super::*;
 
     /// Refuse un seul dossier, autorise le reste.
@@ -560,6 +608,18 @@ mod tests {
                 } else {
                     Decision::Autorise
                 },
+                politiques: Vec::new(),
+            }
+        }
+
+        fn verdict_utilisateur(
+            &self,
+            _: authz::IdUtilisateur,
+            _: ActionUtilisateur,
+            _: RessourceUtilisateur,
+        ) -> Verdict {
+            Verdict {
+                decision: Decision::Refuse,
                 politiques: Vec::new(),
             }
         }
@@ -653,7 +713,7 @@ mod tests {
         let trace = Trace::new(PorteeAudit::Cabinet, "cabinet", Uuid::new_v4());
         let mutations: Vec<_> = ROUTES
             .iter()
-            .filter(|r| r.methode == Methode::Post)
+            .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
         assert_eq!(mutations.len(), 3);
         for route in mutations {

@@ -110,6 +110,71 @@ fn le_routeur_ne_se_construit_que_depuis_la_table() {
     assert!(texte.contains("for route in routes::ROUTES {"));
 }
 
+#[test]
+fn le_binaire_n_authentifie_que_par_les_sessions_de_postgresql() {
+    // Une seule implémentation de l'authentification dans les sources du crate : celle des
+    // sessions. Celle des tests vit dans `tests/` et n'est pas compilée dans le binaire.
+    let sources = sources();
+    let implementations = occurrences(&sources, "impl Authentification for ");
+    assert_eq!(implementations.len(), 1, "{implementations:?}");
+    assert!(
+        implementations[0]
+            .1
+            .starts_with("AuthentificationSession {"),
+        "{implementations:?}"
+    );
+    assert!(implementations[0].0.ends_with("src/serveur/session.rs"));
+    // Le binaire l'assemble, avec l'horloge du système.
+    let main = &sources
+        .iter()
+        .find(|(c, _)| c.ends_with("src/main.rs"))
+        .expect("main.rs")
+        .1;
+    assert!(main.contains("AuthentificationSession::new("));
+    assert!(main.contains("Arc::new(HorlogeSysteme)"));
+    assert!(!main.contains("avec_horloge"));
+}
+
+/// `sigma.utilisateur` ouvre tout ce qui appartient à cet utilisateur (sessions comprises) :
+/// la transaction qui ne pose que lui est réservée au crate, et ses seuls appelants sont ceux
+/// d'un utilisateur authentifié (pipeline, activité) ou dont un facteur vient d'être vérifié
+/// (ouverture d'une session). Tout nouvel appelant doit être revu, et ajouté ici.
+#[test]
+fn la_transaction_utilisateur_est_reservee_aux_utilisateurs_authentifies() {
+    let sources = sources();
+    let definitions = occurrences(&sources, "async fn ouvrir_transaction_utilisateur(");
+    assert_eq!(definitions.len(), 1, "{definitions:?}");
+    let base = &sources
+        .iter()
+        .find(|(c, _)| c.ends_with("src/base/mod.rs"))
+        .expect("base/mod.rs")
+        .1;
+    assert!(base.contains("pub(crate) async fn ouvrir_transaction_utilisateur("));
+    let mut appelants: Vec<String> = occurrences(&sources, "ouvrir_transaction_utilisateur(")
+        .into_iter()
+        .filter(|(_, suite)| !suite.starts_with("pool: &PgPool"))
+        .map(|(chemin, _)| {
+            chemin
+                .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                .unwrap()
+                .display()
+                .to_string()
+        })
+        .collect();
+    appelants.sort();
+    assert_eq!(
+        appelants,
+        vec![
+            // Cas d'usage hors cabinet : l'utilisateur de la session authentifiée.
+            "src/serveur/moi.rs",
+            // Ouverture d'une session (après vérification d'un facteur), puis notation de
+            // l'activité d'une requête admise.
+            "src/serveur/session.rs",
+            "src/serveur/session.rs",
+        ]
+    );
+}
+
 #[tokio::test]
 async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
     let routeur = routeur(&application_du_binaire(pool_sans_base()));
@@ -117,7 +182,8 @@ async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
         let chemin = route
             .chemin
             .replace("{cabinet}", &Uuid::new_v4().to_string())
-            .replace("{dossier}", &Uuid::new_v4().to_string());
+            .replace("{dossier}", &Uuid::new_v4().to_string())
+            .replace("{session}", &Uuid::new_v4().to_string());
         assert_eq!(
             appeler_route(&routeur, route, &chemin, None).await.statut,
             StatusCode::UNAUTHORIZED,

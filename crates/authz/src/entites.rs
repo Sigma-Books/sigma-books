@@ -98,6 +98,10 @@ identifiant!(
     /// Identifiant d'une écriture (brouillon ou validée).
     IdEcriture
 );
+identifiant!(
+    /// Identifiant public d'une session (ADR 0012).
+    IdSession
+);
 
 /// Rôle par défaut du §20. Pas de rôle dérivé en L2 (Q5.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -301,6 +305,22 @@ pub enum Ressource {
     EcritureBrouillon(IdEcriture),
     /// Une écriture validée.
     EcritureValidee(IdEcriture),
+}
+
+/// La ressource d'une action de l'utilisateur sur lui-même, telle que l'API
+/// la lit en base : [`crate::Autorisation::decider_utilisateur`] en construit
+/// l'entité.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RessourceUtilisateur {
+    /// Une session, avec son titulaire lu en base (sous RLS).
+    Session {
+        /// Identifiant public.
+        id: IdSession,
+        /// Titulaire.
+        titulaire: IdUtilisateur,
+    },
+    /// Un utilisateur (la liste de ses sessions).
+    Utilisateur(IdUtilisateur),
 }
 
 /// Durée pendant laquelle une vérification de facteur rend la session

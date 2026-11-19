@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config('sigma.cabinet', '', true) AS cabinet, set_config('sigma.dossier', '', true) AS dossier, set_config('sigma.jeton_session', '', true) AS jeton, set_config('sigma.utilisateur', $1, true) AS utilisateur",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cabinet",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "dossier",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "jeton",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "utilisateur",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "37a05ac469c92456ae8474e4663ad49cf861b671817c0c57c71d07ad0e9abf8c"
+}

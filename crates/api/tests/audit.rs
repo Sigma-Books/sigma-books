@@ -805,7 +805,10 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let routeur = routeur_de(&env);
-    for route in ROUTES.iter().filter(|r| r.methode == Methode::Post) {
+    for route in ROUTES
+        .iter()
+        .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
+    {
         let (cabinet_avant, dossier_avant) = (
             verification(&routeur, &c, None).await["nombre"]
                 .as_u64()

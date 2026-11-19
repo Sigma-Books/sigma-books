@@ -47,6 +47,36 @@ Sous RLS : visibles, l'utilisateur du contexte et les membres du cabinet du cont
 contexte, aucune ligne. La recherche par courriel à la connexion, sans contexte, sera conçue \
 en PR 8 (ADR 0012), par exemple par une fonction dédiée et auditée."""
 
+[[instance]]
+nom = "session"
+rls = true
+justification = """
+Sessions (ADR 0012) : une session appartient à un utilisateur, hors de tout cabinet. Aucune \
+donnée comptable. Sous RLS : visibles, la session dont l'empreinte du jeton est présentée \
+(`sigma.jeton_session`, authentification d'une requête) et les sessions de l'utilisateur du \
+contexte (`sigma.utilisateur` : liste, rotation, révocation, purge). Le jeton n'y est jamais \
+stocké, seulement son empreinte SHA-256."""
+
+# Lecture de ses propres cabinets **sans cabinet en contexte** (choix du cabinet actif,
+# `GET /api/moi/cabinets`, ADR 0012) : une politique permissive `FOR SELECT` de plus, de forme
+# exacte, vérifiée par le test (`sigma.cabinet` absent ET appartenance de l'utilisateur du
+# contexte). Avec un cabinet en contexte, elle ne s'applique pas : seules valent les politiques
+# de tenant (F1.14). Une telle politique pour toute autre commande, ou sur une table hors liste,
+# fait échouer le test.
+
+[[lecture_membre]]
+nom = "appartenance"
+justification = """
+Appartenances de l'utilisateur du contexte, tous cabinets confondus, pour lister ses cabinets \
+avant d'en choisir un. Suspension décidée par Cedar et filtrée par la requête."""
+
+[[lecture_membre]]
+nom = "cabinet"
+justification = """
+Cabinets dont l'utilisateur du contexte est membre actif (identifiant et nom), pour choisir \
+le cabinet actif : le nom d'un cabinet où il est suspendu reste illisible. La sous-requête lit \
+`appartenance`, elle-même sous RLS."""
+
 # Tables de dossier admises sans dossier en contexte : une action du cabinet y voit tous les
 # dossiers du cabinet ; avec un dossier en contexte, ce dossier seulement. Toute autre table qui
 # porte `dossier_id` exige le dossier du contexte (politique `dossier_id = sigma.dossier`).

@@ -9,6 +9,9 @@
 //!   pour une table qui porte `dossier_id` (et pour `dossier`, par son `id`), la même condition
 //!   **et** `dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid` ; la variante
 //!   « dossier absent ⇒ tout le cabinet » n'est admise que pour la liste `dossier_facultatif` ;
+//! - lecture de ses propres cabinets sans cabinet en contexte : seules les tables de la liste
+//!   `lecture_membre` admettent, pour une politique `FOR SELECT` **seulement**, la forme exacte
+//!   « `sigma.cabinet` absent ET appartenance de l'utilisateur du contexte » ;
 //! - tables d'instance : existantes, sans `cabinet_id` ni `dossier_id` ; sous RLS si `rls = true`,
 //!   avec des politiques qui lisent le contexte ;
 //! - aucune vue sans `security_invoker`, aucune vue matérialisée ni table étrangère ;
@@ -52,6 +55,7 @@ struct FichierCatalogue {
     security_definer: Vec<Entree>,
     instance: Vec<Instance>,
     dossier_facultatif: Vec<Entree>,
+    lecture_membre: Vec<Entree>,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +80,7 @@ struct Regles {
     instances_sans_rls: Vec<String>,
     instances_avec_rls: Vec<String>,
     dossier_facultatif: Vec<String>,
+    lecture_membre: Vec<String>,
     ajout_seul: Vec<String>,
     security_definer: Vec<String>,
 }
@@ -89,6 +94,7 @@ fn regles() -> Regles {
         .iter()
         .chain(&f.security_definer)
         .chain(&f.dossier_facultatif)
+        .chain(&f.lecture_membre)
         .map(|e| (&e.nom, &e.justification))
         .chain(f.instance.iter().map(|e| (&e.nom, &e.justification)));
     for (nom, justification) in justifiees {
@@ -114,6 +120,7 @@ fn regles() -> Regles {
             .map(|i| i.nom.clone())
             .collect(),
         dossier_facultatif: noms_de(&f.dossier_facultatif),
+        lecture_membre: noms_de(&f.lecture_membre),
         ajout_seul: noms_de(&f.ajout_seul),
         security_definer: noms_de(&f.security_definer),
     }
@@ -417,6 +424,29 @@ fn formes_admises(table: &str, dossier_id: bool, regles: &Regles) -> Vec<String>
     formes
 }
 
+/// Forme admise, pour une politique `FOR SELECT` d'une table de la liste `lecture_membre`, de
+/// la lecture de ses propres lignes sans cabinet en contexte : `sigma.cabinet` absent **et**
+/// appartenance de l'utilisateur du contexte (par `utilisateur_id`, ou, pour `cabinet`, par une
+/// appartenance **active** à ce cabinet). Espaces compactés (`pg_get_expr` coupe les sous-requêtes).
+fn forme_lecture_membre(table: &str) -> String {
+    let sans_cabinet = "(NULLIF(current_setting('sigma.cabinet'::text, true), ''::text) IS NULL)";
+    let utilisateur = "(NULLIF(current_setting('sigma.utilisateur'::text, true), ''::text))::uuid";
+    if table == "cabinet" {
+        format!(
+            "({sans_cabinet} AND (EXISTS ( SELECT 1 FROM appartenance a \
+             WHERE ((a.cabinet_id = cabinet.id) AND (a.utilisateur_id = {utilisateur}) \
+             AND a.actif))))"
+        )
+    } else {
+        format!("({sans_cabinet} AND (utilisateur_id = {utilisateur}))")
+    }
+}
+
+/// Expression aux espaces compactés.
+fn compacter(expression: &str) -> String {
+    expression.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Politique lue au catalogue : schéma, table, nom, commande, `USING`, `WITH CHECK`.
 type Politique = (
     String,
@@ -496,6 +526,9 @@ async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec
                 }
             } else if let Some(admises) = formes.get(&(schema.clone(), table.clone()))
                 && !admises.iter().any(|f| f == expression)
+                && !(commande == "r"
+                    && dans(&regles.lecture_membre, &schema, &table)
+                    && compacter(expression) == forme_lecture_membre(&table))
             {
                 ecarts.push(format!(
                     "{prefixe} : {clause} hors forme admise (« {expression} »)"
@@ -559,6 +592,16 @@ const ECARTS_PROPRIETAIRE: &str = "CREATE TABLE table_oubliee (id uuid PRIMARY K
                         AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid) \
                  WITH CHECK (cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid \
                         AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid); \
+             CREATE POLICY membre_hors_liste ON acces_dossier FOR SELECT \
+                 USING (NULLIF(current_setting('sigma.cabinet', true), '') IS NULL \
+                        AND utilisateur_id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid); \
+             CREATE POLICY membre_toutes_commandes ON appartenance FOR ALL \
+                 USING (NULLIF(current_setting('sigma.cabinet', true), '') IS NULL \
+                        AND utilisateur_id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid) \
+                 WITH CHECK (NULLIF(current_setting('sigma.cabinet', true), '') IS NULL \
+                        AND utilisateur_id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid); \
+             CREATE POLICY membre_meme_avec_cabinet ON appartenance FOR SELECT \
+                 USING (utilisateur_id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid); \
              ALTER TABLE utilisateur ADD COLUMN solde double precision; \
              ALTER TABLE utilisateur ADD COLUMN cabinet_id uuid; \
              ALTER TABLE dossier ADD COLUMN ouvert_le timestamp; \
@@ -581,6 +624,37 @@ const ECARTS_SUPERUTILISATEUR: &str = "CREATE TABLE possedee (cabinet_id uuid NO
              EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; \
              END $$; \
              ALTER ROLE sigma_test_contournement LOGIN;";
+
+/// Écarts que le contrôle doit trouver après [`ECARTS_PROPRIETAIRE`] et
+/// [`ECARTS_SUPERUTILISATEUR`] (début de la ligne d'écart).
+const ECARTS_ATTENDUS: &[&str] = &[
+    "public.table_oubliee : RLS non activée",
+    "public.table_oubliee : aucune politique pour SELECT",
+    "public.rls_non_forcee : RLS non forcée",
+    "public.politique_partielle : aucune politique pour INSERT",
+    "public.politique_partielle : aucune politique pour DELETE",
+    "public.politique_partielle : politique lecture : USING hors forme admise",
+    "public.contexte_non_nul : politique tenant : USING hors forme admise",
+    "public.contexte_non_nul : politique tenant : WITH CHECK hors forme admise",
+    "public.piece_laxiste : politique tenant : USING hors forme admise",
+    "public.piece_laxiste : politique tenant : WITH CHECK hors forme admise",
+    "public.acces_dossier : politique membre_hors_liste : USING hors forme admise",
+    "public.appartenance : politique membre_toutes_commandes : USING hors forme admise",
+    "public.appartenance : politique membre_toutes_commandes : WITH CHECK hors forme admise",
+    "public.appartenance : politique membre_meme_avec_cabinet : USING hors forme admise",
+    "public.utilisateur.solde : type double precision interdit",
+    "table d'instance utilisateur avec la colonne cabinet_id",
+    "public.dossier.ouvert_le : type timestamp without time zone interdit",
+    "public.vue_dossiers : vue sans security_invoker",
+    "sigma_application a TRUNCATE sur public.dossier",
+    "sigma_application possède la relation public.possedee",
+    "sigma_application a CREATE sur le schéma public",
+    "fonction public.f_definer : SECURITY DEFINER hors liste",
+    "fonction public.f_publique : EXECUTE accordé à PUBLIC",
+    "sigma_application a USAGE sur la séquence public.seq_test",
+    "droits par défaut de sigma_migration (public)",
+    "rôle sigma_test_contournement : BYPASSRLS sans être super-utilisateur",
+];
 
 #[tokio::test]
 async fn le_catalogue_respecte_les_regles_d_isolation() {
@@ -665,36 +739,15 @@ async fn une_table_oubliee_fait_echouer_le_controle() {
             trouves.join("\n")
         );
     };
-    for attendu in [
-        "public.table_oubliee : RLS non activée",
-        "public.table_oubliee : aucune politique pour SELECT",
-        "public.rls_non_forcee : RLS non forcée",
-        "public.politique_partielle : aucune politique pour INSERT",
-        "public.politique_partielle : aucune politique pour DELETE",
-        "public.politique_partielle : politique lecture : USING hors forme admise",
-        "public.contexte_non_nul : politique tenant : USING hors forme admise",
-        "public.contexte_non_nul : politique tenant : WITH CHECK hors forme admise",
-        "public.piece_laxiste : politique tenant : USING hors forme admise",
-        "public.piece_laxiste : politique tenant : WITH CHECK hors forme admise",
-        "public.utilisateur.solde : type double precision interdit",
-        "table d'instance utilisateur avec la colonne cabinet_id",
-        "public.dossier.ouvert_le : type timestamp without time zone interdit",
-        "public.vue_dossiers : vue sans security_invoker",
-        "sigma_application a TRUNCATE sur public.dossier",
-        "sigma_application possède la relation public.possedee",
-        "sigma_application a CREATE sur le schéma public",
-        "fonction public.f_definer : SECURITY DEFINER hors liste",
-        "fonction public.f_publique : EXECUTE accordé à PUBLIC",
-        "sigma_application a USAGE sur la séquence public.seq_test",
-        "droits par défaut de sigma_migration (public)",
-        "rôle sigma_test_contournement : BYPASSRLS sans être super-utilisateur",
-    ] {
+    for attendu in ECARTS_ATTENDUS {
         detecte(&trouves, attendu);
     }
     // La table de dossier stricte est conforme ; la fonction SECURITY DEFINER n'ouvre pas
     // EXECUTE à PUBLIC.
     for conforme in [
         "public.piece_stricte",
+        "public.appartenance : politique appartenance_membre",
+        "public.cabinet : politique cabinet_membre",
         "fonction public.f_definer : EXECUTE",
     ] {
         assert!(

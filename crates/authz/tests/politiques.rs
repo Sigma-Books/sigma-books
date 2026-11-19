@@ -30,6 +30,8 @@ const NON: bool = false;
 /// de validation, session fraîche, écriture saisie par un autre
 /// utilisateur, séparation des tâches active.
 const MATRICE: &[(Action, [bool; 5])] = &[
+    // Voir le cabinet (choix du cabinet actif, ADR 0012) : tout rôle du cabinet.
+    (Action::AccederCabinet, [OUI, OUI, OUI, OUI, NON]),
     // « Gérer cabinet, utilisateurs, facturation »
     (Action::GererCabinet, [OUI, NON, NON, NON, NON]),
     (Action::ModifierDroits, [OUI, NON, NON, NON, NON]),
