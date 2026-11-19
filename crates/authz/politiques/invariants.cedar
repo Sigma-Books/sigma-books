@@ -6,6 +6,10 @@
 // administrateur compris, quelles que soient les autorisations ajoutées plus
 // tard (rôles dérivés, portail client).
 //
+// Les invariants de cabinet visent le principal `Appartenance` (`principal
+// is Sigma::Appartenance`) : les actions de l'utilisateur sur lui-même
+// (principal `Utilisateur`, ADR 0012) ont les leurs, en fin de fichier.
+//
 // Chaque politique porte un `@id` stable : il est inscrit au journal d'audit
 // avec la décision (ADR 0014, clé `politique=`).
 
@@ -15,13 +19,13 @@
 // descendre. Un utilisateur membre de deux cabinets n'agit dans l'un qu'au
 // titre de son appartenance à celui-là, avec le rôle qu'il y tient.
 @id("invariant-cloisonnement-cabinet")
-forbid (principal, action, resource)
+forbid (principal is Sigma::Appartenance, action, resource)
 unless { resource in principal.cabinet };
 
 // Appartenance suspendue (ADR 0014 : suspension d'un utilisateur) : plus
 // aucune action dans ce cabinet, quel que soit le rôle.
 @id("invariant-appartenance-active")
-forbid (principal, action, resource)
+forbid (principal is Sigma::Appartenance, action, resource)
 unless { principal.actif };
 
 // Affectation aux dossiers (Q5.1 ; F1.7). Hors administrateur, une action
@@ -30,7 +34,7 @@ unless { principal.actif };
 // fournie pour un autre dossier ou pour un autre utilisateur ne vaut rien.
 // L'administrateur voit tous les dossiers de son cabinet.
 @id("invariant-affectation-dossier")
-forbid (principal, action, resource)
+forbid (principal is Sigma::Appartenance, action, resource)
 unless {
   resource is Sigma::Cabinet ||
   principal.role == Sigma::Role::"administrateur" ||
@@ -48,7 +52,7 @@ unless {
 // (`Autorisation::decider_lot`).
 @id("invariant-separation-des-taches")
 forbid (
-  principal,
+  principal is Sigma::Appartenance,
   action == Sigma::Action::"ValiderEcriture",
   resource is Sigma::EcritureBrouillon
 )
@@ -61,7 +65,7 @@ when {
 // session « fraîche » (facteur vérifié depuis moins de 5 minutes).
 @id("invariant-reauthentification")
 forbid (
-  principal,
+  principal is Sigma::Appartenance,
   action in [
     Sigma::Action::"ValiderParLot",
     Sigma::Action::"CloturerPeriode",
@@ -76,3 +80,15 @@ forbid (
   resource
 )
 unless { context.session_fraiche };
+
+// Titulaire (ADR 0012) : un utilisateur n'agit que sur ses propres
+// sessions et sur lui-même, quelles que soient les autorisations ajoutées
+// plus tard (gestion des sessions d'un membre par l'administrateur : action
+// de cabinet, principal Appartenance, PR 9).
+@id("invariant-titulaire-session")
+forbid (principal is Sigma::Utilisateur, action, resource is Sigma::Session)
+unless { resource.titulaire == principal };
+
+@id("invariant-soi-meme")
+forbid (principal is Sigma::Utilisateur, action, resource is Sigma::Utilisateur)
+unless { resource == principal };

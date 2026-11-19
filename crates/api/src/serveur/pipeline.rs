@@ -35,7 +35,10 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource, Role, Session, Verdict};
+use authz::{
+    Action, ActionUtilisateur, Autorisation, Contexte, Decision, Entites, Ressource,
+    RessourceUtilisateur, Role, Session, Verdict,
+};
 use axum::extract::{FromRequestParts, RawPathParams, Request};
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
@@ -44,7 +47,7 @@ use super::Etat;
 use super::audit::inscrire_traces;
 use super::csrf::est_mutation;
 use super::erreur::{CategorieErreur, ErreurApi};
-use super::routes::{Portee, Requete, Route, executer};
+use super::routes::{ActionRoute, Portee, Requete, Route, executer};
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
     AccesDossier, Appartenance, Cabinet, Dossier, DossierVisible, lire_acces_dossier,
@@ -68,6 +71,15 @@ pub trait Decideur: Send + Sync + 'static {
         ressource: Ressource,
         entites: &Entites,
         contexte: &Contexte,
+    ) -> Verdict;
+
+    /// Décide si l'utilisateur `principal` peut effectuer `action` sur lui-même (ses sessions,
+    /// ADR 0012), ressource lue en base ([`Autorisation::verdict_utilisateur`]).
+    fn verdict_utilisateur(
+        &self,
+        principal: authz::IdUtilisateur,
+        action: ActionUtilisateur,
+        ressource: RessourceUtilisateur,
     ) -> Verdict;
 
     /// La décision seule.
@@ -94,6 +106,15 @@ impl Decideur for Autorisation {
         contexte: &Contexte,
     ) -> Verdict {
         Autorisation::verdict(self, principal, action, ressource, entites, contexte)
+    }
+
+    fn verdict_utilisateur(
+        &self,
+        principal: authz::IdUtilisateur,
+        action: ActionUtilisateur,
+        ressource: RessourceUtilisateur,
+    ) -> Verdict {
+        Autorisation::verdict_utilisateur(self, principal, action, ressource)
     }
 }
 
@@ -438,9 +459,9 @@ async fn traiter_requete(
         Portee::Dossier => Some(IdDossier::depuis_uuid(id_chemin(&parametres, "dossier")?)),
     };
     let ressource_chemin = ressource_chemin(route.portee, dossier)?;
-    let action = route
-        .action
-        .ok_or(ErreurApi::Interne(CategorieErreur::Donnee))?;
+    let ActionRoute::Cabinet(action) = route.action else {
+        return Err(ErreurApi::Interne(CategorieErreur::Donnee));
+    };
     let contexte = match dossier {
         None => ContexteTenant::cabinet(cabinet, identite.utilisateur),
         Some(d) => ContexteTenant::dossier(cabinet, d, identite.utilisateur),
@@ -582,6 +603,18 @@ mod tests {
                 } else {
                     Decision::Autorise
                 },
+                politiques: Vec::new(),
+            }
+        }
+
+        fn verdict_utilisateur(
+            &self,
+            _: authz::IdUtilisateur,
+            _: ActionUtilisateur,
+            _: RessourceUtilisateur,
+        ) -> Verdict {
+            Verdict {
+                decision: Decision::Refuse,
                 politiques: Vec::new(),
             }
         }

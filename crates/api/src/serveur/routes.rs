@@ -11,7 +11,7 @@
 //! et les ressources propres de l'utilisateur, hors de tout cabinet (ADR 0012, module
 //! [`super::moi`]).
 
-use authz::Action;
+use authz::{Action, ActionUtilisateur};
 use axum::Json;
 use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -141,6 +141,17 @@ pub enum CasUsage {
     ListerCabinets,
 }
 
+/// Action Cedar d'une route : toute route est décidée par Cedar (règle absolue 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionRoute {
+    /// Action de cabinet : principal `Appartenance` (lue d'après le cabinet du chemin, ou,
+    /// pour la liste de ses cabinets, chacune de ses appartenances).
+    Cabinet(Action),
+    /// Action de l'utilisateur sur lui-même (ses sessions, ADR 0012) : principal
+    /// `Utilisateur`, ressource lue en base sous RLS (titulaire de la session).
+    Utilisateur(ActionUtilisateur),
+}
+
 /// Une route : méthode, modèle de chemin, action Cedar, portée et cas d'usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Route {
@@ -148,11 +159,8 @@ pub struct Route {
     pub methode: Methode,
     /// Modèle de chemin (syntaxe d'`axum`), cabinet et dossier explicites (ADR 0011).
     pub chemin: &'static str,
-    /// Action Cedar décidée. `None` : route **hors Cedar**, sur la session courante ou les
-    /// sessions de l'utilisateur, qui relèvent de l'utilisateur lui-même et d'aucun cabinet
-    /// (doc du crate `authz`, « Hors Cedar ») ; la RLS et le filtre de la requête les bornent
-    /// à l'utilisateur authentifié.
-    pub action: Option<Action>,
+    /// Action Cedar décidée, et donc son principal.
+    pub action: ActionRoute,
     /// Ressource du chemin.
     pub portee: Portee,
     /// Cas d'usage exécuté dans la transaction.
@@ -165,7 +173,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}",
-        action: Some(Action::GererCabinet),
+        action: ActionRoute::Cabinet(Action::GererCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::LireCabinet,
     },
@@ -173,7 +181,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers",
-        action: Some(Action::AccederDossier),
+        action: ActionRoute::Cabinet(Action::AccederDossier),
         portee: Portee::DossiersDuCabinet,
         cas_usage: CasUsage::ListerDossiers,
     },
@@ -181,14 +189,14 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Post,
         chemin: "/api/cabinets/{cabinet}/dossiers",
-        action: Some(Action::CreerDossier),
+        action: ActionRoute::Cabinet(Action::CreerDossier),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::CreerDossier,
     },
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}",
-        action: Some(Action::AccederDossier),
+        action: ActionRoute::Cabinet(Action::AccederDossier),
         portee: Portee::Dossier,
         cas_usage: CasUsage::LireDossier,
     },
@@ -196,21 +204,21 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/audit",
-        action: Some(Action::ConsulterAuditCabinet),
+        action: ActionRoute::Cabinet(Action::ConsulterAuditCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::ConsulterAudit,
     },
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/audit/verification",
-        action: Some(Action::VerifierAuditCabinet),
+        action: ActionRoute::Cabinet(Action::VerifierAuditCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::VerifierAudit,
     },
     Route {
         methode: Methode::Post,
         chemin: "/api/cabinets/{cabinet}/audit/export",
-        action: Some(Action::ExporterAuditCabinet),
+        action: ActionRoute::Cabinet(Action::ExporterAuditCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::ExporterAudit,
     },
@@ -219,21 +227,21 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit",
-        action: Some(Action::ConsulterAudit),
+        action: ActionRoute::Cabinet(Action::ConsulterAudit),
         portee: Portee::Dossier,
         cas_usage: CasUsage::ConsulterAudit,
     },
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/verification",
-        action: Some(Action::ConsulterAudit),
+        action: ActionRoute::Cabinet(Action::ConsulterAudit),
         portee: Portee::Dossier,
         cas_usage: CasUsage::VerifierAudit,
     },
     Route {
         methode: Methode::Post,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/export",
-        action: Some(Action::ExporterComplet),
+        action: ActionRoute::Cabinet(Action::ExporterComplet),
         portee: Portee::Dossier,
         cas_usage: CasUsage::ExporterAudit,
     },
@@ -241,14 +249,14 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/session",
-        action: None,
+        action: ActionRoute::Utilisateur(ActionUtilisateur::ConsulterSaSession),
         portee: Portee::Session,
         cas_usage: CasUsage::EtatSession,
     },
     Route {
         methode: Methode::Post,
         chemin: "/api/session/deconnexion",
-        action: None,
+        action: ActionRoute::Utilisateur(ActionUtilisateur::RevoquerSaSession),
         portee: Portee::Session,
         cas_usage: CasUsage::Deconnecter,
     },
@@ -257,7 +265,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Post,
         chemin: "/api/session/rotation",
-        action: None,
+        action: ActionRoute::Utilisateur(ActionUtilisateur::TournerSaSession),
         portee: Portee::Utilisateur,
         cas_usage: CasUsage::TournerJeton,
     },
@@ -265,14 +273,14 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/moi/sessions",
-        action: None,
+        action: ActionRoute::Utilisateur(ActionUtilisateur::ListerSesSessions),
         portee: Portee::Utilisateur,
         cas_usage: CasUsage::ListerSessions,
     },
     Route {
         methode: Methode::Delete,
         chemin: "/api/moi/sessions/{session}",
-        action: None,
+        action: ActionRoute::Utilisateur(ActionUtilisateur::RevoquerSaSession),
         portee: Portee::Utilisateur,
         cas_usage: CasUsage::RevoquerSession,
     },
@@ -280,7 +288,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/moi/cabinets",
-        action: Some(Action::AccederCabinet),
+        action: ActionRoute::Cabinet(Action::AccederCabinet),
         portee: Portee::Utilisateur,
         cas_usage: CasUsage::ListerCabinets,
     },
@@ -522,10 +530,17 @@ mod tests {
     #[test]
     fn portees_actions_et_natures_coherentes() {
         for route in ROUTES {
-            // Toute route d'un cabinet est décidée par Cedar ; hors cabinet, seule la liste des
-            // cabinets l'est (une décision par appartenance).
-            let attendue = route.portee.du_cabinet() || route.cas_usage == CasUsage::ListerCabinets;
-            assert_eq!(route.action.is_some(), attendue, "{}", route.chemin);
+            // Toute route est décidée par Cedar : principal Appartenance pour un cabinet et
+            // pour la liste de ses cabinets (une décision par appartenance), Utilisateur pour
+            // ses sessions.
+            let de_cabinet =
+                route.portee.du_cabinet() || route.cas_usage == CasUsage::ListerCabinets;
+            assert_eq!(
+                matches!(route.action, ActionRoute::Cabinet(_)),
+                de_cabinet,
+                "{}",
+                route.chemin
+            );
             assert_eq!(
                 route.portee.du_cabinet(),
                 route.chemin.contains("{cabinet}"),

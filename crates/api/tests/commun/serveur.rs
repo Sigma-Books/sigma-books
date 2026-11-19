@@ -20,7 +20,10 @@ use api::serveur::{
     Application, AuthentificationSession, Decideur, Etat, Horloge, HorlogeSysteme, Reglages,
     journal, routeur,
 };
-use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource, Verdict};
+use authz::{
+    Action, ActionUtilisateur, Autorisation, Contexte, Decision, Entites, Ressource,
+    RessourceUtilisateur, Verdict,
+};
 use axum::Router;
 use axum::body::Body;
 use axum::http::request::Parts;
@@ -104,6 +107,18 @@ impl Decideur for ToujoursAutorise {
         _ressource: Ressource,
         _entites: &Entites,
         _contexte: &Contexte,
+    ) -> Verdict {
+        Verdict {
+            decision: Decision::Autorise,
+            politiques: vec!["test-toujours-autorise".to_owned()],
+        }
+    }
+
+    fn verdict_utilisateur(
+        &self,
+        _principal: authz::IdUtilisateur,
+        _action: ActionUtilisateur,
+        _ressource: RessourceUtilisateur,
     ) -> Verdict {
         Verdict {
             decision: Decision::Autorise,

@@ -838,7 +838,51 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
 
     creation_refusee_quand_cedar_se_trompe(&env, &routeur, &m).await;
     audit_refuse_quand_cedar_se_trompe(&routeur, &m, &reference).await;
+    sessions_bornees_quand_cedar_se_trompe(&env, &m).await;
     cabinets_bornes_quand_cedar_se_trompe(&env, &m).await;
+}
+
+/// Cedar forcé : la RLS et le filtre de la requête bornent toujours les routes de session à
+/// l'utilisateur. A ne révoque pas la session de B (404, rien n'est révoqué) et ne la voit pas.
+async fn sessions_bornees_quand_cedar_se_trompe(env: &commun::Env, m: &Monde) {
+    let (a, b) = (&m.a, &m.b);
+    let horloge = HorlogeTest::default();
+    let routeur = api::serveur::routeur(&application_sessions(
+        env,
+        &horloge,
+        Arc::new(ToujoursAutorise),
+    ));
+    let sa = ouvrir(env, &horloge, a.administrateur, NatureSession::Complete).await;
+    let sb = ouvrir(env, &horloge, b.administrateur, NatureSession::Complete).await;
+    let csrf = sa.jeton.csrf();
+    let reference = muter_s(
+        &routeur,
+        "DELETE",
+        &format!("/api/moi/sessions/{}", Uuid::new_v4()),
+        &sa,
+        &csrf,
+    )
+    .await;
+    let r = muter_s(
+        &routeur,
+        "DELETE",
+        &format!("/api/moi/sessions/{}", sb.id),
+        &sa,
+        &csrf,
+    )
+    .await;
+    verifier_absent(&r, &reference, "session de B, Cedar forcé");
+    let revoquee: Option<time::OffsetDateTime> =
+        sqlx::query_scalar("SELECT revoquee_le FROM session WHERE id = $1")
+            .bind(sb.id.uuid())
+            .fetch_one(&env.admin)
+            .await
+            .unwrap();
+    assert_eq!(revoquee, None);
+    assert_eq!(session_vue(&routeur, &sb).await, Some(sb.id.to_string()));
+    let vues = ids_json(&lire_s(&routeur, "/api/moi/sessions", &sa).await);
+    assert!(vues.contains(&sa.id.to_string()));
+    assert!(!vues.contains(&sb.id.to_string()));
 }
 
 /// Cedar forcé : la liste des cabinets d'un utilisateur reste bornée à ses appartenances

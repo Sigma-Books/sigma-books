@@ -4,9 +4,13 @@
 // validées contre lui en mode strict, et le serveur refuse de démarrer sinon.
 //
 // Modélisation (voir `crates/authz/src/lib.rs`) :
-// - le principal est une **appartenance** (un utilisateur dans un cabinet,
-//   avec un seul rôle), jamais l'utilisateur seul : une décision ne vaut que
-//   pour le cabinet de cette appartenance (F1.14) ;
+// - le principal d'une action de cabinet est une **appartenance** (un
+//   utilisateur dans un cabinet, avec un seul rôle), jamais l'utilisateur
+//   seul : une décision ne vaut que pour le cabinet de cette appartenance
+//   (F1.14) ;
+// - le principal d'une action de l'utilisateur **sur lui-même** (ses
+//   sessions, ADR 0012 ; ses facteurs, PR 8b et 8c) est l'**utilisateur** :
+//   ces actions ne relèvent d'aucun cabinet ;
 // - les ressources forment une hiérarchie stricte
 //   cabinet ⊃ dossier ⊃ écriture, qui permet `resource in principal.cabinet` ;
 // - brouillon et écriture validée sont deux types distincts, comme dans
@@ -18,9 +22,16 @@ namespace Sigma {
   // politique ne lui accorde de droit en L2.
   entity Role enum ["administrateur", "valideur", "collaborateur", "auditeur", "client"];
 
-  // Une personne. Elle n'agit jamais directement : seulement au travers
-  // d'une appartenance.
+  // Une personne. Dans un cabinet, elle n'agit qu'au travers d'une
+  // appartenance ; elle n'agit en son nom propre que sur elle-même (ses
+  // sessions, ADR 0012).
   entity Utilisateur;
+
+  // Une session (ADR 0012) : elle n'appartient à aucun cabinet, seulement à
+  // son titulaire, lu en base.
+  entity Session = {
+    titulaire: Utilisateur,
+  };
 
   // Le tenant (spec §4.1).
   entity Cabinet = {
@@ -68,6 +79,21 @@ namespace Sigma {
     // Affectation de l'appartenance au dossier de la ressource, si elle existe.
     acces?: AccesDossier,
   };
+
+  // ---------------------------------------------------------------------
+  // Actions de l'utilisateur sur lui-même (ADR 0012) : principal
+  // Utilisateur, jamais une appartenance ; aucun contexte.
+  // ---------------------------------------------------------------------
+
+  // État de sa session courante et jeton anti-CSRF.
+  action ConsulterSaSession appliesTo { principal: Utilisateur, resource: Session };
+  // Rotation du jeton de sa session (changement de cabinet actif).
+  action TournerSaSession appliesTo { principal: Utilisateur, resource: Session };
+  // Révocation d'une de ses sessions ; la déconnexion est la révocation de
+  // la session courante.
+  action RevoquerSaSession appliesTo { principal: Utilisateur, resource: Session };
+  // Liste de ses sessions : la ressource est l'utilisateur lui-même.
+  action ListerSesSessions appliesTo { principal: Utilisateur, resource: Utilisateur };
 
   // ---------------------------------------------------------------------
   // Actions sur le cabinet

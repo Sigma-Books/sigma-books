@@ -144,10 +144,11 @@ ADR 0012 ; code : `src/serveur/session.rs` (jeton, cookie, anti-CSRF, authentifi
 
 | Route | Portée | Cedar |
 |---|---|---|
-| `GET /api/session` : état (nature, échéances, fraîcheur) et jeton anti-CSRF | session courante, toute nature | non |
-| `POST /api/session/deconnexion` | session courante, toute nature | non |
-| `POST /api/session/rotation` : nouveau jeton, même session | utilisateur | non |
-| `GET /api/moi/sessions`, `DELETE /api/moi/sessions/{session}` | utilisateur | non |
+| `GET /api/session` : état (nature, échéances, fraîcheur) et jeton anti-CSRF | session courante, toute nature | `ConsulterSaSession` (principal Utilisateur) |
+| `POST /api/session/deconnexion` | session courante, toute nature | `RevoquerSaSession` (Utilisateur) |
+| `POST /api/session/rotation` : nouveau jeton, même session | utilisateur | `TournerSaSession` (Utilisateur) |
+| `GET /api/moi/sessions` | utilisateur | `ListerSesSessions` sur soi, puis `ConsulterSaSession` par session (Utilisateur) |
+| `DELETE /api/moi/sessions/{session}` | utilisateur | `RevoquerSaSession` (Utilisateur) |
 | `GET /api/moi/cabinets` : ses cabinets, sans cabinet en contexte | utilisateur | `AccederCabinet` par appartenance |
 
 **Rotation et cabinet actif.** L'ADR 0012 demande une rotation au changement de cabinet actif ;
@@ -155,11 +156,14 @@ l'ADR 0011 interdit tout cabinet courant mémorisé côté serveur (F1.14). L'in
 `POST /api/session/rotation` quand l'utilisateur change de cabinet ; le serveur tourne le jeton
 sans rien retenir du cabinet, qui reste lu dans le chemin de chaque requête.
 
-**Hors Cedar.** Une session appartient à un utilisateur, pas à un cabinet : le principal Cedar
-(une appartenance) n'a pas de sens pour elle, comme pour la gestion de ses propres facteurs (doc
-du crate `authz`). La RLS (`utilisateur_id = sigma.utilisateur`) et le filtre de chaque requête
-la bornent à son titulaire ; la session d'un autre est absente (404). La gestion des sessions
-d'un membre par l'administrateur (PR 9) sera une action Cedar du cabinet.
+**Cedar, principal Utilisateur.** Toute route passe par Cedar (règle absolue 7). Une session
+appartient à un utilisateur, pas à un cabinet : ses actions ont pour principal l'**utilisateur**
+de la session authentifiée et pour ressource la session lue en base sous RLS, avec son titulaire
+(`authz::Autorisation::decider_utilisateur`). Seul le titulaire est autorisé
+(`crates/authz/politiques/utilisateur.cedar`, invariants `invariant-titulaire-session` et
+`invariant-soi-meme`). La RLS (`utilisateur_id = sigma.utilisateur`) et le filtre de chaque
+requête la bornent aussi : la session d'un autre est absente (404), même si Cedar se trompait.
+La gestion des sessions d'un membre par l'administrateur (PR 9) sera une action de cabinet.
 
 **Audit.** Ces actions ne touchent aucun cabinet ; leur traçabilité (événements hors cabinet)
 attend une décision du mainteneur. Les points d'insertion sont marqués dans `src/serveur/moi.rs`

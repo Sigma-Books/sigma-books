@@ -7,17 +7,20 @@
 //! voit que les sessions de cet utilisateur, ses appartenances et leurs cabinets ; chaque
 //! requête filtre aussi par l'utilisateur. La session d'un autre est donc **absente** (404).
 //!
-//! # Cedar ou non
-//! - `GET /api/moi/cabinets` liste des cabinets : **Cedar** décide `AccederCabinet` pour chaque
-//!   appartenance (principal : l'appartenance ; ressource : son cabinet). Une appartenance
-//!   suspendue est refusée par `invariant-appartenance-active` (et écartée par la requête).
-//! - Session courante, liste et révocation de ses sessions, rotation, déconnexion : **hors
-//!   Cedar**. Le principal Cedar est une appartenance à un cabinet ; une session n'appartient à
-//!   aucun cabinet et ne regarde que son titulaire, comme la gestion de ses propres facteurs
-//!   (doc du crate `authz`, « Hors Cedar »). Deux niveaux la bornent : la RLS
-//!   (`utilisateur_id = sigma.utilisateur`) et le filtre de chaque requête. La consultation et
-//!   la révocation des sessions **d'un autre membre** par l'administrateur du cabinet (spec §21,
-//!   PR 9) seront, elles, des actions Cedar du cabinet (`GererCabinet`).
+//! # Décisions Cedar (règle absolue 7)
+//! Toute route passe par Cedar ; trois niveaux bornent chacune, comme dans un cabinet.
+//! - `GET /api/moi/cabinets` : Cedar décide `AccederCabinet` pour chaque appartenance
+//!   (principal : l'appartenance ; ressource : son cabinet). Une appartenance suspendue est
+//!   refusée par `invariant-appartenance-active` (et écartée par la requête).
+//! - Session courante, rotation, déconnexion, liste et révocation de ses sessions : principal
+//!   **Utilisateur** (l'utilisateur de la session authentifiée), ressource lue **en base sous
+//!   RLS** (la session et son titulaire, ou l'utilisateur lui-même pour la liste), décision
+//!   [`authz::Autorisation::decider_utilisateur`]. La politique n'autorise que le titulaire ;
+//!   la RLS (`utilisateur_id = sigma.utilisateur`) et le filtre de chaque requête ne laissent
+//!   de toute façon voir que les siennes : la session d'un autre est absente (404). La
+//!   déconnexion est la révocation de la session courante (`RevoquerSaSession`). La gestion
+//!   des sessions **d'un autre membre** par l'administrateur du cabinet (spec §21, PR 9) sera,
+//!   elle, une action de cabinet (principal Appartenance).
 //!
 //! # Rotation et cabinet actif
 //! L'ADR 0012 demande une rotation du jeton « au changement de cabinet actif » ; l'ADR 0011
@@ -31,7 +34,10 @@
 //! d'insertion sont marqués « Point d'insertion de l'audit ». Aucune trace n'est donc exigée
 //! d'elles par le pipeline.
 
-use authz::{Action, Contexte, Decision, Entites, Ressource, Session as SessionAuthz};
+use authz::{
+    Action, ActionUtilisateur, Contexte, Decision, Entites, Ressource, RessourceUtilisateur,
+    Session as SessionAuthz,
+};
 use axum::Json;
 use axum::extract::{FromRequestParts, RawPathParams};
 use axum::http::request::Parts;
@@ -44,11 +50,13 @@ use super::Etat;
 use super::authentification::Identite;
 use super::erreur::{CategorieErreur, ErreurApi};
 use super::pipeline::{id_authz, id_chemin, role};
-use super::routes::{CasUsage, Route};
+use super::routes::{ActionRoute, CasUsage, Route};
 use super::session::{JetonSession, cookie, cookie_efface, jeton_de_la_requete};
 use crate::base::organisation::lister_cabinets_de_l_utilisateur;
 use crate::base::session::{self, DureesSession, MotifRevocation, Session};
-use crate::base::{IdSession, TransactionUtilisateur, ouvrir_transaction_utilisateur};
+use crate::base::{
+    IdSession, IdUtilisateur, TransactionUtilisateur, ouvrir_transaction_utilisateur,
+};
 
 /// Exécute un cas d'usage hors cabinet, dans une transaction au contexte du seul utilisateur.
 pub(crate) async fn executer(
@@ -60,12 +68,15 @@ pub(crate) async fn executer(
     let maintenant = etat.horloge.maintenant();
     let durees = etat.reglages.sessions.raccourcies();
     let mut tx = ouvrir_transaction_utilisateur(&etat.pool, identite.utilisateur).await?;
+    let soi = || Soi::new(etat, route, identite);
     let reponse = match route.cas_usage {
-        CasUsage::EtatSession => etat_session(&mut tx, parts, identite, maintenant, &durees).await,
-        CasUsage::TournerJeton => tourner(&mut tx, identite, maintenant, &durees).await,
-        CasUsage::Deconnecter => deconnecter(&mut tx, identite, maintenant).await,
-        CasUsage::ListerSessions => lister(&mut tx, identite, maintenant, &durees).await,
-        CasUsage::RevoquerSession => revoquer(&mut tx, parts, maintenant).await,
+        CasUsage::EtatSession => {
+            etat_session(&mut tx, &soi()?, parts, identite, maintenant, &durees).await
+        }
+        CasUsage::TournerJeton => tourner(&mut tx, &soi()?, identite, maintenant, &durees).await,
+        CasUsage::Deconnecter => deconnecter(&mut tx, &soi()?, identite, maintenant).await,
+        CasUsage::ListerSessions => lister(&mut tx, &soi()?, identite, maintenant, &durees).await,
+        CasUsage::RevoquerSession => revoquer(&mut tx, &soi()?, parts, maintenant).await,
         CasUsage::ListerCabinets => {
             lister_cabinets(etat, &mut tx, route, identite, maintenant).await
         }
@@ -79,6 +90,58 @@ pub(crate) async fn executer(
     }?;
     tx.confirmer().await?;
     Ok(reponse)
+}
+
+/// Décision Cedar d'une action de l'utilisateur sur lui-même : principal, l'utilisateur de la
+/// session authentifiée ; action, celle de la route. Seule voie des cas d'usage de ce module
+/// (hors liste des cabinets) vers une ressource.
+struct Soi<'a> {
+    etat: &'a Etat,
+    principal: authz::IdUtilisateur,
+    utilisateur: IdUtilisateur,
+    action: ActionUtilisateur,
+}
+
+impl<'a> Soi<'a> {
+    fn new(etat: &'a Etat, route: &Route, identite: &Identite) -> Result<Self, ErreurApi> {
+        let ActionRoute::Utilisateur(action) = route.action else {
+            return Err(ErreurApi::Interne(CategorieErreur::Donnee));
+        };
+        Ok(Self {
+            etat,
+            principal: id_authz(identite.utilisateur.uuid(), authz::IdUtilisateur::new)?,
+            utilisateur: identite.utilisateur,
+            action,
+        })
+    }
+
+    fn autorise(&self, action: ActionUtilisateur, ressource: RessourceUtilisateur) -> bool {
+        self.etat
+            .decideur
+            .verdict_utilisateur(self.principal, action, ressource)
+            .decision
+            == Decision::Autorise
+    }
+
+    /// La session lue en base (sous RLS), comme ressource Cedar : son titulaire en base.
+    fn ressource(s: &Session) -> Result<RessourceUtilisateur, ErreurApi> {
+        Ok(RessourceUtilisateur::Session {
+            id: id_authz(s.id.uuid(), authz::IdSession::new)?,
+            titulaire: id_authz(s.utilisateur.uuid(), authz::IdUtilisateur::new)?,
+        })
+    }
+
+    /// Exige l'action de la route sur une session lue en base. Refus : session d'autrui
+    /// (titulaire différent), donc absente (404) ; sinon action refusée (403).
+    fn exiger_session(&self, s: &Session) -> Result<(), ErreurApi> {
+        if self.autorise(self.action, Self::ressource(s)?) {
+            Ok(())
+        } else if s.utilisateur == self.utilisateur {
+            Err(ErreurApi::Interdit)
+        } else {
+            Err(ErreurApi::Introuvable)
+        }
+    }
 }
 
 /// Instant au format de l'audit (`AAAA-MM-JJTHH:MM:SS.ffffffZ`).
@@ -116,6 +179,7 @@ async fn session_courante(
 
 async fn etat_session(
     tx: &mut TransactionUtilisateur,
+    soi: &Soi<'_>,
     parts: &Parts,
     identite: &Identite,
     maintenant: OffsetDateTime,
@@ -125,6 +189,7 @@ async fn etat_session(
     // anti-CSRF, jamais renvoyé lui-même.
     let jeton = jeton_de_la_requete(parts).ok_or(ErreurApi::NonAuthentifie)?;
     let s = session_courante(tx, identite).await?;
+    soi.exiger_session(&s)?;
     let vue = VueEtatSession {
         id: s.id.to_string(),
         nature: s.nature.nom(),
@@ -154,16 +219,19 @@ struct VueRotation {
 
 async fn tourner(
     tx: &mut TransactionUtilisateur,
+    soi: &Soi<'_>,
     identite: &Identite,
     maintenant: OffsetDateTime,
     durees: &DureesSession,
 ) -> Result<Response, ErreurApi> {
+    let s = session_courante(tx, identite).await?;
+    soi.exiger_session(&s)?;
     let jeton =
         JetonSession::tirer().map_err(|_| ErreurApi::Interne(CategorieErreur::Authentification))?;
     if !session::tourner(tx, identite.session, &jeton.empreinte()).await? {
         return Err(ErreurApi::NonAuthentifie);
     }
-    let s = session_courante(tx, identite).await?;
+    // Même ligne, même ouverture : la fin absolue ne change pas.
     let valeur = cookie(&jeton, s.fin_absolue(durees) - maintenant)
         .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
     // Point d'insertion de l'audit (hors cabinet) : rotation du jeton de la session.
@@ -173,9 +241,12 @@ async fn tourner(
 
 async fn deconnecter(
     tx: &mut TransactionUtilisateur,
+    soi: &Soi<'_>,
     identite: &Identite,
     maintenant: OffsetDateTime,
 ) -> Result<Response, ErreurApi> {
+    // La déconnexion est la révocation de la session courante (`RevoquerSaSession`).
+    soi.exiger_session(&session_courante(tx, identite).await?)?;
     // Déjà révoquée entre-temps : la déconnexion reste acquise.
     session::revoquer(
         tx,
@@ -208,14 +279,27 @@ struct VueSession {
 
 async fn lister(
     tx: &mut TransactionUtilisateur,
+    soi: &Soi<'_>,
     identite: &Identite,
     maintenant: OffsetDateTime,
     durees: &DureesSession,
 ) -> Result<Response, ErreurApi> {
-    let vues: Vec<VueSession> = session::lister(tx)
-        .await?
+    // La liste porte sur l'utilisateur lui-même ; chaque session listée est en outre décidée
+    // (`ConsulterSaSession`, titulaire lu en base) : aucune ne sort sans décision.
+    if !soi.autorise(soi.action, RessourceUtilisateur::Utilisateur(soi.principal)) {
+        return Err(ErreurApi::Interdit);
+    }
+    let mut visibles = Vec::new();
+    for s in session::lister(tx).await? {
+        if s.utilisateur == identite.utilisateur
+            && s.est_valide(maintenant, durees)
+            && soi.autorise(ActionUtilisateur::ConsulterSaSession, Soi::ressource(&s)?)
+        {
+            visibles.push(s);
+        }
+    }
+    let vues: Vec<VueSession> = visibles
         .into_iter()
-        .filter(|s| s.utilisateur == identite.utilisateur && s.est_valide(maintenant, durees))
         .map(|s| VueSession {
             id: s.id.to_string(),
             nature: s.nature.nom(),
@@ -233,6 +317,7 @@ async fn lister(
 
 async fn revoquer(
     tx: &mut TransactionUtilisateur,
+    soi: &Soi<'_>,
     parts: &mut Parts,
     maintenant: OffsetDateTime,
 ) -> Result<Response, ErreurApi> {
@@ -240,7 +325,11 @@ async fn revoquer(
         .await
         .map_err(|_| ErreurApi::RequeteInvalide)?;
     let id = IdSession::depuis_uuid(id_chemin(&parametres, "session")?);
-    // Session d'un autre utilisateur, inexistante ou déjà révoquée : absente (404).
+    // Session lue sous RLS (et filtrée par l'utilisateur) : celle d'un autre est absente (404),
+    // avant même la décision, qui la refuserait aussi (titulaire différent).
+    let cible = session::lire(tx, id).await?.ok_or(ErreurApi::Introuvable)?;
+    soi.exiger_session(&cible)?;
+    // Inexistante ou déjà révoquée : absente (404).
     if !session::revoquer(tx, id, maintenant, MotifRevocation::RevocationUtilisateur).await? {
         return Err(ErreurApi::Introuvable);
     }
@@ -263,10 +352,10 @@ async fn lister_cabinets(
     identite: &Identite,
     maintenant: OffsetDateTime,
 ) -> Result<Response, ErreurApi> {
-    let action = route
-        .action
-        .filter(|a| *a == Action::AccederCabinet)
-        .ok_or(ErreurApi::Interne(CategorieErreur::Donnee))?;
+    let action = match route.action {
+        ActionRoute::Cabinet(Action::AccederCabinet) => Action::AccederCabinet,
+        _ => return Err(ErreurApi::Interne(CategorieErreur::Donnee)),
+    };
     let utilisateur = id_authz(identite.utilisateur.uuid(), authz::IdUtilisateur::new)?;
     let contexte = Contexte::new(SessionAuthz::depuis(
         identite.derniere_verification,
