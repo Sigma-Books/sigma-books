@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config('sigma.courriel_connexion', '', true) AS courriel, set_config('sigma.utilisateur', $1, true) AS utilisateur",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "courriel",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "utilisateur",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "b5b3ef33a3d99b6bcf383288e29a4d9f5addd23b05791ec3cf6f3c3133aa22d0"
+}

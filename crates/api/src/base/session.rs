@@ -91,6 +91,9 @@ pub enum MotifRevocation {
     Deconnexion,
     /// Révocation par l'utilisateur, depuis la liste de ses sessions.
     RevocationUtilisateur,
+    /// Changement de facteur de l'utilisateur (enrôlement du secours, nouvelle série de
+    /// codes) : ses autres sessions sont révoquées (ADR 0012).
+    ChangementFacteur,
 }
 
 impl MotifRevocation {
@@ -100,6 +103,7 @@ impl MotifRevocation {
         match self {
             Self::Deconnexion => "deconnexion",
             Self::RevocationUtilisateur => "revocation_utilisateur",
+            Self::ChangementFacteur => "changement_facteur",
         }
     }
 }
@@ -508,6 +512,56 @@ pub async fn revoquer(
         utilisateur,
         instant,
         motif.nom(),
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(resultat.rows_affected() == 1)
+}
+
+/// Révoque toutes les sessions non révoquées de l'utilisateur du contexte, sauf `gardee` (la
+/// session de la requête) : changement de facteur (ADR 0012). Rend le nombre de sessions
+/// révoquées.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn revoquer_autres(
+    tx: &mut TransactionUtilisateur,
+    gardee: IdSession,
+    instant: OffsetDateTime,
+    motif: MotifRevocation,
+) -> Result<u64, ErreurBase> {
+    let utilisateur = tx.utilisateur().uuid();
+    let resultat = sqlx::query!(
+        "UPDATE session SET revoquee_le = $3, motif_revocation = $4 \
+         WHERE utilisateur_id = $1 AND id <> $2 AND revoquee_le IS NULL",
+        utilisateur,
+        gardee.uuid(),
+        instant,
+        motif.nom(),
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(resultat.rows_affected())
+}
+
+/// Ré-authentification : `derniere_verification` de la session non révoquée `id` de
+/// l'utilisateur du contexte passe à `instant` (session « fraîche », ADR 0012). Faux si elle
+/// est absente ou révoquée.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn marquer_verification(
+    tx: &mut TransactionUtilisateur,
+    id: IdSession,
+    instant: OffsetDateTime,
+) -> Result<bool, ErreurBase> {
+    let utilisateur = tx.utilisateur().uuid();
+    let resultat = sqlx::query!(
+        "UPDATE session SET derniere_verification = $3, derniere_activite = $3 \
+         WHERE id = $1 AND utilisateur_id = $2 AND revoquee_le IS NULL",
+        id.uuid(),
+        utilisateur,
+        instant,
     )
     .execute(tx.connexion())
     .await?;

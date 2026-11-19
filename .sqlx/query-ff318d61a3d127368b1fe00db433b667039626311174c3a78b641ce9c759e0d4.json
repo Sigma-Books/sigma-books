@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE facteur_secours SET totp_dernier_pas = $3 WHERE utilisateur_id = $1 AND mot_de_passe = $2 AND totp_dernier_pas < $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ff318d61a3d127368b1fe00db433b667039626311174c3a78b641ce9c759e0d4"
+}

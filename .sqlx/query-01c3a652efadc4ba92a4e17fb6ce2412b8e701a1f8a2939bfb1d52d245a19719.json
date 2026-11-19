@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config('sigma.cabinet', '', true) AS cabinet",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cabinet",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "01c3a652efadc4ba92a4e17fb6ce2412b8e701a1f8a2939bfb1d52d245a19719"
+}
