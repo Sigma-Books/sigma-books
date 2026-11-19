@@ -42,9 +42,11 @@ export default defineConfig({
 					'base-uri': ['none'],
 					'form-action': ['self'],
 					'object-src': ['none'],
-					// Trusted Types : seules les politiques de Svelte et SvelteKit sont autorisées.
+					// Trusted Types : seule la politique de Svelte (`svelte-trusted-html`) est autorisée.
+					// `sveltekit-trusted-url` ne sert qu'à l'enregistrement d'un service worker, absent
+					// pour l'instant : à rajouter avec lui (SvelteKit refuse alors de compiler sans).
 					'require-trusted-types-for': ['script'],
-					'trusted-types': ['svelte-trusted-html', 'sveltekit-trusted-url']
+					'trusted-types': ['svelte-trusted-html']
 				}
 			}
 		})

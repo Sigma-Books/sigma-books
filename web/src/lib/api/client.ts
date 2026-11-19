@@ -8,10 +8,15 @@
 // - Rotation (`POST /api/session/rotation`) : elle remplace le cookie ; une requête partie avec
 //   l'ancien serait refusée (401). La rotation attend donc la fin des requêtes en cours et retient
 //   les suivantes jusqu'à ce que le nouveau jeton anti-CSRF soit connu.
+// - Une rotation ne se partage qu'entre demandes pour le même cabinet cible ; pour un autre cabinet,
+//   une nouvelle rotation suit la première.
 // - Un autre onglet peut avoir tourné le jeton : sur un 401 (cookie remplacé pendant l'envoi) ou un
 //   403 de mutation (jeton anti-CSRF périmé), la session est relue **une fois** ; la requête est
-//   reprise seulement si la session est valide (et, pour le 403, si le jeton a changé). Un refus
-//   ou une authentification échouée n'a aucun effet de bord côté serveur : la reprise est sûre.
+//   reprise seulement si c'est **la même session** (même identifiant, stable lors d'une rotation)
+//   et, pour le 403, si le jeton a changé. Un refus ou une authentification échouée n'a aucun effet
+//   de bord côté serveur : la reprise est sûre. Une autre session (déconnexion puis connexion,
+//   peut-être d'un autre utilisateur, dans un autre onglet) n'est jamais utilisée pour rejouer : le
+//   jeton est oublié et la page de connexion demandée.
 // - 401 définitif : jeton oublié, puis `surNonAuthentifie` (page de connexion).
 //
 // Ce module n'importe rien de SvelteKit : il se teste sous `node --test`.
@@ -46,10 +51,12 @@ export interface ClientApi {
 	/** Lit la session courante et retient son jeton anti-CSRF ; rend l'état sans le jeton. */
 	ouvrirSession(): Promise<EtatSession>;
 	/**
-	 * Tourne le jeton de session et renouvelle le jeton anti-CSRF. À n'appeler que hors d'une
-	 * requête de ce client (elle attend la fin des requêtes en cours).
+	 * Tourne le jeton de session pour entrer dans le cabinet `cible`, et renouvelle le jeton
+	 * anti-CSRF. Une rotation en cours vers la même cible est partagée ; vers une autre, une
+	 * nouvelle rotation la suit. À n'appeler que hors d'une requête de ce client (elle attend la fin
+	 * des requêtes en cours). La cible ne part jamais au serveur.
 	 */
-	tourner(): Promise<void>;
+	tourner(cible: string): Promise<void>;
 	/** Ferme la session courante et oublie le jeton anti-CSRF. */
 	deconnecter(): Promise<void>;
 	/** Vrai si un jeton anti-CSRF est en mémoire. Le jeton lui-même n'est jamais exposé. */
@@ -61,8 +68,11 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 	const surNonAuthentifie = options.surNonAuthentifie ?? (() => {});
 
 	let csrf: string | null = null;
+	/** Identifiant de la session dont `csrf` est le jeton (stable lors d'une rotation). */
+	let idSession: string | null = null;
 	let lectureSession: Promise<EtatSession> | null = null;
 	let rotation: Promise<void> | null = null;
+	let cibleRotation: string | null = null;
 	const enCours = new Set<Promise<unknown>>();
 
 	function verifierChemin(chemin: string): void {
@@ -115,11 +125,12 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 			try {
 				const reponse = await envoyer('GET', CHEMIN_SESSION, undefined, null);
 				if (!reponse.ok) {
-					if (reponse.status === 401) csrf = null;
+					if (reponse.status === 401) oublier();
 					throw await traduireReponse(reponse);
 				}
 				const { csrf: jeton, ...etat } = await lireJson(reponse, estReponseSession);
 				csrf = jeton;
+				idSession = etat.id;
 				return etat;
 			} finally {
 				lectureSession = null;
@@ -128,12 +139,22 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 		return lectureSession;
 	}
 
-	async function sessionValide(): Promise<boolean> {
+	function oublier(): void {
+		csrf = null;
+		idSession = null;
+	}
+
+	/**
+	 * Relit la session après un refus : `meme` si c'est la session connue (reprise possible),
+	 * `autre` si une autre session l'a remplacée, `aucune` si aucune n'est valide.
+	 */
+	async function relireSession(): Promise<'meme' | 'autre' | 'aucune'> {
+		const connue = idSession;
 		try {
-			await chargerSession();
-			return true;
+			const etat = await chargerSession();
+			return connue !== null && etat.id === connue ? 'meme' : 'autre';
 		} catch {
-			return false;
+			return 'aucune';
 		}
 	}
 
@@ -154,15 +175,24 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 		const jeton = methode === 'GET' ? null : await jetonCsrf();
 		const reponse = await envoyer(methode, chemin, corps, jeton);
 		if (reponse.ok) return reponse;
-		if (reprise && reponse.status === 401 && chemin !== CHEMIN_SESSION && (await sessionValide())) {
-			return executer(methode, chemin, corps, false);
-		}
-		if (reprise && reponse.status === 403 && jeton !== null && (await sessionValide())) {
-			if (csrf !== jeton) return executer(methode, chemin, corps, false);
+		const reprenable =
+			(reponse.status === 401 && chemin !== CHEMIN_SESSION) ||
+			(reponse.status === 403 && jeton !== null);
+		if (reprise && reprenable) {
+			const relue = await relireSession();
+			if (relue === 'autre') {
+				// Jamais de rejeu sous une autre session, peut-être d'un autre utilisateur.
+				oublier();
+				surNonAuthentifie();
+				throw new ErreurApi('non_authentifie', reponse.status);
+			}
+			if (relue === 'meme' && (reponse.status === 401 || csrf !== jeton)) {
+				return executer(methode, chemin, corps, false);
+			}
 		}
 		const erreur = await traduireReponse(reponse);
 		if (reponse.status === 401) {
-			csrf = null;
+			oublier();
 			surNonAuthentifie();
 		}
 		throw erreur;
@@ -206,16 +236,22 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 			});
 		},
 
-		tourner(): Promise<void> {
-			if (rotation !== null) return rotation;
+		tourner(cible: string): Promise<void> {
+			if (rotation !== null && cibleRotation === cible) return rotation;
+			const precedente = rotation;
 			const courante = (async () => {
+				if (precedente !== null) await precedente.catch(() => {});
 				await Promise.allSettled([...enCours]);
 				const reponse = await executer('POST', CHEMIN_ROTATION, undefined);
 				csrf = (await lireJson(reponse, estReponseRotation)).csrf;
 			})();
 			rotation = courante;
+			cibleRotation = cible;
 			const liberer = () => {
-				if (rotation === courante) rotation = null;
+				if (rotation === courante) {
+					rotation = null;
+					cibleRotation = null;
+				}
 			};
 			courante.then(liberer, liberer);
 			return courante;
@@ -226,7 +262,7 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 				try {
 					await executer('POST', CHEMIN_DECONNEXION, undefined);
 				} finally {
-					csrf = null;
+					oublier();
 				}
 			});
 		},

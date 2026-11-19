@@ -32,8 +32,16 @@ export const api = creerClient({ surNonAuthentifie: allerALaConnexion });
  */
 export async function activerCabinet(cabinet: Uuid): Promise<void> {
 	if (cabinetActif === cabinet) return;
-	await api.tourner();
+	// Retenu dès la demande : deux entrées rapprochées dans des cabinets différents donnent deux
+	// rotations, dans l'ordre (le client les enchaîne), et le dernier cabinet demandé reste l'actif.
+	// Les requêtes qui suivent attendent la fin de la rotation (le client les retient).
 	cabinetActif = cabinet;
+	try {
+		await api.tourner(cabinet);
+	} catch (erreur) {
+		if (cabinetActif === cabinet) cabinetActif = null;
+		throw erreur;
+	}
 }
 
 /** Déconnexion : la session est révoquée, puis la page de connexion s'affiche. */

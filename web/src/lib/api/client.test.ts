@@ -29,9 +29,11 @@ function json(statut: number, corps: unknown, entetes: Record<string, string> = 
 
 const csrfDe = (jeton: string) => `csrf-${jeton}`;
 
-function etatSession(jeton: string) {
+const SESSION_1 = '11111111-2222-4333-8444-555555555555';
+
+function etatSession(jeton: string, id: string) {
 	return {
-		id: '11111111-2222-4333-8444-555555555555',
+		id,
 		nature: 'complete',
 		methode: 'passkey',
 		cree_le: '2026-11-19T08:00:00.000000Z',
@@ -51,7 +53,7 @@ function etatSession(jeton: string) {
 function fauxServeur(
 	routes: (appel: Appel) => Response | Promise<Response> | undefined = () => undefined
 ) {
-	const etat = { jeton: 'j1', session: true, rotations: 0 };
+	const etat = { jeton: 'j1', idSession: SESSION_1, session: true, rotations: 0 };
 	const appels: Appel[] = [];
 	const fetch: typeof globalThis.fetch = async (entree, init = {}) => {
 		const entetes = new Headers(init.headers);
@@ -70,7 +72,7 @@ function fauxServeur(
 		if (appel.methode !== 'GET' && appel.csrf !== csrfDe(etat.jeton)) {
 			return json(403, { erreur: 'interdit' });
 		}
-		if (appel.chemin === '/api/session') return json(200, etatSession(etat.jeton));
+		if (appel.chemin === '/api/session') return json(200, etatSession(etat.jeton, etat.idSession));
 		if (appel.chemin === '/api/session/rotation') {
 			etat.rotations += 1;
 			etat.jeton = `j${etat.rotations + 1}`;
@@ -129,7 +131,19 @@ describe('session et jeton anti-CSRF', () => {
 		const [appel] = serveur.appels;
 		assert.equal(appel?.init.credentials, 'same-origin');
 		assert.equal(appel?.csrf, null, 'aucun jeton sur une lecture');
-		assert.doesNotMatch(JSON.stringify(api), /csrf-/);
+		// Le jeton ne sort par aucune voie : ni dans l'état rendu, ni par une propriété du client,
+		// qui n'expose que ses méthodes.
+		assert.doesNotMatch(JSON.stringify(etat), /csrf-j1/);
+		assert.deepEqual(Object.keys(api).sort(), [
+			'aJetonCsrf',
+			'deconnecter',
+			'lire',
+			'muter',
+			'muterSansReponse',
+			'ouvrirSession',
+			'tourner'
+		]);
+		assert.ok(Object.values(api).every((v) => typeof v === 'function'));
 	});
 
 	it('envoie le jeton gardé en mémoire sur toute mutation, et le lit d’abord si besoin', async () => {
@@ -183,7 +197,7 @@ describe('rotation', () => {
 		const api = creerClient({ fetch: serveur.fetch });
 		await api.ouvrirSession();
 
-		await api.tourner();
+		await api.tourner(CABINET);
 		await creerDossier(api, CABINET, 'SARL Exemple');
 
 		const rotation = serveur.appels.find((a) => a.chemin === '/api/session/rotation');
@@ -208,7 +222,7 @@ describe('rotation', () => {
 
 		const enCours = listerDossiers(api, CABINET);
 		await new Promise((r) => setImmediate(r));
-		const rotation = api.tourner();
+		const rotation = api.tourner(CABINET);
 		const suivante = listerDossiers(api, CABINET);
 		await new Promise((r) => setImmediate(r));
 
@@ -231,14 +245,64 @@ describe('rotation', () => {
 		);
 	});
 
-	it('partage une rotation déjà en cours', async () => {
+	it('partage une rotation en cours vers le même cabinet', async () => {
 		const serveur = fauxServeur();
 		const api = creerClient({ fetch: serveur.fetch });
 		await api.ouvrirSession();
 
-		await Promise.all([api.tourner(), api.tourner()]);
+		await Promise.all([api.tourner('A'), api.tourner('A')]);
 
 		assert.equal(serveur.etat.rotations, 1);
+	});
+
+	it('deux cabinets demandés coup sur coup : deux rotations, l’une après l’autre', async () => {
+		const serveur = fauxServeur();
+		const api = creerClient({ fetch: serveur.fetch });
+		await api.ouvrirSession();
+
+		await Promise.all([api.tourner('A'), api.tourner('B')]);
+
+		assert.equal(serveur.etat.rotations, 2);
+		assert.deepEqual(
+			serveur.appels
+				.filter((a) => a.chemin === '/api/session/rotation')
+				.map((a) => [a.cookie, a.csrf]),
+			[
+				['j1', 'csrf-j1'],
+				['j2', 'csrf-j2']
+			]
+		);
+	});
+
+	it('rotation concurrente d’un autre onglet : 401 sur la rotation, puis reprise', async () => {
+		let premiere = true;
+		const serveur = fauxServeur((appel) => {
+			if (appel.chemin === '/api/session/rotation' && premiere) {
+				// L'autre onglet a tourné le jeton juste avant : le cookie envoyé est périmé.
+				premiere = false;
+				serveur.etat.jeton = 'j7';
+				return json(401, { erreur: 'non_authentifie' });
+			}
+			return undefined;
+		});
+		const surNonAuthentifie = mock.fn();
+		const api = creerClient({ fetch: serveur.fetch, surNonAuthentifie });
+		await api.ouvrirSession();
+
+		await api.tourner(CABINET);
+		await creerDossier(api, CABINET, 'X');
+
+		assert.equal(surNonAuthentifie.mock.callCount(), 0);
+		assert.deepEqual(
+			serveur.appels.map((a) => [a.methode, a.chemin, a.cookie, a.csrf]),
+			[
+				['GET', '/api/session', 'j1', null],
+				['POST', '/api/session/rotation', 'j1', 'csrf-j1'],
+				['GET', '/api/session', 'j7', null],
+				['POST', '/api/session/rotation', 'j7', 'csrf-j7'],
+				['POST', `/api/cabinets/${CABINET}/dossiers`, 'j2', 'csrf-j2']
+			]
+		);
 	});
 });
 
@@ -309,7 +373,67 @@ describe('reprises après une rotation faite ailleurs (autre onglet)', () => {
 	});
 });
 
+describe('autre session (déconnexion puis connexion dans un autre onglet)', () => {
+	it('mutation refusée : jamais rejouée sous la nouvelle session', async () => {
+		const serveur = fauxServeur();
+		const surNonAuthentifie = mock.fn();
+		const api = creerClient({ fetch: serveur.fetch, surNonAuthentifie });
+		await api.ouvrirSession();
+		// Autre onglet : l'utilisateur 1 se déconnecte, l'utilisateur 2 se connecte.
+		serveur.etat.jeton = 'u2';
+		serveur.etat.idSession = '22222222-3333-4444-8555-666666666666';
+
+		await assert.rejects(creerDossier(api, CABINET, 'Dossier de l’utilisateur 1'), {
+			code: 'non_authentifie'
+		});
+
+		assert.equal(serveur.appels.filter((a) => a.methode === 'POST').length, 1);
+		assert.equal(surNonAuthentifie.mock.callCount(), 1);
+		assert.equal(api.aJetonCsrf(), false);
+	});
+
+	it('lecture refusée (401) : pas de reprise non plus', async () => {
+		let premiere = true;
+		const serveur = fauxServeur((appel) => {
+			if (appel.chemin.endsWith('/dossiers') && premiere) {
+				premiere = false;
+				serveur.etat.jeton = 'u2';
+				serveur.etat.idSession = '22222222-3333-4444-8555-666666666666';
+				return json(401, { erreur: 'non_authentifie' });
+			}
+			return undefined;
+		});
+		const surNonAuthentifie = mock.fn();
+		const api = creerClient({ fetch: serveur.fetch, surNonAuthentifie });
+		await api.ouvrirSession();
+
+		await assert.rejects(listerDossiers(api, CABINET), { code: 'non_authentifie' });
+		assert.equal(serveur.appels.filter((a) => a.chemin.endsWith('/dossiers')).length, 1);
+		assert.equal(surNonAuthentifie.mock.callCount(), 1);
+	});
+});
+
 describe('non authentifié', () => {
+	it('401 sur une mutation : ni reprise ni nouvel envoi, connexion demandée', async () => {
+		const serveur = fauxServeur();
+		const surNonAuthentifie = mock.fn();
+		const api = creerClient({ fetch: serveur.fetch, surNonAuthentifie });
+		await api.ouvrirSession();
+		serveur.etat.session = false;
+
+		await assert.rejects(creerDossier(api, CABINET, 'X'), { code: 'non_authentifie', statut: 401 });
+
+		assert.deepEqual(
+			serveur.appels.slice(1).map((a) => [a.methode, a.chemin]),
+			[
+				['POST', `/api/cabinets/${CABINET}/dossiers`],
+				['GET', '/api/session']
+			]
+		);
+		assert.equal(api.aJetonCsrf(), false);
+		assert.equal(surNonAuthentifie.mock.callCount(), 1);
+	});
+
 	it('401 définitif : jeton oublié et page de connexion demandée une fois', async () => {
 		const serveur = fauxServeur();
 		const surNonAuthentifie = mock.fn();
