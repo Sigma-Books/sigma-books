@@ -48,6 +48,10 @@ pub use autorite::{AUTORITES_PAR_DEFAUT, Autorite, ErreurAutorite};
 
 use crate::serveur::journal::CIBLE;
 
+/// Champs de journal propres au client, en plus de ceux du socle (`statut`, `duree_ms`) : liste
+/// blanche de [`crate::serveur::journal::CHAMPS`].
+pub const CHAMPS_JOURNAL: &[&str] = &["autorite", "issue"];
+
 /// Type de contenu d'une requête RFC 3161 (§3.4).
 pub const TYPE_REQUETE: &str = "application/timestamp-query";
 /// Type de contenu attendu d'une réponse RFC 3161 (§3.4).
