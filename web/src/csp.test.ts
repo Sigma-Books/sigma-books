@@ -68,7 +68,7 @@ describe('CSP des pages compilées', { skip: avecBuild ? false : 'build/ absent'
 			// Toute balise <script>, quelles que soient la casse et les attributs : un script inline
 			// (sans `src`) doit avoir son empreinte dans `script-src`.
 			for (const [, attributs, inline] of html.matchAll(
-				/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi
+				/<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi
 			)) {
 				if (/\bsrc\s*=/i.test(attributs ?? '')) continue;
 				const empreinte = createHash('sha256')
