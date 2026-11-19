@@ -387,7 +387,10 @@ mod tests {
 
     #[test]
     fn chaque_mutation_porte_sur_une_ressource_unique() {
-        // Une mutation est décidée sur une ressource du chemin : sa trace a une portée.
+        // Une mutation est décidée sur une ressource du chemin : sa trace a une portée. Que
+        // chaque mutation produise bien des traces sur cette portée est vérifié contre la base
+        // (`tests/audit.rs`, `chaque_mutation_produit_des_traces_sur_sa_portee`) ; le pipeline
+        // refuse une mutation sans trace (`pipeline::exiger_traces`).
         for route in ROUTES.iter().filter(|r| r.methode == Methode::Post) {
             assert_ne!(route.portee, Portee::DossiersDuCabinet, "{}", route.chemin);
         }

@@ -126,7 +126,7 @@ fin-export
 - **Annexe non chaînée** : chaque UUID d'acteur utilisateur des entrées, une fois, dans l'ordre croissant, suivi de son nom au moment de l'export (texte non vide) s'il est connu. Elle n'entre dans aucune empreinte : la modifier ne change pas la chaîne. La vérification contrôle seulement qu'elle cite exactement les acteurs des entrées.
 - L'export est lui-même inscrit à l'audit de la portée (ADR 0014) : action `ExporterAuditCabinet` ou `ExporterComplet`, avec les données `tete` et `nombre` exportées (et `export=audit` pour un dossier).
 
-`sigma-verifier` reconnaît l'export d'audit à sa première ligne et le vérifie (§4), avec l'option `--tete` pour un ancrage externe. Codes de retour : `0` intègre, `1` anomalie ou export illisible, `2` usage incorrect ou lecture impossible.
+`sigma-verifier` reconnaît l'export d'audit à sa première ligne et le vérifie (§4). Options : `--tete` (ancrage externe de la tête), `--cabinet UUID` et `--dossier UUID` (l'export doit être celui de ce cabinet, de ce dossier : l'export intact d'une autre portée est refusé). Codes de retour : `0` intègre, `1` anomalie ou export illisible, `2` usage incorrect ou lecture impossible.
 
 ## 6. Version du jeu de politiques
 `politiques=` est la SHA-256 de la suite, pour le schéma puis chaque fichier de politiques embarqué dans l'ordre de `authz::POLITIQUES`, de : nom du fichier, `\n`, longueur du contenu en octets (décimal), `\n`, contenu. Elle change dès qu'un caractère du schéma ou d'une politique change (`crates/api/src/serveur/audit.rs`).

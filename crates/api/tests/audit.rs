@@ -10,8 +10,10 @@
 //!   d'un autre dossier ;
 //! - l'audit du cabinet est refusé (403) au valideur et à l'auditeur ; l'export exige une
 //!   session fraîche ;
-//! - un échec d'écriture de l'audit annule l'action ; des actions concurrentes donnent des
-//!   rangs continus.
+//! - un échec d'écriture de l'audit annule l'action ; chaque mutation laisse une trace ; des
+//!   actions concurrentes, au cabinet comme dans un dossier, donnent des rangs continus, et
+//!   aucune vérification concurrente ne donne de fausse alerte ;
+//! - une entrée réordonnée est détectée ; un rang hors limites dans la pagination donne 400.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -22,14 +24,15 @@ use api::base::{
     ContexteTenant, ErreurBase, IdCabinet, IdDossier, IdUtilisateur, ouvrir_transaction,
     verifier_role_lecture_audit,
 };
+use api::serveur::routes::{Methode, ROUTES};
 use api::serveur::{Reglages, routeur};
 use axum::Router;
 use axum::http::StatusCode;
-use commun::serveur::{ORIGINE, application_base, envoyer, lire};
+use commun::serveur::{ORIGINE, appeler_route, application_base, envoyer, lire};
 use commun::{
     CabinetTest, Env, ROLE_MIGRATION, ajouter_affecte, code_sql, creer_cabinet, env, pool_sous_role,
 };
-use integrite::audit::verifier_export_audit;
+use integrite::audit::{AttentesAudit, verifier_export_audit};
 use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -39,6 +42,14 @@ const REFUS: &str = "42501";
 
 fn routeur_de(env: &Env) -> Router {
     routeur(&application_base(env, Reglages::new(ORIGINE.to_owned())))
+}
+
+/// Routeur aux limites de débit relevées, pour les tests de charge concurrente.
+fn routeur_sans_limite(env: &Env) -> Router {
+    let mut reglages = Reglages::new(ORIGINE.to_owned());
+    reglages.debit_utilisateur.capacite = 100_000;
+    reglages.debit_adresse.capacite = 100_000;
+    routeur(&application_base(env, reglages))
 }
 
 async fn creer_dossier(
@@ -170,7 +181,8 @@ async fn toute_action_cree_une_entree_chainee() {
     // Export du dossier par le valideur (session fraîche) : vérifiable seul, inscrit à l'audit.
     let reponse = exporter(&routeur, &c, Some(dossier), valideur, None).await;
     assert_eq!(reponse.statut, StatusCode::OK, "{}", reponse.texte());
-    let rapport = verifier_export_audit(reponse.corps.as_slice(), None).unwrap();
+    let rapport =
+        verifier_export_audit(reponse.corps.as_slice(), &AttentesAudit::default()).unwrap();
     assert!(rapport.est_integre(), "{rapport}");
     assert_eq!(rapport.chaine.nombre, 1);
     assert_eq!(rapport.annexe.len(), 1);
@@ -249,7 +261,8 @@ async fn une_entree_modifiee_ou_supprimee_par_le_proprietaire_est_detectee() {
     assert_eq!(v["anomalies"][0]["position"], 1);
     // L'export reflète la base : sa vérification hors ligne le détecte aussi.
     let reponse = exporter(&routeur, &c, Some(dossier), c.administrateur, None).await;
-    let rapport = verifier_export_audit(reponse.corps.as_slice(), None).unwrap();
+    let rapport =
+        verifier_export_audit(reponse.corps.as_slice(), &AttentesAudit::default()).unwrap();
     assert!(!rapport.est_integre(), "{rapport}");
 
     // Suppression d'une entrée du milieu : rang et tête différents.
@@ -647,5 +660,208 @@ async fn la_consultation_est_paginee() {
         )
         .await;
         assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{invalide}");
+    }
+}
+
+#[tokio::test]
+async fn aucune_fausse_alerte_de_verification_pendant_des_actions_concurrentes() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet actif").await;
+    let routeur = routeur_sans_limite(&env);
+    let dossier = creer_dossier(&routeur, &c, c.administrateur, "Dossier actif").await;
+    // Créations (portée cabinet) et exports (portée dossier) en continu, par 6 tâches…
+    let ecritures: Vec<_> = (0..6)
+        .map(|t| {
+            let routeur = routeur.clone();
+            let cabinet = c.cabinet;
+            let admin = c.administrateur;
+            tokio::spawn(async move {
+                for i in 0..10 {
+                    let creation = envoyer(
+                        &routeur,
+                        &format!("/api/cabinets/{cabinet}/dossiers"),
+                        Some(admin),
+                        &format!(r#"{{"nom":"C{t}-{i}"}}"#),
+                        None,
+                    )
+                    .await;
+                    assert_eq!(creation.statut, StatusCode::CREATED);
+                    let export = envoyer(
+                        &routeur,
+                        &format!("/api/cabinets/{cabinet}/dossiers/{dossier}/audit/export"),
+                        Some(admin),
+                        "",
+                        None,
+                    )
+                    .await;
+                    assert_eq!(export.statut, StatusCode::OK);
+                }
+            })
+        })
+        .collect();
+    // … pendant que 3 tâches vérifient les deux chaînes sans relâche : aucune fausse alerte.
+    let verifications: Vec<_> = (0..3)
+        .map(|_| {
+            let routeur = routeur.clone();
+            tokio::spawn(async move {
+                let mut n = 0;
+                while n < 80 {
+                    for portee in [None, Some(dossier)] {
+                        let v = verification(&routeur, &c, portee).await;
+                        assert_eq!(v["integre"], true, "fausse alerte : {v}");
+                        n += 1;
+                    }
+                }
+            })
+        })
+        .collect();
+    for t in ecritures.into_iter().chain(verifications) {
+        t.await.unwrap();
+    }
+    assert_eq!(verification(&routeur, &c, None).await["nombre"], 61);
+    assert_eq!(
+        verification(&routeur, &c, Some(dossier)).await["nombre"],
+        61
+    );
+}
+
+#[tokio::test]
+async fn des_actions_concurrentes_dans_un_dossier_donnent_des_rangs_continus() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let routeur = routeur_de(&env);
+    let dossier = creer_dossier(&routeur, &c, c.administrateur, "Dossier partagé").await;
+    let taches: Vec<_> = (0..8)
+        .map(|_| {
+            let routeur = routeur.clone();
+            let chemin = format!(
+                "/api/cabinets/{}/dossiers/{dossier}/audit/export",
+                c.cabinet
+            );
+            let admin = c.administrateur;
+            tokio::spawn(async move { envoyer(&routeur, &chemin, Some(admin), "", None).await })
+        })
+        .collect();
+    let mut nombres = Vec::new();
+    for t in taches {
+        let reponse = t.await.unwrap();
+        assert_eq!(reponse.statut, StatusCode::OK);
+        let rapport =
+            verifier_export_audit(reponse.corps.as_slice(), &AttentesAudit::default()).unwrap();
+        assert!(rapport.est_integre(), "{rapport}");
+        nombres.push(rapport.chaine.nombre);
+    }
+    // Chaque export a vu un état distinct de la chaîne : 1 à 8 entrées.
+    nombres.sort_unstable();
+    assert_eq!(nombres, (1..=8).collect::<Vec<_>>());
+    let v = verification(&routeur, &c, Some(dossier)).await;
+    assert_eq!(v["integre"], true, "{v}");
+    assert_eq!(v["nombre"], 9);
+    let rangs: Vec<u64> = page(&routeur, &c, Some(dossier))
+        .await
+        .iter()
+        .map(|e| e["rang"].as_u64().unwrap())
+        .collect();
+    assert_eq!(rangs, (1..=9).collect::<Vec<_>>());
+}
+
+#[tokio::test]
+async fn deux_entrees_reordonnees_par_le_proprietaire_sont_detectees() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet réordonné").await;
+    let routeur = routeur_de(&env);
+    creer_dossier(&routeur, &c, c.administrateur, "Premier").await;
+    creer_dossier(&routeur, &c, c.administrateur, "Second").await;
+    assert_eq!(verification(&routeur, &c, None).await["integre"], true);
+    // Échange des rangs 1 et 2 (en trois temps : la clé primaire est vérifiée ligne à ligne).
+    for sql in [
+        "UPDATE audit_cabinet SET rang = 100 WHERE rang = 1",
+        "UPDATE audit_cabinet SET rang = 1 WHERE rang = 2",
+        "UPDATE audit_cabinet SET rang = 2 WHERE rang = 100",
+    ] {
+        assert_eq!(sous_proprietaire(c.cabinet, None, sql).await, 1, "{sql}");
+    }
+    let v = verification(&routeur, &c, None).await;
+    assert_eq!(v["integre"], false, "{v}");
+    let codes: Vec<&str> = v["anomalies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["code"].as_str().unwrap())
+        .collect();
+    assert!(codes.contains(&"rang_different"), "{v}");
+    assert!(codes.contains(&"empreinte_alteree"), "{v}");
+}
+
+#[tokio::test]
+async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let routeur = routeur_de(&env);
+    for route in ROUTES.iter().filter(|r| r.methode == Methode::Post) {
+        let (cabinet_avant, dossier_avant) = (
+            verification(&routeur, &c, None).await["nombre"]
+                .as_u64()
+                .unwrap(),
+            verification(&routeur, &c, Some(c.dossier)).await["nombre"]
+                .as_u64()
+                .unwrap(),
+        );
+        let chemin = route
+            .chemin
+            .replace("{cabinet}", &c.cabinet.to_string())
+            .replace("{dossier}", &c.dossier.to_string());
+        let reponse = appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await;
+        assert!(
+            reponse.statut.is_success(),
+            "{} : {}",
+            route.chemin,
+            reponse.texte()
+        );
+        let (cabinet_apres, dossier_apres) = (
+            verification(&routeur, &c, None).await["nombre"]
+                .as_u64()
+                .unwrap(),
+            verification(&routeur, &c, Some(c.dossier)).await["nombre"]
+                .as_u64()
+                .unwrap(),
+        );
+        // La portée de la route reçoit au moins une entrée.
+        let trace = if route.chemin.contains("{dossier}") {
+            dossier_apres > dossier_avant
+        } else {
+            cabinet_apres > cabinet_avant
+        };
+        assert!(
+            trace,
+            "{} {} : aucune trace",
+            route.methode.nom(),
+            route.chemin
+        );
+    }
+}
+
+#[tokio::test]
+async fn un_rang_hors_limites_dans_la_pagination_donne_400() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let routeur = routeur_de(&env);
+    for portee in [None, Some(c.dossier)] {
+        let base = chemin_audit(&c, portee);
+        let r = lire(
+            &routeur,
+            &format!("{base}?apres=9223372036854775808"),
+            Some(c.administrateur),
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{}", r.texte());
+        let r = lire(
+            &routeur,
+            &format!("{base}?apres=9223372036854775807"),
+            Some(c.administrateur),
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+        assert_eq!(r.json()["entrees"], serde_json::json!([]));
     }
 }

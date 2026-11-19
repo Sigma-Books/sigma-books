@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT rang, contenu, empreinte FROM audit_cabinet WHERE cabinet_id = $1 AND rang > $2 ORDER BY rang LIMIT $3",
+  "query": "SELECT rang, contenu, empreinte FROM audit_cabinet WHERE cabinet_id = $1 AND rang > $2 AND ($3::bigint IS NULL OR rang <= $3) ORDER BY rang LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -41,6 +41,7 @@
       "Left": [
         "Uuid",
         "Int8",
+        "Int8",
         "Int8"
       ]
     },
@@ -50,5 +51,5 @@
       false
     ]
   },
-  "hash": "4b820c2f51ef78629343e932865b2a82292b926a4dbb42b041c9fe3025c1dafc"
+  "hash": "864a8720f2609c8a34846c98722cec49d2ebf6a3d6ca9176c792ee22afe168d2"
 }

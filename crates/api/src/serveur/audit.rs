@@ -8,6 +8,12 @@
 //!   pool distinct, dans une transaction au même contexte de tenant ; sur la seule portée que le
 //!   pipeline a décidée ([`Garde::portee_audit`]). Portée cabinet : administrateur seul
 //!   (ADR 0016) ; portée dossier : administrateur, valideur, auditeur affectés (Cedar).
+//!   Défense en profondeur : même si Cedar se trompait, la requête exige le rôle
+//!   d'administrateur lu en base (portée cabinet) ou un dossier visible, c'est-à-dire affecté
+//!   sauf pour l'administrateur (portée dossier) ; sinon 404 ([`portee_verifiee`]).
+//! - Les lectures s'exécutent dans une transaction `REPEATABLE READ READ ONLY` : un seul
+//!   instantané, bornée au rang de la tête qu'il contient. Une action validée pendant la
+//!   lecture n'y apparaît pas à moitié.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
@@ -27,8 +33,8 @@ use super::erreur::{CategorieErreur, ErreurApi};
 use super::pipeline::Garde;
 use super::routes::Requete;
 use crate::base::audit::{PorteeAudit, inscrire, lire_page, lire_tete, verrouiller_tete};
-use crate::base::organisation::lire_noms_membres;
-use crate::base::{IdUtilisateur, TransactionTenant, ouvrir_transaction};
+use crate::base::organisation::{lire_appartenance, lire_dossier_visible, lire_noms_membres};
+use crate::base::{IdUtilisateur, TransactionTenant, ouvrir_transaction_lecture};
 
 /// Taille d'une page de consultation par défaut.
 pub const PAGE_PAR_DEFAUT: u32 = 50;
@@ -204,11 +210,13 @@ fn pagination(parametres: Option<&str>) -> Result<(u64, u32), ErreurApi> {
             return Err(ErreurApi::RequeteInvalide);
         }
     }
+    // Un rang est un `bigint` : au-delà de `i64::MAX`, la requête est invalide (400).
     let apres = apres
-        .map(str::parse::<u64>)
+        .map(str::parse::<i64>)
         .transpose()
         .map_err(|_| ErreurApi::RequeteInvalide)?
-        .unwrap_or(0);
+        .map_or(Ok(0), u64::try_from)
+        .map_err(|_| ErreurApi::RequeteInvalide)?;
     let limite = limite
         .map(str::parse::<u32>)
         .transpose()
@@ -220,12 +228,43 @@ fn pagination(parametres: Option<&str>) -> Result<(u64, u32), ErreurApi> {
     Ok((apres, limite))
 }
 
-/// Transaction du rôle de lecture d'audit, au contexte de la transaction de l'action.
+/// Transaction du rôle de lecture d'audit, au contexte de la transaction de l'action, en
+/// lecture seule à instantané unique.
 async fn transaction_lecture(
     tx: &TransactionTenant,
     requete: &Requete<'_>,
 ) -> Result<TransactionTenant, ErreurApi> {
-    Ok(ouvrir_transaction(requete.lecture_audit, *tx.contexte()).await?)
+    Ok(ouvrir_transaction_lecture(requete.lecture_audit, *tx.contexte()).await?)
+}
+
+/// Portée d'audit décidée par Cedar, revérifiée au niveau de la requête (défense en
+/// profondeur, ADR 0011) : la portée cabinet exige le rôle `administrateur` **lu en base**
+/// (ADR 0016) ; la portée dossier, un dossier visible par l'utilisateur du contexte (affecté,
+/// sauf pour l'administrateur). Sinon : ressource d'autrui (404).
+///
+/// # Errors
+/// [`ErreurApi::Introuvable`], erreur de base.
+async fn portee_verifiee(
+    tx: &mut TransactionTenant,
+    garde: &Garde,
+) -> Result<PorteeAudit, ErreurApi> {
+    let portee = garde.portee_audit()?;
+    match portee {
+        PorteeAudit::Cabinet => {
+            let administrateur = lire_appartenance(tx)
+                .await?
+                .is_some_and(|a| a.actif && a.role == authz::Role::Administrateur.nom());
+            if !administrateur {
+                return Err(ErreurApi::Introuvable);
+            }
+        }
+        PorteeAudit::Dossier(dossier) => {
+            if lire_dossier_visible(tx, dossier).await?.is_none() {
+                return Err(ErreurApi::Introuvable);
+            }
+        }
+    }
+    Ok(portee)
 }
 
 /// Noms des acteurs membres du cabinet, lus par le rôle applicatif (le rôle de lecture d'audit
@@ -360,10 +399,10 @@ pub async fn consulter(
     garde: &Garde,
     requete: &Requete<'_>,
 ) -> Result<Response, ErreurApi> {
-    let portee = garde.portee_audit()?;
     let (apres, limite) = pagination(requete.parametres)?;
+    let portee = portee_verifiee(tx, garde).await?;
     let mut lecture = transaction_lecture(tx, requete).await?;
-    let mut lignes = lire_page(&mut lecture, portee, apres, limite + 1).await?;
+    let mut lignes = lire_page(&mut lecture, portee, apres, None, limite + 1).await?;
     lecture.annuler().await?;
     let suivant = if lignes.len() > limite as usize {
         lignes.truncate(limite as usize);
@@ -420,7 +459,7 @@ pub async fn verifier(
     garde: &Garde,
     requete: &Requete<'_>,
 ) -> Result<Response, ErreurApi> {
-    let portee = garde.portee_audit()?;
+    let portee = portee_verifiee(tx, garde).await?;
     let mut lecture = transaction_lecture(tx, requete).await?;
     let portee_integrite = crate::base::audit::portee_integrite(&lecture, portee)?;
     let (rang_tete, tete) = lire_tete(&mut lecture, portee)
@@ -429,7 +468,8 @@ pub async fn verifier(
     let mut verificateur = Verificateur::nouveau(portee_integrite);
     let mut apres = 0;
     loop {
-        let lot = lire_page(&mut lecture, portee, apres, LOT).await?;
+        // Bornée au rang de la tête du même instantané.
+        let lot = lire_page(&mut lecture, portee, apres, Some(rang_tete), LOT).await?;
         let Some(derniere) = lot.last() else { break };
         apres = derniere.rang;
         for ligne in &lot {
@@ -458,6 +498,10 @@ pub async fn verifier(
 /// la tête et le nombre exportés. La tête de la portée est verrouillée d'abord : aucune entrée
 /// ne s'ajoute pendant l'export.
 ///
+/// Limites acceptées en L2 (`crates/api/README.md`) : l'export est construit en mémoire, et le
+/// verrou de la tête dure tout l'export ; l'alerte à l'administrateur (spec §21) arrive avec la
+/// PR 9.
+///
 /// # Errors
 /// Entrée enregistrée illisible (l'export est refusé : la vérification la localise), erreur de
 /// base.
@@ -466,17 +510,17 @@ pub async fn exporter(
     garde: &Garde,
     requete: &Requete<'_>,
 ) -> Result<(Response, Trace), ErreurApi> {
-    let portee = garde.portee_audit()?;
+    let portee = portee_verifiee(tx, garde).await?;
     let chaine = verrouiller_tete(tx, portee).await?;
     let mut ecrivain =
         EcrivainExportAudit::nouveau(*chaine.portee(), Vec::new()).map_err(invalide)?;
     let mut lecture = transaction_lecture(tx, requete).await?;
     let mut apres = 0;
     while apres < chaine.longueur() {
-        let lot = lire_page(&mut lecture, portee, apres, LOT).await?;
+        let lot = lire_page(&mut lecture, portee, apres, Some(chaine.longueur()), LOT).await?;
         let Some(derniere) = lot.last() else { break };
         apres = derniere.rang;
-        for ligne in lot.iter().filter(|l| l.rang <= chaine.longueur()) {
+        for ligne in &lot {
             ecrivain
                 .entree(&ligne.contenu, &ligne.empreinte)
                 .map_err(invalide)?;
@@ -529,6 +573,10 @@ mod tests {
         assert_eq!(pagination(None), Ok((0, PAGE_PAR_DEFAUT)));
         assert_eq!(pagination(Some("apres=12&limite=100")), Ok((12, 100)));
         assert_eq!(pagination(Some("limite=1")), Ok((0, 1)));
+        assert_eq!(
+            pagination(Some("apres=9223372036854775807")),
+            Ok((9_223_372_036_854_775_807, PAGE_PAR_DEFAUT))
+        );
         for invalide in [
             "limite=0",
             "limite=101",
@@ -539,6 +587,7 @@ mod tests {
             "apres",
             "apres=",
             "apres=99999999999999999999999",
+            "apres=9223372036854775808",
         ] {
             assert_eq!(
                 pagination(Some(invalide)),

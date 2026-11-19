@@ -120,4 +120,15 @@ Format : `docs/integrite/audit-v1.md` (module pur `integrite::audit`). Tables (m
 pour le rôle applicatif, `SELECT` seul pour le rôle de lecture), têtes `audit_tete_cabinet` et
 `audit_tete_dossier` verrouillées `FOR UPDATE`. Routes : consultation paginée (`?apres=&limite=`,
 100 au plus), vérification et export (ré-authentifié) de l'audit du cabinet (administrateur) et
-d'un dossier (administrateur, valideur, auditeur affectés).
+d'un dossier (administrateur, valideur, auditeur affectés). La requête revérifie la portée
+(administrateur lu en base pour le cabinet, dossier visible pour un dossier) : Cedar n'est pas la
+seule barrière. Les lectures d'audit s'exécutent en `REPEATABLE READ READ ONLY`, bornées au rang
+de la tête du même instantané : une action concurrente ne produit pas de fausse alerte.
+
+**Limites acceptées en L2** :
+- l'export d'audit est construit **en mémoire** (pas de réponse en flux) et **verrouille la tête**
+  de la portée pendant toute sa durée : les actions de cette portée attendent la fin de l'export.
+  Acceptable pour les volumes de L2 ; un export en flux, ou à partir d'un instantané sans verrou,
+  sera à reprendre si les chaînes grossissent ;
+- l'alerte à l'administrateur lors d'un export (spec §21, ADR 0014) n'est pas encore émise :
+  elle arrive avec la file de tâches et les courriels (PR 9).

@@ -107,6 +107,18 @@ impl<W: Write> EcrivainExportAudit<W> {
     }
 }
 
+/// Ce que le vérificateur attend d'un export d'audit, connu par ailleurs : tête (témoin
+/// externe), cabinet, dossier. Chaque attente absente n'est pas contrôlée.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AttentesAudit {
+    /// Empreinte de tête connue par ailleurs (`--tete`).
+    pub tete: Option<Empreinte>,
+    /// Cabinet attendu (`--cabinet`).
+    pub cabinet: Option<Uuid>,
+    /// Dossier attendu (`--dossier`) : l'export doit être celui de ce dossier.
+    pub dossier: Option<Uuid>,
+}
+
 /// Résultat de la vérification d'un export d'audit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RapportExportAudit {
@@ -118,13 +130,18 @@ pub struct RapportExportAudit {
     pub annexe_coherente: bool,
     /// Ancrage externe fourni (`--tete`) et différent de la tête recalculée.
     pub ancrage_different: bool,
+    /// Cabinet ou dossier attendu (`--cabinet`, `--dossier`) différent de celui de l'export.
+    pub portee_inattendue: bool,
 }
 
 impl RapportExportAudit {
     /// Vrai si la chaîne est intègre, l'annexe cohérente et l'ancrage, s'il est fourni, égal.
     #[must_use]
     pub fn est_integre(&self) -> bool {
-        self.chaine.est_integre() && self.annexe_coherente && !self.ancrage_different
+        self.chaine.est_integre()
+            && self.annexe_coherente
+            && !self.ancrage_different
+            && !self.portee_inattendue
     }
 }
 
@@ -143,6 +160,13 @@ impl std::fmt::Display for RapportExportAudit {
                 "Anomalie : tête différente de l'ancrage fourni (--tete)."
             )?;
         }
+        if self.portee_inattendue {
+            writeln!(
+                f,
+                "Anomalie : export d'un autre cabinet ou d'un autre dossier que celui attendu \
+                 (--cabinet, --dossier)."
+            )?;
+        }
         writeln!(
             f,
             "Annexe (non chaînée, noms au moment de l'export) : {} acteur(s).",
@@ -151,13 +175,13 @@ impl std::fmt::Display for RapportExportAudit {
     }
 }
 
-/// Lit et vérifie un export d'audit. `ancrage` : empreinte de tête connue par ailleurs (témoin).
+/// Lit et vérifie un export d'audit, et le compare aux `attentes` (tête, cabinet, dossier).
 ///
 /// # Errors
 /// Défaut de forme (avec la ligne) ou erreur d'entrée-sortie.
 pub fn verifier_export_audit<R: BufRead>(
     entree: R,
-    ancrage: Option<&Empreinte>,
+    attentes: &AttentesAudit,
 ) -> Result<RapportExportAudit, ErreurLecture> {
     let mut l = Lignes {
         entree,
@@ -234,12 +258,17 @@ pub fn verifier_export_audit<R: BufRead>(
         return Err(l.erreur(ErreurExport::DonneesApresFin));
     }
     let annexe_coherente = annexe.iter().map(|(a, _)| *a).eq(acteurs.iter().copied());
-    let ancrage_different = ancrage.is_some_and(|a| *a != chaine.tete);
+    let ancrage_different = attentes.tete.is_some_and(|a| a != chaine.tete);
+    let portee_inattendue = attentes.cabinet.is_some_and(|c| c != portee.cabinet())
+        || attentes
+            .dossier
+            .is_some_and(|d| Some(d) != portee.dossier());
     Ok(RapportExportAudit {
         chaine,
         annexe,
         annexe_coherente,
         ancrage_different,
+        portee_inattendue,
     })
 }
 
@@ -390,7 +419,7 @@ mod tests {
     #[test]
     fn aller_retour_integre() {
         let texte = export(&[acteur(3), Acteur::Systeme, acteur(4)], &noms());
-        let r = verifier_export_audit(texte.as_bytes(), None).unwrap();
+        let r = verifier_export_audit(texte.as_bytes(), &AttentesAudit::default()).unwrap();
         assert!(r.est_integre(), "{r}");
         assert_eq!(r.chaine.nombre, 3);
         assert_eq!(r.annexe.len(), 2);
@@ -399,12 +428,19 @@ mod tests {
         // L'annexe n'est pas chaînée : changer un nom ne change pas la chaîne.
         let renomme = texte.replacen("nom=Awa Ndiaye", "nom=Autre nom", 1);
         assert!(
-            verifier_export_audit(renomme.as_bytes(), None)
+            verifier_export_audit(renomme.as_bytes(), &AttentesAudit::default())
                 .unwrap()
                 .est_integre()
         );
         // Ancrage externe.
-        let r2 = verifier_export_audit(texte.as_bytes(), Some(&Empreinte::calculer(b"x"))).unwrap();
+        let r2 = verifier_export_audit(
+            texte.as_bytes(),
+            &AttentesAudit {
+                tete: Some(Empreinte::calculer(b"x")),
+                ..AttentesAudit::default()
+            },
+        )
+        .unwrap();
         assert!(r2.ancrage_different && !r2.est_integre());
     }
 
@@ -412,14 +448,14 @@ mod tests {
     fn alteration_et_annexe_incoherente_detectees() {
         let texte = export(&[acteur(3), acteur(4)], &noms());
         let altere = texte.replacen("reauthentification=oui", "reauthentification=non", 1);
-        let r = verifier_export_audit(altere.as_bytes(), None).unwrap();
+        let r = verifier_export_audit(altere.as_bytes(), &AttentesAudit::default()).unwrap();
         assert!(
             r.chaine
                 .anomalies
                 .contains(&AnomalieAudit::EmpreinteAlteree { position: 1 })
         );
         let sans_acteur = texte.replacen("acteur=04040404-0404-0404-0404-040404040404\n", "", 1);
-        let r = verifier_export_audit(sans_acteur.as_bytes(), None).unwrap();
+        let r = verifier_export_audit(sans_acteur.as_bytes(), &AttentesAudit::default()).unwrap();
         assert!(!r.annexe_coherente && !r.est_integre());
     }
 
@@ -441,13 +477,13 @@ mod tests {
         ] {
             let modifie = texte.replacen(avant, apres, 1);
             assert!(
-                verifier_export_audit(modifie.as_bytes(), None).is_err(),
+                verifier_export_audit(modifie.as_bytes(), &AttentesAudit::default()).is_err(),
                 "{avant} → {apres}"
             );
         }
         let longue = texte.replacen("nom=Awa Ndiaye", &format!("nom={}", "a".repeat(1100)), 1);
         assert!(matches!(
-            verifier_export_audit(longue.as_bytes(), None),
+            verifier_export_audit(longue.as_bytes(), &AttentesAudit::default()),
             Err(ErreurLecture::Forme {
                 erreur: ErreurExport::LigneTropLongue,
                 ..

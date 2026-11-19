@@ -18,6 +18,6 @@ pub use entree::{
     Portee, Ressource, SYMBOLE_MAX, SYSTEME, Symbole, TEXTE_MAX, Texte, Uuid, formater_instant,
 };
 pub use export::{
-    ANNEXE, ENTETE_EXPORT_AUDIT, EcrivainExportAudit, FIN_ANNEXE, RapportExportAudit,
-    verifier_export_audit,
+    ANNEXE, AttentesAudit, ENTETE_EXPORT_AUDIT, EcrivainExportAudit, FIN_ANNEXE,
+    RapportExportAudit, verifier_export_audit,
 };

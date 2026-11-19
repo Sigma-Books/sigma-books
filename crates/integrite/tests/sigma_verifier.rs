@@ -149,7 +149,33 @@ fn export_d_audit_reconnu_et_verifie() {
         let (code, sortie, _) = lancer(&[chemin.to_str().unwrap()]);
         assert_eq!(code, 1, "{nom} : {sortie}");
     }
-    // Options sans objet pour un export d'audit : code 2.
+    // Cabinet et dossier attendus : ceux de l'export, acceptés.
+    let (code, sortie, _) = lancer(&[
+        "--cabinet",
+        "0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f",
+        "--dossier",
+        "0193e0c3-1111-4a2b-8c3d-000000000001",
+        &vecteur,
+    ]);
+    assert_eq!(code, 0, "{sortie}");
+    // L'export intact d'un autre dossier, ou d'un autre cabinet, est refusé (code 1).
+    for (option, valeur) in [
+        ("--dossier", "0193e0c3-1111-4a2b-8c3d-000000000002"),
+        ("--cabinet", "0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e70"),
+    ] {
+        let (code, sortie, _) = lancer(&[option, valeur, &vecteur]);
+        assert_eq!(code, 1, "{option} : {sortie}");
+        assert!(sortie.contains("autre dossier"), "{sortie}");
+    }
+    // Options sans objet ou mal formées : code 2.
     let (code, _, _) = lancer(&["--dossier", "dossier-test", &vecteur]);
+    assert_eq!(code, 2);
+    let (code, _, _) = lancer(&["--cabinet", "pas-un-uuid", &vecteur]);
+    assert_eq!(code, 2);
+    let (code, _, _) = lancer(&[
+        "--cabinet",
+        "0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f",
+        &fichier("tests/vecteurs/export-v1.txt"),
+    ]);
     assert_eq!(code, 2);
 }

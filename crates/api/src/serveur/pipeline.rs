@@ -470,12 +470,20 @@ async fn traiter_requete(
 
     // 5. Audit, dans la même transaction : un échec annule l'action. Une mutation sans trace
     // est une erreur du cas d'usage.
-    if est_mutation(&route.methode.methode()) && resultat.traces.is_empty() {
-        return Err(ErreurApi::Interne(CategorieErreur::Audit));
-    }
+    exiger_traces(route, &resultat.traces)?;
     inscrire_traces(&mut tx, &garde, resultat.traces).await?;
     tx.confirmer().await?;
     Ok(resultat.reponse)
+}
+
+/// Une mutation doit laisser au moins une trace au journal d'audit (ADR 0014 : aucune action
+/// sans trace) ; sinon, erreur interne, et la transaction est annulée.
+fn exiger_traces(route: &Route, traces: &[super::audit::Trace]) -> Result<(), ErreurApi> {
+    if est_mutation(&route.methode.methode()) && traces.is_empty() {
+        Err(ErreurApi::Interne(CategorieErreur::Audit))
+    } else {
+        Ok(())
+    }
 }
 
 /// Lit le principal et le cabinet du chemin. Non-membre, ou membre suspendu (ADR 0014) : 404,
@@ -636,6 +644,31 @@ mod tests {
             g.dossier_du_chemin(visible(d).dossier),
             Err(ErreurApi::Introuvable)
         );
+    }
+
+    #[test]
+    fn une_mutation_sans_trace_est_refusee() {
+        use super::super::audit::Trace;
+        use super::super::routes::{Methode, ROUTES};
+        let trace = Trace::new(PorteeAudit::Cabinet, "cabinet", Uuid::new_v4());
+        let mutations: Vec<_> = ROUTES
+            .iter()
+            .filter(|r| r.methode == Methode::Post)
+            .collect();
+        assert_eq!(mutations.len(), 3);
+        for route in mutations {
+            assert_eq!(
+                exiger_traces(route, &[]),
+                Err(ErreurApi::Interne(CategorieErreur::Audit)),
+                "{}",
+                route.chemin
+            );
+            assert_eq!(exiger_traces(route, std::slice::from_ref(&trace)), Ok(()));
+        }
+        // Une lecture n'en exige pas.
+        for route in ROUTES.iter().filter(|r| r.methode == Methode::Get) {
+            assert_eq!(exiger_traces(route, &[]), Ok(()));
+        }
     }
 
     #[test]

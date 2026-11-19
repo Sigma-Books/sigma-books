@@ -253,8 +253,9 @@ pub async fn lire_tete(
         .transpose()
 }
 
-/// Lit au plus `limite` entrées de la chaîne de `portee` dont le rang dépasse `apres`, dans
-/// l'ordre des rangs (rôle de lecture d'audit). Pagination imposée (F2.9).
+/// Lit au plus `limite` entrées de la chaîne de `portee` dont le rang dépasse `apres` et, si
+/// `jusqu_a` est donné, ne dépasse pas ce rang (celui de la tête lue dans le même instantané),
+/// dans l'ordre des rangs (rôle de lecture d'audit). Pagination imposée (F2.9).
 ///
 /// # Errors
 /// Portée hors du contexte, donnée invalide, erreur de PostgreSQL.
@@ -262,18 +263,22 @@ pub async fn lire_page(
     tx: &mut TransactionTenant,
     portee_audit: PorteeAudit,
     apres: u64,
+    jusqu_a: Option<u64>,
     limite: u32,
 ) -> Result<Vec<LigneAudit>, ErreurBase> {
     portee_integrite(tx, portee_audit)?;
     let cabinet = tx.contexte().id_cabinet().uuid();
     let apres = rang_base(apres)?;
+    let jusqu_a = jusqu_a.map(rang_base).transpose()?;
     let limite = i64::from(limite);
     let lignes: Vec<(i64, String, Vec<u8>)> = match portee_audit {
         PorteeAudit::Cabinet => sqlx::query!(
             "SELECT rang, contenu, empreinte FROM audit_cabinet \
-             WHERE cabinet_id = $1 AND rang > $2 ORDER BY rang LIMIT $3",
+             WHERE cabinet_id = $1 AND rang > $2 AND ($3::bigint IS NULL OR rang <= $3) \
+             ORDER BY rang LIMIT $4",
             cabinet,
             apres,
+            jusqu_a,
             limite,
         )
         .fetch_all(tx.connexion())
@@ -283,10 +288,12 @@ pub async fn lire_page(
         .collect(),
         PorteeAudit::Dossier(dossier) => sqlx::query!(
             "SELECT rang, contenu, empreinte FROM audit_dossier \
-             WHERE cabinet_id = $1 AND dossier_id = $2 AND rang > $3 ORDER BY rang LIMIT $4",
+             WHERE cabinet_id = $1 AND dossier_id = $2 AND rang > $3 \
+               AND ($4::bigint IS NULL OR rang <= $4) ORDER BY rang LIMIT $5",
             cabinet,
             dossier.uuid(),
             apres,
+            jusqu_a,
             limite,
         )
         .fetch_all(tx.connexion())

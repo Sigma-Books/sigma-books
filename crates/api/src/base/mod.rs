@@ -397,7 +397,33 @@ pub async fn ouvrir_transaction(
     pool: &PgPool,
     contexte: ContexteTenant,
 ) -> Result<TransactionTenant, ErreurBase> {
-    let mut tx = pool.begin().await?;
+    let tx = pool.begin().await?;
+    poser_contexte(tx, contexte).await
+}
+
+/// Ouvre une transaction de **lecture seule** à instantané unique (`REPEATABLE READ READ
+/// ONLY`) et y pose le contexte de tenant : toutes ses lectures voient le même état validé.
+///
+/// Sert aux lectures du journal d'audit (consultation, vérification, export, ADR 0014) : une
+/// action validée entre la lecture de la tête et celle des entrées ne peut pas faire croire à
+/// une chaîne rompue. Le texte de `BEGIN` est constant.
+///
+/// # Errors
+/// Connexion indisponible ou erreur de PostgreSQL.
+pub async fn ouvrir_transaction_lecture(
+    pool: &PgPool,
+    contexte: ContexteTenant,
+) -> Result<TransactionTenant, ErreurBase> {
+    let tx = pool
+        .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .await?;
+    poser_contexte(tx, contexte).await
+}
+
+async fn poser_contexte(
+    mut tx: Transaction<'static, Postgres>,
+    contexte: ContexteTenant,
+) -> Result<TransactionTenant, ErreurBase> {
     let cabinet = contexte.cabinet.to_string();
     // Dossier absent : chaîne vide, que les politiques lisent comme NULL (NULLIF).
     let dossier = contexte

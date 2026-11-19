@@ -119,6 +119,7 @@ pub async fn verifier_migrations(admin: &PgPool) {
 
 /// Un cabinet de test complet : un administrateur, un collaborateur, deux dossiers et
 /// l'affectation du collaborateur au premier dossier. Créé par le super-utilisateur.
+#[derive(Clone, Copy)]
 pub struct CabinetTest {
     pub cabinet: IdCabinet,
     pub administrateur: IdUtilisateur,

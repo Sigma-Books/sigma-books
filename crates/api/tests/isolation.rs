@@ -505,6 +505,45 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     )
     .await;
     assert_eq!(ids(&reponse), vec![b.dossier.to_string()]);
+
+    // Routes d'audit : la requête revérifie la portée. Le collaborateur, le valideur et
+    // l'auditeur n'obtiennent ni l'audit du cabinet (administrateur lu en base, ADR 0016) ni
+    // celui d'un dossier non affecté ; rien n'est inscrit pour un export refusé.
+    let routes_audit: Vec<&Route> = ROUTES
+        .iter()
+        .filter(|r| {
+            matches!(
+                r.cas_usage,
+                CasUsage::ConsulterAudit | CasUsage::VerifierAudit | CasUsage::ExporterAudit
+            )
+        })
+        .collect();
+    assert_eq!(routes_audit.len(), 6);
+    for route in routes_audit {
+        for utilisateur in [a.collaborateur, m.valideur, m.auditeur] {
+            let reponse = appel(
+                &routeur,
+                route,
+                &chemin(route, a.cabinet.uuid(), a.autre_dossier.uuid()),
+                Some(utilisateur),
+            )
+            .await;
+            verifier_absent(
+                &reponse,
+                &reference,
+                &format!("{} {} : Cedar forcé", route.methode.nom(), route.chemin),
+            );
+        }
+        // L'administrateur, lui, y accède.
+        let reponse = appel(
+            &routeur,
+            route,
+            &chemin(route, a.cabinet.uuid(), a.autre_dossier.uuid()),
+            Some(a.administrateur),
+        )
+        .await;
+        assert_eq!(reponse.statut, StatusCode::OK, "{}", route.chemin);
+    }
 }
 
 #[tokio::test]

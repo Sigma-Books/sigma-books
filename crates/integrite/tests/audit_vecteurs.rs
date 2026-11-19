@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 
 use integrite::Empreinte;
 use integrite::audit::{
-    Acteur, AnomalieAudit, ChaineAudit, EcrivainExportAudit, EntreeAudit, Portee, Texte, Uuid,
-    genese, verifier_export_audit,
+    Acteur, AnomalieAudit, AttentesAudit, ChaineAudit, EcrivainExportAudit, EntreeAudit, Portee,
+    Texte, Uuid, genese, verifier_export_audit,
 };
 
 const ENTREE_CABINET: &str = include_str!("vecteurs/audit-v1/entree-cabinet.txt");
@@ -80,7 +80,15 @@ fn entrees(export: &str) -> Vec<(String, Empreinte)> {
 #[test]
 fn export_du_dossier_verifie_et_regenere_a_l_identique() {
     let tete = Empreinte::parse(TETE_DOSSIER).unwrap();
-    let rapport = verifier_export_audit(EXPORT_DOSSIER.as_bytes(), Some(&tete)).unwrap();
+    let rapport = verifier_export_audit(
+        EXPORT_DOSSIER.as_bytes(),
+        &AttentesAudit {
+            tete: Some(tete),
+            cabinet: Some(Uuid::parse(CABINET).unwrap()),
+            dossier: Some(Uuid::parse(DOSSIER).unwrap()),
+        },
+    )
+    .unwrap();
     assert!(rapport.est_integre(), "{rapport}");
     assert_eq!(rapport.chaine.nombre, 3);
     assert_eq!(rapport.chaine.tete, tete);
@@ -116,7 +124,7 @@ fn un_octet_modifie_dans_le_vecteur_est_detecte() {
         ("reauthentification=oui", "reauthentification=non"),
     ] {
         let modifie = EXPORT_DOSSIER.replacen(avant, apres, 1);
-        let r = verifier_export_audit(modifie.as_bytes(), None).unwrap();
+        let r = verifier_export_audit(modifie.as_bytes(), &AttentesAudit::default()).unwrap();
         assert!(!r.est_integre(), "{avant}");
         assert!(
             r.chaine
