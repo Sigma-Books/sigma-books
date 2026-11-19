@@ -483,14 +483,21 @@ async fn un_export_de_dossier_ne_contient_rien_d_un_autre_dossier_ni_du_cabinet(
         .await
         .texte();
     assert!(texte.contains(&a1.to_string()));
-    for etranger in [
+    // Le message d'échec ne reprend pas la valeur cherchée (identifiants) : seulement son rang.
+    for (rang, etranger) in [
         a2.to_string(),
         b1.to_string(),
         b.cabinet.to_string(),
         "portee=cabinet".to_owned(),
         "Second".to_owned(),
-    ] {
-        assert!(!texte.contains(&etranger), "{etranger}");
+    ]
+    .iter()
+    .enumerate()
+    {
+        assert!(
+            !texte.contains(etranger.as_str()),
+            "valeur étrangère n° {rang} présente dans l'export"
+        );
     }
 }
 
