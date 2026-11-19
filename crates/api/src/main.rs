@@ -48,11 +48,11 @@ async fn demarrer() -> Result<(), String> {
     let config = Configuration::depuis_environnement().map_err(|e| e.to_string())?;
     let autorisation = Autorisation::charger().map_err(|e| e.to_string())?;
     // Le message d'une erreur de connexion ne cite pas l'URL (ni son mot de passe).
-    let pool = ouvrir_pool_application(&config.url_base, ReglagesPool::default())
+    let pool = ouvrir_pool_application(&config.base.url_application, ReglagesPool::default())
         .await
         .map_err(|e| format!("base de données : {e}"))?;
     let pool_lecture_audit =
-        ouvrir_pool_lecture_audit(&config.url_base_lecture_audit, ReglagesPool::default())
+        ouvrir_pool_lecture_audit(&config.base.url_lecture_audit, ReglagesPool::default())
             .await
             .map_err(|e| format!("base de données (lecture d'audit) : {e}"))?;
     let authentification = AuthentificationSession::new(

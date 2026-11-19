@@ -7,7 +7,8 @@
 //! traitée comme une panne : on passe à la suivante.
 //!
 //! Sortie réseau limitée (F6.4) :
-//! - destinations : la seule liste des autorités ([`Autorite`], lue dans la configuration) ;
+//! - destinations : la seule liste des autorités ([`Autorite`], lue dans la configuration,
+//!   [`config`]) ;
 //!   aucune redirection suivie (un 3xx est un échec), aucune URL issue d'une donnée ;
 //! - HTTP/1.1 en clair, une connexion par requête, sans mandataire ni réutilisation : seule
 //!   l'empreinte du témoin part (F6.3), et le jeton porte sa propre preuve (signature) ;
@@ -30,6 +31,7 @@
 //! [`EchecAutorite::issue`]). Jamais l'empreinte, ni le corps de la requête ou de la réponse.
 
 mod autorite;
+pub mod config;
 
 use std::time::{Duration, Instant};
 
