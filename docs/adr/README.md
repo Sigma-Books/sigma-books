@@ -21,5 +21,6 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0015 | Pièces justificatives en L2 | Acceptée |
 | 0016 | Consultation de l'audit : la portée cabinet est réservée à l'administrateur (précise l'ADR 0014) | Acceptée |
 | 0017 | Événements d'authentification hors cabinet et conservation des sessions (complète les ADR 0012 et 0014) | Acceptée |
+| 0018 | Passkeys : copie corrigée de `crypto-glue` en attendant sa version 0.2.3 | Acceptée |
 
 Modèle : copier `0000-modele.md`.
