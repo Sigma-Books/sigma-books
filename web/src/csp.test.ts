@@ -65,7 +65,12 @@ describe('CSP des pages compilées', { skip: avecBuild ? false : 'build/ absent'
 
 			const scripts = csp.get('script-src') ?? [];
 			assert.ok(scripts.every((s) => s === "'self'" || /^'sha256-[A-Za-z0-9+/=]+'$/.test(s)));
-			for (const [, inline] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) {
+			// Toute balise <script>, quelles que soient la casse et les attributs : un script inline
+			// (sans `src`) doit avoir son empreinte dans `script-src`.
+			for (const [, attributs, inline] of html.matchAll(
+				/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi
+			)) {
+				if (/\bsrc\s*=/i.test(attributs ?? '')) continue;
 				const empreinte = createHash('sha256')
 					.update(inline ?? '')
 					.digest('base64');
