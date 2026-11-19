@@ -3,14 +3,28 @@
 //! Intergiciels, de l'extérieur vers l'intérieur (chacun voit les réponses des suivants) :
 //! 1. [`journal::journaliser`] : identifiant de requête, durée, journal en liste blanche ;
 //! 2. [`entetes::securiser`] : en-têtes de sécurité sur toute réponse, erreurs comprises ;
-//! 3. délai d'expiration du traitement (503) ;
-//! 4. limitation de débit par adresse (429) et taille maximale du corps (413) ;
-//! 5. [`csrf::proteger`] : anti-CSRF des mutations, avant toute authentification (403) ;
-//! 6. routeur : table [`routes::ROUTES`] et [`pipeline`], sinon 404 uniforme sous `/api`, sinon
-//!    fichiers statiques de l'interface.
+//! 3. [`uniformiser`] : toute réponse d'erreur qui ne vient pas de [`ErreurApi`] (rejet d'un
+//!    extracteur d'`axum`, limite de `tower-http`, fichier statique) reçoit le corps uniforme ;
+//! 4. capture des paniques (`CatchPanicLayer`) : 500 au corps uniforme, catégorie `panique` ;
+//! 5. délai d'expiration du traitement (503) ;
+//! 6. limitation de débit par adresse (429) et taille **annoncée** du corps (413) ;
+//! 7. [`csrf::proteger`] : anti-CSRF des mutations, avant toute authentification (403) ;
+//! 8. taille **lue** du corps (`RequestBodyLimitLayer`) : un corps sans `Content-Length`
+//!    (envoyé par morceaux) est coupé à la même limite ;
+//! 9. routeur : table [`routes::ROUTES`] et [`pipeline`], sinon 404 uniforme sous `/api`, sinon
+//!    fichiers statiques de l'interface. Aucune route n'est déclarée hors de la table (test
+//!    structurel `tests/structure.rs`).
 //!
 //! Les limites de la couche HTTP (taille et nombre des en-têtes, délai de lecture des en-têtes)
-//! sont posées sur la connexion par [`servir`] (431, fermeture).
+//! sont posées sur la connexion par [`servir`].
+//!
+//! # Limites connues
+//! - Les réponses que `hyper` émet lui-même, **avant** le routeur (431 pour des en-têtes trop
+//!   grands ou trop nombreux, 400 pour une requête qu'il ne sait pas analyser), partent **sans**
+//!   les en-têtes de sécurité ni le corps uniforme, et sans ligne de journal : elles ne portent
+//!   aucune donnée, et la connexion est fermée.
+//! - Le nombre de connexions simultanées n'est pas borné ici : cette limite revient au
+//!   mandataire inverse (Fondations §3.3, L9), comme la terminaison TLS.
 
 pub mod authentification;
 pub mod config;
@@ -42,6 +56,8 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tower::ServiceExt;
+use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 
 pub use authentification::{Authentification, Identite, RefusTotal};
 pub use erreur::{CategorieErreur, ErreurApi};
@@ -166,8 +182,15 @@ pub fn routeur(etat: &Etat) -> Router {
         Some(repertoire) => routeur.fallback_service(statique::service(repertoire)),
         None => routeur.fallback(introuvable),
     };
+    envelopper(routeur, etat)
+}
+
+/// Pose les intergiciels, dans l'ordre documenté en tête du module.
+fn envelopper(routeur: Router, etat: &Etat) -> Router {
+    let taille = etat.reglages.taille_corps_max;
     routeur
-        .layer(DefaultBodyLimit::max(etat.reglages.taille_corps_max))
+        .layer(DefaultBodyLimit::max(taille))
+        .layer(RequestBodyLimitLayer::new(taille))
         .layer(middleware::from_fn_with_state(
             Arc::clone(etat),
             csrf::proteger,
@@ -177,8 +200,33 @@ pub fn routeur(etat: &Etat) -> Router {
             Arc::clone(etat),
             borner_duree,
         ))
+        .layer(CatchPanicLayer::custom(reponse_de_panique))
+        .layer(middleware::from_fn(uniformiser))
         .layer(middleware::from_fn(entetes::securiser))
         .layer(middleware::from_fn(journal::journaliser))
+}
+
+/// Réponse à une panique : 500 uniforme. Le message de la panique n'est ni renvoyé ni journalisé
+/// (il pourrait citer des données, F2.11).
+fn reponse_de_panique(_panique: Box<dyn std::any::Any + Send + 'static>) -> Response {
+    ErreurApi::Interne(CategorieErreur::Panique).into_response()
+}
+
+/// Remplace le corps de toute réponse d'erreur (4xx, 5xx) qui ne vient pas de [`ErreurApi`]
+/// par le corps uniforme du même statut : aucun texte d'`axum` ni de `tower-http` (qui peut
+/// citer l'entrée) ne sort.
+async fn uniformiser(requete: Request, suivant: Next) -> Response {
+    let reponse = suivant.run(requete).await;
+    let statut = reponse.status();
+    if (statut.is_client_error() || statut.is_server_error())
+        && reponse
+            .extensions()
+            .get::<erreur::CorpsUniforme>()
+            .is_none()
+    {
+        return erreur::pour_statut(statut);
+    }
+    reponse
 }
 
 async fn introuvable() -> ErreurApi {
@@ -273,5 +321,82 @@ pub async fn servir(
             // Une connexion en erreur (client parti, en-têtes trop grands) ne concerne qu'elle.
             let _ = connexion.await;
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::Bytes;
+    use axum::routing::post;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn un_corps_par_morceaux_sans_longueur_est_coupe_a_la_limite() {
+        let mut reglages = Reglages::new("https://sigma.exemple.invalid".to_owned());
+        reglages.taille_corps_max = 1024;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://sigma_inexistant@127.0.0.1:1/sigma_inexistante")
+            .unwrap();
+        let etat = Application::new(
+            pool,
+            Arc::new(authz::Autorisation::charger().unwrap()),
+            Arc::new(RefusTotal),
+            reglages.clone(),
+        );
+        // Route de test qui lit le corps (aucune route de la table n'en lit en PR 6).
+        let routeur = envelopper(
+            Router::new().route(
+                "/api/essai",
+                post(|corps: Bytes| async move { corps.len().to_string() }),
+            ),
+            &etat,
+        );
+        let ecouteur = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let adresse = ecouteur.local_addr().unwrap();
+        let (arreter, arret) = tokio::sync::oneshot::channel::<()>();
+        let serveur = tokio::spawn(async move {
+            servir(ecouteur, routeur, &reglages, async {
+                let _ = arret.await;
+            })
+            .await
+        });
+
+        let envoyer = |morceaux: usize| async move {
+            let mut flux = tokio::net::TcpStream::connect(adresse).await.unwrap();
+            let mut requete = String::from(
+                "POST /api/essai HTTP/1.1\r\nHost: x\r\nx-sigma-csrf: 1\r\n\
+                 Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            );
+            for _ in 0..morceaux {
+                requete.push_str("100\r\n");
+                requete.push_str(&"a".repeat(256));
+                requete.push_str("\r\n");
+            }
+            requete.push_str("0\r\n\r\n");
+            // Le serveur peut fermer avant la fin de l'envoi : l'erreur d'écriture est attendue.
+            let _ = flux.write_all(requete.as_bytes()).await;
+            let mut reponse = Vec::new();
+            let _ = flux.read_to_end(&mut reponse).await;
+            String::from_utf8_lossy(&reponse).into_owned()
+        };
+        // 4 × 256 octets : à la limite, admis.
+        let reponse = envoyer(4).await;
+        assert!(reponse.starts_with("HTTP/1.1 200"), "{reponse}");
+        // 8 × 256 octets sans Content-Length : 413 au corps uniforme, en-têtes de sécurité.
+        let reponse = envoyer(8).await;
+        assert!(reponse.starts_with("HTTP/1.1 413"), "{reponse}");
+        assert!(
+            reponse.ends_with("{\"erreur\":\"corps_trop_grand\"}"),
+            "{reponse}"
+        );
+        assert!(
+            reponse.contains("x-content-type-options: nosniff"),
+            "{reponse}"
+        );
+
+        arreter.send(()).unwrap();
+        serveur.await.unwrap().unwrap();
     }
 }

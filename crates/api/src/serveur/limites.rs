@@ -2,26 +2,30 @@
 //!
 //! Fenêtre fixe par clé : au plus `capacite` requêtes par `periode`. Deux limiteurs : par adresse
 //! du client (avant toute autre étape) et par utilisateur authentifié (juste après
-//! l'authentification). Simple et local à une instance : la limitation globale et la protection
-//! contre une inondation distribuée relèvent du mandataire inverse (Fondations §3.3, L9).
+//! l'authentification). Simple et local à une instance : la limitation globale, le nombre de
+//! connexions et la protection contre une inondation distribuée relèvent du mandataire inverse
+//! (Fondations §3.3, L9).
 //!
-//! Mémoire bornée : au-delà de `cles_max` clés, les fenêtres échues sont purgées ; si la table
-//! reste pleine, toute **nouvelle** clé est refusée (refus en cas de doute) jusqu'à la purge
-//! suivante, tandis que les clés déjà connues gardent leur quota.
+//! **Mémoire et coût bornés** : au plus `cles_max` clés. Table pleine, une nouvelle clé déclenche
+//! d'abord la purge des fenêtres échues, **au plus une fois par période** (instant de la dernière
+//! purge conservé) ; si la table reste pleine, les fenêtres **les plus anciennes** sont évincées
+//! dans l'ordre de leur ouverture (file, coût amorti constant). Un nouveau client n'est donc
+//! jamais refusé parce que la table est pleine ; en contrepartie, sous une inondation de clés
+//! distinctes, une clé évincée retrouve un quota neuf : ce cas relève du mandataire (L9).
 //!
 //! Adresse du client : celle de la connexion TCP. Derrière un mandataire inverse (L9), elle
 //! viendra d'un en-tête de confiance configurable (`SIGMA_EN_TETE_ADRESSE_CLIENT`), **désactivé
 //! par défaut** : sans mandataire, un client forgerait cet en-tête pour changer de quota.
 //! Une adresse IPv6 compte pour son préfixe /64, attribué d'ordinaire à un seul abonné.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use axum::extract::ConnectInfo;
-use axum::http::{HeaderMap, HeaderName, Request};
+use axum::http::{HeaderName, Request};
 
 /// Réglage d'un limiteur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,11 +44,22 @@ struct Fenetre {
     compte: u32,
 }
 
+#[derive(Debug)]
+struct Table<K> {
+    fenetres: HashMap<K, Fenetre>,
+    /// Ouvertures de fenêtres, de la plus ancienne à la plus récente. Une entrée dont la
+    /// fenêtre a depuis été renouvelée (début différent) est périmée et ignorée.
+    ordre: VecDeque<(K, Instant)>,
+    derniere_purge: Option<Instant>,
+    /// Entrées examinées par la purge et l'éviction (mesure du coût, pour les tests).
+    examinees: u64,
+}
+
 /// Limiteur de débit à fenêtre fixe, par clé.
 #[derive(Debug)]
 pub struct LimiteurDebit<K> {
     reglage: ReglageDebit,
-    fenetres: Mutex<HashMap<K, Fenetre>>,
+    table: Mutex<Table<K>>,
 }
 
 impl<K: Eq + Hash + Copy> LimiteurDebit<K> {
@@ -53,7 +68,12 @@ impl<K: Eq + Hash + Copy> LimiteurDebit<K> {
     pub fn new(reglage: ReglageDebit) -> Self {
         Self {
             reglage,
-            fenetres: Mutex::new(HashMap::new()),
+            table: Mutex::new(Table {
+                fenetres: HashMap::new(),
+                ordre: VecDeque::new(),
+                derniere_purge: None,
+                examinees: 0,
+            }),
         }
     }
 
@@ -65,23 +85,24 @@ impl<K: Eq + Hash + Copy> LimiteurDebit<K> {
     pub fn verifier(&self, cle: K, maintenant: Instant) -> Result<(), u64> {
         let periode = self.reglage.periode;
         // Un verrou empoisonné ne protège qu'un compteur : on reprend son contenu.
-        let mut fenetres = self.fenetres.lock().unwrap_or_else(PoisonError::into_inner);
-        if !fenetres.contains_key(&cle) && fenetres.len() >= self.reglage.cles_max {
-            fenetres.retain(|_, f| maintenant.saturating_duration_since(f.debut) < periode);
-            if fenetres.len() >= self.reglage.cles_max {
-                return Err(secondes_restantes(periode));
-            }
+        let mut table = self.table.lock().unwrap_or_else(PoisonError::into_inner);
+        let table = &mut *table;
+        if !table.fenetres.contains_key(&cle) && table.fenetres.len() >= self.reglage.cles_max {
+            self.faire_place(table, maintenant);
         }
-        let fenetre = fenetres.entry(cle).or_insert(Fenetre {
-            debut: maintenant,
-            compte: 0,
+        let fenetre = table.fenetres.entry(cle).or_insert_with(|| {
+            table.ordre.push_back((cle, maintenant));
+            Fenetre {
+                debut: maintenant,
+                compte: 0,
+            }
         });
-        let ecoule = maintenant.saturating_duration_since(fenetre.debut);
-        if ecoule >= periode {
+        if maintenant.saturating_duration_since(fenetre.debut) >= periode {
             *fenetre = Fenetre {
                 debut: maintenant,
                 compte: 0,
             };
+            table.ordre.push_back((cle, maintenant));
         }
         if fenetre.compte >= self.reglage.capacite {
             return Err(secondes_restantes(periode.saturating_sub(
@@ -90,6 +111,43 @@ impl<K: Eq + Hash + Copy> LimiteurDebit<K> {
         }
         fenetre.compte += 1;
         Ok(())
+    }
+
+    /// Libère au moins une place : purge des fenêtres échues (au plus une fois par période),
+    /// puis éviction des plus anciennes.
+    fn faire_place(&self, table: &mut Table<K>, maintenant: Instant) {
+        let periode = self.reglage.periode;
+        let purge_due = table
+            .derniere_purge
+            .is_none_or(|purge| maintenant.saturating_duration_since(purge) >= periode);
+        if purge_due {
+            table.derniere_purge = Some(maintenant);
+            table.examinees += table.fenetres.len() as u64;
+            table
+                .fenetres
+                .retain(|_, f| maintenant.saturating_duration_since(f.debut) < periode);
+            let fenetres = &table.fenetres;
+            table
+                .ordre
+                .retain(|(k, debut)| fenetres.get(k).is_some_and(|f| f.debut == *debut));
+        }
+        while table.fenetres.len() >= self.reglage.cles_max {
+            let Some((k, debut)) = table.ordre.pop_front() else {
+                break;
+            };
+            table.examinees += 1;
+            if table.fenetres.get(&k).is_some_and(|f| f.debut == debut) {
+                table.fenetres.remove(&k);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn examinees(&self) -> u64 {
+        self.table
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .examinees
     }
 }
 
@@ -124,14 +182,16 @@ impl CleAdresse {
     }
 }
 
-/// Adresse du client d'une requête : en-tête de confiance s'il est configuré (dernière adresse
-/// valide de la liste, celle qu'ajoute le mandataire), sinon adresse de la connexion.
+/// Adresse du client d'une requête : en-tête de confiance s'il est configuré, sinon adresse de
+/// la connexion. De l'en-tête, seul compte **strictement le dernier élément** de sa dernière
+/// occurrence, celui qu'ajoute le mandataire ; s'il n'est pas une adresse valide, l'adresse de
+/// la connexion fait foi (jamais un élément antérieur, que le client peut forger).
 pub fn adresse_client<B>(
     requete: &Request<B>,
     en_tete_confiance: Option<&HeaderName>,
 ) -> CleAdresse {
     if let Some(nom) = en_tete_confiance
-        && let Some(ip) = derniere_adresse(requete.headers(), nom)
+        && let Some(ip) = derniere_adresse(requete, nom)
     {
         return CleAdresse::depuis(ip);
     }
@@ -143,14 +203,10 @@ pub fn adresse_client<B>(
         })
 }
 
-fn derniere_adresse(entetes: &HeaderMap, nom: &HeaderName) -> Option<IpAddr> {
-    entetes
-        .get_all(nom)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .filter_map(|v| v.trim().parse::<IpAddr>().ok())
-        .next_back()
+fn derniere_adresse(requete: &Request<impl Sized>, nom: &HeaderName) -> Option<IpAddr> {
+    let valeur = requete.headers().get_all(nom).iter().next_back()?;
+    let dernier = valeur.to_str().ok()?.rsplit(',').next()?;
+    dernier.trim().parse().ok()
 }
 
 #[cfg(test)]
@@ -178,14 +234,56 @@ mod tests {
     }
 
     #[test]
-    fn la_table_pleine_refuse_les_nouvelles_cles_jusqu_a_la_purge() {
-        let limiteur = LimiteurDebit::new(reglage(5, 2));
+    fn table_pleine_un_nouveau_client_passe_et_le_cout_reste_borne() {
+        const CLES: usize = 10_000;
+        let limiteur = LimiteurDebit::new(reglage(5, CLES));
         let t0 = Instant::now();
-        assert!(limiteur.verifier(1, t0).is_ok());
-        assert!(limiteur.verifier(2, t0).is_ok());
-        assert!(limiteur.verifier(3, t0).is_err());
-        assert!(limiteur.verifier(1, t0).is_ok(), "clé connue");
-        assert!(limiteur.verifier(3, t0 + Duration::from_secs(61)).is_ok());
+        for cle in 0..CLES {
+            assert!(limiteur.verifier(cle, t0).is_ok());
+        }
+        // Table pleine de fenêtres vivantes : chaque nouveau client passe (éviction des plus
+        // anciennes), sans reparcourir la table à chaque fois.
+        let avant = limiteur.examinees();
+        for cle in CLES..2 * CLES {
+            assert!(
+                limiteur.verifier(cle, t0 + Duration::from_secs(1)).is_ok(),
+                "{cle}"
+            );
+        }
+        let cout = limiteur.examinees() - avant;
+        // Une seule purge (CLES entrées) plus une éviction par nouvelle clé.
+        assert!(cout <= 3 * CLES as u64, "coût {cout}");
+        // Les plus récentes gardent leur fenêtre (et leur compte) ; les plus anciennes sont parties.
+        let table = limiteur.table.lock().unwrap();
+        assert_eq!(table.fenetres.len(), CLES);
+        assert!(table.fenetres.contains_key(&(2 * CLES - 1)));
+        assert!(!table.fenetres.contains_key(&0));
+    }
+
+    #[test]
+    fn la_purge_n_a_lieu_qu_une_fois_par_periode() {
+        let limiteur = LimiteurDebit::new(reglage(5, 100));
+        let t0 = Instant::now();
+        for cle in 0..100 {
+            limiteur.verifier(cle, t0).unwrap();
+        }
+        limiteur.verifier(1000, t0).unwrap();
+        let apres_premiere = limiteur.examinees();
+        assert_eq!(apres_premiere, 100 + 1, "une purge, une éviction");
+        for cle in 1001..1050 {
+            limiteur.verifier(cle, t0 + Duration::from_secs(1)).unwrap();
+        }
+        assert_eq!(
+            limiteur.examinees() - apres_premiere,
+            49,
+            "évictions seules"
+        );
+        // Période écoulée : nouvelle purge, qui libère les fenêtres échues.
+        limiteur
+            .verifier(2000, t0 + Duration::from_secs(61))
+            .unwrap();
+        let table = limiteur.table.lock().unwrap();
+        assert!(table.fenetres.len() <= 51, "{}", table.fenetres.len());
     }
 
     #[test]
@@ -204,6 +302,34 @@ mod tests {
         let nom = HeaderName::from_static("x-forwarded-for");
         assert_eq!(
             adresse_client(&requete, Some(&nom)),
+            CleAdresse::Ip("203.0.113.9".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn seul_le_dernier_element_de_l_en_tete_de_confiance_compte() {
+        let nom = HeaderName::from_static("x-forwarded-for");
+        let connexion = CleAdresse::Ip("192.0.2.7".parse().unwrap());
+        let cle = |valeurs: &[&str]| {
+            let mut requete = Request::builder();
+            for v in valeurs {
+                requete = requete.header("x-forwarded-for", *v);
+            }
+            let mut requete = requete.body(()).unwrap();
+            requete
+                .extensions_mut()
+                .insert(ConnectInfo::<SocketAddr>("192.0.2.7:4000".parse().unwrap()));
+            adresse_client(&requete, Some(&nom))
+        };
+        // Dernier élément invalide ou vide : adresse de la connexion, jamais un élément antérieur
+        // (forgeable par le client).
+        assert_eq!(cle(&["198.51.100.1, pas-une-adresse"]), connexion);
+        assert_eq!(cle(&["198.51.100.1,"]), connexion);
+        assert_eq!(cle(&["198.51.100.1", "inconnue"]), connexion);
+        assert_eq!(cle(&[]), connexion);
+        // Dernière occurrence, dernier élément.
+        assert_eq!(
+            cle(&["198.51.100.1", "203.0.113.5, 203.0.113.9"]),
             CleAdresse::Ip("203.0.113.9".parse().unwrap())
         );
     }

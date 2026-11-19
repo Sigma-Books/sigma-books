@@ -47,6 +47,10 @@ pub enum CategorieErreur {
     Donnee,
     /// Échec de l'authentification elle-même (pas un refus).
     Authentification,
+    /// Panique capturée (le message n'est jamais recopié).
+    Panique,
+    /// Erreur d'une couche (`axum`, `tower-http`) remplacée par le corps uniforme.
+    Couche,
 }
 
 impl CategorieErreur {
@@ -57,6 +61,8 @@ impl CategorieErreur {
             Self::Base => "base",
             Self::Donnee => "donnee",
             Self::Authentification => "authentification",
+            Self::Panique => "panique",
+            Self::Couche => "couche",
         }
     }
 }
@@ -103,6 +109,30 @@ impl From<crate::base::ErreurBase> for ErreurApi {
     }
 }
 
+/// Marque d'une réponse au corps uniforme, posée par [`ErreurApi`] : les autres réponses
+/// d'erreur sont réécrites par l'intergiciel `uniformiser`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CorpsUniforme;
+
+/// Réponse uniforme pour un statut d'erreur produit hors d'[`ErreurApi`] : l'erreur
+/// correspondante si elle existe, sinon le statut d'origine avec le code générique de sa classe.
+pub(crate) fn pour_statut(statut: StatusCode) -> Response {
+    let erreur = match statut {
+        StatusCode::BAD_REQUEST => ErreurApi::RequeteInvalide,
+        StatusCode::UNAUTHORIZED => ErreurApi::NonAuthentifie,
+        StatusCode::FORBIDDEN => ErreurApi::Interdit,
+        StatusCode::NOT_FOUND => ErreurApi::Introuvable,
+        StatusCode::METHOD_NOT_ALLOWED => ErreurApi::MethodeNonAdmise,
+        StatusCode::PAYLOAD_TOO_LARGE => ErreurApi::CorpsTropGrand,
+        StatusCode::SERVICE_UNAVAILABLE => ErreurApi::DelaiDepasse,
+        s if s.is_server_error() => ErreurApi::Interne(CategorieErreur::Couche),
+        _ => ErreurApi::RequeteInvalide,
+    };
+    let mut reponse = erreur.into_response();
+    *reponse.status_mut() = statut;
+    reponse
+}
+
 #[derive(Serialize)]
 struct Corps {
     erreur: &'static str,
@@ -125,6 +155,7 @@ impl IntoResponse for ErreurApi {
         if let Self::Interne(categorie) = self {
             reponse.extensions_mut().insert(categorie);
         }
+        reponse.extensions_mut().insert(CorpsUniforme);
         reponse
     }
 }

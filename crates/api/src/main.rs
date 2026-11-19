@@ -20,6 +20,14 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // Une panique (capturée par le serveur : 500 uniforme) ne recopie pas son message, qui
+    // pourrait citer des données (F2.11) : seul son emplacement dans le code est écrit.
+    std::panic::set_hook(Box::new(|info| {
+        let lieu = info
+            .location()
+            .map_or_else(String::new, |l| format!(" ({}:{})", l.file(), l.line()));
+        eprintln!("api : panique{lieu}");
+    }));
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_target(false))
         .with(journal::filtre())

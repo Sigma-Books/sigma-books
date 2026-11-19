@@ -19,7 +19,8 @@ use axum::extract::{MatchedPath, Request};
 use axum::http::{HeaderName, HeaderValue, Method};
 use axum::middleware::Next;
 use axum::response::Response;
-use tracing_subscriber::filter::{LevelFilter, Targets};
+use tracing::{Level, Metadata};
+use tracing_subscriber::filter::FilterFn;
 use uuid::Uuid;
 
 use super::erreur::CategorieErreur;
@@ -43,12 +44,15 @@ pub const CHAMPS: &[&str] = &[
 /// En-tête de réponse qui porte l'identifiant de la requête.
 pub const EN_TETE_REQUETE: HeaderName = HeaderName::from_static("x-sigma-requete");
 
-/// Filtre des journaux : la cible [`CIBLE`] au niveau `INFO`, rien d'autre.
+/// Filtre des journaux : la cible [`CIBLE`] **exactement** (pas `sigma_…` ni `sigma::…`, qu'une
+/// dépendance pourrait utiliser), au niveau `INFO` ou plus grave ; rien d'autre.
 #[must_use]
-pub fn filtre() -> Targets {
-    Targets::new()
-        .with_target(CIBLE, LevelFilter::INFO)
-        .with_default(LevelFilter::OFF)
+pub fn filtre() -> FilterFn<fn(&Metadata<'_>) -> bool> {
+    FilterFn::new(admis)
+}
+
+fn admis(metadonnees: &Metadata<'_>) -> bool {
+    metadonnees.target() == CIBLE && *metadonnees.level() <= Level::INFO
 }
 
 /// Modèle de route d'une requête statique (fichiers de l'interface).
@@ -101,4 +105,43 @@ pub async fn journaliser(requete: Request, suivant: Next) -> Response {
         reponse.headers_mut().insert(EN_TETE_REQUETE, valeur);
     }
     reponse
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seule_la_cible_exacte_passe_le_filtre() {
+        use tracing::callsite::Identifier;
+        use tracing::field::FieldSet;
+        use tracing::metadata::Kind;
+
+        struct Site;
+        impl tracing::Callsite for Site {
+            fn set_interest(&self, _: tracing::subscriber::Interest) {}
+            fn metadata(&self) -> &Metadata<'_> {
+                unreachable!()
+            }
+        }
+        static SITE: Site = Site;
+        let meta = |cible: &'static str, niveau: Level| {
+            Metadata::new(
+                "e",
+                cible,
+                niveau,
+                None,
+                None,
+                None,
+                FieldSet::new(&[], Identifier(&SITE)),
+                Kind::EVENT,
+            )
+        };
+        assert!(admis(&meta("sigma", Level::INFO)));
+        assert!(admis(&meta("sigma", Level::WARN)));
+        assert!(!admis(&meta("sigma", Level::DEBUG)));
+        for cible in ["sigma::requete", "sigma_tiers", "sqlx::query", "api"] {
+            assert!(!admis(&meta(cible, Level::INFO)), "{cible}");
+        }
+    }
 }

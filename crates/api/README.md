@@ -104,4 +104,5 @@ Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/p
 1. Une entrée dans `ROUTES` (`src/serveur/routes.rs`) : méthode, chemin avec `{cabinet}` (et
    `{dossier}`), action Cedar, portée, cas d'usage. Aucune route hors de cette table.
 2. Ses cas dans `attentes` (`tests/isolation.rs`) : sans eux, le test « chaque route » échoue.
+   Une route déclarée hors de la table fait échouer `tests/structure.rs`.
 3. Une mutation écrit dans le journal d'audit, dans la transaction du pipeline (PR 7).

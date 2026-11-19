@@ -228,15 +228,21 @@ pub async fn lire_dossier_visible(
     }))
 }
 
-/// Lit le cabinet du contexte.
+/// Lit le cabinet du contexte, s'il compte l'utilisateur du contexte parmi ses membres
+/// **actifs** : sinon il est absent, comme celui d'autrui (appartenance suspendue, ADR 0014).
 ///
 /// # Errors
 /// Erreur de PostgreSQL.
 pub async fn lire_cabinet(tx: &mut TransactionTenant) -> Result<Option<Cabinet>, ErreurBase> {
     let cabinet = tx.contexte().id_cabinet().uuid();
+    let utilisateur = tx.contexte().id_utilisateur().uuid();
     let ligne = sqlx::query!(
-        "SELECT id, nom, separation_taches, cree_le FROM cabinet WHERE id = $1",
+        "SELECT c.id, c.nom, c.separation_taches, c.cree_le FROM cabinet c \
+         WHERE c.id = $1 AND EXISTS ( \
+             SELECT 1 FROM appartenance a \
+             WHERE a.cabinet_id = c.id AND a.utilisateur_id = $2 AND a.actif)",
         cabinet,
+        utilisateur,
     )
     .fetch_optional(tx.connexion())
     .await?;

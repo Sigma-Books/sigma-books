@@ -1,7 +1,8 @@
 //! Anti-CSRF des mutations (F1.4 ; ADR 0012 ; ASVS 4.0.3 V4.2.2, V13.2.3).
 //!
-//! Toute requête `POST`, `PUT`, `PATCH` ou `DELETE` est refusée (403), **avant même
-//! l'authentification**, si :
+//! Toute **mutation**, c'est-à-dire toute méthode autre que `GET`, `HEAD` et `OPTIONS` (comparées
+//! sans tenir compte de la casse : `POST`, `PUT`, `PATCH`, `DELETE`, mais aussi toute méthode
+//! d'extension), est refusée (403), **avant même l'authentification**, si :
 //! 1. `Sec-Fetch-Site` est présent et différent de `same-origin` (requête venue d'un autre site,
 //!    d'un sous-domaine, ou d'une navigation directe) ;
 //! 2. `Origin` est présent et différent de l'origine configurée de l'instance ;
@@ -26,14 +27,14 @@ pub const EN_TETE_CSRF: HeaderName = HeaderName::from_static("x-sigma-csrf");
 
 const SEC_FETCH_SITE: HeaderName = HeaderName::from_static("sec-fetch-site");
 
-/// Vrai pour une méthode qui modifie l'état (toutes les autres sont refusées par le routeur
-/// ou n'ont aucun effet).
+/// Vrai pour toute méthode autre que `GET`, `HEAD` et `OPTIONS`, sans tenir compte de la casse
+/// (refus en cas de doute : une méthode inconnue est traitée comme une mutation).
 #[must_use]
 pub fn est_mutation(methode: &Method) -> bool {
-    matches!(
-        *methode,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    )
+    let nom = methode.as_str();
+    !["GET", "HEAD", "OPTIONS"]
+        .iter()
+        .any(|sure| nom.eq_ignore_ascii_case(sure))
 }
 
 /// Vrai si la mutation porte les marques d'une requête de la même origine.
@@ -61,4 +62,23 @@ pub async fn proteger(State(etat): State<Etat>, requete: Request, suivant: Next)
         return ErreurApi::Interdit.into_response();
     }
     suivant.run(requete).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toute_methode_hors_get_head_options_est_une_mutation() {
+        let methode = |nom: &str| Method::from_bytes(nom.as_bytes()).unwrap();
+        for sure in ["GET", "HEAD", "OPTIONS", "get", "Head", "options"] {
+            assert!(!est_mutation(&methode(sure)), "{sure}");
+        }
+        for mutation in [
+            "POST", "PUT", "PATCH", "DELETE", "post", "Delete", "PROPFIND", "MKCOL", "CONNECT",
+            "TRACE", "GETX",
+        ] {
+            assert!(est_mutation(&methode(mutation)), "{mutation}");
+        }
+    }
 }

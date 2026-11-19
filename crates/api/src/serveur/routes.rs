@@ -15,7 +15,7 @@ use axum::routing::MethodFilter;
 use serde::Serialize;
 
 use super::erreur::ErreurApi;
-use super::pipeline::Garde;
+use super::pipeline::{CabinetAutorise, DossierAutorise, Garde};
 use crate::base::TransactionTenant;
 use crate::base::organisation::{lire_cabinet, lire_dossier_visible, lister_dossiers_visibles};
 
@@ -116,11 +116,32 @@ struct VueCabinet {
     separation_taches: bool,
 }
 
-/// Vue d'un dossier.
+/// Vue d'un dossier : ne se construit que depuis un [`DossierAutorise`], que seule la [`Garde`]
+/// fabrique.
 #[derive(Debug, Serialize)]
 struct VueDossier {
     id: String,
     nom: String,
+}
+
+impl From<DossierAutorise> for VueDossier {
+    fn from(dossier: DossierAutorise) -> Self {
+        Self {
+            id: dossier.id().to_string(),
+            nom: dossier.nom().to_owned(),
+        }
+    }
+}
+
+impl From<CabinetAutorise> for VueCabinet {
+    fn from(autorise: CabinetAutorise) -> Self {
+        let cabinet = autorise.cabinet();
+        Self {
+            id: cabinet.id.to_string(),
+            nom: cabinet.nom.clone(),
+            separation_taches: cabinet.separation_taches,
+        }
+    }
 }
 
 /// Exécute un cas d'usage dans la transaction du pipeline.
@@ -132,24 +153,12 @@ pub(crate) async fn executer(
     match cas {
         CasUsage::LireCabinet => {
             let cabinet = lire_cabinet(tx).await?.ok_or(ErreurApi::Introuvable)?;
-            Ok(Json(VueCabinet {
-                id: cabinet.id.to_string(),
-                nom: cabinet.nom,
-                separation_taches: cabinet.separation_taches,
-            })
-            .into_response())
+            Ok(Json(VueCabinet::from(garde.cabinet_du_chemin(cabinet)?)).into_response())
         }
         CasUsage::ListerDossiers => {
             // Filtre de la requête (affectation), puis décision Cedar pour chaque dossier.
-            let mut vues = Vec::new();
-            for visible in lister_dossiers_visibles(tx).await? {
-                if garde.autorise_dossier(visible.dossier.id, visible.acces.as_ref())? {
-                    vues.push(VueDossier {
-                        id: visible.dossier.id.to_string(),
-                        nom: visible.dossier.nom,
-                    });
-                }
-            }
+            let autorises = garde.filtrer(lister_dossiers_visibles(tx).await?)?;
+            let vues: Vec<VueDossier> = autorises.into_iter().map(VueDossier::from).collect();
             Ok(Json(vues).into_response())
         }
         CasUsage::LireDossier => {
@@ -157,11 +166,7 @@ pub(crate) async fn executer(
             let dossier = lire_dossier_visible(tx, id)
                 .await?
                 .ok_or(ErreurApi::Introuvable)?;
-            Ok(Json(VueDossier {
-                id: dossier.id.to_string(),
-                nom: dossier.nom,
-            })
-            .into_response())
+            Ok(Json(VueDossier::from(garde.dossier_du_chemin(dossier)?)).into_response())
         }
     }
 }

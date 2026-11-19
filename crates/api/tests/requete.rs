@@ -262,6 +262,11 @@ async fn les_fonctions_d_acces_visibles_filtrent_seules_par_tenant_et_affectatio
         .await
         .unwrap();
     assert!(!lire_appartenance(&mut tx).await.unwrap().unwrap().actif);
+    assert_eq!(
+        lire_cabinet(&mut tx).await.unwrap(),
+        None,
+        "cabinet d'un membre suspendu"
+    );
     assert_eq!(lister_dossiers_visibles(&mut tx).await.unwrap(), Vec::new());
     assert_eq!(
         lire_dossier_visible(&mut tx, a.dossier).await.unwrap(),

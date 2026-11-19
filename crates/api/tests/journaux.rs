@@ -8,14 +8,16 @@
 mod commun;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use api::base::IdUtilisateur;
-use api::serveur::{Reglages, routeur};
+use api::serveur::{Application, Reglages, routeur};
+use authz::Autorisation;
 use axum::body::Body;
 use axum::http::{Request, header};
 use commun::serveur::{
-    ORIGINE, appeler, application, capture_globale, champ, evenements_de, id_requete, lire,
-    pool_sans_base, verifier_liste_blanche,
+    AuthentificationTest, ORIGINE, appeler, application, capture_globale, champ, evenements_de,
+    id_requete, lire, pool_sans_base, verifier_liste_blanche,
 };
 use uuid::Uuid;
 
@@ -81,4 +83,36 @@ async fn les_journaux_ne_contiennent_que_la_liste_blanche() {
         .filter_map(|e| champ(e, "statut"))
         .collect();
     assert_eq!(statuts, ["401", "400", "200", "404", "403"]);
+}
+
+#[tokio::test]
+async fn une_panique_laisse_une_ligne_en_liste_blanche_sans_son_message() {
+    let capture = capture_globale();
+    let etat = Application::new(
+        pool_sans_base(),
+        Arc::new(Autorisation::charger().unwrap()),
+        Arc::new(AuthentificationTest {
+            delai: None,
+            panique: true,
+        }),
+        Reglages::new(ORIGINE.to_owned()),
+    );
+    let reponse = lire(
+        &routeur(&etat),
+        &format!("/api/cabinets/{}", Uuid::new_v4()),
+        None,
+    )
+    .await;
+    let evenements = evenements_de(capture, &[id_requete(&reponse)]);
+    assert_eq!(evenements.len(), 1);
+    verifier_liste_blanche(
+        &evenements,
+        &[
+            "1234567".to_owned(),
+            "confidentiel".to_owned(),
+            "panique de test".to_owned(),
+        ],
+    );
+    assert_eq!(champ(&evenements[0], "erreur"), Some("panique"));
+    assert_eq!(champ(&evenements[0], "statut"), Some("500"));
 }

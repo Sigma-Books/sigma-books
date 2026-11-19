@@ -34,10 +34,12 @@ pub const EN_TETE_UTILISATEUR: &str = "x-test-utilisateur";
 pub const ORIGINE: &str = "https://sigma.exemple.invalid";
 
 /// Authentification de test : l'utilisateur de l'en-tête [`EN_TETE_UTILISATEUR`], vérifié à
-/// l'instant ; aucune identité sans l'en-tête. `delai` simule une authentification lente.
+/// l'instant ; aucune identité sans l'en-tête. `delai` simule une authentification lente,
+/// `panique` une authentification qui panique.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AuthentificationTest {
     pub delai: Option<Duration>,
+    pub panique: bool,
 }
 
 impl Authentification for AuthentificationTest {
@@ -46,6 +48,10 @@ impl Authentification for AuthentificationTest {
             if let Some(delai) = self.delai {
                 tokio::time::sleep(delai).await;
             }
+            assert!(
+                !self.panique,
+                "panique de test : montant 1234567, libellé confidentiel"
+            );
             let Some(valeur) = requete.headers.get(EN_TETE_UTILISATEUR) else {
                 return Ok(None);
             };

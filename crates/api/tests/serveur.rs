@@ -308,6 +308,7 @@ async fn un_traitement_trop_long_est_abandonne() {
         Arc::new(Autorisation::charger().unwrap()),
         Arc::new(AuthentificationTest {
             delai: Some(Duration::from_secs(5)),
+            panique: false,
         }),
         r,
     );
@@ -373,6 +374,88 @@ async fn les_fichiers_statiques_sans_traversee_ni_liste() {
     )
     .await;
     assert_eq!(reponse.statut, StatusCode::METHOD_NOT_ALLOWED);
+}
+
+#[tokio::test]
+async fn une_panique_donne_un_500_uniforme_sans_son_message() {
+    let etat = Application::new(
+        pool_sans_base(),
+        Arc::new(Autorisation::charger().unwrap()),
+        Arc::new(AuthentificationTest {
+            delai: None,
+            panique: true,
+        }),
+        reglages(),
+    );
+    let reponse = lire(&routeur(&etat), &chemin_exemple(), None).await;
+    verifier_erreur(
+        &reponse,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "erreur_interne",
+    );
+    assert!(!reponse.texte().contains("1234567"));
+}
+
+/// Racine statique construite à l'exécution (fichier caché, liens symboliques), dans le
+/// répertoire temporaire que Cargo réserve aux tests d'intégration.
+#[cfg(unix)]
+fn racine_avec_liens() -> PathBuf {
+    let base =
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("statique-{}", Uuid::new_v4()));
+    let web = base.join("web");
+    std::fs::create_dir_all(web.join("rep")).unwrap();
+    std::fs::create_dir_all(web.join(".git")).unwrap();
+    std::fs::create_dir_all(base.join("dehors")).unwrap();
+    std::fs::write(
+        web.join("index.html"),
+        "<!doctype html><title>Sigma Books</title>",
+    )
+    .unwrap();
+    std::fs::write(web.join(".env"), "SECRET_DE_TEST=ne-doit-jamais-sortir").unwrap();
+    std::fs::write(web.join(".git/config"), "ne-doit-jamais-sortir").unwrap();
+    std::fs::write(base.join("hors_racine.txt"), "ne-doit-jamais-sortir").unwrap();
+    std::fs::write(base.join("dehors/index.html"), "ne-doit-jamais-sortir").unwrap();
+    std::os::unix::fs::symlink(base.join("hors_racine.txt"), web.join("lien.txt")).unwrap();
+    std::os::unix::fs::symlink(base.join("dehors"), web.join("lien_rep")).unwrap();
+    std::os::unix::fs::symlink(base.join("dehors/index.html"), web.join("rep/index.html")).unwrap();
+    std::os::unix::fs::symlink(web.join("index.html"), web.join("interne.html")).unwrap();
+    web
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn ni_fichier_cache_ni_lien_symbolique_hors_de_la_racine() {
+    let mut r = reglages();
+    r.repertoire_web = Some(racine_avec_liens());
+    let routeur = routeur_test(r);
+    for chemin in [
+        "/.env",
+        "/%2e%65nv",
+        "/%2E%65NV",
+        "/.git/config",
+        "/%2egit/config",
+        "/lien.txt",
+        "/lien_rep/",
+        "/lien_rep/index.html",
+        "/rep/",
+        "/rep",
+    ] {
+        let reponse = lire(&routeur, chemin, None).await;
+        assert_eq!(reponse.statut, StatusCode::NOT_FOUND, "{chemin}");
+        assert_eq!(
+            reponse.json(),
+            serde_json::json!({ "erreur": "introuvable" }),
+            "{chemin}"
+        );
+        assert!(
+            !reponse.texte().contains("ne-doit-jamais-sortir"),
+            "{chemin}"
+        );
+    }
+    // Un lien qui reste sous la racine est servi.
+    let reponse = lire(&routeur, "/interne.html", None).await;
+    assert_eq!(reponse.statut, StatusCode::OK);
+    assert!(reponse.texte().contains("Sigma Books"));
 }
 
 /// Envoie une requête brute sur une connexion TCP et rend la réponse brute.

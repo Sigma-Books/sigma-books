@@ -377,6 +377,61 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
 }
 
 #[tokio::test]
+async fn une_appartenance_suspendue_vaut_non_membre_sur_chaque_route() {
+    let env = env().await;
+    let m = monde(&env.admin).await;
+    let (a, b) = (&m.a, &m.b);
+    let routeur = routeur(&application(
+        env.application.clone(),
+        Reglages::new(ORIGINE.to_owned()),
+    ));
+    // Suspension de l'administrateur de A et du membre des deux cabinets dans B seulement.
+    for (cabinet, utilisateur) in [(a.cabinet, a.administrateur), (b.cabinet, m.multi)] {
+        sqlx::query(
+            "UPDATE appartenance SET actif = false WHERE cabinet_id = $1 AND utilisateur_id = $2",
+        )
+        .bind(cabinet.uuid())
+        .bind(utilisateur.uuid())
+        .execute(&env.admin)
+        .await
+        .unwrap();
+    }
+    for route in ROUTES {
+        let reference = lire(
+            &routeur,
+            &chemin(route, Uuid::new_v4(), Uuid::new_v4()),
+            Some(a.collaborateur),
+        )
+        .await;
+        for (utilisateur, cabinet, dossier) in [
+            (a.administrateur, a.cabinet, a.dossier),
+            (a.administrateur, a.cabinet, a.autre_dossier),
+            (m.multi, b.cabinet, b.dossier),
+        ] {
+            let reponse = lire(
+                &routeur,
+                &chemin(route, cabinet.uuid(), dossier.uuid()),
+                Some(utilisateur),
+            )
+            .await;
+            verifier_absent(
+                &reponse,
+                &reference,
+                &format!("{} : suspendu", route.chemin),
+            );
+        }
+    }
+    // Dans A, où il reste actif, le membre des deux cabinets garde ses droits d'administrateur.
+    let reponse = lire(
+        &routeur,
+        &format!("/api/cabinets/{}", a.cabinet),
+        Some(m.multi),
+    )
+    .await;
+    assert_eq!(reponse.statut, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn les_journaux_d_un_scenario_complet_restent_en_liste_blanche() {
     let capture = capture_globale();
     let env = env().await;
