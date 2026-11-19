@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE facteur_secours SET mot_de_passe = $3 WHERE utilisateur_id = $1 AND mot_de_passe = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e0cda0d6ee9c275b32264c06b34ec865ad6fbecd6bf0f6bfbe1f4fe77286dbf9"
+}

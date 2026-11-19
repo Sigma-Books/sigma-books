@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO evenement_authentification (id, utilisateur_id, session_id, nature, methode, issue, instant, appareil, adresse) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ($9::text)::inet)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "472010786766787fac11214e5b7f1422544a3aa9e9f0f73924d5d74569fef3ba"
+}

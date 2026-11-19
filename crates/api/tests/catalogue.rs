@@ -2,7 +2,8 @@
 //! respecte les règles de l'isolation. Une table oubliée fait échouer la CI (F2.7).
 //!
 //! Règles vérifiées (listes d'exceptions : `crates/api/catalogue/*.toml`, un fichier par module ;
-//! une table ou une fonction n'y est déclarée qu'une fois, tous fichiers confondus) :
+//! une table ou une fonction n'y est déclarée qu'une fois, tous fichiers confondus, sauf dans la
+//! liste `ajout_seul`, qui se combine avec les autres) :
 //! - toute table, hors tables d'instance sans RLS, a la RLS activée et forcée et une politique
 //!   permissive pour chaque commande, avec `USING` et `WITH CHECK` selon la commande ;
 //! - **forme exacte** des politiques d'une table de cabinet, telle que PostgreSQL l'affiche :
@@ -62,15 +63,22 @@ struct FichierCatalogue {
 }
 
 impl FichierCatalogue {
-    /// Noms déclarés (tables et fonctions), toutes listes confondues.
-    fn noms(&self) -> impl Iterator<Item = &String> {
+    /// Noms déclarés (tables et fonctions), chacun avec sa catégorie : une table n'est
+    /// déclarée qu'une fois par catégorie. `ajout_seul` est une catégorie à part, qui se
+    /// combine avec les autres (journal d'instance en ajout seul, ADR 0017) ; les autres listes
+    /// forment une seule catégorie (une table d'instance n'est pas une table de dossier).
+    fn noms(&self) -> impl Iterator<Item = (&'static str, &String)> {
         self.ajout_seul
             .iter()
-            .chain(&self.security_definer)
-            .chain(&self.dossier_facultatif)
-            .chain(&self.lecture_membre)
-            .map(|e| &e.nom)
-            .chain(self.instance.iter().map(|i| &i.nom))
+            .map(|e| ("ajout_seul", &e.nom))
+            .chain(
+                self.security_definer
+                    .iter()
+                    .chain(&self.dossier_facultatif)
+                    .chain(&self.lecture_membre)
+                    .map(|e| ("liste", &e.nom)),
+            )
+            .chain(self.instance.iter().map(|i| ("liste", &i.nom)))
     }
 
     fn etendre(&mut self, autre: Self) {
@@ -92,7 +100,7 @@ fn lire_catalogue() -> (Vec<String>, FichierCatalogue) {
         .collect();
     chemins.sort();
     let mut noms = Vec::new();
-    let mut declarees: BTreeMap<String, String> = BTreeMap::new();
+    let mut declarees: BTreeMap<(&'static str, String), String> = BTreeMap::new();
     let mut reunion = FichierCatalogue::default();
     for chemin in chemins {
         let nom = chemin.file_name().unwrap().to_string_lossy().into_owned();
@@ -103,8 +111,8 @@ fn lire_catalogue() -> (Vec<String>, FichierCatalogue) {
         let texte = std::fs::read_to_string(&chemin).unwrap();
         let fichier: FichierCatalogue =
             toml::from_str(&texte).unwrap_or_else(|e| panic!("catalogue/{nom} illisible : {e}"));
-        for table in fichier.noms() {
-            if let Some(autre) = declarees.insert(table.clone(), nom.clone()) {
+        for (categorie, table) in fichier.noms() {
+            if let Some(autre) = declarees.insert((categorie, table.clone()), nom.clone()) {
                 panic!("{table} déclarée deux fois : catalogue/{autre} et catalogue/{nom}");
             }
         }
@@ -148,15 +156,23 @@ fn regles() -> Regles {
     let justifiees = f
         .ajout_seul
         .iter()
-        .chain(&f.security_definer)
-        .chain(&f.dossier_facultatif)
-        .chain(&f.lecture_membre)
-        .map(|e| (&e.nom, &e.justification))
-        .chain(f.instance.iter().map(|e| (&e.nom, &e.justification)));
-    for (nom, justification) in justifiees {
+        .map(|e| ("ajout_seul", &e.nom, &e.justification))
+        .chain(
+            f.security_definer
+                .iter()
+                .chain(&f.dossier_facultatif)
+                .chain(&f.lecture_membre)
+                .map(|e| ("liste", &e.nom, &e.justification)),
+        )
+        .chain(
+            f.instance
+                .iter()
+                .map(|e| ("liste", &e.nom, &e.justification)),
+        );
+    for (categorie, nom, justification) in justifiees {
         assert!(!justification.trim().is_empty(), "{nom} sans justification");
         assert!(
-            noms.insert(nom.clone()),
+            noms.insert((categorie, nom.clone())),
             "{nom} figure deux fois dans le catalogue ({fichiers:?})"
         );
     }
