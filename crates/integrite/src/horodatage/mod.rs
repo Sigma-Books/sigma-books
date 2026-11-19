@@ -7,8 +7,8 @@
 //! chaîne entièrement recalculée, ne correspond plus au jeton.
 //!
 //! Ce module est **pur** : il construit la requête et vérifie la réponse, sans réseau ni
-//! horloge (l'envoi de la requête relève du worker, lot L2). Le nonce et la date sont fournis
-//! par l'appelant.
+//! horloge (l'envoi de la requête relève du binaire `api`, module `api::horodatage`). Le nonce
+//! et la date sont fournis par l'appelant.
 
 mod ancres;
 mod jeton;

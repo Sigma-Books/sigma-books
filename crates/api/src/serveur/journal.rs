@@ -10,6 +10,10 @@
 //!   `x-sigma-requete` ; jamais repris du client (injection dans les journaux) ;
 //! - `erreur` : catégorie d'une erreur interne (liste fermée, [`super::CategorieErreur`]).
 //!
+//! Le client d'horodatage ([`crate::horodatage`]) émet une ligne par autorité interrogée, sous
+//! la même cible : `autorite` (hôte et port de la configuration, jamais le chemin), `statut`,
+//! `duree_ms` et `issue` (liste fermée, [`crate::horodatage::EchecAutorite::issue`]).
+//!
 //! Jamais de montant, de libellé, de nom, de jeton, de cookie, d'en-tête ni de corps. Les
 //! journaux des dépendances (`sqlx` cite le texte des requêtes) sont écartés par [`filtre`].
 
@@ -39,6 +43,8 @@ pub const CHAMPS: &[&str] = &[
     "requete",
     "erreur",
     "adresse_ecoute",
+    "autorite",
+    "issue",
 ];
 
 /// En-tête de réponse qui porte l'identifiant de la requête.

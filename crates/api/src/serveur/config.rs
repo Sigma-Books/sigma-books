@@ -9,6 +9,7 @@
 //! | `SIGMA_ORIGINE` | oui | Origine publique (`https://compta.exemple.sn`), contrôlée par l'anti-CSRF |
 //! | `SIGMA_REPERTOIRE_WEB` | non | Répertoire de l'interface compilée ; doit exister |
 //! | `SIGMA_EN_TETE_ADRESSE_CLIENT` | non | En-tête de confiance du mandataire inverse (L9) ; **absent par défaut** |
+//! | `SIGMA_AUTORITES_HORODATAGE` | non | Autorités RFC 3161, séparées par des virgules, dans l'ordre d'essai (`http://` seul) ; par défaut DigiCert puis Sectigo (ADR 0010) |
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -17,6 +18,7 @@ use std::path::PathBuf;
 use axum::http::HeaderName;
 
 use super::Reglages;
+use crate::horodatage::Autorite;
 
 /// Configuration refusée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -38,6 +40,9 @@ pub struct Configuration {
     pub url_base: String,
     /// Réglages du serveur.
     pub reglages: Reglages,
+    /// Autorités d'horodatage, dans l'ordre d'essai : les seules destinations du client
+    /// d'horodatage (ADR 0010).
+    pub autorites_horodatage: Vec<Autorite>,
 }
 
 impl fmt::Debug for Configuration {
@@ -46,6 +51,7 @@ impl fmt::Debug for Configuration {
             .field("adresse_ecoute", &self.adresse_ecoute)
             .field("url_base", &"<masquée>")
             .field("reglages", &self.reglages)
+            .field("autorites_horodatage", &self.autorites_horodatage)
             .finish()
     }
 }
@@ -96,10 +102,16 @@ impl Configuration {
                     .map_err(|_| ErreurConfiguration::Invalide("SIGMA_EN_TETE_ADRESSE_CLIENT"))?,
             );
         }
+        let autorites_horodatage = match facultative("SIGMA_AUTORITES_HORODATAGE") {
+            Some(liste) => Autorite::liste(&liste)
+                .map_err(|_| ErreurConfiguration::Invalide("SIGMA_AUTORITES_HORODATAGE"))?,
+            None => Autorite::par_defaut(),
+        };
         Ok(Self {
             adresse_ecoute,
             url_base,
             reglages,
+            autorites_horodatage,
         })
     }
 }
@@ -147,6 +159,7 @@ mod tests {
         assert_eq!(config.reglages.origine, "https://compta.exemple.invalid");
         assert_eq!(config.reglages.en_tete_adresse_client, None);
         assert_eq!(config.reglages.repertoire_web, None);
+        assert_eq!(config.autorites_horodatage, Autorite::par_defaut());
         assert!(!format!("{config:?}").contains("sigma_application@"));
     }
 
@@ -171,6 +184,15 @@ mod tests {
             ("SIGMA_URL_BASE_APPLICATION", "mysql://secret@hote"),
             ("SIGMA_REPERTOIRE_WEB", "/repertoire/inexistant/sigma"),
             ("SIGMA_EN_TETE_ADRESSE_CLIENT", "en tête invalide"),
+            ("SIGMA_AUTORITES_HORODATAGE", "ftp://tsa.invalid"),
+            ("SIGMA_AUTORITES_HORODATAGE", "https://tsa.invalid"),
+            (
+                "SIGMA_AUTORITES_HORODATAGE",
+                "http://cle-secrete:x@tsa.invalid",
+            ),
+            ("SIGMA_AUTORITES_HORODATAGE", ","),
+            ("SIGMA_AUTORITES_HORODATAGE", "http://169.254.169.254"),
+            ("SIGMA_AUTORITES_HORODATAGE", "http://tsa.invalid:99999"),
         ] {
             let mut paires = COMPLETE.to_vec();
             paires.retain(|(n, _)| *n != nom);
@@ -179,5 +201,27 @@ mod tests {
             assert!(!erreur.to_string().contains(valeur), "{erreur}");
             assert!(matches!(erreur, ErreurConfiguration::Invalide(_)), "{nom}");
         }
+    }
+
+    #[test]
+    fn la_liste_des_autorites_d_horodatage_est_configurable() {
+        let mut paires = COMPLETE.to_vec();
+        paires.push((
+            "SIGMA_AUTORITES_HORODATAGE",
+            "http://tsa-b.exemple.invalid:3161/cle-secrete, http://tsa-a.exemple.invalid",
+        ));
+        let config = Configuration::depuis(lire(&paires)).unwrap();
+        assert_eq!(
+            config
+                .autorites_horodatage
+                .iter()
+                .map(Autorite::nom)
+                .collect::<Vec<_>>(),
+            ["tsa-b.exemple.invalid:3161", "tsa-a.exemple.invalid"]
+        );
+        // `Debug` de la configuration : le nom des autorités, jamais leur chemin.
+        let debug = format!("{config:?}");
+        assert!(debug.contains("tsa-b.exemple.invalid:3161"), "{debug}");
+        assert!(!debug.contains("cle-secrete"), "{debug}");
     }
 }
