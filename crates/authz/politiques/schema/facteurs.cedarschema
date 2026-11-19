@@ -1,0 +1,64 @@
+// Schéma Cedar de Sigma Books, domaine « facteurs » : connexion, méthode de secours (mot de
+// passe et TOTP), codes de récupération, ré-authentification et journal des événements
+// d'authentification (ADR 0012, ADR 0017 ; PR 8b).
+//
+// Fragment du schéma (`crates/authz/politiques/schema/`) : les fragments forment un seul schéma,
+// composé au chargement (`authz::SCHEMA`) ; un type peut citer ceux d'un autre fragment.
+//
+// Deux principaux :
+// - **Anonyme** : le demandeur d'une connexion, qui n'a pas encore de session. Il ne peut que
+//   demander à se connecter à l'instance (`SeConnecter`), action publique et bornée (limitation
+//   de débit, aucune donnée rendue avant la vérification d'un facteur). Aucune autre action ne
+//   l'admet (contrôlé au chargement, `crates/authz/src/facteurs.rs`).
+// - **Utilisateur** : une fois un facteur vérifié (ouverture d'une session), ou l'utilisateur
+//   d'une session authentifiée (ses facteurs, ses événements). La ressource est toujours
+//   l'utilisateur lui-même ; l'invariant `invariant-soi-meme` interdit toute action sur un autre.
+
+namespace Sigma {
+  // Demandeur sans session. Une seule entité, sans attribut : son identifiant n'a pas de sens.
+  entity Anonyme;
+
+  // L'instance de Sigma Books, ressource de la connexion.
+  entity Instance;
+
+  // Contexte des actions sur ses facteurs. Pour `OuvrirSession`, la session est celle à ouvrir
+  // (nature demandée, facteur vérifié à l'instant, donc fraîche) ; pour les autres, la session
+  // de la requête.
+  type ContexteFacteur = {
+    // `complete`, `restreinte` ou `enrolement` (ADR 0012).
+    nature: String,
+    // `passkey`, `secours`, `code_recuperation` ou `lien_enrolement`.
+    methode: String,
+    // Facteur vérifié depuis moins de 5 minutes (ADR 0012).
+    session_fraiche: Bool,
+  };
+
+  // Connexion : demande publique, avant toute vérification de facteur.
+  action SeConnecter appliesTo { principal: Anonyme, resource: Instance };
+
+  // Ouverture d'une session après la vérification d'un facteur : le facteur détermine la
+  // nature admise (un code de récupération n'ouvre qu'une session restreinte, F1.12).
+  action OuvrirSession appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+  // Ré-authentification par la méthode de secours (session « fraîche »).
+  action SeReauthentifier appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+  // État de ses facteurs (secours actif, codes restants).
+  action ConsulterSesFacteurs appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+  // Ses événements d'authentification (ADR 0017).
+  action ConsulterSesEvenements appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+  // Enrôlement (ou remplacement) de la méthode de secours, préparation comprise.
+  action EnrolerSecours appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+  // Nouvelle série de codes de récupération (l'ancienne est annulée).
+  action RegenererCodesRecuperation appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+}
