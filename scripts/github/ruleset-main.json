@@ -51,6 +51,7 @@
           { "context": "rust-fmt", "integration_id": 15368 },
           { "context": "rust-clippy", "integration_id": 15368 },
           { "context": "rust-test", "integration_id": 15368 },
+          { "context": "rust-sqlx", "integration_id": 15368 },
           { "context": "rust-deny", "integration_id": 15368 },
           { "context": "web", "integration_id": 15368 },
           { "context": "site", "integration_id": 15368 },

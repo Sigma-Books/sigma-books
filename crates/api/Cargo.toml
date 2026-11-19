@@ -10,3 +10,19 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+# Tests d'isolation contre un PostgreSQL réel (ADR 0011). Activée en CI par `--all-features` ;
+# sans base configurée, ces tests échouent avec un message clair (README du crate).
+tests-postgres = []
+
+[dependencies]
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+toml.workspace = true

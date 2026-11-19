@@ -28,6 +28,11 @@ x509-cert = { version = "0.3.0", default-features = false, features = ["pem"] }
 cms = { version = "=0.3.0-rc.2", default-features = false }
 x509-tsp = { version = "=0.2.0-rc.0", default-features = false }
 rsa = { version = "0.10.0", default-features = false, features = ["encoding", "pkcs1v15"] }
+# Socle PostgreSQL du crate `api` (ADR 0004, ADR 0011). Sans TLS : le choix de l'hébergement,
+# donc du chiffrement de la connexion à la base, est reporté au déploiement (L9, Q12c).
+sqlx = { version = "0.9.1", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "uuid", "time"] }
+tokio = { version = "1.54.1", default-features = false }
+uuid = { version = "1.29.3", default-features = false, features = ["std", "v4"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

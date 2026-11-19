@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            r.rolsuper AS \"superutilisateur!\",\n            r.rolbypassrls AS \"contourne_rls!\",\n            EXISTS (\n                SELECT 1\n                FROM pg_catalog.pg_class c\n                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n                WHERE n.nspname = 'public' AND pg_has_role(current_user, c.relowner, 'MEMBER')\n            ) AS \"proprietaire_objet!\",\n            EXISTS (\n                SELECT 1\n                FROM pg_catalog.pg_database d\n                WHERE d.datname = current_database() AND pg_has_role(current_user, d.datdba, 'MEMBER')\n            ) AS \"proprietaire_base!\",\n            EXISTS (\n                SELECT 1\n                FROM pg_catalog.pg_roles m\n                WHERE m.rolname = 'sigma_migration' AND pg_has_role(current_user, m.oid, 'MEMBER')\n            ) AS \"membre_migration!\"\n        FROM pg_catalog.pg_roles r\n        WHERE r.rolname = current_user\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "superutilisateur!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolsuper"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "contourne_rls!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "pg_roles",
+            "name": "rolbypassrls"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "proprietaire_objet!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "proprietaire_base!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "membre_migration!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6128297a5f9a2a12035ff19109e3764298bda7f5bd2dc7cd8b850466e1323bae"
+}
