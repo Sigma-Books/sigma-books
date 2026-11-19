@@ -35,15 +35,26 @@ const REQUETE_OPENSSL: &[u8] =
     include_bytes!("../../../integrite/tests/vecteurs/horodatage/requete-openssl.tsq");
 const DIGICERT: &[u8] = include_bytes!("../../../integrite/tests/vecteurs/horodatage/digicert.tsr");
 const SECTIGO: &[u8] = include_bytes!("../../../integrite/tests/vecteurs/horodatage/sectigo.tsr");
-/// Nonce de `requete-openssl.tsq` (README des vecteurs).
-const NONCE_VECTEURS: u64 = 0xB17F_41C7_83A6_60D7;
 /// Date des deux réponses figées : 2026-11-18T11:11:28Z.
 const DATE_VECTEURS: i64 = 1_795_000_288;
 /// Tête du témoin des vecteurs.
 const TETE: &str = "ea5595d5652ca52169b5d87e9bfbcae14eafc1031c7e2f7985af5252dff7229c";
 
+/// Nonce de `requete-openssl.tsq`, lu dans le vecteur lui-même (comme
+/// `crates/integrite/tests/horodatage.rs`) plutôt qu'écrit en dur.
+fn nonce_des_vecteurs() -> u64 {
+    use der::Decode;
+    let requete = x509_tsp::TimeStampReq::from_der(REQUETE_OPENSSL).unwrap();
+    requete
+        .nonce
+        .unwrap()
+        .as_bytes()
+        .iter()
+        .fold(0u64, |n, &b| (n << 8) | u64::from(b))
+}
+
 fn nonce() -> Nonce {
-    Nonce::fixe(NONCE_VECTEURS)
+    Nonce::fixe(nonce_des_vecteurs())
 }
 
 fn temoin(nombre: u64) -> Temoin {
@@ -244,7 +255,7 @@ async fn echec_unique(autorite: Autorite, temoin: &Temoin, n: Nonce) -> EchecAut
 #[tokio::test]
 async fn succes_sur_la_premiere_autorite() {
     assert_eq!(
-        requete(&temoin(0), NONCE_VECTEURS).unwrap(),
+        requete(&temoin(0), nonce_des_vecteurs()).unwrap(),
         REQUETE_OPENSSL
     );
     let digicert = simuler(valide(DIGICERT)).await;
@@ -310,7 +321,7 @@ async fn reponses_invalides_refusees() {
         echec_unique(
             simulee.autorite(),
             &temoin(0),
-            Nonce::fixe(NONCE_VECTEURS ^ 1)
+            Nonce::fixe(nonce_des_vecteurs() ^ 1)
         )
         .await,
         EchecAutorite::ReponseInvalide(ErreurJeton::NonceDifferent)
@@ -359,7 +370,7 @@ async fn statuts_rfc_3161() {
         echec_unique(
             simulee.autorite(),
             &temoin(0),
-            Nonce::fixe(NONCE_VECTEURS ^ 1)
+            Nonce::fixe(nonce_des_vecteurs() ^ 1)
         )
         .await,
         EchecAutorite::ReponseInvalide(ErreurJeton::NonceDifferent)

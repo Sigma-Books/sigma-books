@@ -32,6 +32,7 @@ version = "0.0.0"
 dependencies = [
  "authz",
  "axum",
+ "der",
  "getrandom 0.4.3",
  "http-body-util",
  "hyper",
@@ -49,6 +50,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "x509-tsp",
 ]
 
 [[package]]
