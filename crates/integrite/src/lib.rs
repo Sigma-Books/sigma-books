@@ -1,10 +1,11 @@
 //! Preuve d'inaltérabilité (spec §6.4, ADR 0007) : sérialisation canonique des écritures
 //! validées, chaîne de hachage SHA-256 par dossier, export d'intégrité et vérification hors
-//! ligne (`sigma-verifier`), horodatage RFC 3161 de la tête de chaîne. Formats décrits dans
-//! `docs/integrite/`.
+//! ligne (`sigma-verifier`), horodatage RFC 3161 de la tête de chaîne, journal d'audit chaîné
+//! ([`audit`]). Formats décrits dans `docs/integrite/`.
 
 #![forbid(unsafe_code)]
 
+pub mod audit;
 pub mod canonique;
 pub mod chaine;
 pub mod export;

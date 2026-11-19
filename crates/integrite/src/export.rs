@@ -77,6 +77,15 @@ pub enum ErreurExport {
     /// Plus de [`JETONS_MAX`] jetons.
     #[error("plus de {JETONS_MAX} jetons")]
     TropDeJetons,
+    /// Export d'audit : UUID invalide (cabinet, dossier, acteur de l'annexe).
+    #[error("UUID invalide")]
+    UuidInvalide,
+    /// Export d'audit : entrée de plus de 4 Mio.
+    #[error("entrée d'audit trop volumineuse (plus de 4 Mio)")]
+    EntreeAuditTropGrande,
+    /// Export d'audit : annexe mal formée (acteurs non triés ou en double, nom invalide).
+    #[error("annexe des acteurs mal formée")]
+    AnnexeInvalide,
 }
 
 /// Version du format d'export.
@@ -484,7 +493,7 @@ impl<R: BufRead> LecteurExport<R> {
 }
 
 /// Entier décimal sans zéro de tête (`0`, `12`).
-fn lire_nombre(texte: &str) -> Option<u64> {
+pub(crate) fn lire_nombre(texte: &str) -> Option<u64> {
     let canonique = !texte.is_empty()
         && texte.bytes().all(|b| b.is_ascii_digit())
         && (texte == "0" || !texte.starts_with('0'));

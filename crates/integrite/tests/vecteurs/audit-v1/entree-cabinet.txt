@@ -1,0 +1,18 @@
+audit v1
+portee=cabinet
+cabinet=0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f
+rang=1
+instant=2026-11-19T08:30:00.000001Z
+acteur=0193e0c4-aaaa-4bbb-8ccc-000000000001
+role=administrateur
+session=0193e0c5-0000-4000-8000-0000000000a1
+action=CreerDossier
+ressource=dossier:0193e0c3-1111-4a2b-8c3d-000000000001
+politique=s20-creer-dossier
+politiques=526f827b79753f86d781ffa8dffaf6c9dd5f9c3374f69aa2115ca16c20885e90
+reauthentification=non
+champ=nom
+apres=SARL Téranga = Dakar
+champ=affectation
+apres=0193e0c4-aaaa-4bbb-8ccc-000000000001
+fin

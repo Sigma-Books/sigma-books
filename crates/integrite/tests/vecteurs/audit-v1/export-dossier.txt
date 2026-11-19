@@ -1,0 +1,69 @@
+sigma-books export-audit v1
+portee=dossier
+cabinet=0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f
+dossier=0193e0c3-1111-4a2b-8c3d-000000000001
+audit v1
+portee=dossier
+cabinet=0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f
+dossier=0193e0c3-1111-4a2b-8c3d-000000000001
+rang=1
+instant=2026-11-19T08:30:00.000001Z
+acteur=0193e0c4-aaaa-4bbb-8ccc-000000000001
+role=administrateur
+session=0193e0c5-0000-4000-8000-0000000000a1
+action=CreerDossier
+ressource=dossier:0193e0c3-1111-4a2b-8c3d-000000000001
+politique=s20-creer-dossier
+politiques=526f827b79753f86d781ffa8dffaf6c9dd5f9c3374f69aa2115ca16c20885e90
+reauthentification=non
+champ=nom
+apres=SARL Téranga = Dakar
+fin
+empreinte=f61941f7265609c706f40553ca1a6705af2f9a62437ff855dfa9807568b43924
+audit v1
+portee=dossier
+cabinet=0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f
+dossier=0193e0c3-1111-4a2b-8c3d-000000000001
+rang=2
+instant=2026-11-20T00:00:00.000000Z
+acteur=systeme
+action=Horodater
+ressource=dossier:0193e0c3-1111-4a2b-8c3d-000000000001
+motif=Témoin quotidien
+donnee=nombre
+valeur=0
+champ=etat
+avant=
+apres=horodaté
+fin
+empreinte=c3ce7e5955ac00b577504f73ff290deb42c8e212620ced7e6a2f6601a25cb1d9
+audit v1
+portee=dossier
+cabinet=0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f
+dossier=0193e0c3-1111-4a2b-8c3d-000000000001
+rang=3
+instant=2026-11-21T14:02:59.999999Z
+acteur=0193e0c4-aaaa-4bbb-8ccc-000000000002
+role=valideur
+session=0193e0c5-0000-4000-8000-0000000000a2
+action=ExporterComplet
+ressource=dossier:0193e0c3-1111-4a2b-8c3d-000000000001
+politique=s20-exporter
+politiques=526f827b79753f86d781ffa8dffaf6c9dd5f9c3374f69aa2115ca16c20885e90
+reauthentification=oui
+donnee=export
+valeur=audit
+donnee=tete
+valeur=c3ce7e5955ac00b577504f73ff290deb42c8e212620ced7e6a2f6601a25cb1d9
+donnee=nombre
+valeur=2
+fin
+empreinte=383591bb3c62f7f173bb7d0240c89aa9e336de54ae972721263740f3a1434509
+tete=383591bb3c62f7f173bb7d0240c89aa9e336de54ae972721263740f3a1434509
+nombre=3
+annexe-acteurs
+acteur=0193e0c4-aaaa-4bbb-8ccc-000000000001
+nom=Awa Ndiaye
+acteur=0193e0c4-aaaa-4bbb-8ccc-000000000002
+fin-annexe
+fin-export

@@ -125,3 +125,31 @@ fn ancre_supplementaire() {
         assert!(erreur.contains("--ancre"), "{erreur}");
     }
 }
+
+#[test]
+fn export_d_audit_reconnu_et_verifie() {
+    let vecteur = fichier("tests/vecteurs/audit-v1/export-dossier.txt");
+    let tete = "383591bb3c62f7f173bb7d0240c89aa9e336de54ae972721263740f3a1434509";
+    let (code, sortie, _) = lancer(&["--tete", tete, &vecteur]);
+    assert_eq!(code, 0, "{sortie}");
+    assert!(sortie.contains("chaîne d'audit intègre"), "{sortie}");
+    // Ancrage différent, entrée altérée, export tronqué : code 1.
+    let (code, sortie, _) = lancer(&["--tete", TETE, &vecteur]);
+    assert_eq!(code, 1, "{sortie}");
+    let original = std::fs::read_to_string(&vecteur).unwrap();
+    for (nom, contenu) in [
+        ("audit-altere.txt", original.replacen("rang=3", "rang=4", 1)),
+        (
+            "audit-tronque.txt",
+            original.replacen("fin-export\n", "", 1),
+        ),
+    ] {
+        let chemin = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(nom);
+        std::fs::write(&chemin, contenu).unwrap();
+        let (code, sortie, _) = lancer(&[chemin.to_str().unwrap()]);
+        assert_eq!(code, 1, "{nom} : {sortie}");
+    }
+    // Options sans objet pour un export d'audit : code 2.
+    let (code, _, _) = lancer(&["--dossier", "dossier-test", &vecteur]);
+    assert_eq!(code, 2);
+}

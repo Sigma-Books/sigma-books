@@ -1,4 +1,5 @@
-//! `sigma-verifier` : vérification hors ligne de la chaîne de hachage d'un export.
+//! `sigma-verifier` : vérification hors ligne de la chaîne de hachage d'un export d'intégrité
+//! ou d'un export d'audit (`docs/integrite/audit-v1.md`), reconnu à sa première ligne.
 //!
 //! Usage : `sigma-verifier [--dossier ID] [--tete EMPREINTE] [--ancre FICHIER]… <export | ->`
 //!
@@ -8,9 +9,10 @@
 #![forbid(unsafe_code)]
 
 use std::fs::File;
-use std::io::{self, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::process::ExitCode;
 
+use integrite::audit::{ENTETE_EXPORT_AUDIT, verifier_export_audit};
 use integrite::{Ancre, Empreinte, IdDossier, Options, verifier};
 
 const USAGE: &str = "\
@@ -18,7 +20,9 @@ Usage : sigma-verifier [--dossier ID] [--tete EMPREINTE] [--ancre FICHIER]… <e
 
 Vérifie hors ligne un export d'intégrité Sigma Books : recalcule la chaîne de hachage,
 contrôle la numérotation, l'équilibre des écritures et les contre-passations, et vérifie les
-jetons d'horodatage RFC 3161 de l'export.
+jetons d'horodatage RFC 3161 de l'export. Vérifie aussi un export d'audit (« sigma-books
+export-audit v1 ») : forme des entrées, chaîne, rangs, tête, nombre et annexe des acteurs ;
+seule l'option --tete s'y applique.
 
   --dossier ID         identifiant du dossier attendu
   --tete EMPREINTE     empreinte de tête attendue (témoin externe)
@@ -90,16 +94,16 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let rapport = if chemin == "-" {
-        verifier(io::stdin().lock(), &options)
+    let resultat = if chemin == "-" {
+        verifier_selon_format(io::stdin().lock(), &options)
     } else {
-        File::open(&chemin).and_then(|f| verifier(BufReader::new(f), &options))
+        File::open(&chemin).and_then(|f| verifier_selon_format(BufReader::new(f), &options))
     };
-    match rapport {
-        Ok(rapport) => {
+    match resultat {
+        Ok((texte, integre)) => {
             // Une sortie fermée (tube interrompu) ne change pas le verdict.
-            let _ = write!(io::stdout().lock(), "{rapport}");
-            if rapport.est_integre() {
+            let _ = write!(io::stdout().lock(), "{texte}");
+            if integre {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(1)
@@ -110,4 +114,34 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Vérifie un export d'intégrité ou d'audit, selon sa première ligne ; rend le rapport et le
+/// verdict.
+fn verifier_selon_format<R: BufRead>(
+    mut entree: R,
+    options: &Options,
+) -> io::Result<(String, bool)> {
+    let audit = entree
+        .fill_buf()?
+        .starts_with(format!("{ENTETE_EXPORT_AUDIT}\n").as_bytes());
+    if !audit {
+        let rapport = verifier(entree, options)?;
+        return Ok((rapport.to_string(), rapport.est_integre()));
+    }
+    if options.dossier.is_some() || !options.ancres.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--dossier et --ancre sont sans objet pour un export d'audit",
+        ));
+    }
+    // Comme pour l'export d'intégrité, un export mal formé est une anomalie (code 1).
+    let rapport = match verifier_export_audit(entree, options.tete.as_ref()) {
+        Ok(rapport) => rapport,
+        Err(integrite::ErreurLecture::Io(e)) => return Err(e),
+        Err(forme @ integrite::ErreurLecture::Forme { .. }) => {
+            return Ok((format!("Export d'audit illisible : {forme}\n"), false));
+        }
+    };
+    Ok((rapport.to_string(), rapport.est_integre()))
 }
