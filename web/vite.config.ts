@@ -14,6 +14,10 @@ export default defineConfig({
 			// Fichiers statiques servis par le backend Rust : aucun serveur Node en production (ADR 0002).
 			adapter: adapter({ strict: true }),
 
+			// Chemins absolus (`/_app/…`) : une page servie avec ou sans barre finale charge les mêmes
+			// fichiers (le backend sert `x/index.html` pour `/x` comme pour `/x/`, sans redirection).
+			paths: { relative: false },
+
 			// CSP stricte : aucun script ni style inline non haché, aucune ressource externe.
 			// Les scripts d'amorçage de SvelteKit sont autorisés par leur empreinte (mode « hash »),
 			// injectée dans une balise <meta> des pages prérendues. Les en-têtes non exprimables en

@@ -9,4 +9,6 @@
 - Aucune donnée sensible dans `localStorage`/`sessionStorage`.
 - Compatible CSP stricte et Trusted Types : pas de `{@html}` sur une donnée non maîtrisée, pas de `eval`, pas de script inline.
 - Dépendances minimales ; lockfile versionné ; `pnpm audit` dans la CI.
+- Imports internes par `#lib/…` **avec leur extension** (`#lib/api/client.ts`) : les modules purs de `src/lib/api/` et `src/lib/instants.ts` sont testés par `node --test` (`pnpm test`, types retirés par Node), sans SvelteKit. Ils n'importent donc rien de `$app/*`.
+- Le cabinet et le dossier sont dans l'URL de l'interface (`?cabinet=…&dossier=…`), validés par `lireUuid` avant de former un chemin de l'API ; aucun cabinet courant caché.
 - Portail client : conçu pour téléphones Android d'entrée de gamme et connexion intermittente.
