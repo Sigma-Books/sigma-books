@@ -61,6 +61,15 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
   - **Ajouts de Sigma Books**, comptes de tiers de la liste officielle absents de Tryton : 404, 413, 467 et 488 « Autres créances H.A.O. » (créances sur cessions d'immobilisations notamment ; décision du mainteneur du 2026-11-18, en accord avec Odoo `l10n_syscohada`, qui rend 488 lettrable).
   - Voir `docs/provenance/tryton.md`.
 
+## Compte des journaux par défaut (`data/journaux.toml`)
+Les journaux par défaut d'un dossier (spec §5.2) sont décrits sans compte dans `crates/compta-core/data/journaux-par-defaut.txt`. Le compte de chaque journal de **trésorerie** par défaut est une donnée de ce crate, avec sa source :
+
+| Journal | Compte | Source | Motif |
+|---|---|---|---|
+| CA (caisse) | 5711 « Caisse en monnaie nationale » | Liste des comptes, p. PDF 252 | 571 se subdivise en 5711 et 5712 ; on ne saisit que sur un compte sans subdivision. |
+
+Le chargement refuse un compte absent de la liste officielle ou subdivisé. Les journaux BQx et MMx ne sont pas des journaux par défaut : leur compte est fourni à leur création. `Referentiel::journaux_par_defaut(plan)` instancie les journaux d'un nouveau dossier.
+
 ## Comparaison avec Tryton et Odoo
 | | Tryton `account_syscohada` (2016, `f5354cc`) | Odoo 19.0 `l10n_syscohada` (`fa175fb`) |
 |---|---|---|

@@ -8,16 +8,23 @@
 //!
 //! Le référentiel alimente le plan de comptes d'un dossier ([`compta_core::PlanComptes`]) par
 //! [`Referentiel::comptes_reference`] : `compta-core` ne connaît aucun numéro de compte.
+//!
+//! Le compte de trésorerie des journaux par défaut (CA : caisse) est aussi une donnée de ce
+//! crate, `data/journaux.toml` : [`Referentiel::journaux_par_defaut`].
 
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
 
 use compta_core::{
-    CompteReference, ErreurNumeroCompte, ErreurPlan, ErreurTexte, NumeroCompte, PlanComptes,
-    SensNormal, TexteCourt,
+    CodeJournal, CompteReference, ErreurJournal, ErreurNumeroCompte, ErreurPlan, ErreurTexte,
+    NumeroCompte, PlanComptes, SensNormal, TexteCourt,
 };
 use serde::Deserialize;
+
+mod journaux;
+
+pub use journaux::CompteDeJournal;
 
 /// Données embarquées : liste officielle des comptes.
 const COMPTES_TOML: &str = include_str!("../data/comptes.toml");
@@ -76,6 +83,29 @@ pub enum ErreurReferentiel {
     /// Classe absente, en double ou hors de 1 à 9.
     #[error("classe invalide ou absente : {0}")]
     Classe(u8),
+    /// Journal par défaut invalide, ou journaux par défaut non instanciables.
+    #[error("journaux par défaut : {0}")]
+    Journal(ErreurJournal),
+    /// Le compte d'un journal par défaut ne cite pas sa source ou son motif.
+    #[error("compte du journal {0} : source ou motif manquant")]
+    SourceManquante(CodeJournal),
+    /// Le compte d'un journal par défaut n'est pas dans la liste officielle.
+    #[error("compte du journal {code} : {compte} n'est pas un compte de la liste officielle")]
+    CompteDeJournalInconnu {
+        /// Journal.
+        code: CodeJournal,
+        /// Compte cité.
+        compte: NumeroCompte,
+    },
+    /// Le compte d'un journal par défaut est subdivisé dans la liste officielle : on ne saisit
+    /// que sur un compte sans subdivision.
+    #[error("compte du journal {code} : {compte} est subdivisé dans la liste officielle")]
+    CompteDeJournalSubdivise {
+        /// Journal.
+        code: CodeJournal,
+        /// Compte cité.
+        compte: NumeroCompte,
+    },
     /// Page hors de la plage de la liste officielle.
     #[error("page {page} hors de la source ({PAGE_MIN} à {PAGE_MAX}) pour {numero}")]
     Page {
