@@ -34,8 +34,9 @@ pub use editions::{
     FormatBalance, LigneBalance, LigneGrandLivre, Mode, Regroupement, grand_livre, journaux,
 };
 pub use exercice::{
-    CodeExercice, Deverrouillage, EcheanceCloture, ErreurExercice, Exercice, Exercices,
-    FinPremierExercice, Periode, StatutExercice, StatutPeriode, echeance_de_cloture,
+    CodeExercice, Deverrouillage, EcheanceCloture, ErreurExercice, ErreurReconstitutionExercices,
+    Exercice, Exercices, FinPremierExercice, LigneExercice, LignePeriode, Periode, StatutExercice,
+    StatutPeriode, echeance_de_cloture,
 };
 pub use journal::{
     CodeJournal, ErreurJournal, Journal, Journaux, ModeleJournal, TypeJournal, journaux_par_defaut,
