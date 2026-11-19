@@ -41,6 +41,10 @@ cedar-policy = { version = "4.15.0", default-features = false }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "tokio"] }
 hyper = { version = "1.12.0", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1.21", default-features = false, features = ["http1", "server", "tokio"] }
+# Client d'horodatage du crate `api` (ADR 0010, L2-30) : corps de requête et lecture bornée de la
+# réponse (déjà entraînée par axum), aléa du nonce tiré du système (déjà entraîné par uuid).
+http-body-util = { version = "0.1.5", default-features = false }
+getrandom = { version = "0.4.3", default-features = false }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
 tower-http = { version = "0.7.1", default-features = false, features = ["catch-panic", "fs", "limit"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"] }

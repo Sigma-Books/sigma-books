@@ -94,8 +94,8 @@ cargo run -p api
 ```
 
 Variables : `SIGMA_ADRESSE_ECOUTE`, `SIGMA_URL_BASE_APPLICATION` (rôle **applicatif**),
-`SIGMA_ORIGINE`, et facultativement `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT`
-(`src/serveur/config.rs`). Jusqu'aux sessions (PR 8), toute route de l'API répond 401.
+`SIGMA_ORIGINE`, et facultativement `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT`,
+`SIGMA_AUTORITES_HORODATAGE` (`src/serveur/config.rs`). Jusqu'aux sessions (PR 8), toute route de l'API répond 401.
 
 Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/pipeline.rs`.
 
