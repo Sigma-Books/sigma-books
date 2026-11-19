@@ -1,8 +1,8 @@
-# crate `api` — base de données en développement
+# crate `api` — base de données et serveur en développement
 
 Socle PostgreSQL de l'ADR 0011 : rôles, migrations, RLS forcée, contexte de tenant. Ce guide sert
-à démarrer une base locale, l'approvisionner, la migrer, préparer les métadonnées `sqlx` et lancer
-les tests d'isolation.
+à démarrer une base locale, l'approvisionner, la migrer, préparer les métadonnées `sqlx`, lancer
+les tests d'isolation et le serveur.
 
 ## Rôles
 
@@ -62,7 +62,8 @@ est définie).
 ## Tests
 
 - `cargo test --all` : sans base, les tests de PostgreSQL ne sont pas compilés.
-- `cargo test --all --all-features` : active `tests-postgres` (catalogue, RLS, requête). Ils
+- `cargo test --all --all-features` : active `tests-postgres` (catalogue, RLS, requête, isolation
+  par l'API). Ils
   exigent `SIGMA_TEST_ADMIN_URL` (super-utilisateur) et `SIGMA_TEST_APPLICATION_URL`, et une base
   migrée. Sans elles, ils **échouent** avec un message qui renvoie ici : ils ne s'ignorent jamais.
 
@@ -84,3 +85,23 @@ de test.
    ni `DELETE`), fonction `SECURITY DEFINER`. Toute fonction retire `EXECUTE` à `PUBLIC` ; aucun
    `ALTER DEFAULT PRIVILEGES`.
 3. `cargo test --all --all-features` : le test de catalogue refuse toute table oubliée.
+
+## Serveur
+
+```sh
+set -a; . ./.env; set +a
+cargo run -p api
+```
+
+Variables : `SIGMA_ADRESSE_ECOUTE`, `SIGMA_URL_BASE_APPLICATION` (rôle **applicatif**),
+`SIGMA_ORIGINE`, et facultativement `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT`
+(`src/serveur/config.rs`). Jusqu'aux sessions (PR 8), toute route de l'API répond 401.
+
+Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/pipeline.rs`.
+
+### Nouvelle route
+
+1. Une entrée dans `ROUTES` (`src/serveur/routes.rs`) : méthode, chemin avec `{cabinet}` (et
+   `{dossier}`), action Cedar, portée, cas d'usage. Aucune route hors de cette table.
+2. Ses cas dans `attentes` (`tests/isolation.rs`) : sans eux, le test « chaque route » échoue.
+3. Une mutation écrit dans le journal d'audit, dans la transaction du pipeline (PR 7).
