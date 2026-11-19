@@ -12,9 +12,12 @@
 // Aide de test : les `expect` y sont voulus (un environnement invalide doit faire échouer le test).
 #![allow(dead_code, clippy::expect_used)]
 
+pub mod serveur;
+
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
 use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use uuid::Uuid;
 
 /// Migrations du crate, embarquées : celles que la base de test doit avoir appliquées.
 pub static MIGRATEUR: Migrator = sqlx::migrate!("./migrations");
@@ -108,22 +111,8 @@ pub async fn creer_cabinet(admin: &PgPool, nom: &str) -> CabinetTest {
         (c.administrateur, "administrateur"),
         (c.collaborateur, "collaborateur"),
     ] {
-        sqlx::query("INSERT INTO utilisateur (id, courriel, nom) VALUES ($1, $2, $3)")
-            .bind(utilisateur.uuid())
-            .bind(format!("{utilisateur}@exemple.invalid"))
-            .bind(format!("{role} de {nom}"))
-            .execute(&mut *tx)
-            .await
-            .expect("utilisateur");
-        sqlx::query(
-            "INSERT INTO appartenance (cabinet_id, utilisateur_id, role) VALUES ($1, $2, $3)",
-        )
-        .bind(c.cabinet.uuid())
-        .bind(utilisateur.uuid())
-        .bind(role)
-        .execute(&mut *tx)
-        .await
-        .expect("appartenance");
+        creer_utilisateur(&mut tx, utilisateur, &format!("{role} de {nom}")).await;
+        ajouter_membre(&mut tx, c.cabinet, utilisateur, role).await;
     }
     for (dossier, suffixe) in [(c.dossier, "1"), (c.autre_dossier, "2")] {
         sqlx::query("INSERT INTO dossier (cabinet_id, id, nom) VALUES ($1, $2, $3)")
@@ -134,17 +123,59 @@ pub async fn creer_cabinet(admin: &PgPool, nom: &str) -> CabinetTest {
             .await
             .expect("dossier");
     }
+    affecter(&mut tx, c.cabinet, c.dossier, c.collaborateur).await;
+    tx.commit().await.expect("commit admin");
+    c
+}
+
+/// Crée un utilisateur (super-utilisateur, hors RLS).
+pub async fn creer_utilisateur(tx: &mut sqlx::PgConnection, utilisateur: IdUtilisateur, nom: &str) {
+    sqlx::query("INSERT INTO utilisateur (id, courriel, nom) VALUES ($1, $2, $3)")
+        .bind(utilisateur.uuid())
+        .bind(format!("{utilisateur}@exemple.invalid"))
+        .bind(nom)
+        .execute(&mut *tx)
+        .await
+        .expect("utilisateur");
+}
+
+/// Ajoute un utilisateur existant à un cabinet, avec un rôle (appartenance active).
+pub async fn ajouter_membre(
+    tx: &mut sqlx::PgConnection,
+    cabinet: IdCabinet,
+    utilisateur: IdUtilisateur,
+    role: &str,
+) {
     sqlx::query(
-        "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id) VALUES ($1, $2, $3)",
+        "INSERT INTO appartenance (cabinet_id, utilisateur_id, role, id) VALUES ($1, $2, $3, $4)",
     )
-    .bind(c.cabinet.uuid())
-    .bind(c.dossier.uuid())
-    .bind(c.collaborateur.uuid())
+    .bind(cabinet.uuid())
+    .bind(utilisateur.uuid())
+    .bind(role)
+    .bind(Uuid::new_v4())
+    .execute(&mut *tx)
+    .await
+    .expect("appartenance");
+}
+
+/// Affecte un membre du cabinet à un dossier (Q5.1), sans délégation.
+pub async fn affecter(
+    tx: &mut sqlx::PgConnection,
+    cabinet: IdCabinet,
+    dossier: IdDossier,
+    utilisateur: IdUtilisateur,
+) {
+    sqlx::query(
+        "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id, id) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(cabinet.uuid())
+    .bind(dossier.uuid())
+    .bind(utilisateur.uuid())
+    .bind(Uuid::new_v4())
     .execute(&mut *tx)
     .await
     .expect("acces_dossier");
-    tx.commit().await.expect("commit admin");
-    c
 }
 
 /// Code SQLSTATE d'une erreur PostgreSQL.

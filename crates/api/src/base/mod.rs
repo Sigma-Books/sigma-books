@@ -43,6 +43,14 @@ pub struct IdDossier(Uuid);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IdUtilisateur(Uuid);
 
+/// Identifiant d'une appartenance d'un utilisateur à un cabinet : principal des décisions Cedar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IdAppartenance(Uuid);
+
+/// Identifiant d'une affectation d'un membre à un dossier (Q5.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IdAccesDossier(Uuid);
+
 macro_rules! identifiant {
     ($type:ident) => {
         impl $type {
@@ -77,6 +85,8 @@ macro_rules! identifiant {
 identifiant!(IdCabinet);
 identifiant!(IdDossier);
 identifiant!(IdUtilisateur);
+identifiant!(IdAppartenance);
+identifiant!(IdAccesDossier);
 
 /// Contexte de tenant d'une transaction : cabinet, dossier (absent pour une action du cabinet)
 /// et utilisateur. Il vient du chemin de la requête HTTP, revérifié par Cedar (ADR 0011).

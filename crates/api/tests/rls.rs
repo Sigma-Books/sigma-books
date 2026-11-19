@@ -85,12 +85,13 @@ async fn insert_dans_un_autre_cabinet_est_refuse() {
             vec![b.cabinet.uuid(), nouveau],
         ),
         (
-            "INSERT INTO appartenance (cabinet_id, utilisateur_id, role) \
-             VALUES ($1, $2, 'administrateur')",
+            "INSERT INTO appartenance (cabinet_id, utilisateur_id, role, id) \
+             VALUES ($1, $2, 'administrateur', gen_random_uuid())",
             vec![b.cabinet.uuid(), a.administrateur.uuid()],
         ),
         (
-            "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id) VALUES ($1, $2, $3)",
+            "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id, id) \
+             VALUES ($1, $2, $3, gen_random_uuid())",
             vec![b.cabinet.uuid(), b.dossier.uuid(), b.administrateur.uuid()],
         ),
     ] {
@@ -118,7 +119,8 @@ async fn cle_composite_interdit_de_citer_un_dossier_d_un_autre_cabinet() {
     // étrangère (cabinet_id, dossier_id) n'existe pas.
     let mut tx = transaction_de(&env.application, &a).await;
     let erreur = sqlx::query(
-        "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id) VALUES ($1, $2, $3)",
+        "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id, id) \
+             VALUES ($1, $2, $3, gen_random_uuid())",
     )
     .bind(a.cabinet.uuid())
     .bind(b.dossier.uuid())
@@ -131,7 +133,8 @@ async fn cle_composite_interdit_de_citer_un_dossier_d_un_autre_cabinet() {
     // Même chose avec un utilisateur qui n'est pas membre du cabinet A.
     let mut tx = transaction_de(&env.application, &a).await;
     let erreur = sqlx::query(
-        "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id) VALUES ($1, $2, $3)",
+        "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id, id) \
+             VALUES ($1, $2, $3, gen_random_uuid())",
     )
     .bind(a.cabinet.uuid())
     .bind(a.dossier.uuid())
@@ -390,7 +393,8 @@ async fn utilisateur_visible_seulement_depuis_son_cabinet_ou_par_lui_meme() {
         .await
         .unwrap();
     sqlx::query(
-        "INSERT INTO appartenance (cabinet_id, utilisateur_id, role) VALUES ($1, $2, 'auditeur')",
+        "INSERT INTO appartenance (cabinet_id, utilisateur_id, role, id) \
+         VALUES ($1, $2, 'auditeur', gen_random_uuid())",
     )
     .bind(a.cabinet.uuid())
     .bind(nouveau.uuid())
