@@ -40,6 +40,7 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
 - **`journal_tresorerie`** et **`page_fonctionnement`** : compte admis comme compte d'un journal de trésorerie (spec §5.2), marque héritée par ses sous-comptes dans le plan du dossier. La page est celle de la fiche « Contenu et fonctionnement des comptes » qui fonde la marque.
   - **Admis** : 52 Banques (p. PDF 417), 53 Établissements financiers et assimilés (p. 419), 55 Instruments de monnaie électronique (p. 424-425), 57 Caisse (p. 428).
   - **Exclus** : 50 et 51 (p. 413, 415) ; 54, qui fonctionne contre le 52 ou le 53 (p. 420) ; 56, une dette dont la contrepartie est le 52 (p. 426) ; 585 et 588, comptes de passage des virements internes à solder, ligne de contrepartie et jamais compte d'un journal (p. 430-431) ; 59, dépréciations (p. 433).
+  - **Exclusion explicite** (`journal_tresorerie = false`, l'emporte sur l'héritage) : 526 et 536, intérêts courus : ni encaisse ni avoir disponible. Les fiches des comptes 52 et 53 (p. PDF 416 et 418) ne font que les lister en subdivision.
   - **581, 582 : en attente du mainteneur** (régies d'avances et accréditifs, cas ambigu, p. 430) ; exclus d'ici là.
 - **`nature`** : déduite de l'intitulé officiel de la classe.
 

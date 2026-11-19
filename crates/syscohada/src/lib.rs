@@ -120,10 +120,12 @@ pub enum ErreurReferentiel {
         compte: NumeroCompte,
     },
     /// Marque `journal_tresorerie` sans `page_fonctionnement` dans la plage des fiches de
-    /// fonctionnement des comptes, ou page sans marque.
+    /// fonctionnement des comptes, page sans marque, ou exclusion (`false`) d'un compte
+    /// qu'aucun ascendant n'admet.
     #[error(
         "compte {0} : `journal_tresorerie` exige `page_fonctionnement` entre \
-         {PAGE_FONCTIONNEMENT_MIN} et {PAGE_FONCTIONNEMENT_MAX}, et inversement"
+         {PAGE_FONCTIONNEMENT_MIN} et {PAGE_FONCTIONNEMENT_MAX}, et inversement ; une exclusion \
+         exige un ascendant admis"
     )]
     MarqueJournalTresorerie(NumeroCompte),
     /// Page hors de la plage de la liste officielle.
@@ -174,7 +176,7 @@ pub struct CompteOfficiel {
     collectif: bool,
     page: u16,
     note: Option<String>,
-    page_journal_tresorerie: Option<u16>,
+    marque_journal_tresorerie: Option<(bool, u16)>,
 }
 
 impl CompteOfficiel {
@@ -227,12 +229,13 @@ impl CompteOfficiel {
         self.note.as_deref()
     }
 
-    /// Marque `journal_tresorerie` portée par ce compte lui-même : page PDF de la fiche de
-    /// fonctionnement qui la fonde. Les sous-comptes en héritent
+    /// Marque `journal_tresorerie` portée par ce compte lui-même : admission (`true`) ou
+    /// exclusion explicite (`false`), et page PDF de la fiche de fonctionnement qui la fonde.
+    /// Les sous-comptes héritent de la marque la plus proche
     /// ([`Referentiel::admis_en_journal_de_tresorerie`]).
     #[must_use]
-    pub fn marque_journal_tresorerie(&self) -> Option<u16> {
-        self.page_journal_tresorerie
+    pub fn marque_journal_tresorerie(&self) -> Option<(bool, u16)> {
+        self.marque_journal_tresorerie
     }
 }
 
@@ -280,8 +283,7 @@ struct CompteBrut {
     #[serde(default)]
     collectif: bool,
     note: Option<String>,
-    #[serde(default)]
-    journal_tresorerie: bool,
+    journal_tresorerie: Option<bool>,
     page_fonctionnement: Option<u16>,
 }
 
@@ -367,17 +369,17 @@ impl Referentiel {
             if !classes.contains_key(&numero.classe()) {
                 return Err(ErreurReferentiel::Classe(numero.classe()));
             }
-            let page_journal_tresorerie = match (c.journal_tresorerie, c.page_fonctionnement) {
-                (false, None) => None,
-                (true, Some(page))
+            let marque_journal_tresorerie = match (c.journal_tresorerie, c.page_fonctionnement) {
+                (None, None) => None,
+                (Some(admis), Some(page))
                     if (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page) =>
                 {
-                    Some(page)
+                    Some((admis, page))
                 }
                 _ => return Err(ErreurReferentiel::MarqueJournalTresorerie(numero)),
             };
             let compte = CompteOfficiel {
-                page_journal_tresorerie,
+                marque_journal_tresorerie,
                 intitule: texte(&c.numero, &c.intitule)?,
                 page: verifier_page(&c.numero, c.page)?,
                 nature: c.nature,
@@ -399,12 +401,28 @@ impl Referentiel {
             }
         }
 
-        Ok(Self {
+        let referentiel = Self {
             document: brut.source.document,
             version: brut.source.version,
             classes,
             comptes,
-        })
+        };
+        // Une exclusion explicite n'a de sens que sous un compte admis.
+        for compte in referentiel.comptes.values() {
+            if compte
+                .marque_journal_tresorerie
+                .is_some_and(|(admis, _)| !admis)
+                && !compte
+                    .numero
+                    .parent()
+                    .is_some_and(|p| referentiel.admis_en_journal_de_tresorerie(&p))
+            {
+                return Err(ErreurReferentiel::MarqueJournalTresorerie(
+                    compte.numero.clone(),
+                ));
+            }
+        }
+        Ok(referentiel)
     }
 
     /// Document source (texte officiel).
@@ -441,15 +459,18 @@ impl Referentiel {
         self.comptes.get(numero)
     }
 
-    /// Vrai si le numéro, ou l'un de ses ascendants, est un compte de la liste officielle
-    /// marqué `journal_tresorerie` : il peut alors être le compte d'un journal de trésorerie.
+    /// Vrai si le numéro peut être le compte d'un journal de trésorerie : la marque
+    /// `journal_tresorerie` la plus proche, sur lui-même ou sur ses ascendants de la liste
+    /// officielle, l'admet (une exclusion explicite l'emporte sur l'admission héritée).
     #[must_use]
     pub fn admis_en_journal_de_tresorerie(&self, numero: &NumeroCompte) -> bool {
-        std::iter::successors(Some(numero.clone()), NumeroCompte::parent).any(|n| {
-            self.comptes
-                .get(&n)
-                .is_some_and(|c| c.page_journal_tresorerie.is_some())
-        })
+        std::iter::successors(Some(numero.clone()), NumeroCompte::parent)
+            .find_map(|n| {
+                self.comptes
+                    .get(&n)
+                    .and_then(|c| c.marque_journal_tresorerie)
+            })
+            .is_some_and(|(admis, _)| admis)
     }
 
     /// Nombre de comptes.

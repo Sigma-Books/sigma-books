@@ -32,6 +32,9 @@
 #     compte d'un journal (p. 430-431) ;
 #   - 59 Dépréciations (p. 433) ;
 #   - 581, 582 : en attente du mainteneur (régies d'avances et accréditifs, cas ambigu, p. 430).
+#   `journal_tresorerie = false` exclut explicitement un sous-compte d'un compte admis et
+#   l'emporte sur l'héritage : 526 et 536, intérêts courus : ni encaisse ni avoir disponible
+#   (les fiches des comptes 52 et 53, p. PDF 416 et 418, ne font que les lister en subdivision).
 
 [source]
 document = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes »"
@@ -6061,6 +6064,9 @@ intitule = "BANQUES, INTÉRÊTS COURUS"
 page = 251
 nature = "bilan"
 sens = "variable"
+# Intérêts courus : ni encaisse ni avoir disponible (la fiche du 52 ne fait que les lister).
+journal_tresorerie = false
+page_fonctionnement = 416
 
 [[compte]]
 numero = "5261"
@@ -6112,6 +6118,9 @@ intitule = "ÉTABLISSEMENTS FINANCIERS, INTÉRÊTS COURUS"
 page = 251
 nature = "bilan"
 sens = "debiteur"
+# Intérêts courus : ni encaisse ni avoir disponible (la fiche du 53 ne fait que les lister).
+journal_tresorerie = false
+page_fonctionnement = 418
 
 [[compte]]
 numero = "538"

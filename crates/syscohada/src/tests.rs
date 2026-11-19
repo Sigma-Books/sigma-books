@@ -261,6 +261,9 @@ const ADMIS: [(&str, u16); 4] = [("52", 417), ("53", 419), ("55", 424), ("57", 4
 /// Comptes de la classe 5 exclus (motifs dans data/comptes.toml) ; 581 et 582 en attente du
 /// mainteneur.
 const EXCLUS: [&str; 9] = ["50", "51", "54", "56", "581", "582", "585", "588", "59"];
+/// Sous-comptes d'intérêts courus des comptes admis, exclus explicitement (ni encaisse ni avoir
+/// disponible), avec la page de la fiche du compte parent.
+const INTERETS_COURUS: [(&str, u16); 2] = [("526", 416), ("536", 418)];
 
 /// Premier compte de mouvement actif du plan sous `racine` (ou `racine` elle-même).
 fn compte_de_mouvement_sous(plan: &PlanComptes, racine: &str) -> NumeroCompte {
@@ -277,15 +280,47 @@ fn compte_de_mouvement_sous(plan: &PlanComptes, racine: &str) -> NumeroCompte {
 fn comptes_admis_en_journal_de_tresorerie_lus_des_donnees() {
     let r = officiel();
     // Les marques des données sont exactement celles instruites, avec leur page.
-    let marques: Vec<(String, u16)> = r
+    let marques: Vec<(String, bool, u16)> = r
         .comptes()
         .filter_map(|c| {
             c.marque_journal_tresorerie()
-                .map(|page| (c.numero().to_string(), page))
+                .map(|(admis, page)| (c.numero().to_string(), admis, page))
         })
         .collect();
-    let attendu: Vec<(String, u16)> = ADMIS.iter().map(|(c, p)| ((*c).to_owned(), *p)).collect();
+    let mut attendu: Vec<(String, bool, u16)> = ADMIS
+        .iter()
+        .map(|(c, p)| ((*c).to_owned(), true, *p))
+        .chain(
+            INTERETS_COURUS
+                .iter()
+                .map(|(c, p)| ((*c).to_owned(), false, *p)),
+        )
+        .collect();
+    attendu.sort();
     assert_eq!(marques, attendu);
+    // Les exclusions explicites portent toutes sur des intérêts courus ; tout compte d'intérêts
+    // courus sous un compte admis, repéré par son intitulé, est exclu.
+    let interets_courus = |c: &CompteOfficiel| {
+        c.intitule()
+            .as_str()
+            .to_uppercase()
+            .contains("INTÉRÊTS COURUS")
+    };
+    for (exclu, _) in INTERETS_COURUS {
+        assert!(interets_courus(r.compte(&n(exclu)).unwrap()), "{exclu}");
+    }
+    for c in r.comptes().filter(|c| {
+        interets_courus(c)
+            && ADMIS
+                .iter()
+                .any(|(admis, _)| n(admis).est_ascendant_ou_egal(c.numero()))
+    }) {
+        assert!(
+            !r.admis_en_journal_de_tresorerie(c.numero()),
+            "{}",
+            c.numero()
+        );
+    }
     // Les comptes exclus existent dans les données, et ni eux ni leurs sous-comptes ne sont admis.
     for exclu in EXCLUS {
         let exclu = n(exclu);
@@ -301,16 +336,23 @@ fn comptes_admis_en_journal_de_tresorerie_lus_des_donnees() {
             );
         }
     }
-    // Le plan du dossier porte la même marque, héritée par les sous-comptes.
+    // Le plan du dossier porte la même marque, héritée par les sous-comptes sauf exclusion.
     let mut plan = r.plan_comptes().unwrap();
+    let sous = |liste: &[(&str, u16)], numero: &NumeroCompte| {
+        liste
+            .iter()
+            .any(|(racine, _)| n(racine).est_ascendant_ou_egal(numero))
+    };
     for compte in plan.comptes() {
         assert_eq!(
             compte.est_admis_en_journal_de_tresorerie(),
-            ADMIS
-                .iter()
-                .any(|(admis, _)| n(admis).est_ascendant_ou_egal(compte.numero())),
+            sous(&ADMIS, compte.numero()) && !sous(&INTERETS_COURUS, compte.numero()),
             "{}",
             compte.numero()
+        );
+        assert_eq!(
+            compte.est_admis_en_journal_de_tresorerie(),
+            r.admis_en_journal_de_tresorerie(compte.numero())
         );
     }
     for (admis, _) in ADMIS {
@@ -340,7 +382,7 @@ fn journal_de_tresorerie_sur_un_compte_admis_ou_exclu() {
         let compte = compte_de_mouvement_sous(&plan, admis);
         assert!(journal(compte.clone()).is_ok(), "{compte}");
     }
-    for exclu in ["54", "56", "585", "59"] {
+    for exclu in ["54", "56", "585", "59", "526", "536"] {
         let compte = compte_de_mouvement_sous(&plan, exclu);
         assert_eq!(
             journal(compte.clone()),
@@ -371,10 +413,30 @@ fn rejette_une_marque_de_journal_de_tresorerie_incomplete() {
     let r = marque("journal_tresorerie = true\npage_fonctionnement = 274").unwrap();
     assert_eq!(
         r.compte(&n("10")).unwrap().marque_journal_tresorerie(),
-        Some(274)
+        Some((true, 274))
     );
     assert!(r.admis_en_journal_de_tresorerie(&n("10-A")));
     assert!(!r.admis_en_journal_de_tresorerie(&n("11")));
+    // Exclusion explicite sous un compte admis : elle l'emporte sur l'héritage.
+    let r = avec(&format!(
+        "{}journal_tresorerie = true\npage_fonctionnement = 274\n{}{}journal_tresorerie = \
+         false\npage_fonctionnement = 275\n",
+        compte("10"),
+        compte("101"),
+        compte("1011")
+    ))
+    .unwrap();
+    assert!(r.admis_en_journal_de_tresorerie(&n("10")));
+    assert!(r.admis_en_journal_de_tresorerie(&n("101")));
+    assert!(!r.admis_en_journal_de_tresorerie(&n("1011")));
+    assert!(!r.admis_en_journal_de_tresorerie(&n("1011-A")));
+    let plan = r.plan_comptes().unwrap();
+    assert!(
+        !plan
+            .compte(&n("1011"))
+            .unwrap()
+            .est_admis_en_journal_de_tresorerie()
+    );
 }
 
 const ENTETE: &str = r#"

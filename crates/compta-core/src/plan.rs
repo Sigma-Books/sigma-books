@@ -15,10 +15,11 @@
 //!   collectif dans le référentiel (401, 411, 421… : la liste vient des données).
 //!   Ce caractère n'est modifiable par aucune fonction : il ne peut donc pas changer une fois
 //!   le compte mouvementé.
-//! - Un compte est **admis en journal de trésorerie** si lui-même ou l'un de ses ascendants
-//!   officiels est marqué comme tel dans le référentiel (la liste des comptes admis vient des
-//!   données). Seul un tel compte peut être le compte d'un journal de trésorerie ; ce caractère
-//!   n'est, lui non plus, modifiable par aucune fonction.
+//! - Un compte officiel est **admis en journal de trésorerie** si le référentiel le marque
+//!   comme tel, compte par compte (la liste vient des données, qui peuvent exclure un
+//!   sous-compte officiel d'un compte admis) ; un compte créé par le dossier hérite le caractère
+//!   de son parent. Seul un tel compte peut être le compte d'un journal de trésorerie ; ce
+//!   caractère n'est, lui non plus, modifiable par aucune fonction.
 //! - Un compte ayant des écritures ne peut être supprimé, seulement désactivé. Le plan ne
 //!   connaît pas les écritures : l'appelant lui indique l'[`Usage`] du compte.
 
@@ -72,8 +73,9 @@ impl CompteReference {
         })
     }
 
-    /// Admet le compte comme compte d'un journal de trésorerie, d'après le référentiel (ses
-    /// sous-comptes en héritent dans le plan).
+    /// Admet le compte comme compte d'un journal de trésorerie, d'après le référentiel. Seul
+    /// ce compte est marqué : ses sous-comptes officiels portent leur propre marque, ses
+    /// sous-comptes créés par le dossier en héritent.
     #[must_use]
     pub fn admettre_en_journal_de_tresorerie(mut self) -> Self {
         self.journal_tresorerie = true;
@@ -228,19 +230,19 @@ impl PlanComptes {
                 return Err(ErreurPlan::Doublon(reference.numero));
             }
         }
-        // Héritage des caractères collectif et « admis en journal de trésorerie », et contrôle
-        // des parents, du plus court au plus long.
+        // Héritage du caractère collectif et contrôle des parents, du plus court au plus long.
+        // Le caractère « admis en journal de trésorerie » d'un compte officiel vient tel quel
+        // du référentiel (une exclusion explicite l'y emporte sur l'héritage).
         let mut numeros: Vec<NumeroCompte> = comptes.keys().cloned().collect();
         numeros.sort_by_key(|n| n.as_str().len());
         for numero in numeros {
             if let Some(parent) = numero.parent() {
-                let (collectif_parent, tresorerie_parent) = comptes
+                let collectif_parent = comptes
                     .get(&parent)
-                    .map(|p| (p.collectif, p.journal_tresorerie))
-                    .ok_or_else(|| ErreurPlan::ParentAbsent(numero.clone()))?;
+                    .ok_or_else(|| ErreurPlan::ParentAbsent(numero.clone()))?
+                    .collectif;
                 if let Some(compte) = comptes.get_mut(&numero) {
                     compte.collectif |= collectif_parent;
-                    compte.journal_tresorerie |= tresorerie_parent;
                 }
             }
         }
@@ -423,14 +425,14 @@ pub(crate) mod tests {
     }
 
     /// Référentiel fictif de test (numéros arbitraires, sans valeur normative). Le dernier
-    /// champ admet le compte en journal de trésorerie (ses enfants en héritent).
+    /// champ admet le compte en journal de trésorerie (ses sous-comptes créés en héritent).
     pub(crate) fn plan_de_test() -> PlanComptes {
         let refs = [
             ("40", SensNormal::Crediteur, false, false),
             ("401", SensNormal::Crediteur, true, false),
             ("4011", SensNormal::Crediteur, false, false),
             ("52", SensNormal::Debiteur, false, true),
-            ("521", SensNormal::Debiteur, false, false),
+            ("521", SensNormal::Debiteur, false, true),
             ("60", SensNormal::Debiteur, false, false),
             ("605", SensNormal::Debiteur, false, false),
             ("6052", SensNormal::Debiteur, false, false),
@@ -476,7 +478,7 @@ pub(crate) mod tests {
             plan.compte(&n("521"))
                 .unwrap()
                 .est_admis_en_journal_de_tresorerie(),
-            "hérité de 52"
+            "marqué dans le référentiel"
         );
         assert!(
             !plan
@@ -503,6 +505,34 @@ pub(crate) mod tests {
             CompteReference::nouveau(n("60-A"), t("A"), SensNormal::Debiteur, false),
             Err(ErreurPlan::NonOfficiel(n("60-A")))
         );
+    }
+
+    #[test]
+    fn marque_de_journal_de_tresorerie_par_compte_officiel() {
+        // Le référentiel marque chaque compte officiel : un sous-compte officiel non marqué
+        // d'un compte admis n'est pas admis ; un sous-compte créé par le dossier hérite.
+        let mut plan = PlanComptes::depuis_referentiel([
+            CompteReference::nouveau(n("52"), t("A"), SensNormal::Debiteur, false)
+                .unwrap()
+                .admettre_en_journal_de_tresorerie(),
+            CompteReference::nouveau(n("521"), t("B"), SensNormal::Debiteur, false).unwrap(),
+        ])
+        .unwrap();
+        assert!(
+            plan.compte(&n("52"))
+                .unwrap()
+                .est_admis_en_journal_de_tresorerie()
+        );
+        assert!(
+            !plan
+                .compte(&n("521"))
+                .unwrap()
+                .est_admis_en_journal_de_tresorerie()
+        );
+        let cree = plan.ajouter_sous_compte(n("52-A"), t("C")).unwrap();
+        assert!(cree.est_admis_en_journal_de_tresorerie());
+        let cree = plan.ajouter_sous_compte(n("521-A"), t("D")).unwrap();
+        assert!(!cree.est_admis_en_journal_de_tresorerie());
     }
 
     #[test]
@@ -553,10 +583,7 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(banque.sens(), SensNormal::Debiteur);
         assert_eq!(banque.genre(), GenreCompte::SousCompte);
-        assert!(
-            banque.est_admis_en_journal_de_tresorerie(),
-            "hérité de 52 par 521"
-        );
+        assert!(banque.est_admis_en_journal_de_tresorerie(), "hérité de 521");
         assert_eq!(
             plan.ajouter_sous_compte(n("521-BICIS"), t("X"))
                 .unwrap_err(),
