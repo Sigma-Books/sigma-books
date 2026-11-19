@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO audit_dossier (cabinet_id, dossier_id, rang, contenu, empreinte) VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "43f38f8c5f7fc844dee8d0fc8f549eb9a0d213865ba79ef680aea0bf8b949e7a"
+}

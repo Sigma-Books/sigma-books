@@ -39,6 +39,18 @@ impl Empreinte {
         &self.0
     }
 
+    /// Empreinte de 32 octets bruts (relue en base, par exemple).
+    #[must_use]
+    pub const fn depuis_octets(octets: [u8; 32]) -> Self {
+        Self(octets)
+    }
+
+    /// SHA-256 d'un contenu.
+    #[must_use]
+    pub fn calculer(contenu: &[u8]) -> Self {
+        Self::sha256(&[contenu])
+    }
+
     /// Lit une empreinte hexadécimale minuscule (64 caractères).
     ///
     /// # Errors
@@ -65,7 +77,7 @@ impl Empreinte {
         Ok(Self(sortie))
     }
 
-    fn sha256(morceaux: &[&[u8]]) -> Self {
+    pub(crate) fn sha256(morceaux: &[&[u8]]) -> Self {
         let mut h = Sha256::new();
         for m in morceaux {
             h.update(m);

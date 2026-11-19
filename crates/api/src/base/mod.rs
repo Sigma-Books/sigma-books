@@ -8,7 +8,12 @@
 //! - **requête** : les fonctions d'accès ([`organisation`]) filtrent aussi par le contexte de la
 //!   [`TransactionTenant`] qu'elles reçoivent, si bien qu'un rôle qui contournerait la RLS ne verrait
 //!   toujours rien d'un autre tenant.
+//!
+//! Le journal d'audit ([`audit`]) est écrit par le rôle applicatif, qui ne peut pas le relire, et
+//! lu par le rôle de lecture d'audit, sur un pool distinct ([`ouvrir_pool_lecture_audit`]),
+//! toujours sous RLS et contexte (ADR 0014).
 
+pub mod audit;
 pub mod organisation;
 
 use std::time::Duration;
@@ -29,6 +34,10 @@ pub enum ErreurBase {
     /// L'action relève du cabinet et ne peut pas s'exécuter dans le contexte d'un dossier.
     #[error("action du cabinet demandée dans le contexte d'un dossier")]
     ContexteDeDossier,
+    /// Le journal d'audit refuse l'entrée (portée hors du contexte, tête incohérente, entrée
+    /// invalide) : l'action est annulée.
+    #[error("inscription au journal d'audit impossible : {0}")]
+    Audit(&'static str),
 }
 
 /// Identifiant d'un cabinet (UUID v4 tiré par `api`, ADR 0011).
@@ -50,6 +59,11 @@ pub struct IdAppartenance(Uuid);
 /// Identifiant d'une affectation d'un membre à un dossier (Q5.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IdAccesDossier(Uuid);
+
+/// Identifiant **public** d'une session (ADR 0012), inscrit au journal d'audit : jamais son
+/// jeton.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct IdSession(Uuid);
 
 macro_rules! identifiant {
     ($type:ident) => {
@@ -87,6 +101,7 @@ identifiant!(IdDossier);
 identifiant!(IdUtilisateur);
 identifiant!(IdAppartenance);
 identifiant!(IdAccesDossier);
+identifiant!(IdSession);
 
 /// Contexte de tenant d'une transaction : cabinet, dossier (absent pour une action du cabinet)
 /// et utilisateur. Il vient du chemin de la requête HTTP, revérifié par Cedar (ADR 0011).
@@ -235,6 +250,71 @@ pub async fn verifier_role_application(pool: &PgPool) -> Result<(), ErreurBase> 
     Ok(())
 }
 
+/// Ouvre le pool de connexions du rôle de **lecture d'audit** (ADR 0014), distinct de celui du
+/// rôle applicatif.
+///
+/// Refuse un rôle qui contournerait la RLS ou posséderait un objet (comme
+/// [`verifier_role_application`]), qui serait membre du rôle applicatif, ou qui aurait un droit
+/// d'écriture sur une table du schéma : ce pool ne fait que lire l'audit.
+///
+/// # Errors
+/// Connexion impossible, ou rôle trop privilégié ([`ErreurBase::RoleTropPrivilegie`]).
+pub async fn ouvrir_pool_lecture_audit(
+    url: &str,
+    reglages: ReglagesPool,
+) -> Result<PgPool, ErreurBase> {
+    let pool = PgPoolOptions::new()
+        .max_connections(reglages.connexions_max)
+        .acquire_timeout(reglages.attente_max)
+        .connect(url)
+        .await?;
+    verifier_role_lecture_audit(&pool).await?;
+    Ok(pool)
+}
+
+/// Vérifie que le rôle courant des connexions du pool est un rôle de lecture : les contrôles de
+/// [`verifier_role_application`], ni membre de `sigma_application`, ni `INSERT`, `UPDATE`,
+/// `DELETE` ou `TRUNCATE` sur une table du schéma `public`.
+///
+/// # Errors
+/// [`ErreurBase::RoleTropPrivilegie`], ou erreur de PostgreSQL.
+pub async fn verifier_role_lecture_audit(pool: &PgPool) -> Result<(), ErreurBase> {
+    verifier_role_application(pool).await?;
+    let role = sqlx::query!(
+        r#"
+        SELECT
+            EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_roles m
+                WHERE m.rolname = 'sigma_application' AND pg_has_role(current_user, m.oid, 'MEMBER')
+            ) AS "membre_application!",
+            EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) AS d (droit)
+                WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+                  AND (has_table_privilege(current_user, c.oid, d.droit)
+                       OR (d.droit IN ('INSERT', 'UPDATE')
+                           AND has_any_column_privilege(current_user, c.oid, d.droit)))
+            ) AS "ecrit!"
+        "#
+    )
+    .fetch_one(pool)
+    .await?;
+    if role.membre_application {
+        return Err(ErreurBase::RoleTropPrivilegie(
+            "membre de sigma_application",
+        ));
+    }
+    if role.ecrit {
+        return Err(ErreurBase::RoleTropPrivilegie(
+            "droit d'écriture sur une table",
+        ));
+    }
+    Ok(())
+}
+
 /// Transaction PostgreSQL dont le contexte de tenant est posé.
 ///
 /// Les fonctions d'accès la reçoivent et filtrent par son contexte : les valeurs du filtre de la
@@ -257,6 +337,34 @@ impl TransactionTenant {
     /// [`TransactionTenant::contexte`] en plus de la RLS.
     pub fn connexion(&mut self) -> &mut PgConnection {
         &mut self.tx
+    }
+
+    /// Restreint le contexte de la transaction au dossier `dossier` du cabinet du contexte, pour
+    /// le reste de la transaction (`set_config(…, true)`).
+    ///
+    /// Sert à une action du cabinet qui crée un dossier et inscrit la première entrée de sa
+    /// chaîne d'audit (ADR 0014). Le contexte ne peut que se **restreindre** : d'un cabinet à
+    /// l'un de ses dossiers, jamais d'un dossier à un autre ni vers un autre cabinet ; la RLS
+    /// et les filtres des requêtes ne voient ensuite que ce dossier.
+    ///
+    /// # Errors
+    /// [`ErreurBase::ContexteDeDossier`] si un autre dossier est déjà en contexte, ou erreur de
+    /// PostgreSQL.
+    pub async fn restreindre_au_dossier(&mut self, dossier: IdDossier) -> Result<(), ErreurBase> {
+        match self.contexte.dossier {
+            Some(courant) if courant == dossier => return Ok(()),
+            Some(_) => return Err(ErreurBase::ContexteDeDossier),
+            None => {}
+        }
+        let texte = dossier.to_string();
+        sqlx::query!(
+            "SELECT set_config('sigma.dossier', $1, true) AS dossier",
+            texte
+        )
+        .fetch_one(&mut *self.tx)
+        .await?;
+        self.contexte.dossier = Some(dossier);
+        Ok(())
     }
 
     /// Valide la transaction (`COMMIT`).
@@ -289,7 +397,33 @@ pub async fn ouvrir_transaction(
     pool: &PgPool,
     contexte: ContexteTenant,
 ) -> Result<TransactionTenant, ErreurBase> {
-    let mut tx = pool.begin().await?;
+    let tx = pool.begin().await?;
+    poser_contexte(tx, contexte).await
+}
+
+/// Ouvre une transaction de **lecture seule** à instantané unique (`REPEATABLE READ READ
+/// ONLY`) et y pose le contexte de tenant : toutes ses lectures voient le même état validé.
+///
+/// Sert aux lectures du journal d'audit (consultation, vérification, export, ADR 0014) : une
+/// action validée entre la lecture de la tête et celle des entrées ne peut pas faire croire à
+/// une chaîne rompue. Le texte de `BEGIN` est constant.
+///
+/// # Errors
+/// Connexion indisponible ou erreur de PostgreSQL.
+pub async fn ouvrir_transaction_lecture(
+    pool: &PgPool,
+    contexte: ContexteTenant,
+) -> Result<TransactionTenant, ErreurBase> {
+    let tx = pool
+        .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .await?;
+    poser_contexte(tx, contexte).await
+}
+
+async fn poser_contexte(
+    mut tx: Transaction<'static, Postgres>,
+    contexte: ContexteTenant,
+) -> Result<TransactionTenant, ErreurBase> {
     let cabinet = contexte.cabinet.to_string();
     // Dossier absent : chaîne vide, que les politiques lisent comme NULL (NULLIF).
     let dossier = contexte

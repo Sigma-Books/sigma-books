@@ -339,3 +339,56 @@ pub async fn creer_dossier(tx: &mut TransactionTenant, nom: &str) -> Result<Doss
         cree_le: ligne.cree_le,
     })
 }
+
+/// Affecte l'utilisateur du contexte à un dossier du cabinet du contexte (Q5.1), sans
+/// délégation : le créateur d'un dossier y est affecté (ADR 0014).
+///
+/// # Errors
+/// Erreur de PostgreSQL (dossier ou membre d'un autre cabinet : clés composites, RLS).
+pub async fn affecter_utilisateur_du_contexte(
+    tx: &mut TransactionTenant,
+    dossier: IdDossier,
+) -> Result<IdAccesDossier, ErreurBase> {
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let utilisateur = tx.contexte().id_utilisateur().uuid();
+    let id = IdAccesDossier::nouveau();
+    sqlx::query!(
+        "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id, id) \
+         VALUES ($1, $2, $3, $4)",
+        cabinet,
+        dossier.uuid(),
+        utilisateur,
+        id.uuid(),
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(id)
+}
+
+/// Noms des utilisateurs donnés qui sont membres du cabinet du contexte (actifs ou suspendus),
+/// pour résoudre l'acteur d'une entrée d'audit à l'affichage et dans l'annexe d'un export
+/// (ADR 0014). Un utilisateur qui n'est plus membre est absent.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn lire_noms_membres(
+    tx: &mut TransactionTenant,
+    utilisateurs: &[IdUtilisateur],
+) -> Result<Vec<(IdUtilisateur, String)>, ErreurBase> {
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let ids: Vec<uuid::Uuid> = utilisateurs.iter().map(|u| u.uuid()).collect();
+    let lignes = sqlx::query!(
+        "SELECT u.id, u.nom FROM utilisateur u \
+         WHERE u.id = ANY($2) AND EXISTS ( \
+             SELECT 1 FROM appartenance a WHERE a.cabinet_id = $1 AND a.utilisateur_id = u.id) \
+         ORDER BY u.id",
+        cabinet,
+        &ids,
+    )
+    .fetch_all(tx.connexion())
+    .await?;
+    Ok(lignes
+        .into_iter()
+        .map(|l| (IdUtilisateur::depuis_uuid(l.id), l.nom))
+        .collect())
+}

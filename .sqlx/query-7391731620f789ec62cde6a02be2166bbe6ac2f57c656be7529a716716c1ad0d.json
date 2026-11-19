@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO audit_tete_dossier (cabinet_id, dossier_id, rang, empreinte) VALUES ($1, $2, 0, $3) ON CONFLICT (cabinet_id, dossier_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7391731620f789ec62cde6a02be2166bbe6ac2f57c656be7529a716716c1ad0d"
+}

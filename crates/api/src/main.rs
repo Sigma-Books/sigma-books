@@ -1,8 +1,8 @@
 //! Serveur applicatif de Sigma Books.
 //!
 //! Minimal : configuration lue dans l'environnement (refus de démarrer si elle est incomplète),
-//! politiques Cedar chargées et validées, pool du rôle applicatif (refus d'un rôle trop
-//! privilégié), puis service HTTP jusqu'à `Ctrl-C`. Authentification : [`RefusTotal`] jusqu'aux
+//! politiques Cedar chargées et validées, pools du rôle applicatif et du rôle de lecture
+//! d'audit (refus d'un rôle trop privilégié), puis service HTTP jusqu'à `Ctrl-C`. Authentification : [`RefusTotal`] jusqu'aux
 //! sessions (PR 8) ; aucune autre n'est sélectionnable.
 
 #![forbid(unsafe_code)]
@@ -10,7 +10,7 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use api::base::{ReglagesPool, ouvrir_pool_application};
+use api::base::{ReglagesPool, ouvrir_pool_application, ouvrir_pool_lecture_audit};
 use api::serveur::config::Configuration;
 use api::serveur::{Application, RefusTotal, journal, routeur, servir};
 use authz::Autorisation;
@@ -48,8 +48,13 @@ async fn demarrer() -> Result<(), String> {
     let pool = ouvrir_pool_application(&config.url_base, ReglagesPool::default())
         .await
         .map_err(|e| format!("base de données : {e}"))?;
+    let pool_lecture_audit =
+        ouvrir_pool_lecture_audit(&config.url_base_lecture_audit, ReglagesPool::default())
+            .await
+            .map_err(|e| format!("base de données (lecture d'audit) : {e}"))?;
     let application = Application::new(
         pool,
+        pool_lecture_audit,
         Arc::new(autorisation),
         Arc::new(RefusTotal),
         config.reglages.clone(),

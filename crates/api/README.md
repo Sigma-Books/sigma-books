@@ -10,7 +10,7 @@ les tests d'isolation et le serveur.
 |---|---|
 | `sigma_migration` | Propriétaire de la base, du schéma et des tables. `sqlx migrate` seulement, jamais à l'exécution. |
 | `sigma_application` | Binaire `api`. Non propriétaire, sans `CREATE`, sous RLS. Droits posés table par table par les migrations. |
-| `sigma_lecture_audit` | Lecture du journal d'audit (ADR 0014, PR 7). Aucun droit de table pour l'instant. |
+| `sigma_lecture_audit` | Lecture du journal d'audit (ADR 0014) : `SELECT` seul sur les quatre tables d'audit, pool distinct du binaire. |
 
 Aucun n'a `SUPERUSER`, `BYPASSRLS`, `CREATEROLE` ni `CREATEDB`. Ils sont créés par
 l'**approvisionnement** (`sql/approvisionnement.sql`, exécuté par un super-utilisateur), pas par
@@ -63,9 +63,13 @@ est définie).
 
 - `cargo test --all` : sans base, les tests de PostgreSQL ne sont pas compilés.
 - `cargo test --all --all-features` : active `tests-postgres` (catalogue, RLS, requête, isolation
-  par l'API). Ils
+  par l'API, journal d'audit). Ils
   exigent `SIGMA_TEST_ADMIN_URL` (super-utilisateur) et `SIGMA_TEST_APPLICATION_URL`, et une base
   migrée. Sans elles, ils **échouent** avec un message qui renvoie ici : ils ne s'ignorent jamais.
+
+Le rôle de lecture d'audit est pris, dans les tests, par des connexions du super-utilisateur qui
+font aussitôt `SET ROLE sigma_lecture_audit` (seuls ses droits s'appliquent alors, RLS comprise) ;
+de même `SET ROLE sigma_migration` pour les tests où le propriétaire altère une entrée d'audit.
 
 Les tests écrivent des cabinets aux identifiants aléatoires, créent le rôle de test
 `sigma_test_contournement` (`BYPASSRLS`, `NOLOGIN`) et la base jetable
@@ -94,7 +98,7 @@ cargo run -p api
 ```
 
 Variables : `SIGMA_ADRESSE_ECOUTE`, `SIGMA_URL_BASE_APPLICATION` (rôle **applicatif**),
-`SIGMA_ORIGINE`, et facultativement `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT`,
+`SIGMA_URL_BASE_LECTURE_AUDIT` (rôle de **lecture d'audit**, pool distinct), `SIGMA_ORIGINE`, et facultativement `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT`,
 `SIGMA_AUTORITES_HORODATAGE` (`src/serveur/config.rs`). Jusqu'aux sessions (PR 8), toute route de l'API répond 401.
 
 Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/pipeline.rs`.
@@ -105,4 +109,26 @@ Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/p
    `{dossier}`), action Cedar, portée, cas d'usage. Aucune route hors de cette table.
 2. Ses cas dans `attentes` (`tests/isolation.rs`) : sans eux, le test « chaque route » échoue.
    Une route déclarée hors de la table fait échouer `tests/structure.rs`.
-3. Une mutation écrit dans le journal d'audit, dans la transaction du pipeline (PR 7).
+3. Une mutation (`POST`) rend ses traces d'audit (`serveur::audit::Trace`) : le pipeline les
+   inscrit au journal d'audit chaîné dans la transaction de l'action, et refuse une mutation
+   sans trace (ADR 0014).
+
+## Journal d'audit
+
+Format : `docs/integrite/audit-v1.md` (module pur `integrite::audit`). Tables (migration
+`0003_audit.sql`) : entrées `audit_cabinet` et `audit_dossier` en **ajout seul** (`INSERT` seul
+pour le rôle applicatif, `SELECT` seul pour le rôle de lecture), têtes `audit_tete_cabinet` et
+`audit_tete_dossier` verrouillées `FOR UPDATE`. Routes : consultation paginée (`?apres=&limite=`,
+100 au plus), vérification et export (ré-authentifié) de l'audit du cabinet (administrateur) et
+d'un dossier (administrateur, valideur, auditeur affectés). La requête revérifie la portée
+(administrateur lu en base pour le cabinet, dossier visible pour un dossier) : Cedar n'est pas la
+seule barrière. Les lectures d'audit s'exécutent en `REPEATABLE READ READ ONLY`, bornées au rang
+de la tête du même instantané : une action concurrente ne produit pas de fausse alerte.
+
+**Limites acceptées en L2** :
+- l'export d'audit est construit **en mémoire** (pas de réponse en flux) et **verrouille la tête**
+  de la portée pendant toute sa durée : les actions de cette portée attendent la fin de l'export.
+  Acceptable pour les volumes de L2 ; un export en flux, ou à partir d'un instantané sans verrou,
+  sera à reprendre si les chaînes grossissent ;
+- l'alerte à l'administrateur lors d'un export (spec §21, ADR 0014) n'est pas encore émise :
+  elle arrive avec la file de tâches et les courriels (PR 9).

@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rang, contenu, empreinte FROM audit_dossier WHERE cabinet_id = $1 AND dossier_id = $2 AND rang > $3 AND ($4::bigint IS NULL OR rang <= $4) ORDER BY rang LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "audit_dossier",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "contenu",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_dossier",
+            "name": "contenu"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "audit_dossier",
+            "name": "empreinte"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "00e1c89ac12c9a9e19480ab6ef8bc015f601084934331ea55fc981bfb2ead446"
+}

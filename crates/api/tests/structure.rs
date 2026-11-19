@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use api::serveur::routes::ROUTES;
 use api::serveur::routeur;
 use axum::http::StatusCode;
-use commun::serveur::{application_du_binaire, lire, pool_sans_base};
+use commun::serveur::{appeler_route, application_du_binaire, lire, pool_sans_base};
 use uuid::Uuid;
 
 /// Sources du crate, hors modules de test. Un module de test est toujours en fin de fichier :
@@ -119,7 +119,7 @@ async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
             .replace("{cabinet}", &Uuid::new_v4().to_string())
             .replace("{dossier}", &Uuid::new_v4().to_string());
         assert_eq!(
-            lire(&routeur, &chemin, None).await.statut,
+            appeler_route(&routeur, route, &chemin, None).await.statut,
             StatusCode::UNAUTHORIZED,
             "{chemin}"
         );
