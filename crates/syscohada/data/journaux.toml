@@ -1,0 +1,19 @@
+# Compte de trésorerie des journaux de trésorerie par défaut d'un dossier.
+#
+# Les journaux par défaut (codes, types, intitulés : spec §5.2) sont décrits sans compte dans
+# crates/compta-core/data/journaux-par-defaut.txt ; un numéro de compte ne vit que dans les
+# données de ce crate (CLAUDE.md, règle 9). Chaque journal de trésorerie par défaut y reçoit ici
+# son compte, avec sa source. Le compte doit être un compte officiel **sans subdivision** dans la
+# liste officielle : on ne saisit que sur un compte de mouvement (spec §6.2, invariant 3).
+#
+# Les journaux BQx (un par compte bancaire) et MMx (un par portefeuille de monnaie
+# électronique) ne sont pas des journaux par défaut : leur compte est fourni à leur création.
+#
+# Champs : code (journal par défaut de type trésorerie), compte (numéro officiel), source
+# (document et page PDF), motif (raison du choix).
+
+[[journal]]
+code = "CA"
+compte = "5711"
+source = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes », p. PDF 252"
+motif = "571 « CAISSE SIÈGE SOCIAL » se subdivise en 5711 « Caisse en monnaie nationale » et 5712 « Caisse en devises » ; la caisse par défaut est tenue en monnaie nationale (instruit le 2026-11-19)."
