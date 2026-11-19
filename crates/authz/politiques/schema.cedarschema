@@ -1,0 +1,159 @@
+// Schéma Cedar de Sigma Books : entités, contexte et actions (spec §20).
+//
+// Chargé par `crates/authz` au démarrage ; les politiques (`*.cedar`) sont
+// validées contre lui en mode strict, et le serveur refuse de démarrer sinon.
+//
+// Modélisation (voir `crates/authz/src/lib.rs`) :
+// - le principal est une **appartenance** (un utilisateur dans un cabinet,
+//   avec un seul rôle), jamais l'utilisateur seul : une décision ne vaut que
+//   pour le cabinet de cette appartenance (F1.14) ;
+// - les ressources forment une hiérarchie stricte
+//   cabinet ⊃ dossier ⊃ écriture, qui permet `resource in principal.cabinet` ;
+// - brouillon et écriture validée sont deux types distincts, comme dans
+//   `compta-core` et en base (ADR 0011) : aucune action de modification ne
+//   s'applique à une écriture validée (F1.15).
+namespace Sigma {
+  // Rôles par défaut du §20. Pas de rôle dérivé en L2 (Q5.4).
+  // Le rôle `client` existe pour l'appartenance au portail (L4) ; aucune
+  // politique ne lui accorde de droit en L2.
+  entity Role enum ["administrateur", "valideur", "collaborateur", "auditeur", "client"];
+
+  // Une personne. Elle n'agit jamais directement : seulement au travers
+  // d'une appartenance.
+  entity Utilisateur;
+
+  // Le tenant (spec §4.1).
+  entity Cabinet = {
+    // Séparation des tâches (Q5.3) : activée par défaut, désactivable par
+    // l'administrateur avec ré-authentification.
+    separation_des_taches: Bool,
+  };
+
+  // Rôle d'un utilisateur dans un cabinet (spec §4.1 : « chaque appartenance
+  // a son rôle »). Un seul rôle par appartenance.
+  entity Appartenance = {
+    utilisateur: Utilisateur,
+    cabinet: Cabinet,
+    role: Role,
+    // Faux si l'appartenance est suspendue (ADR 0014) : plus aucune action.
+    actif: Bool,
+  };
+
+  // Une entité juridique tenue par le cabinet. Un seul parent : son cabinet.
+  entity Dossier in [Cabinet];
+
+  // Affectation d'une appartenance à un dossier (Q5.1), avec la délégation
+  // du droit de valider accordée par dossier (Q5.2).
+  entity AccesDossier = {
+    appartenance: Appartenance,
+    dossier: Dossier,
+    delegation_validation: Bool,
+  };
+
+  // Écriture au brouillard : modifiable, supprimable (spec §6.1).
+  entity EcritureBrouillon in [Dossier] = {
+    // Créateur et chaque utilisateur qui l'a modifiée : fonde la séparation
+    // des tâches (Q5.3). « Qu'il a lui-même saisie » (§20) : corriger un
+    // brouillon, c'est en saisir une partie.
+    contributeurs: Set<Utilisateur>,
+  };
+
+  // Écriture validée : définitive (spec §2 principe 4). Aucun attribut
+  // modifiable, aucune action de modification.
+  entity EcritureValidee in [Dossier];
+
+  type Contexte = {
+    // Facteur vérifié depuis moins de 5 minutes (ADR 0012).
+    session_fraiche: Bool,
+    // Affectation de l'appartenance au dossier de la ressource, si elle existe.
+    acces?: AccesDossier,
+  };
+
+  // ---------------------------------------------------------------------
+  // Actions sur le cabinet
+  // ---------------------------------------------------------------------
+
+  // §20 « Gérer cabinet, utilisateurs, facturation » : paramètres du cabinet,
+  // liste des utilisateurs, sessions actives (spec §21).
+  action GererCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // Même ligne : changements de droits (invitation avec un rôle, changement
+  // de rôle, suspension, affectation aux dossiers, délégation de validation).
+  action ModifierDroits appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // Q5.3 : séparation des tâches.
+  action ActiverSeparationDesTaches appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  action DesactiverSeparationDesTaches appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // ADR 0014 : audit de portée cabinet (administration et droits).
+  // ADR 0016 : consultation, vérification et export réservés à
+  // l'administrateur ; export ré-authentifié.
+  action ConsulterAuditCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  action VerifierAuditCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  action ExporterAuditCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // §20 « Créer un dossier, reprise de données » (création).
+  action CreerDossier appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+  // Lot ultérieur (facturation, hors L2) : déclarée, aucune politique.
+  action GererFacturation appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
+
+  // ---------------------------------------------------------------------
+  // Actions sur un dossier
+  // ---------------------------------------------------------------------
+
+  // Voir le dossier. Sert à distinguer une ressource visible (refus : 403)
+  // d'une ressource d'autrui, traitée comme absente (404, ADR 0011).
+  action AccederDossier appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Paramétrer plan, journaux, fiscalité » (référentiel du dossier).
+  action ParametrerDossier appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Déposer des pièces ».
+  action DeposerPiece appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Saisir, corriger dans le brouillard » (création d'un brouillon).
+  action SaisirBrouillard appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Validation par lot ». Chaque écriture du lot est aussi soumise à
+  // `ValiderEcriture` (séparation des tâches).
+  action ValiderParLot appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Liquider la TVA, verrouiller une période » (verrouillage).
+  action VerrouillerPeriode appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Déverrouiller une période ».
+  action DeverrouillerPeriode appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Clôture informatique d'une période : mêmes rôles que « Clôturer un
+  // exercice » (docs/lots/L2.md, choix techniques).
+  action CloturerPeriode appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Clôturer un exercice ».
+  action CloturerExercice appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Consulter éditions et états ».
+  action ConsulterEditions appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Vérifier l'intégrité, consulter l'audit ».
+  action VerifierIntegrite appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  action ConsulterAudit appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Exporter (FEC, profils) » : export d'une édition.
+  action Exporter appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Même ligne : export complet (FEC, livres, audit du dossier) ; ré-authentification.
+  action ExporterComplet appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Même ligne : export d'intégrité (docs/integrite/format-v3.md) ; ré-authentification.
+  action ExporterIntegrite appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+
+  // Lignes du §20 des lots ultérieurs : déclarées, **aucune politique** ;
+  // refusées à tous jusqu'à leur lot.
+  // §20 « Créer un dossier, reprise de données » (reprise) : L8.
+  action ReprendreDonnees appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Lettrer / délettrer » : L3.
+  action Lettrer appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Activer une règle apprise » : L4.
+  action ActiverRegleApprise appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Liquider la TVA, verrouiller une période » (liquidation) : L5.
+  action LiquiderTva appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Travaux de fin d'exercice » : L6.
+  action TravauxFinExercice appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Répondre aux demandes » (portail client) : L4.
+  action RepondreDemande appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+
+  // ---------------------------------------------------------------------
+  // Actions sur une écriture
+  // ---------------------------------------------------------------------
+
+  // §20 « Saisir, corriger dans le brouillard » (modifier, supprimer un brouillon).
+  action CorrigerBrouillard appliesTo { principal: Appartenance, resource: EcritureBrouillon, context: Contexte };
+  // §20 « Valider une écriture ».
+  action ValiderEcriture appliesTo { principal: Appartenance, resource: EcritureBrouillon, context: Contexte };
+  // §20 « Contre-passer » : seule action sur une écriture validée, et elle
+  // ne la modifie pas (elle crée une écriture miroir, spec §6.1).
+  action ContrePasser appliesTo { principal: Appartenance, resource: EcritureValidee, context: Contexte };
+}

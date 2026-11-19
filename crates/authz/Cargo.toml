@@ -10,3 +10,14 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+cedar-policy.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+time = { workspace = true, features = ["macros"] }
+uuid.workspace = true

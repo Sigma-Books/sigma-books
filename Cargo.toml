@@ -33,6 +33,9 @@ rsa = { version = "0.10.0", default-features = false, features = ["encoding", "p
 sqlx = { version = "0.9.1", default-features = false, features = ["postgres", "runtime-tokio", "macros", "migrate", "uuid", "time"] }
 tokio = { version = "1.54.1", default-features = false }
 uuid = { version = "1.29.3", default-features = false, features = ["std", "v4"] }
+# Autorisation (ADR 0005). Extensions ipaddr et decimal désactivées ; datetime est réactivée
+# d'office par cedar-policy-formatter (chrono, RUSTSEC-2026-0543 ignoré, #145).
+cedar-policy = { version = "4.15.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
