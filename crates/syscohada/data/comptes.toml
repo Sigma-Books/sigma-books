@@ -5,6 +5,10 @@
 # « Liste des comptes », pages PDF 219 à 272 (pagination imprimée = page PDF - 3).
 # Seuls les numéros et intitulés sont repris du texte (faits), sans les notes de bas de page.
 #
+# Champs de chaque classe : numero, intitule et page (texte officiel), et `tresorerie = true` pour
+# la seule classe dont l'intitulé officiel est « COMPTES DE TRÉSORERIE » (p. PDF 249) : ses comptes,
+# et eux seuls, peuvent être le compte d'un journal de trésorerie (spec §5.2).
+#
 # Champs de chaque compte :
 # - numero, intitule : texte officiel. Coquilles manifestes corrigées, et trois numéros restitués
 #   (champ `note`) ; liste dans crates/syscohada/README.md.
@@ -47,6 +51,7 @@ page = 240
 numero = 5
 intitule = "COMPTES DE TRÉSORERIE"
 page = 249
+tresorerie = true
 
 [[classe]]
 numero = 6
