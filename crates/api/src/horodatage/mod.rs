@@ -11,12 +11,19 @@
 //!   aucune redirection suivie (un 3xx est un échec), aucune URL issue d'une donnée ;
 //! - HTTP/1.1 en clair, une connexion par requête, sans mandataire ni réutilisation : seule
 //!   l'empreinte du témoin part (F6.3), et le jeton porte sa propre preuve (signature) ;
-//! - délai de connexion (résolution du nom comprise) et délai total bornés, par autorité ;
+//! - délai de connexion (résolution du nom comprise) et délai total bornés, par autorité.
+//!   Limite connue : la résolution du nom (`getaddrinfo`, fil bloquant de `tokio`) n'est pas
+//!   interruptible ; à l'expiration du délai, l'échange est abandonné mais la résolution se
+//!   poursuit en arrière-plan jusqu'à sa propre fin ;
 //! - taille de réponse bornée : `Content-Length` excessif refusé avant lecture, corps coupé
-//!   au-delà de la limite.
+//!   au-delà de la limite ;
+//! - aucune garde par adresse : la configuration refuse les hôtes littéraux internes, mais un nom
+//!   peut se résoudre vers une adresse interne. La limite réelle est le pare-feu (L9).
 //!
-//! Le **nonce** est tiré ici ([`tirer_nonce`], aléa du système), jamais dans `integrite`, qui
-//! reste pur.
+//! Le **nonce** ([`Nonce`]) est tiré ici ([`tirer_nonce`], aléa du système), jamais dans
+//! `integrite`, qui reste pur ; aucun appelant ne peut en fournir un constant. La **date** du
+//! jeton est comparée à l'horloge du système à l'envoi de la requête (RFC 3161 §2.4.2) : un
+//! écart de plus de [`Limites::ecart_date`] fait refuser le jeton.
 //!
 //! Journaux en liste blanche (F2.11) : une ligne par autorité interrogée, avec `autorite` (hôte
 //! et port, jamais le chemin), `statut` HTTP s'il est connu, `duree_ms` et `issue` (liste fermée,
@@ -25,6 +32,8 @@
 mod autorite;
 
 use std::time::{Duration, Instant};
+
+use time::OffsetDateTime;
 
 use axum::http::{Request, StatusCode, header};
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
@@ -58,21 +67,30 @@ pub struct Limites {
     /// Taille maximale du corps de la réponse, en octets. `integrite` refuse en outre toute
     /// réponse de plus de [`integrite::horodatage::JETON_MAX`] octets.
     pub taille_reponse: usize,
+    /// Écart maximal entre la date du jeton (`genTime`) et l'heure d'envoi de la requête, dans
+    /// un sens ou dans l'autre.
+    pub ecart_date: Duration,
 }
 
 impl Default for Limites {
     /// 5 s pour la connexion, 20 s au total, [`integrite::horodatage::JETON_MAX`] (64 Kio) pour
-    /// la réponse (les réponses réelles font 5 à 7 Kio).
+    /// la réponse (les réponses réelles font 5 à 7 Kio), 5 min d'écart de date.
     fn default() -> Self {
         Self {
             connexion: Duration::from_secs(5),
             total: Duration::from_secs(20),
             taille_reponse: integrite::horodatage::JETON_MAX,
+            ecart_date: Duration::from_mins(5),
         }
     }
 }
 
-/// Échec d'une autorité. Les messages ne citent ni l'empreinte ni le contenu échangé.
+/// Échec d'une autorité. Les messages ne citent ni l'empreinte ni le corps échangé.
+///
+/// **Ne jamais journaliser** `Display` ni `Debug` d'un échec : celui d'une
+/// [`EchecAutorite::ReponseInvalide`] peut contenir un texte contrôlé par l'autorité (le nom
+/// distinctif d'un certificat, par exemple), et celui d'une [`EchecAutorite::Reseau`] un message
+/// du système. Seule [`EchecAutorite::issue`] (liste fermée) va dans les journaux.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EchecAutorite {
     /// Connexion refusée, nom introuvable, échange interrompu ou réponse HTTP illisible.
@@ -93,9 +111,13 @@ pub enum EchecAutorite {
     /// Corps de réponse au-delà de la limite (en octets).
     #[error("réponse de plus de {0} octets")]
     ReponseTropGrande(usize),
-    /// Réponse refusée par `integrite` (statut, empreinte, nonce, signature, ancre…).
+    /// Réponse refusée par `integrite` (statut, empreinte, nonce, signature, ancre…). Son
+    /// `Display` peut contenir un texte contrôlé par l'autorité : jamais dans les journaux.
     #[error("réponse invalide : {0}")]
     ReponseInvalide(#[from] ErreurJeton),
+    /// Jeton valide, mais daté à plus de [`Limites::ecart_date`] de l'heure de la requête.
+    #[error("date du jeton hors de la fenêtre admise")]
+    DateHorsFenetre,
 }
 
 impl EchecAutorite {
@@ -110,6 +132,7 @@ impl EchecAutorite {
             Self::TypeDeContenu => "type_de_contenu",
             Self::ReponseTropGrande(_) => "reponse_trop_grande",
             Self::ReponseInvalide(_) => "reponse_invalide",
+            Self::DateHorsFenetre => "date_hors_fenetre",
         }
     }
 }
@@ -141,13 +164,41 @@ pub enum ErreurClient {
 #[error("aléa du système indisponible pour le nonce d'horodatage")]
 pub struct ErreurAlea;
 
+/// Nonce d'une requête d'horodatage (RFC 3161 §2.4.1) : entier de **64 bits** tiré de l'aléa
+/// du système, qui lie la réponse à la requête (rejeu d'une ancienne réponse refusé). Il n'est
+/// pas secret ; seule son imprévisibilité compte. À quelques requêtes par jour et par dossier,
+/// 64 bits rendent une répétition négligeable (paradoxe des anniversaires : de l'ordre de
+/// 2^32 requêtes avant une chance sur deux).
+///
+/// Seul [`tirer_nonce`] le construit : aucun appelant ne peut passer une constante. Les tests
+/// des vecteurs figés ont un constructeur réservé (`cfg(test)`), absent du binaire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Nonce(u64);
+
+impl Nonce {
+    /// Valeur du nonce.
+    #[must_use]
+    pub fn valeur(self) -> u64 {
+        self.0
+    }
+
+    /// Nonce fixé, pour rejouer les vecteurs figés : tests seulement.
+    #[cfg(test)]
+    pub(crate) fn fixe(valeur: u64) -> Self {
+        Self(valeur)
+    }
+}
+
 /// Tire un nonce de 64 bits de l'aléa du système (`getrandom`).
 ///
 /// # Errors
 /// [`ErreurAlea`] si le système ne fournit pas d'aléa.
-pub fn tirer_nonce() -> Result<u64, ErreurAlea> {
-    getrandom::u64().map_err(|_| ErreurAlea)
+pub fn tirer_nonce() -> Result<Nonce, ErreurAlea> {
+    getrandom::u64().map(Nonce).map_err(|_| ErreurAlea)
 }
+
+/// Source de l'heure du système (injectée dans les tests).
+type Horloge = fn() -> OffsetDateTime;
 
 /// Jeton obtenu et vérifié.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +217,7 @@ pub struct ClientHorodatage {
     autorites: Vec<Autorite>,
     ancres: Vec<Ancre>,
     limites: Limites,
+    horloge: Horloge,
 }
 
 impl ClientHorodatage {
@@ -188,7 +240,15 @@ impl ClientHorodatage {
             autorites,
             ancres,
             limites,
+            horloge: OffsetDateTime::now_utc,
         })
+    }
+
+    /// Remplace l'horloge du système : tests seulement (vecteurs datés).
+    #[cfg(test)]
+    pub(crate) fn avec_horloge(mut self, horloge: Horloge) -> Self {
+        self.horloge = horloge;
+        self
     }
 
     /// Autorités, dans l'ordre d'essai.
@@ -198,19 +258,22 @@ impl ClientHorodatage {
     }
 
     /// Fait horodater le témoin avec ce nonce : la première autorité qui renvoie un jeton
-    /// valide l'emporte. Durée au plus : nombre d'autorités × [`Limites::total`].
+    /// valide, daté à moins de [`Limites::ecart_date`] de l'envoi, l'emporte. Durée au plus :
+    /// nombre d'autorités × [`Limites::total`].
     ///
     /// # Errors
     /// [`ErreurHorodatage::ToutesEnEchec`] si aucune autorité n'a fourni de jeton valide.
     pub async fn horodater(
         &self,
         temoin: &Temoin,
-        nonce: u64,
+        nonce: Nonce,
     ) -> Result<JetonObtenu, ErreurHorodatage> {
+        let nonce = nonce.valeur();
         let corps = Bytes::from(integrite::horodatage::requete(temoin, nonce)?);
         let mut echecs = Vec::with_capacity(self.autorites.len());
         for autorite in &self.autorites {
             let debut = Instant::now();
+            let envoi = (self.horloge)();
             let mut statut = None;
             let resultat = match tokio::time::timeout(
                 self.limites.total,
@@ -221,6 +284,13 @@ impl ClientHorodatage {
                 Ok(Ok(reponse)) => {
                     integrite::horodatage::verifier_reponse(&reponse, temoin, nonce, &self.ancres)
                         .map_err(EchecAutorite::from)
+                        .and_then(|(jeton, verifie)| {
+                            if (verifie.date - envoi).unsigned_abs() > self.limites.ecart_date {
+                                Err(EchecAutorite::DateHorsFenetre)
+                            } else {
+                                Ok((jeton, verifie))
+                            }
+                        })
                 }
                 Ok(Err(echec)) => Err(echec),
                 Err(_) => Err(EchecAutorite::DelaiTotal),
@@ -356,6 +426,9 @@ fn type_reponse_attendu(valeur: Option<&header::HeaderValue>) -> bool {
 }
 
 #[cfg(test)]
+mod simulation;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
@@ -407,6 +480,7 @@ mod tests {
             EchecAutorite::TypeDeContenu,
             EchecAutorite::ReponseTropGrande(1),
             EchecAutorite::ReponseInvalide(ErreurJeton::NonceDifferent),
+            EchecAutorite::DateHorsFenetre,
         ] {
             assert!(
                 echec

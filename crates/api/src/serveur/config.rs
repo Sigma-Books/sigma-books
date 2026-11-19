@@ -191,6 +191,8 @@ mod tests {
                 "http://cle-secrete:x@tsa.invalid",
             ),
             ("SIGMA_AUTORITES_HORODATAGE", ","),
+            ("SIGMA_AUTORITES_HORODATAGE", "http://169.254.169.254"),
+            ("SIGMA_AUTORITES_HORODATAGE", "http://tsa.invalid:99999"),
         ] {
             let mut paires = COMPLETE.to_vec();
             paires.retain(|(n, _)| *n != nom);
@@ -206,7 +208,7 @@ mod tests {
         let mut paires = COMPLETE.to_vec();
         paires.push((
             "SIGMA_AUTORITES_HORODATAGE",
-            "http://tsa-b.exemple.invalid:3161/tsr, http://tsa-a.exemple.invalid",
+            "http://tsa-b.exemple.invalid:3161/cle-secrete, http://tsa-a.exemple.invalid",
         ));
         let config = Configuration::depuis(lire(&paires)).unwrap();
         assert_eq!(
@@ -217,5 +219,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["tsa-b.exemple.invalid:3161", "tsa-a.exemple.invalid"]
         );
+        // `Debug` de la configuration : le nom des autorités, jamais leur chemin.
+        let debug = format!("{config:?}");
+        assert!(debug.contains("tsa-b.exemple.invalid:3161"), "{debug}");
+        assert!(!debug.contains("cle-secrete"), "{debug}");
     }
 }
