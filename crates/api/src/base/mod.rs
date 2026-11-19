@@ -13,6 +13,21 @@
 //! ([`session`]) et ses propres appartenances et cabinets (`GET /api/moi/cabinets`) lui sont
 //! visibles, rien d'autre (migration `0004_sessions.sql`).
 //!
+//! # `sigma.utilisateur` : un utilisateur **authentifié**, jamais revendiqué
+//! Le réglage `sigma.utilisateur` ouvre, sous RLS, tout ce qui appartient à cet utilisateur :
+//! ses sessions (politique `session_titulaire` : les lire, les tourner, les révoquer), ses
+//! appartenances et ses cabinets (`appartenance_membre`, `cabinet_membre`), sa ligne
+//! `utilisateur`. Il ne doit **jamais** désigner un utilisateur seulement revendiqué, par exemple
+//! le titulaire d'un courriel saisi à la connexion (PR 8b et 8c) : une telle transaction utilise
+//! un autre réglage, propre à la connexion (`sigma.courriel_connexion`, note d'étude de la
+//! PR 8), et un autre type de transaction. Seuls le posent :
+//! - [`ouvrir_transaction_utilisateur`], **réservée au crate** (`pub(crate)`), appelée pour
+//!   l'utilisateur d'une session authentifiée (pipeline, `serveur::moi` ; notation de
+//!   l'activité) ou pour ouvrir la session d'un utilisateur dont un facteur vient d'être
+//!   vérifié (`serveur::session::ouvrir_session`) ;
+//! - [`ouvrir_transaction`] et [`ouvrir_transaction_lecture`], au contexte d'un cabinet, avec
+//!   l'utilisateur authentifié du pipeline.
+//!
 //! Le journal d'audit ([`audit`]) est écrit par le rôle applicatif, qui ne peut pas le relire, et
 //! lu par le rôle de lecture d'audit, sur un pool distinct ([`ouvrir_pool_lecture_audit`]),
 //! toujours sous RLS et contexte (ADR 0014).
@@ -114,6 +129,8 @@ identifiant!(IdSession);
 
 /// Contexte de tenant d'une transaction : cabinet, dossier (absent pour une action du cabinet)
 /// et utilisateur. Il vient du chemin de la requête HTTP, revérifié par Cedar (ADR 0011).
+/// L'utilisateur est celui de la session authentifiée, jamais un utilisateur revendiqué (doc
+/// du module, « `sigma.utilisateur` »).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContexteTenant {
     cabinet: IdCabinet,
@@ -468,9 +485,14 @@ impl TransactionUtilisateur {
 /// Ouvre une transaction (`READ COMMITTED`) au contexte du seul utilisateur : cabinet, dossier
 /// et jeton de session vides (lus comme NULL par les politiques).
 ///
+/// **Réservée au crate** : `utilisateur` doit être celui d'une session authentifiée, ou celui
+/// dont un facteur vient d'être vérifié, **jamais** un utilisateur seulement revendiqué (voir
+/// la doc du module, « `sigma.utilisateur` »). Le test de structure
+/// (`tests/structure.rs`) en liste les seuls appelants admis.
+///
 /// # Errors
 /// Connexion indisponible ou erreur de PostgreSQL.
-pub async fn ouvrir_transaction_utilisateur(
+pub(crate) async fn ouvrir_transaction_utilisateur(
     pool: &PgPool,
     utilisateur: IdUtilisateur,
 ) -> Result<TransactionUtilisateur, ErreurBase> {

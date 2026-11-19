@@ -2,7 +2,7 @@
 //! `0004_sessions.sql`).
 //!
 //! Deux accès seulement :
-//! - **par l'empreinte du jeton présenté** ([`lire_par_empreinte`], [`noter_activite`]) : une
+//! - **par l'empreinte du jeton présenté** ([`lire_par_empreinte`]) : une
 //!   courte transaction qui ne pose que `sigma.jeton_session` (empreinte en hexadécimal) et ne
 //!   voit que cette session. C'est l'authentification d'une requête ;
 //! - **au contexte de l'utilisateur** ([`TransactionUtilisateur`]) : création et purge, liste,
@@ -304,32 +304,6 @@ pub async fn lire_par_empreinte(
     ligne.map(|l| session_lue!(l)).transpose()
 }
 
-/// Enregistre l'activité de la session de cette empreinte à `instant`, si elle n'est pas
-/// révoquée et que sa dernière activité est antérieure à `avant` (écriture espacée).
-///
-/// # Errors
-/// Erreur de PostgreSQL.
-pub async fn noter_activite(
-    pool: &sqlx::PgPool,
-    empreinte: &EmpreinteJeton,
-    instant: OffsetDateTime,
-    avant: OffsetDateTime,
-) -> Result<(), ErreurBase> {
-    let mut tx = pool.begin().await?;
-    poser_empreinte(&mut tx, empreinte).await?;
-    sqlx::query!(
-        "UPDATE session SET derniere_activite = $2 \
-         WHERE jeton_hache = $1 AND revoquee_le IS NULL AND derniere_activite < $3",
-        empreinte.octets(),
-        instant,
-        avant,
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(())
-}
-
 /// Contexte de l'authentification : l'empreinte présentée, rien d'autre (ni cabinet, ni dossier,
 /// ni utilisateur).
 async fn poser_empreinte(
@@ -458,24 +432,57 @@ pub async fn lire(
     ligne.map(|l| session_lue!(l)).transpose()
 }
 
+/// Enregistre l'activité d'une session non révoquée de l'utilisateur du contexte à `instant`,
+/// si sa dernière activité est antérieure à `avant` (écriture espacée). Appelée après une
+/// requête **admise** (nature, anti-CSRF, décision) : une requête refusée ne prolonge pas la
+/// session.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn noter_activite(
+    tx: &mut TransactionUtilisateur,
+    id: IdSession,
+    instant: OffsetDateTime,
+    avant: OffsetDateTime,
+) -> Result<(), ErreurBase> {
+    let utilisateur = tx.utilisateur().uuid();
+    sqlx::query!(
+        "UPDATE session SET derniere_activite = $3 \
+         WHERE id = $1 AND utilisateur_id = $2 AND revoquee_le IS NULL \
+           AND derniere_activite < $4",
+        id.uuid(),
+        utilisateur,
+        instant,
+        avant,
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(())
+}
+
 /// Rotation : remplace l'empreinte du jeton d'une session non révoquée de l'utilisateur du
-/// contexte, **sur la même ligne** (l'identifiant public, cité par l'audit, ne change pas). Le
-/// jeton précédent ne désigne plus rien. Faux si la session est absente ou révoquée.
+/// contexte, **sur la même ligne** (l'identifiant public, cité par l'audit, ne change pas), à
+/// condition que son empreinte soit encore `ancienne`, celle du jeton présenté. Deux rotations
+/// concurrentes avec le même jeton : la seconde ne touche aucune ligne (elle relit la ligne
+/// après la première, `READ COMMITTED`) et ne peut pas s'approprier la session. Le jeton
+/// précédent ne désigne plus rien. Faux si la session est absente, révoquée, ou déjà tournée.
 ///
 /// # Errors
 /// Erreur de PostgreSQL.
 pub async fn tourner(
     tx: &mut TransactionUtilisateur,
     id: IdSession,
-    empreinte: &EmpreinteJeton,
+    ancienne: &EmpreinteJeton,
+    nouvelle: &EmpreinteJeton,
 ) -> Result<bool, ErreurBase> {
     let utilisateur = tx.utilisateur().uuid();
     let resultat = sqlx::query!(
         "UPDATE session SET jeton_hache = $3 \
-         WHERE id = $1 AND utilisateur_id = $2 AND revoquee_le IS NULL",
+         WHERE id = $1 AND utilisateur_id = $2 AND revoquee_le IS NULL AND jeton_hache = $4",
         id.uuid(),
         utilisateur,
-        empreinte.octets(),
+        nouvelle.octets(),
+        ancienne.octets(),
     )
     .execute(tx.connexion())
     .await?;

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE session SET derniere_activite = $3 WHERE id = $1 AND utilisateur_id = $2 AND revoquee_le IS NULL AND derniere_activite < $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7691e4311df91dda4bdcc19cbe78a2163324180cf3a9245f63971e50d48f84dc"
+}

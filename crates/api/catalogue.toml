@@ -73,8 +73,9 @@ avant d'en choisir un. Suspension décidée par Cedar et filtrée par la requêt
 [[lecture_membre]]
 nom = "cabinet"
 justification = """
-Cabinets dont l'utilisateur du contexte est membre (identifiant et nom), pour choisir le \
-cabinet actif. La sous-requête lit `appartenance`, elle-même sous RLS."""
+Cabinets dont l'utilisateur du contexte est membre actif (identifiant et nom), pour choisir \
+le cabinet actif : le nom d'un cabinet où il est suspendu reste illisible. La sous-requête lit \
+`appartenance`, elle-même sous RLS."""
 
 # Tables de dossier admises sans dossier en contexte : une action du cabinet y voit tous les
 # dossiers du cabinet ; avec un dossier en contexte, ce dossier seulement. Toute autre table qui

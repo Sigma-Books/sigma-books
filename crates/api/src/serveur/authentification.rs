@@ -35,6 +35,8 @@ pub struct Identite {
     /// Vrai si l'en-tête anti-CSRF de la requête est le jeton lié à **cette** session (comparé
     /// en temps constant). Le pipeline refuse une mutation sans lui (403).
     pub csrf_lie: bool,
+    /// Dernière activité enregistrée de la session, lue à l'authentification.
+    pub derniere_activite: OffsetDateTime,
 }
 
 /// Échec de l'authentification elle-même (base indisponible…), distinct d'un refus.
@@ -46,8 +48,18 @@ pub struct ErreurAuthentification;
 pub type ResultatAuthentification<'a> =
     Pin<Box<dyn Future<Output = Result<Option<Identite>, ErreurAuthentification>> + Send + 'a>>;
 
+/// Notation de l'activité d'une requête admise.
+pub type NotationActivite<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
 /// Authentifie une requête à partir de ses en-têtes (cookie de session).
 pub trait Authentification: Send + Sync + 'static {
     /// Rend l'utilisateur authentifié, `None` si la requête ne l'est pas.
     fn authentifier<'a>(&'a self, requete: &'a Parts) -> ResultatAuthentification<'a>;
+
+    /// Note l'activité de la session après une requête **admise** : appelée par le pipeline
+    /// une fois passés la nature, l'anti-CSRF et la décision, jamais pour une requête refusée.
+    /// Par défaut, rien.
+    fn noter_activite<'a>(&'a self, _identite: &'a Identite) -> NotationActivite<'a> {
+        Box::pin(async {})
+    }
 }

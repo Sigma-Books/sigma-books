@@ -54,6 +54,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "x509-tsp",
+ "zeroize",
 ]
 
 [[package]]

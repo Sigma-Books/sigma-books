@@ -427,14 +427,15 @@ fn formes_admises(table: &str, dossier_id: bool, regles: &Regles) -> Vec<String>
 /// Forme admise, pour une politique `FOR SELECT` d'une table de la liste `lecture_membre`, de
 /// la lecture de ses propres lignes sans cabinet en contexte : `sigma.cabinet` absent **et**
 /// appartenance de l'utilisateur du contexte (par `utilisateur_id`, ou, pour `cabinet`, par une
-/// appartenance à ce cabinet). Espaces compactés (`pg_get_expr` coupe les sous-requêtes).
+/// appartenance **active** à ce cabinet). Espaces compactés (`pg_get_expr` coupe les sous-requêtes).
 fn forme_lecture_membre(table: &str) -> String {
     let sans_cabinet = "(NULLIF(current_setting('sigma.cabinet'::text, true), ''::text) IS NULL)";
     let utilisateur = "(NULLIF(current_setting('sigma.utilisateur'::text, true), ''::text))::uuid";
     if table == "cabinet" {
         format!(
             "({sans_cabinet} AND (EXISTS ( SELECT 1 FROM appartenance a \
-             WHERE ((a.cabinet_id = cabinet.id) AND (a.utilisateur_id = {utilisateur})))))"
+             WHERE ((a.cabinet_id = cabinet.id) AND (a.utilisateur_id = {utilisateur}) \
+             AND a.actif))))"
         )
     } else {
         format!("({sans_cabinet} AND (utilisateur_id = {utilisateur}))")

@@ -4,7 +4,8 @@
 //! 1. **authentification** ([`super::Authentification`]) : 401 sans identité, ou pour une
 //!    session restreinte ou d'enrôlement hors des routes de la session elle-même (ADR 0012) ;
 //!    pour une mutation, 403 si l'en-tête anti-CSRF n'est pas le jeton lié à la session ; puis
-//!    limitation de débit par utilisateur (429). Les routes hors cabinet (portées
+//!    limitation de débit par utilisateur (429). L'activité de la session n'est notée qu'à la
+//!    fin d'une requête admise ([`super::Authentification::noter_activite`]). Les routes hors cabinet (portées
 //!    [`Portee::Utilisateur`] et [`Portee::Session`]) passent ensuite au module [`super::moi`] ;
 //! 2. **contexte** : cabinet et dossier sont lus **dans le chemin** (UUID, 400 sinon), jamais dans
 //!    une session ni un corps (F1.14). La transaction s'ouvre aussitôt avec ce contexte
@@ -446,7 +447,9 @@ async fn traiter_requete(
 
     // Hors cabinet : session courante et ressources propres de l'utilisateur.
     if !route.portee.du_cabinet() {
-        return super::moi::executer(etat, route, &mut parts, &identite).await;
+        let reponse = super::moi::executer(etat, route, &mut parts, &identite).await?;
+        etat.authentification.noter_activite(&identite).await;
+        return Ok(reponse);
     }
 
     // 2. Contexte : chemin, puis transaction au contexte du chemin.
@@ -514,6 +517,8 @@ async fn traiter_requete(
     exiger_traces(route, &resultat.traces)?;
     inscrire_traces(&mut tx, &garde, resultat.traces).await?;
     tx.confirmer().await?;
+    // Requête admise et traitée : seule une telle requête prolonge la session.
+    etat.authentification.noter_activite(&identite).await;
     Ok(resultat.reponse)
 }
 

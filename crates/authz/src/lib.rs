@@ -348,6 +348,36 @@ impl Autorisation {
             }
             actions.insert(*action, id);
         }
+        // Cloisonnement des principaux : aucune action de cabinet n'admet le
+        // principal Utilisateur, aucune action de l'utilisateur n'admet une
+        // appartenance (invariants.cedar : la validation stricte rejette la
+        // politique équivalente comme impossible ; le contrôle est donc ici).
+        let croisees = [
+            TypeRessource::Cabinet,
+            TypeRessource::Dossier,
+            TypeRessource::EcritureBrouillon,
+            TypeRessource::EcritureValidee,
+        ]
+        .into_iter()
+        .map(|r| (&types.utilisateur, types.ressource(r)))
+        .chain(
+            [
+                TypeRessourceUtilisateur::Session,
+                TypeRessourceUtilisateur::Utilisateur,
+            ]
+            .into_iter()
+            .map(|r| (&types.appartenance, types.ressource_utilisateur(r))),
+        );
+        for (principal, ressource) in croisees {
+            if let Some(action) = schema
+                .actions_for_principal_and_resource(principal, ressource)
+                .next()
+            {
+                return Err(ErreurChargement::Actions(format!(
+                    "{action} : principal {principal} admis sur {ressource}"
+                )));
+            }
+        }
         let mut actions_utilisateur = HashMap::new();
         for action in ActionUtilisateur::TOUTES {
             let id = uid(&type_action, action.nom());
@@ -801,6 +831,92 @@ mod tests {
                 "{action:?}"
             );
         }
+    }
+
+    /// Un principal Utilisateur n'obtient jamais d'action de cabinet : le
+    /// schéma refuse la requête, aucune politique ne l'autorise sans schéma,
+    /// et un schéma qui l'admettrait empêche le chargement.
+    #[test]
+    fn un_utilisateur_n_obtient_aucune_action_de_cabinet() {
+        let a = Autorisation::charger().unwrap();
+        let t = &a.types;
+        let principal = uid(&t.utilisateur, uuid::Uuid::from_u128(1));
+        let cabinet = IdCabinet::new(uuid::Uuid::from_u128(3)).unwrap();
+        let entites = Entities::from_entities(
+            [
+                Entity::new_no_attrs(principal.clone(), HashSet::new()),
+                Entity::new(
+                    uid(&t.cabinet, cabinet),
+                    [(
+                        "separation_des_taches".to_string(),
+                        RestrictedExpression::new_bool(true),
+                    )]
+                    .into_iter()
+                    .collect(),
+                    HashSet::new(),
+                )
+                .unwrap(),
+            ],
+            None,
+        )
+        .unwrap();
+        let contexte = a
+            .contexte(&Contexte::new(Session::depuis(
+                time::OffsetDateTime::UNIX_EPOCH,
+                time::OffsetDateTime::UNIX_EPOCH,
+            )))
+            .unwrap();
+        for action in Action::TOUTES {
+            let ressource = match action.type_ressource() {
+                TypeRessource::Cabinet => uid(&t.cabinet, cabinet),
+                TypeRessource::Dossier => uid(&t.dossier, uuid::Uuid::from_u128(4)),
+                TypeRessource::EcritureBrouillon => uid(&t.brouillon, uuid::Uuid::from_u128(5)),
+                TypeRessource::EcritureValidee => uid(&t.validee, uuid::Uuid::from_u128(6)),
+            };
+            let id_action = a.actions[action].clone();
+            assert!(
+                Request::new(
+                    principal.clone(),
+                    id_action.clone(),
+                    ressource.clone(),
+                    contexte.clone(),
+                    Some(&a.schema),
+                )
+                .is_err(),
+                "{action:?}"
+            );
+            let requete = Request::new(
+                principal.clone(),
+                id_action,
+                ressource,
+                contexte.clone(),
+                None,
+            )
+            .unwrap();
+            let reponse = a
+                .autorisateur
+                .is_authorized(&requete, &a.politiques, &entites);
+            assert_eq!(
+                reponse.decision(),
+                cedar_policy::Decision::Deny,
+                "{action:?}"
+            );
+        }
+        // Un schéma qui admettrait le principal Utilisateur sur une action de
+        // cabinet empêche le chargement.
+        let schema = SCHEMA.replacen(
+            "action GererCabinet appliesTo { principal: Appartenance,",
+            "action GererCabinet appliesTo { principal: [Appartenance, Utilisateur],",
+            1,
+        );
+        assert_ne!(schema, SCHEMA);
+        // Sans politique, la validation passe : c'est le contrôle des actions
+        // qui refuse.
+        assert!(matches!(
+            Autorisation::charger_depuis(&schema, &[]),
+            Err(ErreurChargement::Actions(_))
+        ));
+        assert!(Autorisation::charger_depuis(SCHEMA, &[]).is_ok());
     }
 
     #[test]

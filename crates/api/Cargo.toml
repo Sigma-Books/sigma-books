@@ -38,6 +38,7 @@ tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 # Lecture du nonce dans la requête figée des vecteurs (tests du client d'horodatage).

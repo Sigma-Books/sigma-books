@@ -345,10 +345,16 @@ async fn csrf_absent_faux_ou_d_une_autre_session_donne_403() {
     let mal_forme = format!("{}x", s.jeton.csrf());
     let tronque = s.jeton.csrf()[1..].to_owned();
     let csrf_autre = autre.jeton.csrf();
+    // Même longueur, dernier caractère changé : seule la comparaison liée à la session refuse.
+    let mut altere = s.jeton.csrf();
+    let dernier = if altere.ends_with('A') { "B" } else { "A" };
+    altere.replace_range(altere.len() - 1.., dernier);
     let jeton_brut = cookie.split_once('=').unwrap().1.to_owned();
     for csrf in [
         None,
+        Some(""),
         Some("1"),
+        Some(altere.as_str()),
         Some(mal_forme.as_str()),
         Some(tronque.as_str()),
         // Le jeton de session lui-même n'est pas le jeton anti-CSRF.
@@ -532,17 +538,10 @@ async fn lus(
 }
 
 #[tokio::test]
-async fn rls_de_la_table_session_et_des_cabinets_sans_contexte() {
+async fn rls_de_la_table_session() {
     let env = env().await;
     let a = creer_cabinet(&env.admin, "A").await;
     let b = creer_cabinet(&env.admin, "B").await;
-    // Un membre des deux cabinets.
-    let multi = IdUtilisateur::nouveau();
-    let mut tx = env.admin.begin().await.unwrap();
-    commun::creer_utilisateur(&mut tx, multi, "Membre des deux").await;
-    commun::ajouter_membre(&mut tx, a.cabinet, multi, "collaborateur").await;
-    commun::ajouter_membre(&mut tx, b.cabinet, multi, "collaborateur").await;
-    tx.commit().await.unwrap();
     let horloge = HorlogeTest::default();
     let sa = ouvrir(&env, &horloge, a.administrateur, NatureSession::Complete).await;
     let sb = ouvrir(&env, &horloge, b.administrateur, NatureSession::Complete).await;
@@ -596,6 +595,21 @@ async fn rls_de_la_table_session_et_des_cabinets_sans_contexte() {
         .rows_affected();
     assert_eq!(supprimees, 0);
     tx.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn rls_des_cabinets_sans_cabinet_en_contexte() {
+    let env = env().await;
+    let a = creer_cabinet(&env.admin, "A").await;
+    let b = creer_cabinet(&env.admin, "B").await;
+    // Un membre des deux cabinets.
+    let multi = IdUtilisateur::nouveau();
+    let mut tx = env.admin.begin().await.unwrap();
+    commun::creer_utilisateur(&mut tx, multi, "Membre des deux").await;
+    commun::ajouter_membre(&mut tx, a.cabinet, multi, "collaborateur").await;
+    commun::ajouter_membre(&mut tx, b.cabinet, multi, "collaborateur").await;
+    tx.commit().await.unwrap();
+    let mut connexion = env.application.acquire().await.unwrap();
 
     // Sans cabinet en contexte, l'utilisateur voit ses appartenances et ses cabinets.
     let mut cabinets_attendus = vec![a.cabinet.uuid(), b.cabinet.uuid()];
@@ -604,6 +618,24 @@ async fn rls_de_la_table_session_et_des_cabinets_sans_contexte() {
     assert_eq!(
         lus(&mut connexion, &moi, "SELECT id FROM cabinet").await,
         cabinets_attendus
+    );
+    assert_eq!(
+        lus(&mut connexion, &moi, "SELECT cabinet_id FROM appartenance").await,
+        cabinets_attendus
+    );
+    // `sigma.utilisateur` ouvre tout ce qui est à cet utilisateur (d'où sa réservation à un
+    // utilisateur authentifié, base/mod.rs) ; mais pas le nom d'un cabinet où il est suspendu.
+    sqlx::query(
+        "UPDATE appartenance SET actif = false WHERE cabinet_id = $1 AND utilisateur_id = $2",
+    )
+    .bind(b.cabinet.uuid())
+    .bind(multi.uuid())
+    .execute(&env.admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        lus(&mut connexion, &moi, "SELECT id FROM cabinet").await,
+        vec![a.cabinet.uuid()]
     );
     assert_eq!(
         lus(&mut connexion, &moi, "SELECT cabinet_id FROM appartenance").await,
@@ -654,8 +686,29 @@ async fn aucun_jeton_dans_les_journaux() {
     let routeur = routeur_s(&env, &horloge);
     let s = ouvrir(&env, &horloge, c.administrateur, NatureSession::Complete).await;
     let autre = ouvrir(&env, &horloge, c.administrateur, NatureSession::Complete).await;
+    let empreinte_de = |id: Uuid| {
+        let admin = env.admin.clone();
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT encode(jeton_hache, 'hex') FROM session WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&admin)
+            .await
+            .unwrap()
+        }
+    };
+    // Jeton, jeton anti-CSRF et empreinte de la session testée, avant la rotation.
     let cookie = cookie_de(&s);
     let csrf = s.jeton.csrf();
+    let mut interdits = vec![
+        cookie.split_once('=').unwrap().1.to_owned(),
+        csrf.clone(),
+        empreinte_de(s.id.uuid()).await,
+        cookie_de(&autre).split_once('=').unwrap().1.to_owned(),
+        autre.jeton.csrf(),
+        empreinte_de(autre.id.uuid()).await,
+    ];
     let mut reponses = Vec::new();
     for (methode, chemin, csrf) in [
         ("GET", "/api/session".to_owned(), None),
@@ -672,14 +725,10 @@ async fn aucun_jeton_dans_les_journaux() {
             format!("/api/moi/sessions/{}", autre.id),
             Some(csrf.as_str()),
         ),
-        (
-            "POST",
-            "/api/session/rotation".to_owned(),
-            Some(csrf.as_str()),
-        ),
     ] {
         reponses.push(appeler_session(&routeur, methode, &chemin, Some(&cookie), csrf).await);
     }
+    // Rotation, puis requêtes avec le nouveau jeton, et l'ancien (401).
     let r = appeler_session(
         &routeur,
         "POST",
@@ -688,27 +737,154 @@ async fn aucun_jeton_dans_les_journaux() {
         Some(&csrf),
     )
     .await;
+    assert_eq!(r.statut, StatusCode::OK);
+    let nouveau = r.entetes["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let nouveau_csrf = r.json()["csrf"].as_str().unwrap().to_owned();
     reponses.push(r);
-    assert!(reponses.iter().any(|r| r.statut == StatusCode::OK));
+    interdits.extend([
+        nouveau.split_once('=').unwrap().1.to_owned(),
+        nouveau_csrf.clone(),
+        empreinte_de(s.id.uuid()).await,
+    ]);
+    for (cookie, csrf) in [(&nouveau, &nouveau_csrf), (&cookie, &csrf)] {
+        reponses.push(appeler_session(&routeur, "GET", "/api/session", Some(cookie), None).await);
+        reponses.push(
+            appeler_session(
+                &routeur,
+                "POST",
+                "/api/session/rotation",
+                Some(cookie),
+                Some(csrf),
+            )
+            .await,
+        );
+    }
     let ids: Vec<String> = reponses.iter().map(id_requete).collect();
     let evenements = evenements_de(capture, &ids);
     assert_eq!(evenements.len(), ids.len(), "une ligne par requête");
-    let jeton = cookie.split_once('=').unwrap().1.to_owned();
-    let empreinte: String =
-        sqlx::query_scalar("SELECT encode(jeton_hache, 'hex') FROM session WHERE id = $1")
-            .bind(autre.id.uuid())
-            .fetch_one(&env.admin)
-            .await
-            .unwrap();
-    let interdits = vec![
-        jeton,
-        csrf,
-        cookie_de(&autre).split_once('=').unwrap().1.to_owned(),
-        autre.jeton.csrf(),
-        empreinte,
+    let mut avec_identifiants = interdits.clone();
+    avec_identifiants.extend([
         s.id.to_string(),
         autre.id.to_string(),
         c.administrateur.to_string(),
+    ]);
+    verifier_liste_blanche(&evenements, &avec_identifiants);
+    // Jetons, jetons anti-CSRF et empreintes : dans **aucun** événement capturé, quelle que
+    // soit la requête (ou l'absence de requête) qui l'a émis.
+    let tous = capture.0.lock().unwrap().clone();
+    verifier_liste_blanche(&tous, &interdits);
+}
+
+#[tokio::test]
+async fn deux_rotations_concurrentes_avec_le_meme_jeton_une_seule_reussit() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let horloge = HorlogeTest::default();
+    let routeur = routeur_s(&env, &horloge);
+    for _ in 0..10 {
+        let s = ouvrir(&env, &horloge, c.administrateur, NatureSession::Complete).await;
+        let (cookie, csrf) = (cookie_de(&s), s.jeton.csrf());
+        let tourner = || {
+            appeler_session(
+                &routeur,
+                "POST",
+                "/api/session/rotation",
+                Some(&cookie),
+                Some(&csrf),
+            )
+        };
+        let (r1, r2) = tokio::join!(tourner(), tourner());
+        let mut statuts = [r1.statut, r2.statut];
+        statuts.sort();
+        assert_eq!(statuts, [StatusCode::OK, StatusCode::UNAUTHORIZED]);
+        let (gagnant, perdant) = if r1.statut == StatusCode::OK {
+            (r1, r2)
+        } else {
+            (r2, r1)
+        };
+        // Le perdant ne reçoit aucun jeton, et le sien (T0) ne vaut plus rien.
+        assert!(perdant.entetes.get("set-cookie").is_none());
+        assert!(!perdant.texte().contains("csrf"));
+        assert_eq!(
+            metier(&routeur, &c, Some(&cookie)).await,
+            StatusCode::UNAUTHORIZED
+        );
+        // Seul le jeton du gagnant ouvre la session.
+        let nouveau = gagnant.entetes["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        assert_eq!(metier(&routeur, &c, Some(&nouveau)).await, StatusCode::OK);
+    }
+}
+
+#[tokio::test]
+async fn une_requete_refusee_ne_prolonge_pas_la_session() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let horloge = HorlogeTest::default();
+    let routeur = routeur_s(&env, &horloge);
+    let activite = |id: Uuid| {
+        let admin = env.admin.clone();
+        async move {
+            sqlx::query_scalar::<_, time::OffsetDateTime>(
+                "SELECT derniere_activite FROM session WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&admin)
+            .await
+            .unwrap()
+        }
+    };
+    let s = ouvrir(&env, &horloge, c.collaborateur, NatureSession::Complete).await;
+    let r = ouvrir(&env, &horloge, c.administrateur, NatureSession::Restreinte).await;
+    let initiale_s = activite(s.id.uuid()).await;
+    let initiale_r = activite(r.id.uuid()).await;
+    horloge.avancer(Duration::minutes(2));
+    // Anti-CSRF faux, décision Cedar refusée (collaborateur, paramètres du cabinet : 403),
+    // session restreinte sur une route métier (401) : rien n'est noté.
+    let creation = format!("/api/cabinets/{}/dossiers", c.cabinet);
+    let refusees = [
+        appeler_session(
+            &routeur,
+            "POST",
+            &creation,
+            Some(&cookie_de(&s)),
+            Some("faux"),
+        )
+        .await
+        .statut,
+        metier(&routeur, &c, Some(&cookie_de(&s))).await,
+        metier(&routeur, &c, Some(&cookie_de(&r))).await,
     ];
-    verifier_liste_blanche(&evenements, &interdits);
+    assert_eq!(
+        refusees,
+        [
+            StatusCode::FORBIDDEN,
+            StatusCode::FORBIDDEN,
+            StatusCode::UNAUTHORIZED
+        ]
+    );
+    assert_eq!(activite(s.id.uuid()).await, initiale_s);
+    assert_eq!(activite(r.id.uuid()).await, initiale_r);
+    // Une requête admise, elle, prolonge la session.
+    let lecture = appeler_session(
+        &routeur,
+        "GET",
+        "/api/moi/cabinets",
+        Some(&cookie_de(&s)),
+        None,
+    )
+    .await;
+    assert_eq!(lecture.statut, StatusCode::OK);
+    assert!(activite(s.id.uuid()).await >= initiale_s + Duration::minutes(2));
 }

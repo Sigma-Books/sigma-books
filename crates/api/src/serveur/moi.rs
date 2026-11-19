@@ -73,7 +73,9 @@ pub(crate) async fn executer(
         CasUsage::EtatSession => {
             etat_session(&mut tx, &soi()?, parts, identite, maintenant, &durees).await
         }
-        CasUsage::TournerJeton => tourner(&mut tx, &soi()?, identite, maintenant, &durees).await,
+        CasUsage::TournerJeton => {
+            tourner(&mut tx, &soi()?, parts, identite, maintenant, &durees).await
+        }
         CasUsage::Deconnecter => deconnecter(&mut tx, &soi()?, identite, maintenant).await,
         CasUsage::ListerSessions => lister(&mut tx, &soi()?, identite, maintenant, &durees).await,
         CasUsage::RevoquerSession => revoquer(&mut tx, &soi()?, parts, maintenant).await,
@@ -220,15 +222,26 @@ struct VueRotation {
 async fn tourner(
     tx: &mut TransactionUtilisateur,
     soi: &Soi<'_>,
+    parts: &Parts,
     identite: &Identite,
     maintenant: OffsetDateTime,
     durees: &DureesSession,
 ) -> Result<Response, ErreurApi> {
+    // Le jeton présenté, que l'authentification vient de valider : la rotation n'aboutit que si
+    // la session porte encore son empreinte (rotation concurrente : 401).
+    let present = jeton_de_la_requete(parts).ok_or(ErreurApi::NonAuthentifie)?;
     let s = session_courante(tx, identite).await?;
     soi.exiger_session(&s)?;
     let jeton =
         JetonSession::tirer().map_err(|_| ErreurApi::Interne(CategorieErreur::Authentification))?;
-    if !session::tourner(tx, identite.session, &jeton.empreinte()).await? {
+    if !session::tourner(
+        tx,
+        identite.session,
+        &present.empreinte(),
+        &jeton.empreinte(),
+    )
+    .await?
+    {
         return Err(ErreurApi::NonAuthentifie);
     }
     // Même ligne, même ouverture : la fin absolue ne change pas.

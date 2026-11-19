@@ -85,6 +85,16 @@ unless { context.session_fraiche };
 // sessions et sur lui-même, quelles que soient les autorisations ajoutées
 // plus tard (gestion des sessions d'un membre par l'administrateur : action
 // de cabinet, principal Appartenance, PR 9).
+// Un principal Utilisateur n'obtient jamais d'action de cabinet. Ce n'est
+// pas une politique : `forbid (principal is Sigma::Utilisateur, action,
+// resource) unless { resource is Sigma::Session || resource is
+// Sigma::Utilisateur }` est rejetée par la validation stricte (« politique
+// impossible » : le schéma n'admet déjà aucune autre ressource pour ce
+// principal). La garantie tient au schéma, vérifié au chargement par
+// `Autorisation::charger` : aucune action de cabinet n'admet le principal
+// Utilisateur, aucune action de l'utilisateur n'admet une appartenance ;
+// sinon le serveur refuse de démarrer.
+
 @id("invariant-titulaire-session")
 forbid (principal is Sigma::Utilisateur, action, resource is Sigma::Session)
 unless { resource.titulaire == principal };

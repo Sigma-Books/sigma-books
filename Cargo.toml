@@ -53,6 +53,8 @@ serde_json = { version = "1.0.154", default-features = false, features = ["std"]
 # Sessions du crate `api` (ADR 0012 ; L2 PR 8a) : aléa des jetons par `getrandom` (déclaré plus
 # haut), comparaison en temps constant du jeton anti-CSRF. Déjà dans l'arbre (`digest`).
 ctutils = { version = "0.4.8", default-features = false }
+# Effacement du jeton de session à sa libération ; déjà dans l'arbre (`digest`).
+zeroize = { version = "1.9.2", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

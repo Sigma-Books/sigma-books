@@ -135,6 +135,46 @@ fn le_binaire_n_authentifie_que_par_les_sessions_de_postgresql() {
     assert!(!main.contains("avec_horloge"));
 }
 
+/// `sigma.utilisateur` ouvre tout ce qui appartient à cet utilisateur (sessions comprises) :
+/// la transaction qui ne pose que lui est réservée au crate, et ses seuls appelants sont ceux
+/// d'un utilisateur authentifié (pipeline, activité) ou dont un facteur vient d'être vérifié
+/// (ouverture d'une session). Tout nouvel appelant doit être revu, et ajouté ici.
+#[test]
+fn la_transaction_utilisateur_est_reservee_aux_utilisateurs_authentifies() {
+    let sources = sources();
+    let definitions = occurrences(&sources, "async fn ouvrir_transaction_utilisateur(");
+    assert_eq!(definitions.len(), 1, "{definitions:?}");
+    let base = &sources
+        .iter()
+        .find(|(c, _)| c.ends_with("src/base/mod.rs"))
+        .expect("base/mod.rs")
+        .1;
+    assert!(base.contains("pub(crate) async fn ouvrir_transaction_utilisateur("));
+    let mut appelants: Vec<String> = occurrences(&sources, "ouvrir_transaction_utilisateur(")
+        .into_iter()
+        .filter(|(_, suite)| !suite.starts_with("pool: &PgPool"))
+        .map(|(chemin, _)| {
+            chemin
+                .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                .unwrap()
+                .display()
+                .to_string()
+        })
+        .collect();
+    appelants.sort();
+    assert_eq!(
+        appelants,
+        vec![
+            // Cas d'usage hors cabinet : l'utilisateur de la session authentifiée.
+            "src/serveur/moi.rs",
+            // Ouverture d'une session (après vérification d'un facteur), puis notation de
+            // l'activité d'une requête admise.
+            "src/serveur/session.rs",
+            "src/serveur/session.rs",
+        ]
+    );
+}
+
 #[tokio::test]
 async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
     let routeur = routeur(&application_du_binaire(pool_sans_base()));

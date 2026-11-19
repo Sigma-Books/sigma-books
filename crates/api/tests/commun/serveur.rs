@@ -89,6 +89,7 @@ impl Authentification for AuthentificationTest {
                     - time::Duration::seconds(anciennete),
                 nature: NatureSession::Complete,
                 csrf_lie: true,
+                derniere_activite: OffsetDateTime::now_utc(),
             }))
         })
     }

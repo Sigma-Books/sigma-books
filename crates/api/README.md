@@ -131,7 +131,9 @@ ADR 0012 ; code : `src/serveur/session.rs` (jeton, cookie, anti-CSRF, authentifi
   `sigma.jeton_session` (empreinte) : révocation immédiate. Refus (401) : session révoquée,
   inactive depuis 30 minutes, ouverte depuis plus de 12 heures (15 minutes pour une session
   restreinte ou d'enrôlement), ou de nature autre que `complete` hors des routes de la session
-  elle-même. `derniere_activite` n'est réécrite qu'au-delà de 60 secondes. L'horloge est
+  elle-même. `derniere_activite` n'est réécrite qu'après une requête admise (nature, anti-CSRF,
+  décision), au plus une fois par minute ; la rotation exige que la session porte encore
+  l'empreinte du jeton présenté. L'horloge est
   injectable (`Application::avec_horloge`, tests).
 - **Anti-CSRF lié à la session** : `base64url(SHA-256("sigma-books csrf v1\0" ‖ jeton))`, rendu
   par `GET /api/session` et par la rotation, exigé dans `x-sigma-csrf` sur toute mutation

@@ -29,8 +29,10 @@
 //! inconnu (faux ou remplacé par une rotation), session révoquée, inactive depuis 30 minutes,
 //! ouverte depuis plus de 12 heures (15 minutes pour une session restreinte ou d'enrôlement).
 //! La nature de la session est rendue : le pipeline refuse une session autre que complète hors
-//! des routes de la session elle-même. `derniere_activite` n'est réécrite que si elle date de
-//! plus de 60 secondes.
+//! des routes de la session elle-même. `derniere_activite` n'est réécrite qu'**après** une
+//! requête admise (nature, anti-CSRF, décision : [`Authentification::noter_activite`]), et
+//! seulement si elle date de plus de 60 secondes : une requête refusée ne prolonge pas la
+//! session.
 
 use std::fmt;
 use std::sync::Arc;
@@ -43,9 +45,10 @@ use ctutils::CtEq;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
+use zeroize::Zeroize;
 
 use super::authentification::{
-    Authentification, ErreurAuthentification, Identite, ResultatAuthentification,
+    Authentification, ErreurAuthentification, Identite, NotationActivite, ResultatAuthentification,
 };
 use super::csrf::EN_TETE_CSRF;
 use crate::base::session::{self, DureesSession, EmpreinteJeton, NouvelleSession, Session};
@@ -85,8 +88,15 @@ impl Horloge for HorlogeSysteme {
 #[error("aléa du système indisponible")]
 pub struct ErreurAlea;
 
-/// Jeton de session : 32 octets secrets. Ni `Display`, ni `Debug` lisible, ni `Clone`.
+/// Jeton de session : 32 octets secrets. Ni `Display`, ni `Debug` lisible, ni `Clone` ;
+/// effacé de la mémoire à sa libération (`zeroize`).
 pub struct JetonSession([u8; OCTETS_JETON]);
+
+impl Drop for JetonSession {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
 
 impl fmt::Debug for JetonSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -282,10 +292,6 @@ impl AuthentificationSession {
         if !session.est_valide(maintenant, &self.durees) {
             return Ok(None);
         }
-        let avant = maintenant - self.durees.pas_activite;
-        if session.derniere_activite < avant {
-            session::noter_activite(&self.pool, &empreinte, maintenant, avant).await?;
-        }
         Ok(Some((jeton, session)))
     }
 }
@@ -310,7 +316,31 @@ impl Authentification for AuthentificationSession {
                 derniere_verification: session.derniere_verification,
                 nature: session.nature,
                 csrf_lie,
+                derniere_activite: session.derniere_activite,
             }))
+        })
+    }
+
+    /// Note l'activité d'une requête **admise**, au plus une fois par
+    /// [`DureesSession::pas_activite`]. Un échec n'est pas une erreur de la requête, déjà
+    /// traitée : la session expirerait seulement plus tôt (sens sûr).
+    fn noter_activite<'a>(&'a self, identite: &'a Identite) -> NotationActivite<'a> {
+        Box::pin(async move {
+            let maintenant = self.horloge.maintenant();
+            let avant = maintenant - self.durees.pas_activite;
+            if identite.derniere_activite >= avant {
+                return;
+            }
+            let Ok(mut tx) = ouvrir_transaction_utilisateur(&self.pool, identite.utilisateur).await
+            else {
+                return;
+            };
+            if session::noter_activite(&mut tx, identite.session, maintenant, avant)
+                .await
+                .is_ok()
+            {
+                let _ = tx.confirmer().await;
+            }
         })
     }
 }
