@@ -12,6 +12,10 @@
 //! - **Cedar se trompe** : avec une décision forcée à « autorisé », le filtre de la requête et
 //!   la RLS ne livrent toujours rien d'autrui ni d'un dossier non affecté.
 //! - **Journaux** du scénario complet : liste blanche, aucun nom ni identifiant.
+//!
+//! Chaque route est appelée avec sa méthode : une mutation (`POST`) porte les en-têtes
+//! anti-CSRF de la même origine et le corps de `corps_de` ; un cas « 200 » d'une mutation crée
+//! réellement la ressource et l'inscrit au journal d'audit.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -21,15 +25,17 @@ mod commun;
 use std::sync::Arc;
 
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
-use api::serveur::routes::{ROUTES, Route};
+use api::serveur::routes::{CasUsage, Methode, ROUTES, Route};
 use api::serveur::{Application, Reglages, routeur};
 use axum::Router;
 use axum::http::StatusCode;
 use commun::serveur::{
-    AuthentificationTest, ORIGINE, Reponse, ToujoursAutorise, application, capture_globale,
-    evenements_de, id_requete, lire, verifier_liste_blanche,
+    AuthentificationTest, ORIGINE, Reponse, ToujoursAutorise, appeler_route, application_base,
+    capture_globale, evenements_de, id_requete, lire, verifier_liste_blanche,
 };
-use commun::{CabinetTest, affecter, ajouter_membre, creer_cabinet, creer_utilisateur, env};
+use commun::{
+    CabinetTest, affecter, ajouter_affecte, ajouter_membre, creer_cabinet, creer_utilisateur, env,
+};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -37,6 +43,9 @@ struct Monde {
     a: CabinetTest,
     b: CabinetTest,
     multi: IdUtilisateur,
+    /// Valideur et auditeur de A, affectés au premier dossier de A.
+    valideur: IdUtilisateur,
+    auditeur: IdUtilisateur,
 }
 
 async fn monde(admin: &PgPool) -> Monde {
@@ -49,7 +58,15 @@ async fn monde(admin: &PgPool) -> Monde {
     ajouter_membre(&mut tx, b.cabinet, multi, "collaborateur").await;
     affecter(&mut tx, b.cabinet, b.dossier, multi).await;
     tx.commit().await.unwrap();
-    Monde { a, b, multi }
+    let valideur = ajouter_affecte(admin, &a, "valideur").await;
+    let auditeur = ajouter_affecte(admin, &a, "auditeur").await;
+    Monde {
+        a,
+        b,
+        multi,
+        valideur,
+        auditeur,
+    }
 }
 
 /// Chemin concret d'une route.
@@ -64,12 +81,30 @@ fn a_un_dossier(route: &Route) -> bool {
     route.chemin.contains("{dossier}")
 }
 
+/// Appelle une route avec sa méthode (et, pour une mutation, les en-têtes anti-CSRF).
+async fn appel(
+    routeur: &Router,
+    route: &Route,
+    chemin: &str,
+    utilisateur: Option<IdUtilisateur>,
+) -> Reponse {
+    appeler_route(routeur, route, chemin, utilisateur).await
+}
+
 /// Résultat attendu d'un appel dans le cabinet du chemin.
 enum Resultat {
     /// 200, ressource d'identifiant donné.
     Ressource(Uuid),
     /// 200, liste exacte de ces dossiers.
     Liste(Vec<IdDossier>),
+    /// 201, ressource créée avec un nouvel identifiant.
+    Cree,
+    /// 200, page de consultation de l'audit.
+    PageAudit,
+    /// 200, vérification d'une chaîne d'audit intègre.
+    Verification,
+    /// 200, export d'audit.
+    ExportAudit,
     /// Refus (403) ou ressource d'autrui (404).
     Statut(StatusCode),
 }
@@ -98,7 +133,7 @@ fn attendu(
 /// Cas d'isolation propres à chaque route, dont le membre des deux cabinets, qui n'agit que
 /// selon son rôle dans le cabinet du chemin. `None` : route sans cas, le test échoue.
 fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
-    use Resultat::{Liste, Ressource, Statut};
+    use Resultat::{Cree, Liste, Ressource, Statut};
     let (a, b) = (&m.a, &m.b);
     let interdit = || Statut(StatusCode::FORBIDDEN);
     let absent = || Statut(StatusCode::NOT_FOUND);
@@ -114,7 +149,7 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu(m.multi, a.cabinet, a.dossier, Ressource(a.cabinet.uuid())),
             attendu(m.multi, b.cabinet, b.dossier, interdit()),
         ],
-        "/api/cabinets/{cabinet}/dossiers" => vec![
+        "/api/cabinets/{cabinet}/dossiers" if route.methode == Methode::Get => vec![
             attendu(
                 a.administrateur,
                 a.cabinet,
@@ -158,8 +193,57 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu(m.multi, b.cabinet, b.dossier, Ressource(b.dossier.uuid())),
             attendu(m.multi, b.cabinet, b.autre_dossier, absent()),
         ],
+        "/api/cabinets/{cabinet}/dossiers" if route.methode == Methode::Post => vec![
+            attendu(a.administrateur, a.cabinet, a.dossier, Cree),
+            attendu(m.valideur, a.cabinet, a.dossier, Cree),
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(m.multi, a.cabinet, a.dossier, Cree),
+            attendu(m.multi, b.cabinet, b.dossier, interdit()),
+        ],
+        // Audit du cabinet : administrateur seul (ADR 0016), 403 pour les autres membres.
+        "/api/cabinets/{cabinet}/audit"
+        | "/api/cabinets/{cabinet}/audit/verification"
+        | "/api/cabinets/{cabinet}/audit/export" => {
+            let ok = || resultat_audit(route);
+            vec![
+                attendu(a.administrateur, a.cabinet, a.dossier, ok()),
+                attendu(m.valideur, a.cabinet, a.dossier, interdit()),
+                attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+                attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+                attendu(m.multi, a.cabinet, a.dossier, ok()),
+                attendu(m.multi, b.cabinet, b.dossier, interdit()),
+            ]
+        }
+        // Audit d'un dossier : administrateur, valideur, auditeur affectés ; collaborateur 403 ;
+        // dossier non affecté 404.
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/audit"
+        | "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/verification"
+        | "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/export" => {
+            let ok = || resultat_audit(route);
+            vec![
+                attendu(a.administrateur, a.cabinet, a.dossier, ok()),
+                attendu(a.administrateur, a.cabinet, a.autre_dossier, ok()),
+                attendu(m.valideur, a.cabinet, a.dossier, ok()),
+                attendu(m.auditeur, a.cabinet, a.dossier, ok()),
+                attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+                attendu(m.valideur, a.cabinet, a.autre_dossier, absent()),
+                attendu(m.auditeur, a.cabinet, a.autre_dossier, absent()),
+                attendu(m.multi, a.cabinet, a.autre_dossier, ok()),
+                attendu(m.multi, b.cabinet, b.dossier, interdit()),
+            ]
+        }
         _ => return None,
     })
+}
+
+/// Résultat d'un appel autorisé d'une route d'audit.
+fn resultat_audit(route: &Route) -> Resultat {
+    match route.cas_usage {
+        CasUsage::ConsulterAudit => Resultat::PageAudit,
+        CasUsage::VerifierAudit => Resultat::Verification,
+        _ => Resultat::ExportAudit,
+    }
 }
 
 fn ids(reponse: &Reponse) -> Vec<String> {
@@ -176,8 +260,8 @@ fn ids(reponse: &Reponse) -> Vec<String> {
 
 async fn verifier_attendu(routeur: &Router, route: &Route, attendu: &Attendu, reference: &Reponse) {
     let chemin = chemin(route, attendu.cabinet.uuid(), attendu.dossier.uuid());
-    let reponse = lire(routeur, &chemin, Some(attendu.utilisateur)).await;
-    let contexte = format!("{} {chemin}", route.chemin);
+    let reponse = appel(routeur, route, &chemin, Some(attendu.utilisateur)).await;
+    let contexte = format!("{} {} {chemin}", route.methode.nom(), route.chemin);
     match &attendu.resultat {
         Resultat::Ressource(id) => {
             assert_eq!(
@@ -193,6 +277,51 @@ async fn verifier_attendu(routeur: &Router, route: &Route, attendu: &Attendu, re
             let mut attendus: Vec<String> = dossiers.iter().map(ToString::to_string).collect();
             attendus.sort();
             assert_eq!(ids(&reponse), attendus, "{contexte}");
+        }
+        Resultat::Cree => {
+            assert_eq!(
+                reponse.statut,
+                StatusCode::CREATED,
+                "{contexte} : {}",
+                reponse.texte()
+            );
+            let id = reponse.json()["id"].as_str().unwrap().to_owned();
+            assert!(Uuid::try_parse(&id).is_ok(), "{contexte}");
+        }
+        Resultat::PageAudit => {
+            assert_eq!(
+                reponse.statut,
+                StatusCode::OK,
+                "{contexte} : {}",
+                reponse.texte()
+            );
+            assert!(reponse.json()["entrees"].is_array(), "{contexte}");
+        }
+        Resultat::Verification => {
+            assert_eq!(
+                reponse.statut,
+                StatusCode::OK,
+                "{contexte} : {}",
+                reponse.texte()
+            );
+            assert_eq!(
+                reponse.json()["integre"],
+                true,
+                "{contexte} : {}",
+                reponse.texte()
+            );
+        }
+        Resultat::ExportAudit => {
+            assert_eq!(
+                reponse.statut,
+                StatusCode::OK,
+                "{contexte} : {}",
+                reponse.texte()
+            );
+            assert!(
+                reponse.texte().starts_with("sigma-books export-audit v1\n"),
+                "{contexte}"
+            );
         }
         Resultat::Statut(statut) => {
             assert_eq!(reponse.statut, *statut, "{contexte} : {}", reponse.texte());
@@ -224,8 +353,9 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
     let (a, b) = (&m.a, &m.b);
     let mut reponses = Vec::new();
     // Référence : cabinet inexistant (et dossier inexistant).
-    let reference = lire(
+    let reference = appel(
         routeur,
+        route,
         &chemin(route, Uuid::new_v4(), Uuid::new_v4()),
         Some(a.administrateur),
     )
@@ -235,8 +365,9 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
     // Ressource de l'autre cabinet : 404 identique, quel que soit le rôle dans le sien.
     for utilisateur in [a.administrateur, a.collaborateur] {
         for dossier in [b.dossier, b.autre_dossier] {
-            let reponse = lire(
+            let reponse = appel(
                 routeur,
+                route,
                 &chemin(route, b.cabinet.uuid(), dossier.uuid()),
                 Some(utilisateur),
             )
@@ -264,7 +395,7 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
             } else {
                 chemin(route, a.cabinet.uuid(), dossier)
             };
-            let reponse = lire(routeur, &chemin_a, Some(utilisateur)).await;
+            let reponse = appel(routeur, route, &chemin_a, Some(utilisateur)).await;
             verifier_absent(
                 &reponse,
                 &reference,
@@ -274,8 +405,9 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
         }
     }
     // Sans authentification.
-    let reponse = lire(
+    let reponse = appel(
         routeur,
+        route,
         &chemin(route, a.cabinet.uuid(), a.dossier.uuid()),
         None,
     )
@@ -290,10 +422,7 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
 async fn chaque_route_a_son_cas_d_isolation_et_le_respecte() {
     let env = env().await;
     let m = monde(&env.admin).await;
-    let routeur = routeur(&application(
-        env.application.clone(),
-        Reglages::new(ORIGINE.to_owned()),
-    ));
+    let routeur = routeur(&application_base(&env, Reglages::new(ORIGINE.to_owned())));
 
     let sans_cas: Vec<&str> = ROUTES
         .iter()
@@ -322,6 +451,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     // Décision Cedar forcée à « autorisé » pour toute action.
     let routeur = routeur(&Application::new(
         env.application.clone(),
+        env.lecture_audit.clone(),
         Arc::new(ToujoursAutorise),
         Arc::new(AuthentificationTest::default()),
         Reglages::new(ORIGINE.to_owned()),
@@ -335,8 +465,9 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
 
     // Autre cabinet : rien, quelle que soit la route.
     for route in ROUTES {
-        let reponse = lire(
+        let reponse = appel(
             &routeur,
+            route,
             &chemin(route, b.cabinet.uuid(), b.dossier.uuid()),
             Some(a.collaborateur),
         )
@@ -381,10 +512,7 @@ async fn une_appartenance_suspendue_vaut_non_membre_sur_chaque_route() {
     let env = env().await;
     let m = monde(&env.admin).await;
     let (a, b) = (&m.a, &m.b);
-    let routeur = routeur(&application(
-        env.application.clone(),
-        Reglages::new(ORIGINE.to_owned()),
-    ));
+    let routeur = routeur(&application_base(&env, Reglages::new(ORIGINE.to_owned())));
     // Suspension de l'administrateur de A et du membre des deux cabinets dans B seulement.
     for (cabinet, utilisateur) in [(a.cabinet, a.administrateur), (b.cabinet, m.multi)] {
         sqlx::query(
@@ -397,8 +525,9 @@ async fn une_appartenance_suspendue_vaut_non_membre_sur_chaque_route() {
         .unwrap();
     }
     for route in ROUTES {
-        let reference = lire(
+        let reference = appel(
             &routeur,
+            route,
             &chemin(route, Uuid::new_v4(), Uuid::new_v4()),
             Some(a.collaborateur),
         )
@@ -408,8 +537,9 @@ async fn une_appartenance_suspendue_vaut_non_membre_sur_chaque_route() {
             (a.administrateur, a.cabinet, a.autre_dossier),
             (m.multi, b.cabinet, b.dossier),
         ] {
-            let reponse = lire(
+            let reponse = appel(
                 &routeur,
+                route,
                 &chemin(route, cabinet.uuid(), dossier.uuid()),
                 Some(utilisateur),
             )
@@ -436,19 +566,17 @@ async fn les_journaux_d_un_scenario_complet_restent_en_liste_blanche() {
     let capture = capture_globale();
     let env = env().await;
     let m = monde(&env.admin).await;
-    let routeur = routeur(&application(
-        env.application.clone(),
-        Reglages::new(ORIGINE.to_owned()),
-    ));
+    let routeur = routeur(&application_base(&env, Reglages::new(ORIGINE.to_owned())));
     let mut reponses = Vec::new();
     for route in ROUTES {
         reponses.extend(verifier_generique(&routeur, route, &m).await);
         for attendu in attentes(route, &m).unwrap() {
             let chemin = chemin(route, attendu.cabinet.uuid(), attendu.dossier.uuid());
-            reponses.push(lire(&routeur, &chemin, Some(attendu.utilisateur)).await);
+            reponses.push(appel(&routeur, route, &chemin, Some(attendu.utilisateur)).await);
         }
     }
     assert!(reponses.iter().any(|r| r.statut == StatusCode::OK));
+    assert!(reponses.iter().any(|r| r.statut == StatusCode::CREATED));
     let ids: Vec<String> = reponses.iter().map(id_requete).collect();
     let evenements = evenements_de(capture, &ids);
     assert_eq!(evenements.len(), ids.len(), "une ligne par requête");
@@ -467,7 +595,7 @@ async fn les_journaux_d_un_scenario_complet_restent_en_liste_blanche() {
             c.collaborateur.to_string(),
         ]);
     }
-    interdits.push(m.multi.to_string());
+    interdits.extend([m.multi, m.valideur, m.auditeur].map(|u| u.to_string()));
     // « dossier » figure dans les modèles de route : on ne le cherche que hors du champ `route`.
     let hors_route: Vec<_> = evenements
         .iter()

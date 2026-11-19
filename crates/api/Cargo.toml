@@ -18,6 +18,7 @@ tests-postgres = []
 
 [dependencies]
 authz = { path = "../authz" }
+integrite = { path = "../integrite" }
 axum.workspace = true
 getrandom.workspace = true
 http-body-util.workspace = true

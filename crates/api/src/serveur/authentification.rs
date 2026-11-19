@@ -14,7 +14,7 @@ use std::pin::Pin;
 use axum::http::request::Parts;
 use time::OffsetDateTime;
 
-use crate::base::IdUtilisateur;
+use crate::base::{IdSession, IdUtilisateur};
 
 /// Un utilisateur authentifié.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +22,9 @@ pub struct Identite {
     /// L'utilisateur, tel que la session l'enregistre en base (jamais un identifiant envoyé par
     /// le client).
     pub utilisateur: IdUtilisateur,
+    /// Identifiant **public** de la session (ADR 0012), inscrit au journal d'audit
+    /// (ADR 0014, clé `session=`) : jamais son jeton.
+    pub session: IdSession,
     /// Instant de la dernière vérification de facteur (passkey, ou mot de passe et TOTP).
     pub derniere_verification: OffsetDateTime,
 }

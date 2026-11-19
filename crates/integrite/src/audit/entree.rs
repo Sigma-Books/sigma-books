@@ -655,6 +655,13 @@ impl EntreeAudit {
     }
 }
 
+/// Forme canonique d'un instant, telle que l'écrit la ligne `instant=` :
+/// `AAAA-MM-JJTHH:MM:SS.ffffffZ` (UTC, six décimales).
+#[must_use]
+pub fn formater_instant(instant: OffsetDateTime) -> String {
+    InstantIso(instant.to_offset(UtcOffset::UTC)).to_string()
+}
+
 /// Instant `AAAA-MM-JJTHH:MM:SS.ffffffZ` (UTC, six décimales).
 struct InstantIso(OffsetDateTime);
 

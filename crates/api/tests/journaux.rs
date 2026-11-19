@@ -90,6 +90,7 @@ async fn une_panique_laisse_une_ligne_en_liste_blanche_sans_son_message() {
     let capture = capture_globale();
     let etat = Application::new(
         pool_sans_base(),
+        pool_sans_base(),
         Arc::new(Autorisation::charger().unwrap()),
         Arc::new(AuthentificationTest {
             delai: None,

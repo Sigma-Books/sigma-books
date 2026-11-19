@@ -15,7 +15,7 @@ mod export;
 pub use chaine::{AnomalieAudit, ChaineAudit, ErreurAjout, RapportAudit, Verificateur, genese};
 pub use entree::{
     Acteur, Champ, DecisionCedar, ENTETE, ENTREE_MAX, EntreeAudit, ErreurAudit, Evenement, FIN,
-    Portee, Ressource, SYMBOLE_MAX, SYSTEME, Symbole, TEXTE_MAX, Texte, Uuid,
+    Portee, Ressource, SYMBOLE_MAX, SYSTEME, Symbole, TEXTE_MAX, Texte, Uuid, formater_instant,
 };
 pub use export::{
     ANNEXE, ENTETE_EXPORT_AUDIT, EcrivainExportAudit, FIN_ANNEXE, RapportExportAudit,

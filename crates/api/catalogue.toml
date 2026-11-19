@@ -3,14 +3,26 @@
 # Chaque entrée est justifiée ; toute modification passe par la revue de l'équipe core.
 # Une liste vide reste déclarée : le test refuse un fichier incomplet.
 
-# Tables en ajout seul (écritures validées, leurs lignes, chaîne, audit : PR 6 et 7) :
-# le rôle applicatif n'y a ni UPDATE ni DELETE, même sur une colonne.
-ajout_seul = []
-
 # Fonctions SECURITY DEFINER admises (elles s'exécutent avec les droits de leur propriétaire,
 # donc hors de la RLS du rôle applicatif). Aucune pour l'instant ; la recherche par courriel à la
 # connexion (PR 8, ADR 0012) en sera peut-être une, dédiée et auditée.
 security_definer = []
+
+# Tables en ajout seul (écritures validées, leurs lignes, chaîne, audit : PR 6 et 7) :
+# le rôle applicatif n'y a ni UPDATE ni DELETE, même sur une colonne. Le test vérifie l'absence
+# d'UPDATE (même sur une colonne) et de DELETE pour les rôles applicatif et de lecture d'audit.
+# Les têtes d'audit n'y figurent pas : état dérivé, mis à jour sous verrou (ADR 0011, 0014).
+[[ajout_seul]]
+nom = "audit_cabinet"
+justification = """
+Entrées de la chaîne d'audit d'un cabinet (ADR 0014) : INSERT seul pour le rôle applicatif \
+(ni SELECT, ni UPDATE, ni DELETE, F2.6), SELECT seul pour le rôle de lecture d'audit."""
+
+[[ajout_seul]]
+nom = "audit_dossier"
+justification = """
+Entrées de la chaîne d'audit d'un dossier (ADR 0014) : INSERT seul pour le rôle applicatif \
+(ni SELECT, ni UPDATE, ni DELETE, F2.6), SELECT seul pour le rôle de lecture d'audit."""
 
 # Tables d'instance : sans `cabinet_id` ni `dossier_id`, sans donnée comptable (ADR 0011,
 # « Tables d'instance »). `rls = true` : la table reste sous RLS activée et forcée, avec des

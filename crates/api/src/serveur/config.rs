@@ -6,6 +6,7 @@
 //! |---|---|---|
 //! | `SIGMA_ADRESSE_ECOUTE` | oui | Adresse et port d'écoute (`127.0.0.1:8080`) |
 //! | `SIGMA_URL_BASE_APPLICATION` | oui | URL PostgreSQL du **rôle applicatif** (`sigma_application`) |
+//! | `SIGMA_URL_BASE_LECTURE_AUDIT` | oui | URL PostgreSQL du **rôle de lecture d'audit** (`sigma_lecture_audit`, ADR 0014) |
 //! | `SIGMA_ORIGINE` | oui | Origine publique (`https://compta.exemple.sn`), contrôlée par l'anti-CSRF |
 //! | `SIGMA_REPERTOIRE_WEB` | non | Répertoire de l'interface compilée ; doit exister |
 //! | `SIGMA_EN_TETE_ADRESSE_CLIENT` | non | En-tête de confiance du mandataire inverse (L9) ; **absent par défaut** |
@@ -38,6 +39,8 @@ pub struct Configuration {
     pub adresse_ecoute: SocketAddr,
     /// URL de la base, rôle applicatif (secrète : jamais affichée).
     pub url_base: String,
+    /// URL de la base, rôle de lecture d'audit (secrète : jamais affichée).
+    pub url_base_lecture_audit: String,
     /// Réglages du serveur.
     pub reglages: Reglages,
     /// Autorités d'horodatage, dans l'ordre d'essai : les seules destinations du client
@@ -50,6 +53,7 @@ impl fmt::Debug for Configuration {
         f.debug_struct("Configuration")
             .field("adresse_ecoute", &self.adresse_ecoute)
             .field("url_base", &"<masquée>")
+            .field("url_base_lecture_audit", &"<masquée>")
             .field("reglages", &self.reglages)
             .field("autorites_horodatage", &self.autorites_horodatage)
             .finish()
@@ -85,6 +89,14 @@ impl Configuration {
         if !(url_base.starts_with("postgres://") || url_base.starts_with("postgresql://")) {
             return Err(ErreurConfiguration::Invalide("SIGMA_URL_BASE_APPLICATION"));
         }
+        let url_base_lecture_audit = obligatoire("SIGMA_URL_BASE_LECTURE_AUDIT")?;
+        if !(url_base_lecture_audit.starts_with("postgres://")
+            || url_base_lecture_audit.starts_with("postgresql://"))
+        {
+            return Err(ErreurConfiguration::Invalide(
+                "SIGMA_URL_BASE_LECTURE_AUDIT",
+            ));
+        }
         let origine = origine(&obligatoire("SIGMA_ORIGINE")?)
             .ok_or(ErreurConfiguration::Invalide("SIGMA_ORIGINE"))?;
 
@@ -110,6 +122,7 @@ impl Configuration {
         Ok(Self {
             adresse_ecoute,
             url_base,
+            url_base_lecture_audit,
             reglages,
             autorites_horodatage,
         })
@@ -144,11 +157,15 @@ mod tests {
         move |nom| table.get(nom).cloned()
     }
 
-    const COMPLETE: [(&str, &str); 3] = [
+    const COMPLETE: [(&str, &str); 4] = [
         ("SIGMA_ADRESSE_ECOUTE", "127.0.0.1:8080"),
         (
             "SIGMA_URL_BASE_APPLICATION",
             "postgres://sigma_application@localhost/sigma_books",
+        ),
+        (
+            "SIGMA_URL_BASE_LECTURE_AUDIT",
+            "postgres://sigma_lecture_audit@localhost/sigma_books",
         ),
         ("SIGMA_ORIGINE", "https://Compta.Exemple.invalid"),
     ];
@@ -161,6 +178,7 @@ mod tests {
         assert_eq!(config.reglages.repertoire_web, None);
         assert_eq!(config.autorites_horodatage, Autorite::par_defaut());
         assert!(!format!("{config:?}").contains("sigma_application@"));
+        assert!(!format!("{config:?}").contains("sigma_lecture_audit@"));
     }
 
     #[test]
@@ -182,6 +200,7 @@ mod tests {
             ("SIGMA_ORIGINE", "exemple.invalid"),
             ("SIGMA_ADRESSE_ECOUTE", "pas-une-adresse"),
             ("SIGMA_URL_BASE_APPLICATION", "mysql://secret@hote"),
+            ("SIGMA_URL_BASE_LECTURE_AUDIT", "mysql://secret@hote"),
             ("SIGMA_REPERTOIRE_WEB", "/repertoire/inexistant/sigma"),
             ("SIGMA_EN_TETE_ADRESSE_CLIENT", "en tête invalide"),
             ("SIGMA_AUTORITES_HORODATAGE", "ftp://tsa.invalid"),

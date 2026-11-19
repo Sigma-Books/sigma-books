@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE audit_tete_dossier SET rang = $3, empreinte = $4 WHERE cabinet_id = $1 AND dossier_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e366f4e91d602af2adb06610c3ba39a1e369092d4d09a3a278a285032e69de08"
+}

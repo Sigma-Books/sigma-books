@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            EXISTS (\n                SELECT 1\n                FROM pg_catalog.pg_roles m\n                WHERE m.rolname = 'sigma_application' AND pg_has_role(current_user, m.oid, 'MEMBER')\n            ) AS \"membre_application!\",\n            EXISTS (\n                SELECT 1\n                FROM pg_catalog.pg_class c\n                JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n                CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) AS d (droit)\n                WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')\n                  AND (has_table_privilege(current_user, c.oid, d.droit)\n                       OR (d.droit IN ('INSERT', 'UPDATE')\n                           AND has_any_column_privilege(current_user, c.oid, d.droit)))\n            ) AS \"ecrit!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "membre_application!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "ecrit!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "254156c0761738d97fdf8ae6de03ba02a8488b4f0101a8e29c3b5781b2abec51"
+}

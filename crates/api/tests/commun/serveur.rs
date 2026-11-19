@@ -8,12 +8,13 @@
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use api::base::IdUtilisateur;
+use api::base::{IdSession, IdUtilisateur};
 use api::serveur::authentification::{
     Authentification, ErreurAuthentification, Identite, ResultatAuthentification,
 };
+use api::serveur::routes::{CasUsage, Methode, Route};
 use api::serveur::{Application, Decideur, Etat, RefusTotal, Reglages, journal, routeur};
-use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource};
+use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource, Verdict};
 use axum::Router;
 use axum::body::Body;
 use axum::http::request::Parts;
@@ -30,11 +31,16 @@ use uuid::Uuid;
 /// En-tête lu par [`AuthentificationTest`].
 pub const EN_TETE_UTILISATEUR: &str = "x-test-utilisateur";
 
+/// En-tête lu par [`AuthentificationTest`] : ancienneté, en secondes, de la dernière
+/// vérification de facteur (0 par défaut : session « fraîche »).
+pub const EN_TETE_ANCIENNETE: &str = "x-test-verifie-il-y-a";
+
 /// Origine des réglages de test.
 pub const ORIGINE: &str = "https://sigma.exemple.invalid";
 
 /// Authentification de test : l'utilisateur de l'en-tête [`EN_TETE_UTILISATEUR`], vérifié à
-/// l'instant ; aucune identité sans l'en-tête. `delai` simule une authentification lente,
+/// l'instant (ou il y a [`EN_TETE_ANCIENNETE`] secondes), avec une session neuve ; aucune
+/// identité sans l'en-tête. `delai` simule une authentification lente,
 /// `panique` une authentification qui panique.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AuthentificationTest {
@@ -57,9 +63,19 @@ impl Authentification for AuthentificationTest {
             };
             let texte = valeur.to_str().map_err(|_| ErreurAuthentification)?;
             let uuid = Uuid::try_parse(texte).map_err(|_| ErreurAuthentification)?;
+            let anciennete = match requete.headers.get(EN_TETE_ANCIENNETE) {
+                Some(v) => v
+                    .to_str()
+                    .ok()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .ok_or(ErreurAuthentification)?,
+                None => 0,
+            };
             Ok(Some(Identite {
                 utilisateur: IdUtilisateur::depuis_uuid(uuid),
-                derniere_verification: OffsetDateTime::now_utc(),
+                session: IdSession::nouveau(),
+                derniere_verification: OffsetDateTime::now_utc()
+                    - time::Duration::seconds(anciennete),
             }))
         })
     }
@@ -71,15 +87,18 @@ impl Authentification for AuthentificationTest {
 pub struct ToujoursAutorise;
 
 impl Decideur for ToujoursAutorise {
-    fn decider(
+    fn verdict(
         &self,
         _principal: &authz::Appartenance,
         _action: Action,
         _ressource: Ressource,
         _entites: &Entites,
         _contexte: &Contexte,
-    ) -> Decision {
-        Decision::Autorise
+    ) -> Verdict {
+        Verdict {
+            decision: Decision::Autorise,
+            politiques: vec!["test-toujours-autorise".to_owned()],
+        }
     }
 }
 
@@ -93,10 +112,21 @@ pub fn pool_sans_base() -> PgPool {
         .expect("pool paresseux")
 }
 
-/// Application de test : authentification de test, décision Cedar réelle.
+/// Application de test : authentification de test, décision Cedar réelle. Le même pool sert
+/// à la lecture d'audit : pour les tests sans base, ou qui ne lisent pas l'audit.
 pub fn application(pool: PgPool, reglages: Reglages) -> Etat {
+    application_avec(pool.clone(), pool, reglages)
+}
+
+/// Application de test sur la base : pool du rôle applicatif et pool de lecture d'audit.
+pub fn application_base(env: &super::Env, reglages: Reglages) -> Etat {
+    application_avec(env.application.clone(), env.lecture_audit.clone(), reglages)
+}
+
+fn application_avec(pool: PgPool, lecture_audit: PgPool, reglages: Reglages) -> Etat {
     Application::new(
         pool,
+        lecture_audit,
         Arc::new(Autorisation::charger().expect("politiques Cedar")),
         Arc::new(AuthentificationTest::default()),
         reglages,
@@ -106,6 +136,7 @@ pub fn application(pool: PgPool, reglages: Reglages) -> Etat {
 /// Application telle que le binaire l'assemble : authentification [`RefusTotal`].
 pub fn application_du_binaire(pool: PgPool) -> Etat {
     Application::new(
+        pool.clone(),
         pool,
         Arc::new(Autorisation::charger().expect("politiques Cedar")),
         Arc::new(RefusTotal),
@@ -150,6 +181,55 @@ pub async fn appeler(routeur: &Router, requete: Request<Body>) -> Reponse {
         statut,
         entetes,
         corps,
+    }
+}
+
+/// Mutation (`POST`) de la même origine (en-têtes anti-CSRF), au nom d'un utilisateur, avec un
+/// corps JSON et, en option, l'ancienneté de la dernière vérification de facteur.
+pub async fn envoyer(
+    routeur: &Router,
+    chemin: &str,
+    utilisateur: Option<IdUtilisateur>,
+    corps: &str,
+    anciennete: Option<i64>,
+) -> Reponse {
+    let mut requete = Request::post(chemin)
+        .header("origin", ORIGINE)
+        .header("sec-fetch-site", "same-origin")
+        .header("x-sigma-csrf", "1")
+        .header("content-type", "application/json");
+    if let Some(u) = utilisateur {
+        requete = requete.header(EN_TETE_UTILISATEUR, u.to_string());
+    }
+    if let Some(secondes) = anciennete {
+        requete = requete.header(EN_TETE_ANCIENNETE, secondes.to_string());
+    }
+    appeler(
+        routeur,
+        requete.body(Body::from(corps.to_owned())).expect("requête"),
+    )
+    .await
+}
+
+/// Corps d'exemple d'une route : celui de la création d'un dossier, vide sinon.
+pub fn corps_de(route: &Route) -> &'static str {
+    match route.cas_usage {
+        CasUsage::CreerDossier => r#"{"nom":"Dossier créé par le test"}"#,
+        _ => "",
+    }
+}
+
+/// Appelle une route de la table avec sa méthode : `GET`, ou mutation de la même origine avec
+/// le corps de [`corps_de`].
+pub async fn appeler_route(
+    routeur: &Router,
+    route: &Route,
+    chemin: &str,
+    utilisateur: Option<IdUtilisateur>,
+) -> Reponse {
+    match route.methode {
+        Methode::Get => lire(routeur, chemin, utilisateur).await,
+        Methode::Post => envoyer(routeur, chemin, utilisateur, corps_de(route), None).await,
     }
 }
 

@@ -22,6 +22,12 @@ use uuid::Uuid;
 /// Migrations du crate, embarquées : celles que la base de test doit avoir appliquées.
 pub static MIGRATEUR: Migrator = sqlx::migrate!("./migrations");
 
+/// Rôle de lecture d'audit (approvisionnement, ADR 0014).
+pub const ROLE_LECTURE_AUDIT: &str = "sigma_lecture_audit";
+
+/// Rôle de migration, propriétaire des tables (approvisionnement, ADR 0011).
+pub const ROLE_MIGRATION: &str = "sigma_migration";
+
 /// Rôle de test qui contourne la RLS, créé par les seuls tests (jamais par une migration).
 pub const ROLE_CONTOURNEMENT: &str = "sigma_test_contournement";
 
@@ -42,6 +48,10 @@ pub struct Env {
     pub admin: PgPool,
     /// Rôle applicatif.
     pub application: PgPool,
+    /// Rôle de lecture d'audit : connexions du super-utilisateur qui prennent aussitôt le rôle
+    /// `sigma_lecture_audit` (`SET ROLE`), dont seuls les droits s'appliquent alors (RLS
+    /// comprise). Aucun mot de passe de plus n'est exigé de l'environnement de test.
+    pub lecture_audit: PgPool,
 }
 
 /// Ouvre les pools et vérifie que la base est migrée exactement comme le crate l'attend.
@@ -59,7 +69,33 @@ pub async fn env() -> Env {
             panic!("connexion SIGMA_TEST_APPLICATION_URL impossible ({e}) : {AIDE}")
         });
     verifier_migrations(&admin).await;
-    Env { admin, application }
+    let lecture_audit = pool_sous_role(ROLE_LECTURE_AUDIT).await;
+    Env {
+        admin,
+        application,
+        lecture_audit,
+    }
+}
+
+/// Pool du super-utilisateur dont chaque connexion prend aussitôt `role` (`SET ROLE`).
+pub async fn pool_sous_role(role: &'static str) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(move |connexion, _| {
+            Box::pin(async move {
+                sqlx::query(match role {
+                    ROLE_LECTURE_AUDIT => "SET ROLE sigma_lecture_audit",
+                    ROLE_MIGRATION => "SET ROLE sigma_migration",
+                    _ => "SELECT 1 / 0",
+                })
+                .execute(connexion)
+                .await?;
+                Ok(())
+            })
+        })
+        .connect(&variable("SIGMA_TEST_ADMIN_URL"))
+        .await
+        .unwrap_or_else(|e| panic!("connexion sous le rôle {role} impossible ({e}) : {AIDE}"))
 }
 
 /// La base porte toutes les migrations du crate, avec les mêmes sommes de contrôle.
@@ -176,6 +212,18 @@ pub async fn affecter(
     .execute(&mut *tx)
     .await
     .expect("acces_dossier");
+}
+
+/// Ajoute au cabinet un membre de rôle `role`, affecté au premier dossier ; renvoie son
+/// identifiant.
+pub async fn ajouter_affecte(admin: &PgPool, c: &CabinetTest, role: &str) -> IdUtilisateur {
+    let utilisateur = IdUtilisateur::nouveau();
+    let mut tx = admin.begin().await.expect("transaction admin");
+    creer_utilisateur(&mut tx, utilisateur, &format!("{role} affecté")).await;
+    ajouter_membre(&mut tx, c.cabinet, utilisateur, role).await;
+    affecter(&mut tx, c.cabinet, c.dossier, utilisateur).await;
+    tx.commit().await.expect("commit admin");
+    utilisateur
 }
 
 /// Code SQLSTATE d'une erreur PostgreSQL.

@@ -24,8 +24,8 @@ use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use axum::middleware::from_fn_with_state;
 use axum::routing::post;
 use commun::serveur::{
-    AuthentificationTest, EN_TETE_UTILISATEUR, ORIGINE, Reponse, appeler, application,
-    application_du_binaire, lire, pool_sans_base,
+    AuthentificationTest, EN_TETE_UTILISATEUR, ORIGINE, Reponse, appeler, appeler_route,
+    application, application_du_binaire, lire, pool_sans_base,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -99,7 +99,7 @@ async fn le_binaire_refuse_toute_requete_non_authentifiee() {
             .replace("{cabinet}", &Uuid::new_v4().to_string())
             .replace("{dossier}", &Uuid::new_v4().to_string());
         // Même un en-tête de l'authentification de test ne vaut rien pour le binaire.
-        let reponse = lire(&routeur, &chemin, Some(IdUtilisateur::nouveau())).await;
+        let reponse = appeler_route(&routeur, route, &chemin, Some(IdUtilisateur::nouveau())).await;
         verifier_erreur(&reponse, StatusCode::UNAUTHORIZED, "non_authentifie");
     }
 }
@@ -305,6 +305,7 @@ async fn un_traitement_trop_long_est_abandonne() {
     r.delai_requete = Duration::from_millis(50);
     let etat = Application::new(
         pool_sans_base(),
+        pool_sans_base(),
         Arc::new(Autorisation::charger().unwrap()),
         Arc::new(AuthentificationTest {
             delai: Some(Duration::from_secs(5)),
@@ -379,6 +380,7 @@ async fn les_fichiers_statiques_sans_traversee_ni_liste() {
 #[tokio::test]
 async fn une_panique_donne_un_500_uniforme_sans_son_message() {
     let etat = Application::new(
+        pool_sans_base(),
         pool_sans_base(),
         Arc::new(Autorisation::charger().unwrap()),
         Arc::new(AuthentificationTest {

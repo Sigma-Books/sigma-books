@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config('sigma.dossier', $1, true) AS dossier",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dossier",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3cbd937095b38199c6bf24c8acd3184fab7251f77d181c4bf512554bc3486e21"
+}

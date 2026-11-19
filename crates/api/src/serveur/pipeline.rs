@@ -15,10 +15,15 @@
 //! 4. **cas d'usage**, dans la même transaction, avec ses propres filtres de requête. Ses vues
 //!    ne se construisent que depuis ce que fabrique la [`Garde`] après décision
 //!    ([`Garde::filtrer`] pour une liste) : aucun élément ne sort sans décision Cedar ;
-//! 5. **audit** (PR 7) : l'entrée d'audit d'une action métier sera insérée **ici**, dans la même
-//!    transaction, juste avant [`TransactionTenant::confirmer`] (ADR 0014, « Même
-//!    transaction ») : si l'audit échoue, l'action est annulée. Aucune route de cette PR ne
-//!    modifie de donnée métier : rien n'est encore à auditer.
+//! 5. **audit** : le cas d'usage rend ses traces ([`super::audit::Trace`]) ; le pipeline les
+//!    inscrit au journal d'audit chaîné **dans la même transaction**, juste avant
+//!    [`TransactionTenant::confirmer`] (ADR 0014, « Même transaction ») : si l'audit échoue,
+//!    l'action est annulée. Une mutation sans trace est refusée (erreur interne) : aucune action
+//!    sans trace, aucune trace sans action.
+//!
+//! Le corps de la requête est lu (borné par [`super::Reglages::taille_corps_max`]) après
+//! l'authentification et avant l'ouverture de la transaction : un client lent ne retient pas de
+//! connexion à la base.
 //!
 //! Une seule transaction couvre les étapes 2 à 5 : la décision porte sur l'état exact que le
 //! cas d'usage voit (aucun intervalle entre la vérification et l'usage). Tout refus ou toute
@@ -27,39 +32,43 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource, Role, Session};
+use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource, Role, Session, Verdict};
 use axum::extract::{FromRequestParts, RawPathParams, Request};
 use axum::response::{IntoResponse, Response};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::Etat;
+use super::audit::inscrire_traces;
+use super::csrf::est_mutation;
 use super::erreur::{CategorieErreur, ErreurApi};
-use super::routes::{Portee, Route, executer};
+use super::routes::{Portee, Requete, Route, executer};
+use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
     AccesDossier, Appartenance, Cabinet, Dossier, DossierVisible, lire_acces_dossier,
     lire_appartenance, lire_cabinet, lire_dossier,
 };
 use crate::base::{
-    ContexteTenant, IdCabinet, IdDossier, IdUtilisateur, TransactionTenant, ouvrir_transaction,
+    ContexteTenant, IdCabinet, IdDossier, IdSession, IdUtilisateur, TransactionTenant,
+    ouvrir_transaction,
 };
 
 /// Point de décision d'autorisation. Le binaire utilise [`Autorisation`] (Cedar) ; l'interface
 /// existe pour que les tests vérifient que la requête et la RLS tiennent **même si Cedar se
 /// trompe** (décision forcée).
 pub trait Decideur: Send + Sync + 'static {
-    /// Décide si `principal` peut effectuer `action` sur `ressource` ([`Autorisation::decider`]).
-    fn decider(
+    /// Décide si `principal` peut effectuer `action` sur `ressource`, avec les politiques
+    /// déterminantes ([`Autorisation::verdict`]), inscrites au journal d'audit (ADR 0014).
+    fn verdict(
         &self,
         principal: &authz::Appartenance,
         action: Action,
         ressource: Ressource,
         entites: &Entites,
         contexte: &Contexte,
-    ) -> Decision;
-}
+    ) -> Verdict;
 
-impl Decideur for Autorisation {
+    /// La décision seule.
     fn decider(
         &self,
         principal: &authz::Appartenance,
@@ -68,7 +77,21 @@ impl Decideur for Autorisation {
         entites: &Entites,
         contexte: &Contexte,
     ) -> Decision {
-        Autorisation::decider(self, principal, action, ressource, entites, contexte)
+        self.verdict(principal, action, ressource, entites, contexte)
+            .decision
+    }
+}
+
+impl Decideur for Autorisation {
+    fn verdict(
+        &self,
+        principal: &authz::Appartenance,
+        action: Action,
+        ressource: Ressource,
+        entites: &Entites,
+        contexte: &Contexte,
+    ) -> Verdict {
+        Autorisation::verdict(self, principal, action, ressource, entites, contexte)
     }
 }
 
@@ -86,6 +109,12 @@ pub struct Garde {
     action: Action,
     /// Ressource du chemin, une fois l'action autorisée sur elle.
     decidee: Option<RessourceChemin>,
+    /// Utilisateur et session authentifiés, inscrits au journal d'audit.
+    utilisateur: IdUtilisateur,
+    id_session: IdSession,
+    /// Verdict de Cedar sur l'action de la route et la ressource du chemin (politiques
+    /// déterminantes, ADR 0014). Absent pour une liste, décidée élément par élément.
+    verdict: Option<Verdict>,
 }
 
 /// Un dossier dont l'action de la route est autorisée. Champs privés : seule la [`Garde`] le
@@ -206,6 +235,68 @@ impl Garde {
         }
     }
 
+    /// Exige que l'action de la route ait été autorisée sur le cabinet du chemin (cas d'usage
+    /// d'une action du cabinet, comme la création d'un dossier).
+    ///
+    /// # Errors
+    /// [`ErreurApi::Introuvable`] sinon.
+    pub fn exiger_cabinet(&self) -> Result<(), ErreurApi> {
+        if self.decidee == Some(RessourceChemin::Cabinet) {
+            Ok(())
+        } else {
+            Err(ErreurApi::Introuvable)
+        }
+    }
+
+    /// Portée d'audit de la ressource décidée : le cabinet du chemin ou le dossier du chemin.
+    /// Seule voie des cas d'usage de l'audit vers une chaîne.
+    ///
+    /// # Errors
+    /// [`ErreurApi::Introuvable`] si aucune ressource unique n'a été décidée.
+    pub fn portee_audit(&self) -> Result<PorteeAudit, ErreurApi> {
+        match self.decidee {
+            Some(RessourceChemin::Cabinet) => Ok(PorteeAudit::Cabinet),
+            Some(RessourceChemin::Dossier(dossier)) => Ok(PorteeAudit::Dossier(dossier)),
+            Some(RessourceChemin::DossiersDuCabinet) | None => Err(ErreurApi::Introuvable),
+        }
+    }
+
+    /// Action de la route.
+    #[must_use]
+    pub fn action(&self) -> Action {
+        self.action
+    }
+
+    /// Utilisateur authentifié.
+    #[must_use]
+    pub fn utilisateur(&self) -> IdUtilisateur {
+        self.utilisateur
+    }
+
+    /// Identifiant public de la session.
+    #[must_use]
+    pub fn id_session(&self) -> IdSession {
+        self.id_session
+    }
+
+    /// Rôle du principal dans le cabinet.
+    #[must_use]
+    pub fn role(&self) -> Role {
+        self.principal.role
+    }
+
+    /// Vrai si la session est « fraîche » (ré-authentification, ADR 0012).
+    #[must_use]
+    pub fn session_fraiche(&self) -> bool {
+        self.session.est_fraiche()
+    }
+
+    /// Verdict de Cedar sur l'action de la route et la ressource du chemin.
+    #[must_use]
+    pub fn verdict(&self) -> Option<&Verdict> {
+        self.verdict.as_ref()
+    }
+
     fn decider(
         &self,
         action: Action,
@@ -216,6 +307,21 @@ impl Garde {
         self.decideur
             .decider(&self.principal, action, ressource, entites, contexte)
             == Decision::Autorise
+    }
+
+    /// Décide l'action de la route sur la ressource du chemin et garde le verdict.
+    fn decider_route(
+        &mut self,
+        ressource: Ressource,
+        entites: &Entites,
+        contexte: &Contexte,
+    ) -> bool {
+        let verdict =
+            self.decideur
+                .verdict(&self.principal, self.action, ressource, entites, contexte);
+        let autorise = verdict.decision == Decision::Autorise;
+        self.verdict = Some(verdict);
+        autorise
     }
 
     fn entites_dossier(
@@ -287,7 +393,7 @@ async fn traiter_requete(
     route: &'static Route,
     requete: Request,
 ) -> Result<Response, ErreurApi> {
-    let (mut parts, _corps) = requete.into_parts();
+    let (mut parts, corps) = requete.into_parts();
 
     // 1. Authentification, puis débit par utilisateur.
     let identite = etat
@@ -300,6 +406,10 @@ async fn traiter_requete(
         .verifier(identite.utilisateur, Instant::now())
         .map_err(|reessayer_dans| ErreurApi::TropDeRequetes { reessayer_dans })?;
     let utilisateur = id_authz(identite.utilisateur.uuid(), authz::IdUtilisateur::new)?;
+    // Corps lu avant d'ouvrir la transaction, borné (413 au-delà).
+    let corps = axum::body::to_bytes(corps, etat.reglages.taille_corps_max)
+        .await
+        .map_err(|_| ErreurApi::CorpsTropGrand)?;
 
     // 2. Contexte : chemin, puis transaction au contexte du chemin.
     let parametres = RawPathParams::from_request_parts(&mut parts, &())
@@ -318,27 +428,15 @@ async fn traiter_requete(
     // Transaction au contexte du tenant : jusqu'à la décision, lectures seules sous RLS.
     let mut tx = ouvrir_transaction(&etat.pool, contexte).await?;
 
-    let mut garde = etablir(
-        etat,
-        route,
-        &mut tx,
-        identite.utilisateur,
-        utilisateur,
-        identite.derniere_verification,
-    )
-    .await?;
+    let mut garde = etablir(etat, route, &mut tx, &identite, utilisateur).await?;
 
     // 3. Décision Cedar sur la ressource du chemin.
     match ressource_chemin {
         RessourceChemin::Cabinet => {
             let entites = Entites::new().avec(garde.cabinet.clone());
             let ressource = Ressource::Cabinet(garde.cabinet.id);
-            if !garde.decider(
-                route.action,
-                ressource,
-                &entites,
-                &Contexte::new(garde.session),
-            ) {
+            let contexte = Contexte::new(garde.session);
+            if !garde.decider_route(ressource, &entites, &contexte) {
                 return Err(ErreurApi::Interdit);
             }
         }
@@ -353,7 +451,7 @@ async fn traiter_requete(
             if !garde.decider(Action::AccederDossier, ressource, &entites, &contexte) {
                 return Err(ErreurApi::Introuvable);
             }
-            if !garde.decider(route.action, ressource, &entites, &contexte) {
+            if !garde.decider_route(ressource, &entites, &contexte) {
                 return Err(ErreurApi::Interdit);
             }
         }
@@ -363,11 +461,21 @@ async fn traiter_requete(
     garde.decidee = Some(ressource_chemin);
 
     // 4. Cas d'usage, dans la transaction.
-    let reponse = executer(route.cas_usage, &mut tx, &garde).await?;
+    let requete = Requete {
+        parametres: parts.uri.query(),
+        corps: &corps,
+        lecture_audit: &etat.pool_lecture_audit,
+    };
+    let resultat = executer(route.cas_usage, &mut tx, &garde, &requete).await?;
 
-    // 5. Audit (PR 7) : l'entrée d'audit d'une action métier s'insère ici, dans `tx`.
+    // 5. Audit, dans la même transaction : un échec annule l'action. Une mutation sans trace
+    // est une erreur du cas d'usage.
+    if est_mutation(&route.methode.methode()) && resultat.traces.is_empty() {
+        return Err(ErreurApi::Interne(CategorieErreur::Audit));
+    }
+    inscrire_traces(&mut tx, &garde, resultat.traces).await?;
     tx.confirmer().await?;
-    Ok(reponse)
+    Ok(resultat.reponse)
 }
 
 /// Lit le principal et le cabinet du chemin. Non-membre, ou membre suspendu (ADR 0014) : 404,
@@ -376,10 +484,10 @@ async fn etablir(
     etat: &Etat,
     route: &'static Route,
     tx: &mut TransactionTenant,
-    id_utilisateur: IdUtilisateur,
+    identite: &super::Identite,
     utilisateur: authz::IdUtilisateur,
-    derniere_verification: OffsetDateTime,
 ) -> Result<Garde, ErreurApi> {
+    let id_utilisateur = identite.utilisateur;
     let Some(Appartenance {
         id,
         cabinet,
@@ -413,9 +521,12 @@ async fn etablir(
             id: id_cabinet,
             separation_des_taches: cabinet_lu.separation_taches,
         },
-        session: Session::depuis(derniere_verification, OffsetDateTime::now_utc()),
+        session: Session::depuis(identite.derniere_verification, OffsetDateTime::now_utc()),
         action: route.action,
         decidee: None,
+        utilisateur: id_utilisateur,
+        id_session: identite.session,
+        verdict: None,
     })
 }
 
@@ -427,18 +538,21 @@ mod tests {
     struct RefuseUn(authz::IdDossier);
 
     impl Decideur for RefuseUn {
-        fn decider(
+        fn verdict(
             &self,
             _: &authz::Appartenance,
             _: Action,
             ressource: Ressource,
             _: &Entites,
             _: &Contexte,
-        ) -> Decision {
-            if ressource == Ressource::Dossier(self.0) {
-                Decision::Refuse
-            } else {
-                Decision::Autorise
+        ) -> Verdict {
+            Verdict {
+                decision: if ressource == Ressource::Dossier(self.0) {
+                    Decision::Refuse
+                } else {
+                    Decision::Autorise
+                },
+                politiques: Vec::new(),
             }
         }
     }
@@ -461,6 +575,9 @@ mod tests {
             session: Session::depuis(OffsetDateTime::UNIX_EPOCH, OffsetDateTime::UNIX_EPOCH),
             action: Action::AccederDossier,
             decidee,
+            utilisateur: IdUtilisateur::nouveau(),
+            id_session: IdSession::nouveau(),
+            verdict: None,
         }
     }
 

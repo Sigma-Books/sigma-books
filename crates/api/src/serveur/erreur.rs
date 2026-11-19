@@ -51,6 +51,8 @@ pub enum CategorieErreur {
     Panique,
     /// Erreur d'une couche (`axum`, `tower-http`) remplacée par le corps uniforme.
     Couche,
+    /// Inscription au journal d'audit impossible, ou mutation sans trace : l'action est annulée.
+    Audit,
 }
 
 impl CategorieErreur {
@@ -63,6 +65,7 @@ impl CategorieErreur {
             Self::Authentification => "authentification",
             Self::Panique => "panique",
             Self::Couche => "couche",
+            Self::Audit => "audit",
         }
     }
 }
@@ -102,10 +105,13 @@ impl ErreurApi {
 }
 
 impl From<crate::base::ErreurBase> for ErreurApi {
-    fn from(_: crate::base::ErreurBase) -> Self {
+    fn from(erreur: crate::base::ErreurBase) -> Self {
         // Le détail (message de PostgreSQL) est volontairement abandonné : il peut citer des
         // valeurs (F2.11). La catégorie suffit au diagnostic, avec l'identifiant de requête.
-        Self::Interne(CategorieErreur::Base)
+        match erreur {
+            crate::base::ErreurBase::Audit(_) => Self::Interne(CategorieErreur::Audit),
+            _ => Self::Interne(CategorieErreur::Base),
+        }
     }
 }
 

@@ -26,6 +26,7 @@
 //! - Le nombre de connexions simultanées n'est pas borné ici : cette limite revient au
 //!   mandataire inverse (Fondations §3.3, L9), comme la terminaison TLS.
 
+pub mod audit;
 pub mod authentification;
 pub mod config;
 pub mod csrf;
@@ -124,6 +125,8 @@ impl Reglages {
 /// État partagé du serveur.
 pub struct Application {
     pool: PgPool,
+    /// Pool du rôle de lecture d'audit (ADR 0014), distinct.
+    pool_lecture_audit: PgPool,
     decideur: Arc<dyn Decideur>,
     authentification: Arc<dyn Authentification>,
     reglages: Reglages,
@@ -135,17 +138,19 @@ pub struct Application {
 pub type Etat = Arc<Application>;
 
 impl Application {
-    /// Assemble l'application. Le binaire passe le pool du rôle applicatif, [`authz::Autorisation`]
-    /// et [`RefusTotal`] (jusqu'aux sessions, PR 8).
+    /// Assemble l'application. Le binaire passe le pool du rôle applicatif, celui du rôle de
+    /// lecture d'audit, [`authz::Autorisation`] et [`RefusTotal`] (jusqu'aux sessions, PR 8).
     #[must_use]
     pub fn new(
         pool: PgPool,
+        pool_lecture_audit: PgPool,
         decideur: Arc<dyn Decideur>,
         authentification: Arc<dyn Authentification>,
         reglages: Reglages,
     ) -> Etat {
         Arc::new(Self {
             pool,
+            pool_lecture_audit,
             decideur,
             authentification,
             limiteur_adresse: LimiteurDebit::new(reglages.debit_adresse),
@@ -340,6 +345,7 @@ mod tests {
             .connect_lazy("postgres://sigma_inexistant@127.0.0.1:1/sigma_inexistante")
             .unwrap();
         let etat = Application::new(
+            pool.clone(),
             pool,
             Arc::new(authz::Autorisation::charger().unwrap()),
             Arc::new(RefusTotal),

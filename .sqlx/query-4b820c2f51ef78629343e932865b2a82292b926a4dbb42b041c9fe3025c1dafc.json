@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rang, contenu, empreinte FROM audit_cabinet WHERE cabinet_id = $1 AND rang > $2 ORDER BY rang LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "audit_cabinet",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "contenu",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "audit_cabinet",
+            "name": "contenu"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "audit_cabinet",
+            "name": "empreinte"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4b820c2f51ef78629343e932865b2a82292b926a4dbb42b041c9fe3025c1dafc"
+}
