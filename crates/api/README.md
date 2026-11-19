@@ -21,8 +21,8 @@ une migration : un rôle se crée au niveau du cluster et le rôle de migration 
 | Fichier | Contenu |
 |---|---|
 | `sql/approvisionnement.sql` | Rôles, base, droits de connexion. Mots de passe lus dans l'environnement (`\getenv`), aucun dans le dépôt. |
-| `migrations/` | Migrations `sqlx` : tables, RLS, politiques, `GRANT`. |
-| `catalogue.toml` | Listes justifiées lues par le test de catalogue : tables d'instance, tables de dossier sans dossier en contexte, tables en ajout seul, fonctions `SECURITY DEFINER`. |
+| `migrations/` | Migrations `sqlx` : tables, RLS, politiques, `GRANT`. Numéros par plage de voie (« Migrations » ci-dessous). |
+| `catalogue/<module>.toml` | Listes justifiées lues par le test de catalogue, un fichier par module (`socle`, `organisation`, `audit`, `sessions`) : tables d'instance, tables de dossier sans dossier en contexte, lecture de ses cabinets, tables en ajout seul, fonctions `SECURITY DEFINER`. Une table n'est déclarée qu'une fois, tous fichiers confondus. |
 | `../../scripts/preparer-base.sh` | Approvisionnement puis migrations (développement et CI). |
 | `../../.sqlx/` | Métadonnées des requêtes `query!`, versionnées : la compilation se passe de base. |
 
@@ -59,6 +59,32 @@ cargo install sqlx-cli --locked --version 0.9.1 --no-default-features --features
 Sans base, la compilation lit `.sqlx/` (`SQLX_OFFLINE=true` force ce mode quand `DATABASE_URL`
 est définie).
 
+## Migrations
+
+Chaque voie de travail numérote ses migrations dans sa **plage réservée** : deux voies ne
+prennent jamais le même numéro.
+
+| Plage | Voie |
+|---|---|
+| `0001` à `0099` | Socle déjà fusionné (organisation, identifiants, audit, sessions) |
+| `0100` à `0199` | Authentification (PR 8b, 8c, 9) |
+| `0200` à `0299` | Comptabilité (PR 11, 13, 14) |
+| `0300` à `0399` | Pièces (PR 12) |
+| `0400` à `0499` | Intégrité et horodatage (PR 15) |
+
+`sqlx migrate` accepte des versions non contiguës et les applique dans l'ordre croissant sur une
+base neuve (vérifié avec `sqlx-cli` 0.9.1). Limites :
+- sur une base **existante**, une migration de numéro inférieur à la plus haute déjà appliquée
+  (par exemple `0105` arrivée après `0200`) est appliquée **après**, sans erreur : l'ordre réel
+  diffère alors de celui d'une base neuve. Les migrations de deux plages doivent donc être
+  **indépendantes** (aucune ne dépend d'une table ou d'une colonne de l'autre plage) ; une
+  dépendance entre voies passe par la fusion de la voie dont on dépend, puis une migration de
+  numéro supérieur ;
+- une migration appliquée puis retirée des sources (branche abandonnée sur une base de
+  développement) fait échouer `sqlx migrate run` (« previously applied but is missing ») :
+  recréer la base de développement ;
+- une migration fusionnée ne se modifie jamais (somme de contrôle vérifiée par `sqlx`).
+
 ## Tests
 
 - `cargo test --all` : sans base, les tests de PostgreSQL ne sont pas compilés.
@@ -84,7 +110,8 @@ de test.
    minimal au rôle applicatif, et des politiques `USING` et `WITH CHECK` de la forme exacte :
    `cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid`, plus, pour une table
    de dossier, `AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid`.
-2. Exceptions, chacune justifiée dans `catalogue.toml` : table d'instance (sans cabinet, avec ou
+2. Exceptions, chacune justifiée dans le fichier du module, `catalogue/<module>.toml` (créé au
+   besoin) : table d'instance (sans cabinet, avec ou
    sans RLS), table de dossier visible sans dossier en contexte, table en ajout seul (ni `UPDATE`
    ni `DELETE`), fonction `SECURITY DEFINER`. Toute fonction retire `EXECUTE` à `PUBLIC` ; aucun
    `ALTER DEFAULT PRIVILEGES`.
@@ -97,22 +124,43 @@ set -a; . ./.env; set +a
 cargo run -p api
 ```
 
-Variables : `SIGMA_ADRESSE_ECOUTE`, `SIGMA_URL_BASE_APPLICATION` (rôle **applicatif**),
-`SIGMA_URL_BASE_LECTURE_AUDIT` (rôle de **lecture d'audit**, pool distinct), `SIGMA_ORIGINE`, et facultativement `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT`,
-`SIGMA_AUTORITES_HORODATAGE`, `SIGMA_CONSERVATION_SESSIONS_JOURS` (`src/serveur/config.rs`). Aucune
-connexion par facteur n'existe encore (PR 8b et 8c) : sans session ouverte, toute route de l'API
-répond 401.
+Aucune connexion par facteur n'existe encore (PR 8b et 8c) : sans session ouverte, toute route
+de l'API répond 401.
+
+### Variables d'environnement
+
+Chaque module lit ses variables et les documente dans une table de sa documentation ;
+`serveur::config::Configuration` les compose (`src/serveur/config.rs`). Index :
+
+| Variable | Obligatoire | Module (documentation) |
+|---|---|---|
+| `SIGMA_ADRESSE_ECOUTE` | oui | serveur (`src/serveur/config.rs`) |
+| `SIGMA_ORIGINE` | oui | serveur (`src/serveur/config.rs`) |
+| `SIGMA_REPERTOIRE_WEB` | non | serveur (`src/serveur/config.rs`) |
+| `SIGMA_EN_TETE_ADRESSE_CLIENT` | non | serveur (`src/serveur/config.rs`) |
+| `SIGMA_URL_BASE_APPLICATION` | oui | base, rôle **applicatif** (`src/base/config.rs`) |
+| `SIGMA_URL_BASE_LECTURE_AUDIT` | oui | base, rôle de **lecture d'audit**, pool distinct (`src/base/config.rs`) |
+| `SIGMA_AUTORITES_HORODATAGE` | non | horodatage (`src/horodatage/config.rs`) |
+| `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | sessions (`src/serveur/session.rs`) |
+
+Un module qui ajoute des variables crée sa structure et sa lecture, documente leur table dans
+son module, ajoute une ligne à cet index et branche sa lecture dans `Configuration`, à
+l'emplacement réservé à sa voie.
 
 Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/pipeline.rs`.
 
 ### Nouvelle route
 
-1. Une entrée dans `ROUTES` (`src/serveur/routes.rs`) : méthode, chemin avec `{cabinet}` (et
-   `{dossier}`), action Cedar, portée, cas d'usage. Aucune route hors de cette table. Une route
+1. Une entrée dans la tranche de son module (`src/serveur/routes/<module>.rs`, constante
+   `ROUTES`) : méthode, chemin avec `{cabinet}` (et `{dossier}`), action Cedar, portée, cas
+   d'usage du module (variante de son énumération `Cas`). La table `routes::ROUTES` est
+   l'assemblage des tranches de `routes::MODULES` : aucune route hors d'une tranche. Une route
    hors cabinet (portée `Utilisateur` ou `Session`) ne porte que sur l'utilisateur authentifié.
-2. Ses cas dans `attentes`, ou `cas_hors_cabinet` pour une route hors cabinet
-   (`tests/isolation.rs`) : sans eux, le test « chaque route » échoue.
-   Une route déclarée hors de la table fait échouer `tests/structure.rs`.
+   Le module exécute ses cas d'usage ; son bras de `routes::executer` (cabinet) ou de
+   `serveur::moi::executer` (hors cabinet) l'appelle.
+2. Ses cas dans le fichier de cas de son module (`tests/isolation/<module>.rs`) : attentes pour
+   une route d'un cabinet, scénario pour une route hors cabinet ; sans eux, le test « chaque
+   route » échoue. Une route déclarée hors de la table fait échouer `tests/structure.rs`.
 3. Une mutation (`POST`) rend ses traces d'audit (`serveur::audit::Trace`) : le pipeline les
    inscrit au journal d'audit chaîné dans la transaction de l'action, et refuse une mutation
    sans trace (ADR 0014).
@@ -120,7 +168,8 @@ Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/p
 ## Sessions
 
 ADR 0012 ; code : `src/serveur/session.rs` (jeton, cookie, anti-CSRF, authentification),
-`src/serveur/moi.rs` (routes), `src/base/session.rs` (table `session`, migration
+`src/serveur/routes/session.rs` et `src/serveur/routes/moi.rs` (routes), `src/serveur/moi.rs`
+(cas d'usage hors cabinet), `src/base/session.rs` (table `session`, migration
 `0004_sessions.sql`).
 
 - **Jeton** de 256 bits (`getrandom`), en base64url dans le cookie
@@ -190,3 +239,30 @@ de la tête du même instantané : une action concurrente ne produit pas de faus
   sera à reprendre si les chaînes grossissent ;
 - l'alerte à l'administrateur lors d'un export (spec §21, ADR 0014) n'est pas encore émise :
   elle arrive avec la file de tâches et les courriels (PR 9).
+
+## Travailler en voies parallèles
+
+Trois voies avancent en parallèle sur le lot L2 : **authentification** (PR 8b, 8c, 9),
+**comptabilité** (PR 11 à 15 : référentiel, pièces, brouillard, éditions, intégrité) et
+**interface** (PR 16 à 18, `web/`). Règle : **une voie n'édite que ses modules**. Les registres
+communs (liste des modules de routes, cas d'usage, fichiers de cas d'isolation) sont déjà
+remplis pour tous les modules prévus ; les points d'insertion communs qui restent ont un
+emplacement par voie, séparé des autres par un commentaire.
+
+| Voie | Fichiers qui lui appartiennent |
+|---|---|
+| Authentification | `src/serveur/routes/{facteurs,passkeys,administration}.rs`, `tests/isolation/{facteurs,passkeys,administration}.rs`, `catalogue/<module>.toml` de ses tables, migrations `0100` à `0199`, `crates/authz/politiques/schema/utilisateur.cedarschema` et `utilisateur.cedar`, section « utilisateur » de `crates/authz/src/action.rs` |
+| Comptabilité | `src/serveur/routes/{referentiel,brouillard,editions}.rs` et leurs fichiers de cas, migrations `0200` à `0299` ; pièces (`pieces`) : `0300` à `0399` ; intégrité (`integrite`) : `0400` à `0499` ; `crates/authz/politiques/schema/{dossier,ecritures}.cedarschema`, `roles/{dossier,ecritures}.cedar`, sections correspondantes de `action.rs` |
+| Interface | `web/` |
+
+Points d'insertion communs, une ligne ou un bloc par voie : bras de `routes::executer` et de
+`serveur::moi::executer` (remplacer `match cas {}` par l'appel au module), emplacement de la voie
+dans `serveur::config::Configuration`, index des variables ci-dessus, `corps_de` de
+`tests/commun/serveur.rs` (corps d'exemple d'une mutation). Les champs de journal d'un module se
+déclarent dans sa tranche (`Module::champs_journal`), ceux d'un module hors routes à côté de
+`horodatage::CHAMPS_JOURNAL`. `crates/authz/politiques/invariants.cedar` reste d'un seul tenant :
+une modification y est revue par toutes les voies.
+
+`Cargo.lock` se **régénère**, il ne se fusionne pas à la main : en cas de conflit, reprendre la
+version de `main` puis relancer `cargo build` (ou `cargo update -p <crate>` pour la seule
+dépendance ajoutée). De même, `.sqlx/` se régénère par `cargo sqlx prepare --workspace`.
