@@ -73,6 +73,9 @@ namespace Sigma {
   // Actions sur le cabinet
   // ---------------------------------------------------------------------
 
+  // Voir le cabinet : liste des cabinets de l'utilisateur, avant le choix
+  // du cabinet actif (ADR 0012). Une appartenance suspendue n'y figure pas.
+  action AccederCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
   // §20 « Gérer cabinet, utilisateurs, facturation » : paramètres du cabinet,
   // liste des utilisateurs, sessions actives (spec §21).
   action GererCabinet appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };

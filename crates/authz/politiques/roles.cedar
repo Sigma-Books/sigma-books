@@ -11,6 +11,20 @@
 // apprises, TVA, travaux de fin d'exercice, facturation, demandes) sont
 // déclarées dans le schéma sans politique : refusées jusqu'à leur lot.
 
+// Voir le cabinet (choix du cabinet actif, ADR 0012) : tout rôle du cabinet
+// (§20 : chacun y a au moins une action). L'appartenance doit être active
+// (`invariant-appartenance-active`) ; le client n'a aucune autorisation en L2.
+@id("adr0012-acceder-cabinet")
+permit (principal, action == Sigma::Action::"AccederCabinet", resource)
+when {
+  [
+    Sigma::Role::"administrateur",
+    Sigma::Role::"valideur",
+    Sigma::Role::"collaborateur",
+    Sigma::Role::"auditeur"
+  ].contains(principal.role)
+};
+
 // §20 « Gérer cabinet, utilisateurs, facturation » : administrateur seul.
 // Comprend les changements de droits et la séparation des tâches (Q5.3 :
 // « désactivable par l'administrateur »).

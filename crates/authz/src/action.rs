@@ -60,6 +60,9 @@ macro_rules! actions {
 }
 
 actions! {
+    /// Voir le cabinet : le choisir comme cabinet actif parmi les siens
+    /// (`GET /api/moi/cabinets`, ADR 0012), tout rôle du cabinet.
+    AccederCabinet => Cabinet,
     /// Paramètres du cabinet, utilisateurs, sessions (§20, administrateur).
     GererCabinet => Cabinet,
     /// Changements de droits : invitation, rôle, suspension, affectation,
