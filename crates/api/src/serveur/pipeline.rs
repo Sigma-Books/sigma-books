@@ -1,12 +1,16 @@
 //! Pipeline d'une requête de l'API (`crates/api/CLAUDE.md` ; ADR 0011 ; L2, « Ordre de
 //! traitement d'une requête ») :
 //!
+//! 0. **connexion** (portée [`Portee::Anonyme`]) : aucune session ; le module
+//!    [`super::facteurs`] décide `SeConnecter` (principal anonyme), limite le débit par adresse
+//!    et par courriel, vérifie le facteur, puis décide l'ouverture de la session ;
 //! 1. **authentification** ([`super::Authentification`]) : 401 sans identité, ou pour une
 //!    session restreinte ou d'enrôlement hors des routes de la session elle-même (ADR 0012) ;
 //!    pour une mutation, 403 si l'en-tête anti-CSRF n'est pas le jeton lié à la session ; puis
 //!    limitation de débit par utilisateur (429). L'activité de la session n'est notée qu'à la
 //!    fin d'une requête admise ([`super::Authentification::noter_activite`]). Les routes hors cabinet (portées
-//!    [`Portee::Utilisateur`] et [`Portee::Session`]) passent ensuite au module [`super::moi`] ;
+//!    [`Portee::Utilisateur`], [`Portee::Session`] et [`Portee::Facteurs`]) passent ensuite au
+//!    module [`super::moi`], ou [`super::facteurs`] pour les facteurs ;
 //! 2. **contexte** : cabinet et dossier sont lus **dans le chemin** (UUID, 400 sinon), jamais dans
 //!    une session ni un corps (F1.14). La transaction s'ouvre aussitôt avec ce contexte
 //!    ([`ouvrir_transaction`]) : la RLS borne ainsi dès la première lecture tout ce que le
@@ -37,8 +41,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use authz::{
-    Action, ActionUtilisateur, Autorisation, Contexte, Decision, Entites, Ressource,
-    RessourceUtilisateur, Role, Session, Verdict,
+    Action, ActionFacteur, ActionUtilisateur, Autorisation, Contexte, ContexteFacteur, Decision,
+    Entites, Ressource, RessourceUtilisateur, Role, Session, Verdict,
 };
 use axum::extract::{FromRequestParts, RawPathParams, Request};
 use axum::response::{IntoResponse, Response};
@@ -83,6 +87,20 @@ pub trait Decideur: Send + Sync + 'static {
         ressource: RessourceUtilisateur,
     ) -> Verdict;
 
+    /// Décide la demande de connexion d'un demandeur sans session (`SeConnecter`, principal
+    /// anonyme : [`Autorisation::verdict_connexion`]).
+    fn verdict_connexion(&self) -> Verdict;
+
+    /// Décide si l'utilisateur `principal` peut effectuer `action` sur les facteurs de
+    /// `ressource` (lui-même), dans le contexte de sa session ([`Autorisation::verdict_facteur`]).
+    fn verdict_facteur(
+        &self,
+        principal: authz::IdUtilisateur,
+        action: ActionFacteur,
+        ressource: authz::IdUtilisateur,
+        contexte: ContexteFacteur,
+    ) -> Verdict;
+
     /// La décision seule.
     fn decider(
         &self,
@@ -116,6 +134,20 @@ impl Decideur for Autorisation {
         ressource: RessourceUtilisateur,
     ) -> Verdict {
         Autorisation::verdict_utilisateur(self, principal, action, ressource)
+    }
+
+    fn verdict_connexion(&self) -> Verdict {
+        Autorisation::verdict_connexion(self)
+    }
+
+    fn verdict_facteur(
+        &self,
+        principal: authz::IdUtilisateur,
+        action: ActionFacteur,
+        ressource: authz::IdUtilisateur,
+        contexte: ContexteFacteur,
+    ) -> Verdict {
+        Autorisation::verdict_facteur(self, principal, action, ressource, contexte)
     }
 }
 
@@ -196,7 +228,7 @@ fn ressource_chemin(
         (Portee::Dossier, Some(dossier)) => Ok(RessourceChemin::Dossier(dossier)),
         (Portee::Cabinet | Portee::DossiersDuCabinet, Some(_))
         | (Portee::Dossier, None)
-        | (Portee::Utilisateur | Portee::Session, _) => {
+        | (Portee::Utilisateur | Portee::Session | Portee::Facteurs | Portee::Anonyme, _) => {
             Err(ErreurApi::Interne(CategorieErreur::Donnee))
         }
     }
@@ -421,6 +453,14 @@ async fn traiter_requete(
 ) -> Result<Response, ErreurApi> {
     let (mut parts, corps) = requete.into_parts();
 
+    // 0. Connexion : sans session, décidée et limitée par le module des facteurs.
+    if route.portee == Portee::Anonyme {
+        let corps = axum::body::to_bytes(corps, etat.reglages.taille_corps_max)
+            .await
+            .map_err(|_| ErreurApi::CorpsTropGrand)?;
+        return super::facteurs::connecter(etat, route, &parts, &corps).await;
+    }
+
     // 1. Authentification, puis débit par utilisateur.
     let identite = etat
         .authentification
@@ -445,9 +485,13 @@ async fn traiter_requete(
         .await
         .map_err(|_| ErreurApi::CorpsTropGrand)?;
 
-    // Hors cabinet : session courante et ressources propres de l'utilisateur.
+    // Hors cabinet : session courante, ressources propres de l'utilisateur, ses facteurs.
     if !route.portee.du_cabinet() {
-        let reponse = super::moi::executer(etat, route, &mut parts, &identite).await?;
+        let reponse = if matches!(route.cas_usage, super::routes::CasUsage::Facteurs(_)) {
+            super::facteurs::executer(etat, route, &parts, &identite, &corps).await?
+        } else {
+            super::moi::executer(etat, route, &mut parts, &identite).await?
+        };
         etat.authentification.noter_activite(&identite).await;
         return Ok(reponse);
     }
@@ -458,7 +502,12 @@ async fn traiter_requete(
         .map_err(|_| ErreurApi::RequeteInvalide)?;
     let cabinet = IdCabinet::depuis_uuid(id_chemin(&parametres, "cabinet")?);
     let dossier = match route.portee {
-        Portee::Cabinet | Portee::DossiersDuCabinet | Portee::Utilisateur | Portee::Session => None,
+        Portee::Cabinet
+        | Portee::DossiersDuCabinet
+        | Portee::Utilisateur
+        | Portee::Session
+        | Portee::Facteurs
+        | Portee::Anonyme => None,
         Portee::Dossier => Some(IdDossier::depuis_uuid(id_chemin(&parametres, "dossier")?)),
     };
     let ressource_chemin = ressource_chemin(route.portee, dossier)?;
@@ -617,6 +666,26 @@ mod tests {
             _: authz::IdUtilisateur,
             _: ActionUtilisateur,
             _: RessourceUtilisateur,
+        ) -> Verdict {
+            Verdict {
+                decision: Decision::Refuse,
+                politiques: Vec::new(),
+            }
+        }
+
+        fn verdict_connexion(&self) -> Verdict {
+            Verdict {
+                decision: Decision::Refuse,
+                politiques: Vec::new(),
+            }
+        }
+
+        fn verdict_facteur(
+            &self,
+            _: authz::IdUtilisateur,
+            _: ActionFacteur,
+            _: authz::IdUtilisateur,
+            _: ContexteFacteur,
         ) -> Verdict {
             Verdict {
                 decision: Decision::Refuse,

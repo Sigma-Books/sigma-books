@@ -33,6 +33,7 @@ pub mod config;
 pub mod csrf;
 pub mod entetes;
 pub mod erreur;
+pub mod facteurs;
 pub mod journal;
 pub mod limites;
 mod moi;
@@ -100,6 +101,9 @@ pub struct Reglages {
     pub nombre_en_tetes_max: usize,
     /// Durées des sessions (ADR 0012) et conservation des sessions closes.
     pub sessions: DureesSession,
+    /// Méthode de secours (PR 8b) : clé de l'instance, débits des connexions et des
+    /// vérifications, hachages simultanés ([`facteurs::configurer`]).
+    pub facteurs: facteurs::ReglagesFacteurs,
 }
 
 impl Reglages {
@@ -126,6 +130,7 @@ impl Reglages {
             taille_en_tetes_max: 16 * 1024,
             nombre_en_tetes_max: 64,
             sessions: DureesSession::default(),
+            facteurs: facteurs::ReglagesFacteurs::default(),
         }
     }
 }
@@ -141,6 +146,8 @@ pub struct Application {
     reglages: Reglages,
     limiteur_adresse: LimiteurDebit<CleAdresse>,
     limiteur_utilisateur: LimiteurDebit<IdUtilisateur>,
+    /// Voie authentification : état de la méthode de secours (débits, hachages).
+    facteurs: facteurs::EtatFacteurs,
 }
 
 /// État partagé, tel que le reçoivent les intergiciels et le pipeline.
@@ -187,6 +194,7 @@ impl Application {
             horloge,
             limiteur_adresse: LimiteurDebit::new(reglages.debit_adresse),
             limiteur_utilisateur: LimiteurDebit::new(reglages.debit_utilisateur),
+            facteurs: facteurs::EtatFacteurs::new(&reglages.facteurs),
             reglages,
         })
     }

@@ -22,7 +22,7 @@ une migration : un rôle se crée au niveau du cluster et le rôle de migration 
 |---|---|
 | `sql/approvisionnement.sql` | Rôles, base, droits de connexion. Mots de passe lus dans l'environnement (`\getenv`), aucun dans le dépôt. |
 | `migrations/` | Migrations `sqlx` : tables, RLS, politiques, `GRANT`. Numéros par plage de voie (« Migrations » ci-dessous). |
-| `catalogue/<module>.toml` | Listes justifiées lues par le test de catalogue, un fichier par module (`socle`, `organisation`, `audit`, `sessions`) : tables d'instance, tables de dossier sans dossier en contexte, lecture de ses cabinets, tables en ajout seul, fonctions `SECURITY DEFINER`. Une table n'est déclarée qu'une fois, tous fichiers confondus. |
+| `catalogue/<module>.toml` | Listes justifiées lues par le test de catalogue, un fichier par module (`socle`, `organisation`, `audit`, `sessions`, `facteurs`) : tables d'instance, tables de dossier sans dossier en contexte, lecture de ses cabinets, tables en ajout seul, fonctions `SECURITY DEFINER`. Une table n'est déclarée qu'une fois, tous fichiers confondus ; seule la liste `ajout_seul` se combine avec une autre (journal d'instance en ajout seul, ADR 0017). |
 | `../../scripts/preparer-base.sh` | Approvisionnement puis migrations (développement et CI). |
 | `../../.sqlx/` | Métadonnées des requêtes `query!`, versionnées : la compilation se passe de base. |
 
@@ -124,8 +124,9 @@ set -a; . ./.env; set +a
 cargo run -p api
 ```
 
-Aucune connexion par facteur n'existe encore (PR 8b et 8c) : sans session ouverte, toute route
-de l'API répond 401.
+Connexion par la méthode de secours (mot de passe et TOTP) ou par un code de récupération
+(« Méthode de secours » ci-dessous) ; les passkeys arrivent avec la PR 8c. Sans session ouverte,
+toute autre route de l'API répond 401.
 
 ### Variables d'environnement
 
@@ -142,6 +143,7 @@ Chaque module lit ses variables et les documente dans une table de sa documentat
 | `SIGMA_URL_BASE_LECTURE_AUDIT` | oui | base, rôle de **lecture d'audit**, pool distinct (`src/base/config.rs`) |
 | `SIGMA_AUTORITES_HORODATAGE` | non | horodatage (`src/horodatage/config.rs`) |
 | `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | sessions (`src/serveur/session.rs`) |
+| `SIGMA_FICHIER_CLE_INSTANCE` | oui | facteurs : fichier de la clé de l'instance (`src/serveur/facteurs.rs`) |
 
 Un module qui ajoute des variables crée sa structure et sa lecture, documente leur table dans
 son module, ajoute une ligne à cet index et branche sa lecture dans `Configuration`, à
@@ -188,8 +190,9 @@ ADR 0012 ; code : `src/serveur/session.rs` (jeton, cookie, anti-CSRF, authentifi
   par `GET /api/session` et par la rotation, exigé dans `x-sigma-csrf` sur toute mutation
   authentifiée (403 sinon), comparé en temps constant (`ctutils`), en plus des contrôles
   `Sec-Fetch-Site` et `Origin`.
-- **Ouverture** : fonction interne `serveur::session::ouvrir_session`, que les connexions des
-  PR 8b et 8c appelleront ; elle purge les sessions closes **du même utilisateur** depuis plus de
+- **Ouverture** : par une connexion (PR 8b : `serveur::session::ouvrir_session_dans`, dans la
+  transaction de la connexion ; PR 8c : passkeys) ; elle purge les sessions closes **du même
+  utilisateur** depuis plus de
   `SIGMA_CONSERVATION_SESSIONS_JOURS` jours (30 par défaut, à confirmer : adresse IP conservée,
   loi 2008-12).
 
@@ -216,9 +219,90 @@ de la session authentifiée et pour ressource la session lue en base sous RLS, a
 requête la bornent aussi : la session d'un autre est absente (404), même si Cedar se trompait.
 La gestion des sessions d'un membre par l'administrateur (PR 9) sera une action de cabinet.
 
-**Audit.** Ces actions ne touchent aucun cabinet ; leur traçabilité (événements hors cabinet)
-attend une décision du mainteneur. Les points d'insertion sont marqués dans `src/serveur/moi.rs`
-et `src/serveur/session.rs`.
+**Audit.** Ces actions ne touchent aucun cabinet. La déconnexion et la révocation d'une session
+sont inscrites au journal d'instance des événements d'authentification (ADR 0017, « Méthode de
+secours » ci-dessous) ; la rotation, sans effet sur l'accès, ne l'est pas.
+
+## Méthode de secours
+
+ADR 0012 et 0017 ; PR 8b (issue #170). Code : `src/facteurs/` (cryptographie, sans base ni
+HTTP), `src/base/facteurs.rs` et `src/base/evenement.rs` (tables), `src/serveur/facteurs.rs`
+(cas d'usage), `src/serveur/routes/facteurs.rs` (routes) ; migration `0100_secours.sql`,
+catalogue `catalogue/facteurs.toml`.
+
+- **Mot de passe** : 12 caractères au moins, 128 au plus, aucune règle de composition ; refusé
+  s'il figure dans la liste embarquée des mots de passe compromis (`donnees/`, tirée de SecLists
+  par `scripts/generer-mots-de-passe-compromis.py`, attribution `docs/provenance/seclists.md`).
+  Argon2id, 19 Mio, 2 passes ; re-haché à la connexion si les paramètres changent. Le hachage
+  s'exécute hors de la boucle asynchrone, au plus 4 à la fois, et hors de toute transaction.
+- **TOTP** : RFC 6238, 6 chiffres, pas de 30 s, tolérance d'un pas. **Anti-rejeu** : le dernier
+  pas accepté est en base ; un pas n'est admis que par une mise à jour conditionnelle
+  (`totp_dernier_pas < $pas`, mot de passe inchangé) : de deux connexions concurrentes avec le
+  même code, une seule passe.
+- **Clé de l'instance** (`SIGMA_FICHIER_CLE_INSTANCE`) : fichier de 32 octets en base64, droits
+  0600 (ou 0400), refusé sinon ; sans clé, le serveur refuse de démarrer. Sous-clés HKDF-SHA256
+  (TOTP, jeton d'enrôlement, débit par courriel). Secret TOTP chiffré en AES-256-GCM, utilisateur
+  et identifiant de clé en données associées. Après un changement de clé, le TOTP est à
+  réenrôler (`GET /api/moi/facteurs` : `utilisable` à faux). Créer une clé :
+  `umask 077 && head -c 32 /dev/urandom | base64 > <fichier>`.
+- **Enrôlement** en deux temps, sans état entre eux : la préparation rend le secret (et l'URI
+  `otpauth`) et un jeton d'enrôlement qui le scelle, lié à l'utilisateur, à la session et à une
+  échéance de 10 minutes ; la confirmation exige ce jeton, le mot de passe et un code. Elle
+  remplace le secours, tire dix nouveaux codes de récupération (l'ancienne série est annulée) et
+  révoque les autres sessions de l'utilisateur (changement de facteur, ADR 0012).
+- **Codes de récupération** : 120 bits, base32 de Crockford, hachés (SHA-256), à usage unique
+  (`utilise_le IS NULL`, atomique). Un code n'ouvre qu'une **session restreinte** : sa propre
+  session et l'enrôlement du secours, rien d'autre (F1.12 ; passkeys en PR 8c).
+- **Connexion sans contexte** : la transaction de connexion ne pose **jamais**
+  `sigma.utilisateur`, mais `sigma.courriel_connexion` (politiques `*_connexion` de la migration
+  `0100`) : elle ne voit que la ligne `utilisateur` du courriel saisi, son secours et ses codes, et
+  ne peut qu'y consommer un pas ou un code et inscrire un événement. Type distinct
+  (`TransactionConnexion`) ; elle ne devient la transaction de l'utilisateur que sur
+  présentation d'un `FacteurVerifie`, fabriqué par la seule consommation d'un facteur. La
+  consommation, la session, l'événement et l'audit sont validés ensemble. Aucune fonction
+  `SECURITY DEFINER`.
+- **Anti-énumération** : courriel inconnu, compte sans secours, facteur faux ou rejoué : même
+  réponse (401) et durée comparable (Argon2id exécuté sur une chaîne factice). Rien n'est
+  inscrit pour un courriel inconnu.
+- **Débit** : par adresse (20 tentatives de connexion par quart d'heure), par courriel saisi
+  (10, que le compte existe ou non ; clé HMAC, le courriel n'est pas gardé en mémoire), par
+  utilisateur pour la ré-authentification et l'enrôlement (10). Pas de verrouillage du compte :
+  un tiers ne peut pas bloquer un utilisateur.
+- **Événements d'authentification** (ADR 0017) : table d'instance `evenement_authentification`,
+  en ajout seul, non chaînée, sous RLS par utilisateur ; connexion (réussie ou refusée),
+  ré-authentification, enrôlement, nouvelle série de codes, déconnexion, révocation. Ni mot de
+  passe, ni code, ni jeton, ni empreinte. La connexion par le secours ou par un code,
+  l'enrôlement et une nouvelle série de codes sont aussi inscrits dans l'audit chaîné de
+  **chaque cabinet** où l'appartenance est active (acteur : l'utilisateur, avec son rôle dans ce
+  cabinet).
+
+| Route | Portée | Cedar |
+|---|---|---|
+| `POST /api/connexion/secours` : courriel, mot de passe, code TOTP ; session complète | sans session | `SeConnecter` (principal Anonyme), puis `OuvrirSession` (Utilisateur) |
+| `POST /api/connexion/code-recuperation` : courriel, code ; session restreinte | sans session | `SeConnecter` (Anonyme), puis `OuvrirSession` (Utilisateur) |
+| `POST /api/session/reauthentification` : mot de passe, code ; session fraîche, jeton tourné | session complète | `SeReauthentifier` |
+| `GET /api/moi/facteurs` : secours (utilisable ou non), codes restants | session complète | `ConsulterSesFacteurs` |
+| `GET /api/moi/evenements` : ses 100 derniers événements | session complète | `ConsulterSesEvenements` |
+| `POST /api/moi/facteurs/secours/preparation` | session complète fraîche, ou restreinte | `EnrolerSecours` |
+| `POST /api/moi/facteurs/secours` : jeton, mot de passe, code ; dix codes rendus | session complète fraîche, ou restreinte | `EnrolerSecours` |
+| `POST /api/moi/facteurs/codes-recuperation` : nouvelle série | session complète fraîche | `RegenererCodesRecuperation` |
+
+**Cedar et la connexion.** Toute route passe par Cedar (règle absolue 7). La connexion n'a pas
+encore d'utilisateur authentifié : elle est décidée en deux temps (`crates/authz/src/facteurs.rs`,
+`politiques/facteurs.cedar`). D'abord `SeConnecter`, de principal `Anonyme` et de ressource
+`Instance` : action **publique et bornée**, qui ne rend rien par elle-même, dont la limitation de
+débit borne les essais, et qu'aucun autre type n'admet (contrôlé au chargement des politiques).
+Puis, le facteur vérifié et consommé, `OuvrirSession` avec le principal `Utilisateur` et, en
+contexte, la méthode vérifiée et la nature de la session : le secours n'ouvre qu'une session
+complète, le code de récupération qu'une session restreinte (invariant
+`invariant-recuperation-restreinte`). La nature est en outre fixée par le facteur dans le code :
+même une décision forcée à « autorisé » n'ouvre qu'une session restreinte avec un code (test
+`isolation/facteurs.rs`). Les autres routes ont pour principal l'utilisateur de la session,
+pour ressource lui-même, et pour contexte la session lue en base (nature, méthode, fraîcheur) ;
+la RLS et le filtre des requêtes bornent tout à cet utilisateur.
+
+**Hors de cette PR** : passkeys (PR 8c), réinitialisation par un administrateur et alertes par
+courriel (PR 9), purge des événements (durée à fixer, ADR 0017).
 
 ## Journal d'audit
 
@@ -251,7 +335,7 @@ emplacement par voie, séparé des autres par un commentaire.
 
 | Voie | Fichiers qui lui appartiennent |
 |---|---|
-| Authentification | `src/serveur/routes/{facteurs,passkeys,administration}.rs`, `tests/isolation/{facteurs,passkeys,administration}.rs`, `catalogue/<module>.toml` de ses tables, migrations `0100` à `0199`, `crates/authz/politiques/schema/utilisateur.cedarschema` et `utilisateur.cedar`, section « utilisateur » de `crates/authz/src/action.rs` |
+| Authentification | `src/serveur/routes/{facteurs,passkeys,administration}.rs`, `tests/isolation/{facteurs,passkeys,administration}.rs`, `catalogue/<module>.toml` de ses tables, migrations `0100` à `0199`, `crates/authz/politiques/schema/utilisateur.cedarschema` et `utilisateur.cedar`, section « utilisateur » de `crates/authz/src/action.rs` ; méthode de secours (PR 8b) : `src/facteurs/`, `src/serveur/facteurs.rs`, `src/base/{facteurs,evenement}.rs`, `catalogue/facteurs.toml`, `crates/authz/politiques/schema/facteurs.cedarschema`, `crates/authz/politiques/facteurs.cedar`, `crates/authz/src/facteurs.rs` |
 | Comptabilité | `src/serveur/routes/{referentiel,brouillard,editions}.rs` et leurs fichiers de cas, migrations `0200` à `0299` ; pièces (`pieces`) : `0300` à `0399` ; intégrité (`integrite`) : `0400` à `0499` ; `crates/authz/politiques/schema/{dossier,ecritures}.cedarschema`, `roles/{dossier,ecritures}.cedar`, sections correspondantes de `action.rs` |
 | Interface | `web/` |
 
