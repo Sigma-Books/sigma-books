@@ -9,7 +9,14 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+    # chrono déclaré non maintenu (informatif, aucune faille connue). Entraîné par cedar-policy
+    # 4.15 (ADR 0005) : cedar-policy-formatter active l'extension `datetime` de cedar-policy-core,
+    # que nos politiques n'utilisent pas. Seul cet identifiant est ignoré : toute faille de
+    # chrono bloquerait de nouveau. Décision du mainteneur du 2026-11-19 ; revue trimestrielle
+    # (prochaine : 2027-02-19) et à chaque montée de version de Cedar (#145).
+    { id = "RUSTSEC-2026-0543", reason = "chrono non maintenu, entraîné par cedar-policy sans usage ; revue au 2027-02-19 (#145)" },
+]
 
 # Licences : liste blanche, tout le reste est refusé
 # (notamment GPL-2.0-only, incompatible avec l'AGPL-3.0).

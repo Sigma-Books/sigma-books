@@ -19,5 +19,6 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0013 | Chiffrement : disques des serveurs obligatoire, chiffrement par cabinet facultatif | Acceptée |
 | 0014 | Journal d'audit chaîné | Acceptée |
 | 0015 | Pièces justificatives en L2 | Acceptée |
+| 0016 | Consultation de l'audit : la portée cabinet est réservée à l'administrateur (précise l'ADR 0014) | Acceptée |
 
 Modèle : copier `0000-modele.md`.
