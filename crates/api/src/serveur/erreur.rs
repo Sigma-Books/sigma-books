@@ -110,6 +110,7 @@ impl From<crate::base::ErreurBase> for ErreurApi {
         // valeurs (F2.11). La catégorie suffit au diagnostic, avec l'identifiant de requête.
         match erreur {
             crate::base::ErreurBase::Audit(_) => Self::Interne(CategorieErreur::Audit),
+            crate::base::ErreurBase::Donnee(_) => Self::Interne(CategorieErreur::Donnee),
             _ => Self::Interne(CategorieErreur::Base),
         }
     }

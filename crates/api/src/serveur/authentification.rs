@@ -1,12 +1,14 @@
 //! Authentification : première étape du pipeline (`crates/api/CLAUDE.md`).
 //!
 //! L'interface [`Authentification`] rend, à partir des en-têtes de la requête, l'utilisateur
-//! authentifié et l'instant de sa dernière vérification de facteur, d'où la fraîcheur de la
-//! session ([`authz::Session::depuis`], ADR 0012).
+//! authentifié, sa session (identifiant public, nature) et l'instant de sa dernière vérification
+//! de facteur, d'où la fraîcheur de la session ([`authz::Session::depuis`], ADR 0012), ainsi que
+//! le résultat de la comparaison du jeton anti-CSRF lié à la session.
 //!
-//! Jusqu'aux sessions (PR 8), le binaire n'a qu'une implémentation : [`RefusTotal`], qui refuse
-//! tout (401). Les tests fournissent la leur dans `crates/api/tests/` : elle n'est compilée que
-//! pour eux et le binaire ne peut pas la sélectionner (aucune configuration ne le permet).
+//! Le binaire n'a qu'une implémentation : [`super::session::AuthentificationSession`], lue dans
+//! PostgreSQL (cookie de session). Les tests fournissent en outre la leur dans
+//! `crates/api/tests/` : elle n'est compilée que pour eux et le binaire ne peut pas la
+//! sélectionner (aucune configuration ne le permet).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -14,6 +16,7 @@ use std::pin::Pin;
 use axum::http::request::Parts;
 use time::OffsetDateTime;
 
+pub use crate::base::session::NatureSession;
 use crate::base::{IdSession, IdUtilisateur};
 
 /// Un utilisateur authentifié.
@@ -27,6 +30,11 @@ pub struct Identite {
     pub session: IdSession,
     /// Instant de la dernière vérification de facteur (passkey, ou mot de passe et TOTP).
     pub derniere_verification: OffsetDateTime,
+    /// Nature de la session : seule une session complète ouvre les routes métier.
+    pub nature: NatureSession,
+    /// Vrai si l'en-tête anti-CSRF de la requête est le jeton lié à **cette** session (comparé
+    /// en temps constant). Le pipeline refuse une mutation sans lui (403).
+    pub csrf_lie: bool,
 }
 
 /// Échec de l'authentification elle-même (base indisponible…), distinct d'un refus.
@@ -38,18 +46,8 @@ pub struct ErreurAuthentification;
 pub type ResultatAuthentification<'a> =
     Pin<Box<dyn Future<Output = Result<Option<Identite>, ErreurAuthentification>> + Send + 'a>>;
 
-/// Authentifie une requête à partir de ses en-têtes (cookie de session, PR 8).
+/// Authentifie une requête à partir de ses en-têtes (cookie de session).
 pub trait Authentification: Send + Sync + 'static {
     /// Rend l'utilisateur authentifié, `None` si la requête ne l'est pas.
     fn authentifier<'a>(&'a self, requete: &'a Parts) -> ResultatAuthentification<'a>;
-}
-
-/// Refuse toute requête (401) : authentification du binaire jusqu'à la PR 8 (sessions).
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RefusTotal;
-
-impl Authentification for RefusTotal {
-    fn authentifier<'a>(&'a self, _requete: &'a Parts) -> ResultatAuthentification<'a> {
-        Box::pin(async { Ok(None) })
-    }
 }

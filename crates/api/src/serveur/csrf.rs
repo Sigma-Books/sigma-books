@@ -10,9 +10,9 @@
 //!    le poser, et une requête d'un autre site qui le pose déclenche un contrôle préalable CORS que
 //!    le serveur n'accepte jamais (aucun en-tête CORS n'est émis).
 //!
-//! Le cookie de session `SameSite=Strict` (PR 8) s'y ajoute. Avec les sessions, l'en-tête
-//! [`EN_TETE_CSRF`] portera le **jeton anti-CSRF lié à la session** (ADR 0012), comparé à
-//! celui de la session en temps constant ; d'ici là, sa seule présence est exigée.
+//! Le cookie de session `SameSite=Strict` s'y ajoute. Après l'authentification, le pipeline
+//! exige en outre que l'en-tête [`EN_TETE_CSRF`] porte le **jeton anti-CSRF lié à la session**
+//! (ADR 0012), comparé en temps constant ([`super::session`]) : sinon 403.
 
 use axum::extract::{Request, State};
 use axum::http::{HeaderName, Method, header};

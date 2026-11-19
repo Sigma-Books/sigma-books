@@ -9,12 +9,17 @@
 //!   [`TransactionTenant`] qu'elles reçoivent, si bien qu'un rôle qui contournerait la RLS ne verrait
 //!   toujours rien d'un autre tenant.
 //!
+//! Hors de tout cabinet, une [`TransactionUtilisateur`] ne pose que l'utilisateur : ses sessions
+//! ([`session`]) et ses propres appartenances et cabinets (`GET /api/moi/cabinets`) lui sont
+//! visibles, rien d'autre (migration `0004_sessions.sql`).
+//!
 //! Le journal d'audit ([`audit`]) est écrit par le rôle applicatif, qui ne peut pas le relire, et
 //! lu par le rôle de lecture d'audit, sur un pool distinct ([`ouvrir_pool_lecture_audit`]),
 //! toujours sous RLS et contexte (ADR 0014).
 
 pub mod audit;
 pub mod organisation;
+pub mod session;
 
 use std::time::Duration;
 
@@ -34,6 +39,10 @@ pub enum ErreurBase {
     /// L'action relève du cabinet et ne peut pas s'exécuter dans le contexte d'un dossier.
     #[error("action du cabinet demandée dans le contexte d'un dossier")]
     ContexteDeDossier,
+    /// Donnée lue en base incohérente (valeur hors de la liste attendue), ou demandée hors de
+    /// son contexte.
+    #[error("donnée incohérente : {0}")]
+    Donnee(&'static str),
     /// Le journal d'audit refuse l'entrée (portée hors du contexte, tête incohérente, entrée
     /// invalide) : l'action est annulée.
     #[error("inscription au journal d'audit impossible : {0}")]
@@ -418,6 +427,65 @@ pub async fn ouvrir_transaction_lecture(
         .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
         .await?;
     poser_contexte(tx, contexte).await
+}
+
+/// Transaction PostgreSQL **sans cabinet**, au contexte d'un seul utilisateur (ADR 0012).
+///
+/// Sous RLS, elle ne voit que les sessions de cet utilisateur, ses appartenances et les cabinets
+/// où il en a une (politiques `appartenance_membre` et `cabinet_membre`, lecture seule) : aucun
+/// dossier, aucune donnée d'un cabinet. Les fonctions d'accès filtrent aussi par
+/// [`TransactionUtilisateur::utilisateur`]. Abandonnée sans [`TransactionUtilisateur::confirmer`],
+/// elle est annulée.
+#[derive(Debug)]
+pub struct TransactionUtilisateur {
+    tx: Transaction<'static, Postgres>,
+    utilisateur: IdUtilisateur,
+}
+
+impl TransactionUtilisateur {
+    /// L'utilisateur du contexte.
+    #[must_use]
+    pub const fn utilisateur(&self) -> IdUtilisateur {
+        self.utilisateur
+    }
+
+    /// La connexion de la transaction, pour les requêtes du crate. Toute requête filtre par
+    /// [`TransactionUtilisateur::utilisateur`] en plus de la RLS.
+    pub fn connexion(&mut self) -> &mut PgConnection {
+        &mut self.tx
+    }
+
+    /// Valide la transaction (`COMMIT`).
+    ///
+    /// # Errors
+    /// Erreur de PostgreSQL à la validation.
+    pub async fn confirmer(self) -> Result<(), ErreurBase> {
+        self.tx.commit().await?;
+        Ok(())
+    }
+}
+
+/// Ouvre une transaction (`READ COMMITTED`) au contexte du seul utilisateur : cabinet, dossier
+/// et jeton de session vides (lus comme NULL par les politiques).
+///
+/// # Errors
+/// Connexion indisponible ou erreur de PostgreSQL.
+pub async fn ouvrir_transaction_utilisateur(
+    pool: &PgPool,
+    utilisateur: IdUtilisateur,
+) -> Result<TransactionUtilisateur, ErreurBase> {
+    let mut tx = pool.begin().await?;
+    let texte = utilisateur.to_string();
+    sqlx::query!(
+        "SELECT set_config('sigma.cabinet', '', true) AS cabinet, \
+                set_config('sigma.dossier', '', true) AS dossier, \
+                set_config('sigma.jeton_session', '', true) AS jeton, \
+                set_config('sigma.utilisateur', $1, true) AS utilisateur",
+        texte,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    Ok(TransactionUtilisateur { tx, utilisateur })
 }
 
 async fn poser_contexte(

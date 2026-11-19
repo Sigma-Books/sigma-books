@@ -110,6 +110,31 @@ fn le_routeur_ne_se_construit_que_depuis_la_table() {
     assert!(texte.contains("for route in routes::ROUTES {"));
 }
 
+#[test]
+fn le_binaire_n_authentifie_que_par_les_sessions_de_postgresql() {
+    // Une seule implémentation de l'authentification dans les sources du crate : celle des
+    // sessions. Celle des tests vit dans `tests/` et n'est pas compilée dans le binaire.
+    let sources = sources();
+    let implementations = occurrences(&sources, "impl Authentification for ");
+    assert_eq!(implementations.len(), 1, "{implementations:?}");
+    assert!(
+        implementations[0]
+            .1
+            .starts_with("AuthentificationSession {"),
+        "{implementations:?}"
+    );
+    assert!(implementations[0].0.ends_with("src/serveur/session.rs"));
+    // Le binaire l'assemble, avec l'horloge du système.
+    let main = &sources
+        .iter()
+        .find(|(c, _)| c.ends_with("src/main.rs"))
+        .expect("main.rs")
+        .1;
+    assert!(main.contains("AuthentificationSession::new("));
+    assert!(main.contains("Arc::new(HorlogeSysteme)"));
+    assert!(!main.contains("avec_horloge"));
+}
+
 #[tokio::test]
 async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
     let routeur = routeur(&application_du_binaire(pool_sans_base()));
@@ -117,7 +142,8 @@ async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
         let chemin = route
             .chemin
             .replace("{cabinet}", &Uuid::new_v4().to_string())
-            .replace("{dossier}", &Uuid::new_v4().to_string());
+            .replace("{dossier}", &Uuid::new_v4().to_string())
+            .replace("{session}", &Uuid::new_v4().to_string());
         assert_eq!(
             appeler_route(&routeur, route, &chemin, None).await.statut,
             StatusCode::UNAUTHORIZED,

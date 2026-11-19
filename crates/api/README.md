@@ -99,19 +99,71 @@ cargo run -p api
 
 Variables : `SIGMA_ADRESSE_ECOUTE`, `SIGMA_URL_BASE_APPLICATION` (rôle **applicatif**),
 `SIGMA_URL_BASE_LECTURE_AUDIT` (rôle de **lecture d'audit**, pool distinct), `SIGMA_ORIGINE`, et facultativement `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT`,
-`SIGMA_AUTORITES_HORODATAGE` (`src/serveur/config.rs`). Jusqu'aux sessions (PR 8), toute route de l'API répond 401.
+`SIGMA_AUTORITES_HORODATAGE`, `SIGMA_CONSERVATION_SESSIONS_JOURS` (`src/serveur/config.rs`). Aucune
+connexion par facteur n'existe encore (PR 8b et 8c) : sans session ouverte, toute route de l'API
+répond 401.
 
 Pipeline, en-têtes, anti-CSRF, limites : `src/serveur/mod.rs` et `src/serveur/pipeline.rs`.
 
 ### Nouvelle route
 
 1. Une entrée dans `ROUTES` (`src/serveur/routes.rs`) : méthode, chemin avec `{cabinet}` (et
-   `{dossier}`), action Cedar, portée, cas d'usage. Aucune route hors de cette table.
-2. Ses cas dans `attentes` (`tests/isolation.rs`) : sans eux, le test « chaque route » échoue.
+   `{dossier}`), action Cedar, portée, cas d'usage. Aucune route hors de cette table. Une route
+   hors cabinet (portée `Utilisateur` ou `Session`) ne porte que sur l'utilisateur authentifié.
+2. Ses cas dans `attentes`, ou `cas_hors_cabinet` pour une route hors cabinet
+   (`tests/isolation.rs`) : sans eux, le test « chaque route » échoue.
    Une route déclarée hors de la table fait échouer `tests/structure.rs`.
 3. Une mutation (`POST`) rend ses traces d'audit (`serveur::audit::Trace`) : le pipeline les
    inscrit au journal d'audit chaîné dans la transaction de l'action, et refuse une mutation
    sans trace (ADR 0014).
+
+## Sessions
+
+ADR 0012 ; code : `src/serveur/session.rs` (jeton, cookie, anti-CSRF, authentification),
+`src/serveur/moi.rs` (routes), `src/base/session.rs` (table `session`, migration
+`0004_sessions.sql`).
+
+- **Jeton** de 256 bits (`getrandom`), en base64url dans le cookie
+  `__Host-sigma_session` (`Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`, sans `Domain`,
+  `Max-Age` égal au reste des 12 heures). Seule son empreinte SHA-256 est stockée ; il n'apparaît
+  dans aucun journal.
+- **Chaque requête relit sa session** dans une courte transaction qui ne pose que
+  `sigma.jeton_session` (empreinte) : révocation immédiate. Refus (401) : session révoquée,
+  inactive depuis 30 minutes, ouverte depuis plus de 12 heures (15 minutes pour une session
+  restreinte ou d'enrôlement), ou de nature autre que `complete` hors des routes de la session
+  elle-même. `derniere_activite` n'est réécrite qu'au-delà de 60 secondes. L'horloge est
+  injectable (`Application::avec_horloge`, tests).
+- **Anti-CSRF lié à la session** : `base64url(SHA-256("sigma-books csrf v1\0" ‖ jeton))`, rendu
+  par `GET /api/session` et par la rotation, exigé dans `x-sigma-csrf` sur toute mutation
+  authentifiée (403 sinon), comparé en temps constant (`ctutils`), en plus des contrôles
+  `Sec-Fetch-Site` et `Origin`.
+- **Ouverture** : fonction interne `serveur::session::ouvrir_session`, que les connexions des
+  PR 8b et 8c appelleront ; elle purge les sessions closes **du même utilisateur** depuis plus de
+  `SIGMA_CONSERVATION_SESSIONS_JOURS` jours (30 par défaut, à confirmer : adresse IP conservée,
+  loi 2008-12).
+
+| Route | Portée | Cedar |
+|---|---|---|
+| `GET /api/session` : état (nature, échéances, fraîcheur) et jeton anti-CSRF | session courante, toute nature | non |
+| `POST /api/session/deconnexion` | session courante, toute nature | non |
+| `POST /api/session/rotation` : nouveau jeton, même session | utilisateur | non |
+| `GET /api/moi/sessions`, `DELETE /api/moi/sessions/{session}` | utilisateur | non |
+| `GET /api/moi/cabinets` : ses cabinets, sans cabinet en contexte | utilisateur | `AccederCabinet` par appartenance |
+
+**Rotation et cabinet actif.** L'ADR 0012 demande une rotation au changement de cabinet actif ;
+l'ADR 0011 interdit tout cabinet courant mémorisé côté serveur (F1.14). L'interface appelle donc
+`POST /api/session/rotation` quand l'utilisateur change de cabinet ; le serveur tourne le jeton
+sans rien retenir du cabinet, qui reste lu dans le chemin de chaque requête.
+
+**Hors Cedar.** Une session appartient à un utilisateur, pas à un cabinet : le principal Cedar
+(une appartenance) n'a pas de sens pour elle, comme pour la gestion de ses propres facteurs (doc
+du crate `authz`). La RLS (`utilisateur_id = sigma.utilisateur`) et le filtre de chaque requête
+la bornent à son titulaire ; la session d'un autre est absente (404). La gestion des sessions
+d'un membre par l'administrateur (PR 9) sera une action Cedar du cabinet.
+
+**Audit.** Ces actions ne touchent aucun cabinet ; leur traçabilité (événements hors cabinet)
+attend une décision du mainteneur. Les points d'insertion sont marqués dans `src/serveur/moi.rs`
+et `src/serveur/session.rs`.
 
 ## Journal d'audit
 

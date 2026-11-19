@@ -2,8 +2,9 @@
 //!
 //! Minimal : configuration lue dans l'environnement (refus de démarrer si elle est incomplète),
 //! politiques Cedar chargées et validées, pools du rôle applicatif et du rôle de lecture
-//! d'audit (refus d'un rôle trop privilégié), puis service HTTP jusqu'à `Ctrl-C`. Authentification : [`RefusTotal`] jusqu'aux
-//! sessions (PR 8) ; aucune autre n'est sélectionnable.
+//! d'audit (refus d'un rôle trop privilégié), puis service HTTP jusqu'à `Ctrl-C`.
+//! Authentification : sessions lues dans PostgreSQL ([`AuthentificationSession`], ADR 0012) ;
+//! aucune autre n'est sélectionnable.
 
 #![forbid(unsafe_code)]
 
@@ -12,7 +13,9 @@ use std::sync::Arc;
 
 use api::base::{ReglagesPool, ouvrir_pool_application, ouvrir_pool_lecture_audit};
 use api::serveur::config::Configuration;
-use api::serveur::{Application, RefusTotal, journal, routeur, servir};
+use api::serveur::{
+    Application, AuthentificationSession, HorlogeSysteme, journal, routeur, servir,
+};
 use authz::Autorisation;
 use tokio::net::TcpListener;
 use tracing_subscriber::layer::SubscriberExt;
@@ -52,11 +55,16 @@ async fn demarrer() -> Result<(), String> {
         ouvrir_pool_lecture_audit(&config.url_base_lecture_audit, ReglagesPool::default())
             .await
             .map_err(|e| format!("base de données (lecture d'audit) : {e}"))?;
+    let authentification = AuthentificationSession::new(
+        pool.clone(),
+        Arc::new(HorlogeSysteme),
+        config.reglages.sessions,
+    );
     let application = Application::new(
         pool,
         pool_lecture_audit,
         Arc::new(autorisation),
-        Arc::new(RefusTotal),
+        Arc::new(authentification),
         config.reglages.clone(),
     );
     let routeur = routeur(&application);

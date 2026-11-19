@@ -11,6 +11,7 @@
 //! | `SIGMA_REPERTOIRE_WEB` | non | Répertoire de l'interface compilée ; doit exister |
 //! | `SIGMA_EN_TETE_ADRESSE_CLIENT` | non | En-tête de confiance du mandataire inverse (L9) ; **absent par défaut** |
 //! | `SIGMA_AUTORITES_HORODATAGE` | non | Autorités RFC 3161, séparées par des virgules, dans l'ordre d'essai (`http://` seul) ; par défaut DigiCert puis Sectigo (ADR 0010) |
+//! | `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | Jours de conservation d'une session close avant sa purge (1 à 3650 ; 30 par défaut, à confirmer par le mainteneur, loi 2008-12) |
 
 use std::fmt;
 use std::net::SocketAddr;
@@ -119,6 +120,17 @@ impl Configuration {
                 .map_err(|_| ErreurConfiguration::Invalide("SIGMA_AUTORITES_HORODATAGE"))?,
             None => Autorite::par_defaut(),
         };
+        if let Some(jours) = facultative("SIGMA_CONSERVATION_SESSIONS_JOURS") {
+            let jours: i64 = jours
+                .trim()
+                .parse()
+                .ok()
+                .filter(|j| (1..=3650).contains(j))
+                .ok_or(ErreurConfiguration::Invalide(
+                    "SIGMA_CONSERVATION_SESSIONS_JOURS",
+                ))?;
+            reglages.sessions.conservation = time::Duration::days(jours);
+        }
         Ok(Self {
             adresse_ecoute,
             url_base,
@@ -177,8 +189,23 @@ mod tests {
         assert_eq!(config.reglages.en_tete_adresse_client, None);
         assert_eq!(config.reglages.repertoire_web, None);
         assert_eq!(config.autorites_horodatage, Autorite::par_defaut());
+        assert_eq!(
+            config.reglages.sessions.conservation,
+            time::Duration::days(30)
+        );
         assert!(!format!("{config:?}").contains("sigma_application@"));
         assert!(!format!("{config:?}").contains("sigma_lecture_audit@"));
+    }
+
+    #[test]
+    fn la_conservation_des_sessions_est_configurable() {
+        let mut paires = COMPLETE.to_vec();
+        paires.push(("SIGMA_CONSERVATION_SESSIONS_JOURS", " 90 "));
+        let config = Configuration::depuis(lire(&paires)).unwrap();
+        assert_eq!(
+            config.reglages.sessions.conservation,
+            time::Duration::days(90)
+        );
     }
 
     #[test]
@@ -212,6 +239,9 @@ mod tests {
             ("SIGMA_AUTORITES_HORODATAGE", ","),
             ("SIGMA_AUTORITES_HORODATAGE", "http://169.254.169.254"),
             ("SIGMA_AUTORITES_HORODATAGE", "http://tsa.invalid:99999"),
+            ("SIGMA_CONSERVATION_SESSIONS_JOURS", "0"),
+            ("SIGMA_CONSERVATION_SESSIONS_JOURS", "3651"),
+            ("SIGMA_CONSERVATION_SESSIONS_JOURS", "trente"),
         ] {
             let mut paires = COMPLETE.to_vec();
             paires.retain(|(n, _)| *n != nom);

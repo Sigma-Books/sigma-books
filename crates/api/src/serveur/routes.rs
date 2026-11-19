@@ -7,7 +7,9 @@
 //!
 //! Routes de la PR 6 (lecture) et de la PR 7 : journal d'audit (consultation, vérification,
 //! export, ADR 0014 et 0016) et première mutation, la création d'un dossier, inscrite au
-//! journal d'audit dans sa transaction (`crates/api/CLAUDE.md`).
+//! journal d'audit dans sa transaction (`crates/api/CLAUDE.md`). PR 8a : la session courante
+//! et les ressources propres de l'utilisateur, hors de tout cabinet (ADR 0012, module
+//! [`super::moi`]).
 
 use authz::Action;
 use axum::Json;
@@ -18,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use super::audit::{self, Trace};
+use super::authentification::NatureSession;
 use super::erreur::ErreurApi;
 use super::pipeline::{CabinetAutorise, DossierAutorise, Garde};
 use crate::base::TransactionTenant;
@@ -32,8 +35,10 @@ use crate::base::organisation::{
 pub enum Methode {
     /// Lecture.
     Get,
-    /// Mutation : anti-CSRF, et inscription au journal d'audit exigée.
+    /// Mutation : anti-CSRF, et inscription au journal d'audit exigée sur un cabinet.
     Post,
+    /// Mutation (suppression ou révocation) : anti-CSRF.
+    Delete,
 }
 
 impl Methode {
@@ -43,6 +48,7 @@ impl Methode {
         match self {
             Self::Get => MethodFilter::GET,
             Self::Post => MethodFilter::POST,
+            Self::Delete => MethodFilter::DELETE,
         }
     }
 
@@ -52,6 +58,7 @@ impl Methode {
         match self {
             Self::Get => "GET",
             Self::Post => "POST",
+            Self::Delete => "DELETE",
         }
     }
 
@@ -61,6 +68,7 @@ impl Methode {
         match self {
             Self::Get => Method::GET,
             Self::Post => Method::POST,
+            Self::Delete => Method::DELETE,
         }
     }
 }
@@ -74,6 +82,31 @@ pub enum Portee {
     DossiersDuCabinet,
     /// Un dossier (`{cabinet}`, `{dossier}`) : visibilité (`AccederDossier`), puis l'action.
     Dossier,
+    /// Ressources propres de l'utilisateur authentifié, hors de tout cabinet (ses sessions, ses
+    /// cabinets) : transaction au contexte du seul utilisateur ; session complète exigée.
+    Utilisateur,
+    /// La session courante elle-même (état, déconnexion) : toute nature de session admise
+    /// (une session restreinte doit pouvoir lire son état et se fermer).
+    Session,
+}
+
+impl Portee {
+    /// Vrai pour une portée d'un cabinet (`{cabinet}` dans le chemin) : pipeline complet,
+    /// décision Cedar sur la ressource du chemin, audit des mutations.
+    #[must_use]
+    pub const fn du_cabinet(self) -> bool {
+        matches!(
+            self,
+            Self::Cabinet | Self::DossiersDuCabinet | Self::Dossier
+        )
+    }
+
+    /// Vrai si une session de cette nature est admise : seule une session complète ouvre les
+    /// routes métier et les ressources de l'utilisateur (ADR 0012, F1.12).
+    #[must_use]
+    pub const fn admet(self, nature: NatureSession) -> bool {
+        matches!(self, Self::Session) || matches!(nature, NatureSession::Complete)
+    }
 }
 
 /// Cas d'usage d'une route.
@@ -94,6 +127,18 @@ pub enum CasUsage {
     VerifierAudit,
     /// Export de l'audit de la portée du chemin, inscrit lui-même à l'audit.
     ExporterAudit,
+    /// État de la session courante et son jeton anti-CSRF.
+    EtatSession,
+    /// Rotation du jeton de la session courante (changement de cabinet actif).
+    TournerJeton,
+    /// Déconnexion : révocation de la session courante.
+    Deconnecter,
+    /// Sessions actives de l'utilisateur.
+    ListerSessions,
+    /// Révocation d'une session de l'utilisateur.
+    RevoquerSession,
+    /// Cabinets de l'utilisateur, chacun décidé par Cedar (`AccederCabinet`).
+    ListerCabinets,
 }
 
 /// Une route : méthode, modèle de chemin, action Cedar, portée et cas d'usage.
@@ -103,8 +148,11 @@ pub struct Route {
     pub methode: Methode,
     /// Modèle de chemin (syntaxe d'`axum`), cabinet et dossier explicites (ADR 0011).
     pub chemin: &'static str,
-    /// Action Cedar décidée.
-    pub action: Action,
+    /// Action Cedar décidée. `None` : route **hors Cedar**, sur la session courante ou les
+    /// sessions de l'utilisateur, qui relèvent de l'utilisateur lui-même et d'aucun cabinet
+    /// (doc du crate `authz`, « Hors Cedar ») ; la RLS et le filtre de la requête les bornent
+    /// à l'utilisateur authentifié.
+    pub action: Option<Action>,
     /// Ressource du chemin.
     pub portee: Portee,
     /// Cas d'usage exécuté dans la transaction.
@@ -117,7 +165,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}",
-        action: Action::GererCabinet,
+        action: Some(Action::GererCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::LireCabinet,
     },
@@ -125,7 +173,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers",
-        action: Action::AccederDossier,
+        action: Some(Action::AccederDossier),
         portee: Portee::DossiersDuCabinet,
         cas_usage: CasUsage::ListerDossiers,
     },
@@ -133,14 +181,14 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Post,
         chemin: "/api/cabinets/{cabinet}/dossiers",
-        action: Action::CreerDossier,
+        action: Some(Action::CreerDossier),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::CreerDossier,
     },
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}",
-        action: Action::AccederDossier,
+        action: Some(Action::AccederDossier),
         portee: Portee::Dossier,
         cas_usage: CasUsage::LireDossier,
     },
@@ -148,21 +196,21 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/audit",
-        action: Action::ConsulterAuditCabinet,
+        action: Some(Action::ConsulterAuditCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::ConsulterAudit,
     },
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/audit/verification",
-        action: Action::VerifierAuditCabinet,
+        action: Some(Action::VerifierAuditCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::VerifierAudit,
     },
     Route {
         methode: Methode::Post,
         chemin: "/api/cabinets/{cabinet}/audit/export",
-        action: Action::ExporterAuditCabinet,
+        action: Some(Action::ExporterAuditCabinet),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::ExporterAudit,
     },
@@ -171,23 +219,70 @@ pub const ROUTES: &[Route] = &[
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit",
-        action: Action::ConsulterAudit,
+        action: Some(Action::ConsulterAudit),
         portee: Portee::Dossier,
         cas_usage: CasUsage::ConsulterAudit,
     },
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/verification",
-        action: Action::ConsulterAudit,
+        action: Some(Action::ConsulterAudit),
         portee: Portee::Dossier,
         cas_usage: CasUsage::VerifierAudit,
     },
     Route {
         methode: Methode::Post,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/export",
-        action: Action::ExporterComplet,
+        action: Some(Action::ExporterComplet),
         portee: Portee::Dossier,
         cas_usage: CasUsage::ExporterAudit,
+    },
+    // Session courante (ADR 0012) : état et jeton anti-CSRF ; déconnexion. Toute nature.
+    Route {
+        methode: Methode::Get,
+        chemin: "/api/session",
+        action: None,
+        portee: Portee::Session,
+        cas_usage: CasUsage::EtatSession,
+    },
+    Route {
+        methode: Methode::Post,
+        chemin: "/api/session/deconnexion",
+        action: None,
+        portee: Portee::Session,
+        cas_usage: CasUsage::Deconnecter,
+    },
+    // Rotation du jeton, appelée par l'interface au changement de cabinet actif (ADR 0012) ;
+    // le serveur ne mémorise aucun cabinet (ADR 0011, F1.14).
+    Route {
+        methode: Methode::Post,
+        chemin: "/api/session/rotation",
+        action: None,
+        portee: Portee::Utilisateur,
+        cas_usage: CasUsage::TournerJeton,
+    },
+    // Ses sessions (spec §21) : liste, révocation.
+    Route {
+        methode: Methode::Get,
+        chemin: "/api/moi/sessions",
+        action: None,
+        portee: Portee::Utilisateur,
+        cas_usage: CasUsage::ListerSessions,
+    },
+    Route {
+        methode: Methode::Delete,
+        chemin: "/api/moi/sessions/{session}",
+        action: None,
+        portee: Portee::Utilisateur,
+        cas_usage: CasUsage::RevoquerSession,
+    },
+    // Ses cabinets, avant le choix du cabinet actif : Cedar décide chaque appartenance.
+    Route {
+        methode: Methode::Get,
+        chemin: "/api/moi/cabinets",
+        action: Some(Action::AccederCabinet),
+        portee: Portee::Utilisateur,
+        cas_usage: CasUsage::ListerCabinets,
     },
 ];
 
@@ -322,6 +417,13 @@ pub(crate) async fn executer(
                 traces: vec![trace],
             })
         }
+        // Cas d'usage hors cabinet : module `moi`, jamais avec une garde de cabinet.
+        CasUsage::EtatSession
+        | CasUsage::TournerJeton
+        | CasUsage::Deconnecter
+        | CasUsage::ListerSessions
+        | CasUsage::RevoquerSession
+        | CasUsage::ListerCabinets => Err(ErreurApi::Interne(super::CategorieErreur::Donnee)),
     }
 }
 
@@ -409,8 +511,38 @@ mod tests {
         // chaque mutation produise bien des traces sur cette portée est vérifié contre la base
         // (`tests/audit.rs`, `chaque_mutation_produit_des_traces_sur_sa_portee`) ; le pipeline
         // refuse une mutation sans trace (`pipeline::exiger_traces`).
-        for route in ROUTES.iter().filter(|r| r.methode == Methode::Post) {
+        for route in ROUTES
+            .iter()
+            .filter(|r| r.methode != Methode::Get && r.portee.du_cabinet())
+        {
             assert_ne!(route.portee, Portee::DossiersDuCabinet, "{}", route.chemin);
+        }
+    }
+
+    #[test]
+    fn portees_actions_et_natures_coherentes() {
+        for route in ROUTES {
+            // Toute route d'un cabinet est décidée par Cedar ; hors cabinet, seule la liste des
+            // cabinets l'est (une décision par appartenance).
+            let attendue = route.portee.du_cabinet() || route.cas_usage == CasUsage::ListerCabinets;
+            assert_eq!(route.action.is_some(), attendue, "{}", route.chemin);
+            assert_eq!(
+                route.portee.du_cabinet(),
+                route.chemin.contains("{cabinet}"),
+                "{}",
+                route.chemin
+            );
+        }
+        for nature in [NatureSession::Restreinte, NatureSession::Enrolement] {
+            for portee in [
+                Portee::Cabinet,
+                Portee::DossiersDuCabinet,
+                Portee::Dossier,
+                Portee::Utilisateur,
+            ] {
+                assert!(!portee.admet(nature));
+            }
+            assert!(Portee::Session.admet(nature));
         }
     }
 }

@@ -16,6 +16,11 @@
 //! Chaque route est appelée avec sa méthode : une mutation (`POST`) porte les en-têtes
 //! anti-CSRF de la même origine et le corps de `corps_de` ; un cas « 200 » d'une mutation crée
 //! réellement la ressource et l'inscrit au journal d'audit.
+//!
+//! Les routes **hors cabinet** (session courante, ses sessions, ses cabinets : ADR 0012) n'ont
+//! pas de `{cabinet}` à substituer : leurs cas ([`cas_hors_cabinet`]) s'exécutent avec des
+//! sessions réelles (cookie, jeton anti-CSRF lié) de deux utilisateurs de cabinets différents
+//! et du membre des deux cabinets ; aucun ne voit ni n'agit sur ce qui est à un autre.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
@@ -24,14 +29,18 @@ mod commun;
 
 use std::sync::Arc;
 
+use api::base::session::NatureSession;
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
 use api::serveur::routes::{CasUsage, Methode, ROUTES, Route};
+use api::serveur::session::SessionOuverte;
 use api::serveur::{Application, Reglages, routeur};
+use authz::Autorisation;
 use axum::Router;
 use axum::http::StatusCode;
 use commun::serveur::{
-    AuthentificationTest, ORIGINE, Reponse, ToujoursAutorise, appeler_route, application_base,
-    capture_globale, evenements_de, id_requete, lire, verifier_liste_blanche,
+    AuthentificationTest, HorlogeTest, ORIGINE, Reponse, ToujoursAutorise, appeler_route,
+    appeler_session, application_base, application_sessions, capture_globale, cookie_de,
+    evenements_de, id_requete, lire, ouvrir, verifier_liste_blanche,
 };
 use commun::{
     CabinetTest, affecter, ajouter_affecte, ajouter_membre, creer_cabinet, creer_utilisateur, env,
@@ -426,21 +435,342 @@ async fn chaque_route_a_son_cas_d_isolation_et_le_respecte() {
 
     let sans_cas: Vec<&str> = ROUTES
         .iter()
-        .filter(|r| attentes(r, &m).is_none())
+        .filter(|r| {
+            if r.portee.du_cabinet() {
+                attentes(r, &m).is_none()
+            } else {
+                cas_hors_cabinet(r).is_none()
+            }
+        })
         .map(|r| r.chemin)
         .collect();
     assert!(
         sans_cas.is_empty(),
-        "routes sans cas d'isolation (ajoutez-les à `attentes`) : {sans_cas:?}"
+        "routes sans cas d'isolation (ajoutez-les à `attentes` ou à `cas_hors_cabinet`) : \
+         {sans_cas:?}"
     );
 
-    for route in ROUTES {
+    for route in ROUTES.iter().filter(|r| r.portee.du_cabinet()) {
         let reponses = verifier_generique(&routeur, route, &m).await;
         let reference = reponses.last().unwrap();
         for attendu in attentes(route, &m).unwrap() {
             verifier_attendu(&routeur, route, &attendu, reference).await;
         }
     }
+
+    // Routes hors cabinet : sessions réelles, décision Cedar réelle.
+    let horloge = HorlogeTest::default();
+    let routeur = api::serveur::routeur(&application_sessions(
+        &env,
+        &horloge,
+        Arc::new(Autorisation::charger().unwrap()),
+    ));
+    for route in ROUTES.iter().filter(|r| !r.portee.du_cabinet()) {
+        let cas = cas_hors_cabinet(route).unwrap();
+        verifier_hors_cabinet(&env, &horloge, &routeur, cas, &m).await;
+    }
+}
+
+/// Cas d'isolation d'une route hors cabinet. `None` : route sans cas, le test échoue.
+#[derive(Debug, Clone, Copy)]
+enum HorsCabinet {
+    EtatSession,
+    Deconnexion,
+    Rotation,
+    ListeSessions,
+    Revocation,
+    Cabinets,
+}
+
+fn cas_hors_cabinet(route: &Route) -> Option<HorsCabinet> {
+    Some(match (route.methode, route.chemin) {
+        (Methode::Get, "/api/session") => HorsCabinet::EtatSession,
+        (Methode::Post, "/api/session/deconnexion") => HorsCabinet::Deconnexion,
+        (Methode::Post, "/api/session/rotation") => HorsCabinet::Rotation,
+        (Methode::Get, "/api/moi/sessions") => HorsCabinet::ListeSessions,
+        (Methode::Delete, "/api/moi/sessions/{session}") => HorsCabinet::Revocation,
+        (Methode::Get, "/api/moi/cabinets") => HorsCabinet::Cabinets,
+        _ => return None,
+    })
+}
+
+/// `GET` au nom d'une session réelle.
+async fn lire_s(routeur: &Router, chemin: &str, s: &SessionOuverte) -> Reponse {
+    appeler_session(routeur, "GET", chemin, Some(&cookie_de(s)), None).await
+}
+
+/// Mutation au nom d'une session réelle, avec un jeton anti-CSRF donné.
+async fn muter_s(
+    routeur: &Router,
+    methode: &str,
+    chemin: &str,
+    s: &SessionOuverte,
+    csrf: &str,
+) -> Reponse {
+    appeler_session(routeur, methode, chemin, Some(&cookie_de(s)), Some(csrf)).await
+}
+
+/// L'identifiant de la session courante, vu par `GET /api/session` (`None` : 401).
+async fn session_vue(routeur: &Router, s: &SessionOuverte) -> Option<String> {
+    let r = lire_s(routeur, "/api/session", s).await;
+    match r.statut {
+        StatusCode::OK => Some(r.json()["id"].as_str().unwrap().to_owned()),
+        StatusCode::UNAUTHORIZED => None,
+        autre => panic!("statut inattendu {autre} : {}", r.texte()),
+    }
+}
+
+/// Identifiants des éléments d'une liste JSON, triés.
+fn ids_json(reponse: &Reponse) -> Vec<String> {
+    assert_eq!(reponse.statut, StatusCode::OK, "{}", reponse.texte());
+    ids(reponse)
+}
+
+/// Contexte d'un cas hors cabinet : sessions complètes de l'administrateur de A, de celui de B
+/// et du membre des deux cabinets.
+struct Ctx<'a> {
+    env: &'a commun::Env,
+    horloge: &'a HorlogeTest,
+    routeur: &'a Router,
+    m: &'a Monde,
+    sa: SessionOuverte,
+    sb: SessionOuverte,
+    s_multi: SessionOuverte,
+}
+
+async fn verifier_hors_cabinet(
+    env: &commun::Env,
+    horloge: &HorlogeTest,
+    routeur: &Router,
+    cas: HorsCabinet,
+    m: &Monde,
+) {
+    let complete = NatureSession::Complete;
+    let c = Ctx {
+        env,
+        horloge,
+        routeur,
+        m,
+        sa: ouvrir(env, horloge, m.a.administrateur, complete).await,
+        sb: ouvrir(env, horloge, m.b.administrateur, complete).await,
+        s_multi: ouvrir(env, horloge, m.multi, complete).await,
+    };
+    match cas {
+        HorsCabinet::EtatSession => cas_etat_session(&c).await,
+        HorsCabinet::Deconnexion => cas_deconnexion(&c).await,
+        HorsCabinet::Rotation => cas_rotation(&c).await,
+        HorsCabinet::ListeSessions => cas_liste_sessions(&c).await,
+        HorsCabinet::Revocation => cas_revocation(&c).await,
+        HorsCabinet::Cabinets => cas_cabinets(&c).await,
+    }
+}
+
+async fn cas_etat_session(c: &Ctx<'_>) {
+    let Ctx {
+        routeur, sa, sb, ..
+    } = c;
+    assert_eq!(session_vue(routeur, sa).await, Some(sa.id.to_string()));
+    assert_eq!(session_vue(routeur, sb).await, Some(sb.id.to_string()));
+    let r = lire_s(routeur, "/api/session", sa).await;
+    assert_eq!(r.json()["csrf"], sa.jeton.csrf());
+    let r = appeler_session(routeur, "GET", "/api/session", None, None).await;
+    assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
+}
+
+async fn cas_deconnexion(c: &Ctx<'_>) {
+    let Ctx {
+        routeur,
+        sa,
+        sb,
+        s_multi,
+        ..
+    } = c;
+    let chemin = "/api/session/deconnexion";
+    // Jeton anti-CSRF d'une autre session : 403, rien n'est révoqué.
+    let r = muter_s(routeur, "POST", chemin, sa, &sb.jeton.csrf()).await;
+    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    assert!(session_vue(routeur, sa).await.is_some());
+    let r = muter_s(routeur, "POST", chemin, sa, &sa.jeton.csrf()).await;
+    assert_eq!(r.statut, StatusCode::NO_CONTENT, "{}", r.texte());
+    assert!(
+        r.entetes["set-cookie"]
+            .to_str()
+            .unwrap()
+            .starts_with("__Host-sigma_session=; Max-Age=0;")
+    );
+    assert_eq!(session_vue(routeur, sa).await, None);
+    // Les sessions des autres restent ouvertes.
+    assert!(session_vue(routeur, sb).await.is_some());
+    assert!(session_vue(routeur, s_multi).await.is_some());
+    let r = appeler_session(routeur, "POST", chemin, None, Some("x")).await;
+    assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
+}
+
+async fn cas_rotation(c: &Ctx<'_>) {
+    let Ctx {
+        routeur,
+        sa,
+        sb,
+        s_multi,
+        ..
+    } = c;
+    let chemin = "/api/session/rotation";
+    let r = muter_s(routeur, "POST", chemin, sa, &sb.jeton.csrf()).await;
+    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    let r = muter_s(routeur, "POST", chemin, sa, &sa.jeton.csrf()).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let nouveau = r.entetes["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    // L'ancien jeton : 401 ; le nouveau désigne la même session.
+    assert_eq!(session_vue(routeur, sa).await, None);
+    let r = appeler_session(routeur, "GET", "/api/session", Some(&nouveau), None).await;
+    assert_eq!(r.json()["id"], sa.id.to_string());
+    // Les sessions des autres sont intactes.
+    assert_eq!(session_vue(routeur, sb).await, Some(sb.id.to_string()));
+    assert!(session_vue(routeur, s_multi).await.is_some());
+}
+
+async fn cas_liste_sessions(c: &Ctx<'_>) {
+    let Ctx {
+        env,
+        horloge,
+        routeur,
+        m,
+        sa,
+        sb,
+        s_multi,
+        ..
+    } = c;
+    let a = &m.a;
+    let complete = NatureSession::Complete;
+    let sa2 = ouvrir(env, horloge, a.administrateur, complete).await;
+    let r = lire_s(routeur, "/api/moi/sessions", sa).await;
+    let vues = ids_json(&r);
+    for s in [sa, &sa2] {
+        assert!(vues.contains(&s.id.to_string()), "{}", r.texte());
+    }
+    for autre in [&sb, &s_multi] {
+        assert!(!vues.contains(&autre.id.to_string()), "{}", r.texte());
+    }
+    // Ni jeton, ni empreinte, ni jeton anti-CSRF.
+    for s in [sa, &sa2] {
+        let cookie = cookie_de(s);
+        let jeton = cookie.split_once('=').unwrap().1;
+        assert!(!r.texte().contains(jeton));
+        assert!(!r.texte().contains(&s.jeton.csrf()));
+    }
+    let cles: Vec<String> = r.json()[0].as_object().unwrap().keys().cloned().collect();
+    for cle in &cles {
+        assert!(
+            [
+                "id",
+                "nature",
+                "methode",
+                "cree_le",
+                "derniere_activite",
+                "echeance",
+                "appareil",
+                "adresse",
+                "courante"
+            ]
+            .contains(&cle.as_str()),
+            "champ inattendu {cle}"
+        );
+    }
+    // B (qui a d'autres sessions ouvertes par les cas précédents) : aucune de A.
+    let vues_b = ids_json(&lire_s(routeur, "/api/moi/sessions", sb).await);
+    assert!(vues_b.contains(&sb.id.to_string()));
+    for autre in [sa, &sa2, s_multi] {
+        assert!(!vues_b.contains(&autre.id.to_string()));
+    }
+}
+
+async fn cas_revocation(c: &Ctx<'_>) {
+    let Ctx {
+        env,
+        horloge,
+        routeur,
+        m,
+        sa,
+        sb,
+        s_multi,
+        ..
+    } = c;
+    let a = &m.a;
+    let complete = NatureSession::Complete;
+    let sa2 = ouvrir(env, horloge, a.administrateur, complete).await;
+    let csrf = sa.jeton.csrf();
+    let reference = muter_s(
+        routeur,
+        "DELETE",
+        &format!("/api/moi/sessions/{}", Uuid::new_v4()),
+        sa,
+        &csrf,
+    )
+    .await;
+    assert_eq!(reference.statut, StatusCode::NOT_FOUND);
+    // La session de B, ou celle du membre des deux cabinets : absente pour A.
+    for autre in [&sb, &s_multi] {
+        let r = muter_s(
+            routeur,
+            "DELETE",
+            &format!("/api/moi/sessions/{}", autre.id),
+            sa,
+            &csrf,
+        )
+        .await;
+        verifier_absent(&r, &reference, "session d'autrui");
+        assert!(session_vue(routeur, autre).await.is_some());
+    }
+    // Sa propre autre session : révoquée aussitôt ; une seconde fois, absente.
+    let chemin = format!("/api/moi/sessions/{}", sa2.id);
+    let r = muter_s(routeur, "DELETE", &chemin, sa, &csrf).await;
+    assert_eq!(r.statut, StatusCode::NO_CONTENT, "{}", r.texte());
+    assert_eq!(session_vue(routeur, &sa2).await, None);
+    let r = muter_s(routeur, "DELETE", &chemin, sa, &csrf).await;
+    verifier_absent(&r, &reference, "session déjà révoquée");
+    assert!(session_vue(routeur, sa).await.is_some());
+}
+
+async fn cas_cabinets(c: &Ctx<'_>) {
+    let Ctx {
+        env,
+        horloge,
+        routeur,
+        m,
+        sa,
+        sb,
+        s_multi,
+        ..
+    } = c;
+    let (a, b) = (&m.a, &m.b);
+    let complete = NatureSession::Complete;
+    let s_collab = ouvrir(env, horloge, a.collaborateur, complete).await;
+    for (s, attendus) in [
+        (sa, vec![a.cabinet]),
+        (sb, vec![b.cabinet]),
+        (&s_collab, vec![a.cabinet]),
+        (s_multi, vec![a.cabinet, b.cabinet]),
+    ] {
+        let r = lire_s(routeur, "/api/moi/cabinets", s).await;
+        let mut attendus: Vec<String> = attendus.iter().map(ToString::to_string).collect();
+        attendus.sort();
+        assert_eq!(ids_json(&r), attendus, "{}", r.texte());
+    }
+    let r = lire_s(routeur, "/api/moi/cabinets", s_multi).await;
+    let json = r.json();
+    let roles: Vec<&str> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["role"].as_str().unwrap())
+        .collect();
+    assert_eq!(roles, vec!["administrateur", "collaborateur"]);
 }
 
 #[tokio::test]
@@ -464,7 +794,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     .await;
 
     // Autre cabinet : rien, quelle que soit la route.
-    for route in ROUTES {
+    for route in ROUTES.iter().filter(|r| r.portee.du_cabinet()) {
         let reponse = appel(
             &routeur,
             route,
@@ -508,6 +838,38 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
 
     creation_refusee_quand_cedar_se_trompe(&env, &routeur, &m).await;
     audit_refuse_quand_cedar_se_trompe(&routeur, &m, &reference).await;
+    cabinets_bornes_quand_cedar_se_trompe(&env, &m).await;
+}
+
+/// Cedar forcé : la liste des cabinets d'un utilisateur reste bornée à ses appartenances
+/// actives (RLS sans cabinet en contexte, filtre de la requête).
+async fn cabinets_bornes_quand_cedar_se_trompe(env: &commun::Env, m: &Monde) {
+    let (a, b) = (&m.a, &m.b);
+    let horloge = HorlogeTest::default();
+    let routeur = routeur(&application_sessions(
+        env,
+        &horloge,
+        Arc::new(ToujoursAutorise),
+    ));
+    let sa = ouvrir(env, &horloge, a.collaborateur, NatureSession::Complete).await;
+    assert_eq!(
+        ids_json(&lire_s(&routeur, "/api/moi/cabinets", &sa).await),
+        vec![a.cabinet.to_string()]
+    );
+    // Une appartenance suspendue reste exclue par la requête.
+    sqlx::query(
+        "UPDATE appartenance SET actif = false WHERE cabinet_id = $1 AND utilisateur_id = $2",
+    )
+    .bind(b.cabinet.uuid())
+    .bind(m.multi.uuid())
+    .execute(&env.admin)
+    .await
+    .unwrap();
+    let s_multi = ouvrir(env, &horloge, m.multi, NatureSession::Complete).await;
+    assert_eq!(
+        ids_json(&lire_s(&routeur, "/api/moi/cabinets", &s_multi).await),
+        vec![a.cabinet.to_string()]
+    );
 }
 
 /// Cedar forcé : la création d'un dossier reste refusée au collaborateur et à l'auditeur.
@@ -622,7 +984,7 @@ async fn une_appartenance_suspendue_vaut_non_membre_sur_chaque_route() {
         .await
         .unwrap();
     }
-    for route in ROUTES {
+    for route in ROUTES.iter().filter(|r| r.portee.du_cabinet()) {
         let reference = appel(
             &routeur,
             route,
@@ -657,6 +1019,24 @@ async fn une_appartenance_suspendue_vaut_non_membre_sur_chaque_route() {
     )
     .await;
     assert_eq!(reponse.statut, StatusCode::OK);
+    // Ses cabinets (décision Cedar réelle) : le cabinet de l'appartenance suspendue disparaît.
+    let horloge = HorlogeTest::default();
+    let routeur = api::serveur::routeur(&application_sessions(
+        &env,
+        &horloge,
+        Arc::new(Autorisation::charger().unwrap()),
+    ));
+    for (utilisateur, attendus) in [
+        (a.administrateur, vec![]),
+        (m.multi, vec![a.cabinet.to_string()]),
+        (b.administrateur, vec![b.cabinet.to_string()]),
+    ] {
+        let s = ouvrir(&env, &horloge, utilisateur, NatureSession::Complete).await;
+        assert_eq!(
+            ids_json(&lire_s(&routeur, "/api/moi/cabinets", &s).await),
+            attendus
+        );
+    }
 }
 
 #[tokio::test]
@@ -666,7 +1046,7 @@ async fn les_journaux_d_un_scenario_complet_restent_en_liste_blanche() {
     let m = monde(&env.admin).await;
     let routeur = routeur(&application_base(&env, Reglages::new(ORIGINE.to_owned())));
     let mut reponses = Vec::new();
-    for route in ROUTES {
+    for route in ROUTES.iter().filter(|r| r.portee.du_cabinet()) {
         reponses.extend(verifier_generique(&routeur, route, &m).await);
         for attendu in attentes(route, &m).unwrap() {
             let chemin = chemin(route, attendu.cabinet.uuid(), attendu.dossier.uuid());

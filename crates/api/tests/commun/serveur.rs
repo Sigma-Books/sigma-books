@@ -1,19 +1,25 @@
-//! Aides des tests du serveur : authentification et décision **de test**, appel du routeur,
-//! capture des journaux.
+//! Aides des tests du serveur : authentification et décision **de test**, sessions réelles
+//! (horloge injectée), appel du routeur, capture des journaux.
 //!
 //! [`AuthentificationTest`] n'existe que dans `crates/api/tests/` : elle n'est compilée que pour
 //! les tests et le binaire ne peut pas la sélectionner. Elle lit l'utilisateur dans l'en-tête
 //! [`EN_TETE_UTILISATEUR`], ce qu'aucune authentification réelle ne fera jamais.
 
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use api::base::session::{MethodeSession, NatureSession, NouvelleSession};
 use api::base::{IdSession, IdUtilisateur};
 use api::serveur::authentification::{
     Authentification, ErreurAuthentification, Identite, ResultatAuthentification,
 };
 use api::serveur::routes::{CasUsage, Methode, Route};
-use api::serveur::{Application, Decideur, Etat, RefusTotal, Reglages, journal, routeur};
+use api::serveur::session::{SessionOuverte, ouvrir_session};
+use api::serveur::{
+    Application, AuthentificationSession, Decideur, Etat, Horloge, HorlogeSysteme, Reglages,
+    journal, routeur,
+};
 use authz::{Action, Autorisation, Contexte, Decision, Entites, Ressource, Verdict};
 use axum::Router;
 use axum::body::Body;
@@ -71,11 +77,15 @@ impl Authentification for AuthentificationTest {
                     .ok_or(ErreurAuthentification)?,
                 None => 0,
             };
+            // Session complète, et jeton anti-CSRF tenu pour lié : l'anti-CSRF lié à la session
+            // est éprouvé avec les sessions réelles (`tests/sessions.rs`).
             Ok(Some(Identite {
                 utilisateur: IdUtilisateur::depuis_uuid(uuid),
                 session: IdSession::nouveau(),
                 derniere_verification: OffsetDateTime::now_utc()
                     - time::Duration::seconds(anciennete),
+                nature: NatureSession::Complete,
+                csrf_lie: true,
             }))
         })
     }
@@ -133,15 +143,166 @@ fn application_avec(pool: PgPool, lecture_audit: PgPool, reglages: Reglages) -> 
     )
 }
 
-/// Application telle que le binaire l'assemble : authentification [`RefusTotal`].
+/// Application telle que le binaire l'assemble : authentification par les sessions de
+/// PostgreSQL ([`AuthentificationSession`]), horloge du système.
 pub fn application_du_binaire(pool: PgPool) -> Etat {
+    let reglages = Reglages::new(ORIGINE.to_owned());
     Application::new(
         pool.clone(),
-        pool,
+        pool.clone(),
         Arc::new(Autorisation::charger().expect("politiques Cedar")),
-        Arc::new(RefusTotal),
-        Reglages::new(ORIGINE.to_owned()),
+        Arc::new(AuthentificationSession::new(
+            pool,
+            Arc::new(HorlogeSysteme),
+            reglages.sessions,
+        )),
+        reglages,
     )
+}
+
+/// Horloge de test : l'instant du système décalé d'un nombre de secondes réglable.
+#[derive(Debug, Clone, Default)]
+pub struct HorlogeTest(Arc<AtomicI64>);
+
+impl HorlogeTest {
+    /// Avance l'horloge.
+    pub fn avancer(&self, duree: time::Duration) {
+        self.0.fetch_add(duree.whole_seconds(), Ordering::SeqCst);
+    }
+}
+
+impl Horloge for HorlogeTest {
+    fn maintenant(&self) -> OffsetDateTime {
+        OffsetDateTime::now_utc() + time::Duration::seconds(self.0.load(Ordering::SeqCst))
+    }
+}
+
+/// Application sur la base avec l'authentification **réelle** des sessions, son horloge
+/// (partagée avec l'authentification) et un décideur donné.
+pub fn application_sessions(
+    env: &super::Env,
+    horloge: &HorlogeTest,
+    decideur: Arc<dyn Decideur>,
+) -> Etat {
+    let reglages = Reglages::new(ORIGINE.to_owned());
+    let horloge: Arc<dyn Horloge> = Arc::new(horloge.clone());
+    Application::avec_horloge(
+        env.application.clone(),
+        env.lecture_audit.clone(),
+        decideur,
+        Arc::new(AuthentificationSession::new(
+            env.application.clone(),
+            Arc::clone(&horloge),
+            reglages.sessions,
+        )),
+        reglages,
+        horloge,
+    )
+}
+
+/// Ouvre une session (fonction interne de l'API, comme le feront les connexions des PR 8b et
+/// 8c) pour `utilisateur`, de nature `nature`, à l'instant de l'horloge.
+pub async fn ouvrir(
+    env: &super::Env,
+    horloge: &HorlogeTest,
+    utilisateur: IdUtilisateur,
+    nature: NatureSession,
+) -> SessionOuverte {
+    let nouvelle = NouvelleSession {
+        utilisateur,
+        nature,
+        methode: match nature {
+            NatureSession::Complete => MethodeSession::Passkey,
+            NatureSession::Restreinte => MethodeSession::CodeRecuperation,
+            NatureSession::Enrolement => MethodeSession::LienEnrolement,
+        },
+        instant: horloge.maintenant(),
+        appareil: Some("Navigateur de test".to_owned()),
+        adresse: Some(std::net::IpAddr::from([192, 0, 2, 7])),
+    };
+    ouvrir_session(
+        &env.application,
+        &nouvelle,
+        &Reglages::new(ORIGINE.to_owned()).sessions,
+    )
+    .await
+    .expect("ouverture de session")
+}
+
+/// Valeur de l'en-tête `Cookie` d'une session.
+pub fn cookie_de(session: &SessionOuverte) -> String {
+    let set_cookie = session.cookie(OffsetDateTime::now_utc()).expect("cookie");
+    let texte = set_cookie.to_str().expect("ASCII");
+    texte.split(';').next().expect("paire").to_owned()
+}
+
+/// Appelle `methode chemin` avec le cookie de session donné (ou aucun) et, pour une mutation,
+/// les marques de la même origine et l'en-tête anti-CSRF `csrf` (rien si `None`).
+pub async fn appeler_session(
+    routeur: &Router,
+    methode: &str,
+    chemin: &str,
+    cookie: Option<&str>,
+    csrf: Option<&str>,
+) -> Reponse {
+    appeler_session_corps(routeur, methode, chemin, cookie, csrf, "").await
+}
+
+/// Comme [`appeler_session`], avec un corps JSON.
+pub async fn appeler_session_corps(
+    routeur: &Router,
+    methode: &str,
+    chemin: &str,
+    cookie: Option<&str>,
+    csrf: Option<&str>,
+    corps: &str,
+) -> Reponse {
+    let mut requete = Request::builder().method(methode).uri(chemin);
+    if methode != "GET" {
+        requete = requete
+            .header("origin", ORIGINE)
+            .header("sec-fetch-site", "same-origin")
+            .header("content-type", "application/json");
+    }
+    if let Some(c) = cookie {
+        requete = requete.header("cookie", c);
+    }
+    if let Some(c) = csrf {
+        requete = requete.header("x-sigma-csrf", c);
+    }
+    appeler(
+        routeur,
+        requete.body(Body::from(corps.to_owned())).expect("requête"),
+    )
+    .await
+}
+
+/// Appelle une route de la table au nom d'une session réelle (cookie et jeton anti-CSRF).
+pub async fn appeler_route_session(
+    routeur: &Router,
+    route: &Route,
+    chemin: &str,
+    session: &SessionOuverte,
+) -> Reponse {
+    let csrf = session.jeton.csrf();
+    let mut requete = Request::builder()
+        .method(route.methode.nom())
+        .uri(chemin)
+        .header("cookie", cookie_de(session));
+    if route.methode != Methode::Get {
+        requete = requete
+            .header("origin", ORIGINE)
+            .header("sec-fetch-site", "same-origin")
+            .header("x-sigma-csrf", csrf)
+            .header("content-type", "application/json");
+    }
+    appeler(
+        routeur,
+        requete
+            .body(Body::from(corps_de(route).to_owned()))
+            .expect("requête"),
+    )
+    .await
 }
 
 /// Réponse lue en entier.
@@ -230,6 +391,16 @@ pub async fn appeler_route(
     match route.methode {
         Methode::Get => lire(routeur, chemin, utilisateur).await,
         Methode::Post => envoyer(routeur, chemin, utilisateur, corps_de(route), None).await,
+        Methode::Delete => {
+            let mut requete = Request::delete(chemin)
+                .header("origin", ORIGINE)
+                .header("sec-fetch-site", "same-origin")
+                .header("x-sigma-csrf", "1");
+            if let Some(u) = utilisateur {
+                requete = requete.header(EN_TETE_UTILISATEUR, u.to_string());
+            }
+            appeler(routeur, requete.body(Body::empty()).expect("requête")).await
+        }
     }
 }
 

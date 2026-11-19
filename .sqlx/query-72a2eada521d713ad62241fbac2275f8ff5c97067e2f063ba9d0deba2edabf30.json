@@ -1,0 +1,131 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, utilisateur_id, nature, methode, cree_le, derniere_activite,\n               derniere_verification, revoquee_le, appareil, host(adresse) AS adresse\n        FROM session WHERE jeton_hache = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "utilisateur_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "utilisateur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nature",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "nature"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "methode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "methode"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "cree_le"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "derniere_activite",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "derniere_activite"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "derniere_verification",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "derniere_verification"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "revoquee_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "revoquee_le"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "appareil",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "session",
+            "name": "appareil"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "72a2eada521d713ad62241fbac2275f8ff5c97067e2f063ba9d0deba2edabf30"
+}

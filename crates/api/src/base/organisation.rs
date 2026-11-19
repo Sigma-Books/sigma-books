@@ -13,7 +13,7 @@ use time::OffsetDateTime;
 
 use super::{
     ErreurBase, IdAccesDossier, IdAppartenance, IdCabinet, IdDossier, IdUtilisateur,
-    TransactionTenant,
+    TransactionTenant, TransactionUtilisateur,
 };
 
 /// Un cabinet (tenant).
@@ -103,6 +103,54 @@ pub async fn lire_appartenance(
         role: l.role,
         actif: l.actif,
     }))
+}
+
+/// Les appartenances **actives** de l'utilisateur du contexte, avec leur cabinet, par nom de
+/// cabinet : sans cabinet en contexte (choix du cabinet actif, ADR 0012). La RLS ne laisse voir
+/// que ses propres appartenances et leurs cabinets (politiques `appartenance_membre` et
+/// `cabinet_membre`) ; la requête filtre aussi par l'utilisateur et écarte les appartenances
+/// suspendues. Cedar décide ensuite chacune.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn lister_cabinets_de_l_utilisateur(
+    tx: &mut TransactionUtilisateur,
+) -> Result<Vec<(Appartenance, Cabinet)>, ErreurBase> {
+    let utilisateur = tx.utilisateur().uuid();
+    let lignes = sqlx::query!(
+        r#"
+        SELECT a.id, a.cabinet_id, a.utilisateur_id, a.role, a.actif,
+               c.nom, c.separation_taches, c.cree_le
+        FROM appartenance a
+        JOIN cabinet c ON c.id = a.cabinet_id
+        WHERE a.utilisateur_id = $1 AND a.actif
+        ORDER BY c.nom, c.id
+        "#,
+        utilisateur,
+    )
+    .fetch_all(tx.connexion())
+    .await?;
+    Ok(lignes
+        .into_iter()
+        .map(|l| {
+            let cabinet = IdCabinet::depuis_uuid(l.cabinet_id);
+            (
+                Appartenance {
+                    id: IdAppartenance::depuis_uuid(l.id),
+                    cabinet,
+                    utilisateur: IdUtilisateur::depuis_uuid(l.utilisateur_id),
+                    role: l.role,
+                    actif: l.actif,
+                },
+                Cabinet {
+                    id: cabinet,
+                    nom: l.nom,
+                    separation_taches: l.separation_taches,
+                    cree_le: l.cree_le,
+                },
+            )
+        })
+        .collect())
 }
 
 /// Lit l'affectation de l'utilisateur du contexte à un dossier du cabinet du contexte (et, dans

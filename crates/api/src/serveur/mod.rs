@@ -34,8 +34,10 @@ pub mod entetes;
 pub mod erreur;
 pub mod journal;
 pub mod limites;
+mod moi;
 pub mod pipeline;
 pub mod routes;
+pub mod session;
 mod statique;
 
 use std::convert::Infallible;
@@ -60,12 +62,14 @@ use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 
-pub use authentification::{Authentification, Identite, RefusTotal};
+pub use authentification::{Authentification, Identite, NatureSession};
 pub use erreur::{CategorieErreur, ErreurApi};
 pub use limites::ReglageDebit;
 pub use pipeline::Decideur;
+pub use session::{AuthentificationSession, Horloge, HorlogeSysteme};
 
 use crate::base::IdUtilisateur;
+use crate::base::session::DureesSession;
 use limites::{CleAdresse, LimiteurDebit, adresse_client};
 
 /// Réglages du serveur. [`Reglages::new`] donne les valeurs par défaut documentées.
@@ -93,6 +97,8 @@ pub struct Reglages {
     pub taille_en_tetes_max: usize,
     /// Nombre maximal d'en-têtes.
     pub nombre_en_tetes_max: usize,
+    /// Durées des sessions (ADR 0012) et conservation des sessions closes.
+    pub sessions: DureesSession,
 }
 
 impl Reglages {
@@ -118,6 +124,7 @@ impl Reglages {
             delai_en_tetes: Duration::from_secs(10),
             taille_en_tetes_max: 16 * 1024,
             nombre_en_tetes_max: 64,
+            sessions: DureesSession::default(),
         }
     }
 }
@@ -129,6 +136,7 @@ pub struct Application {
     pool_lecture_audit: PgPool,
     decideur: Arc<dyn Decideur>,
     authentification: Arc<dyn Authentification>,
+    horloge: Arc<dyn Horloge>,
     reglages: Reglages,
     limiteur_adresse: LimiteurDebit<CleAdresse>,
     limiteur_utilisateur: LimiteurDebit<IdUtilisateur>,
@@ -138,8 +146,9 @@ pub struct Application {
 pub type Etat = Arc<Application>;
 
 impl Application {
-    /// Assemble l'application. Le binaire passe le pool du rôle applicatif, celui du rôle de
-    /// lecture d'audit, [`authz::Autorisation`] et [`RefusTotal`] (jusqu'aux sessions, PR 8).
+    /// Assemble l'application avec l'horloge du système. Le binaire passe le pool du rôle
+    /// applicatif, celui du rôle de lecture d'audit, [`authz::Autorisation`] et
+    /// [`AuthentificationSession`] (sessions lues dans PostgreSQL).
     #[must_use]
     pub fn new(
         pool: PgPool,
@@ -148,11 +157,33 @@ impl Application {
         authentification: Arc<dyn Authentification>,
         reglages: Reglages,
     ) -> Etat {
+        Self::avec_horloge(
+            pool,
+            pool_lecture_audit,
+            decideur,
+            authentification,
+            reglages,
+            Arc::new(HorlogeSysteme),
+        )
+    }
+
+    /// Comme [`Application::new`], avec une horloge donnée (tests : expiration des sessions,
+    /// fraîcheur). Elle doit être celle de l'authentification.
+    #[must_use]
+    pub fn avec_horloge(
+        pool: PgPool,
+        pool_lecture_audit: PgPool,
+        decideur: Arc<dyn Decideur>,
+        authentification: Arc<dyn Authentification>,
+        reglages: Reglages,
+        horloge: Arc<dyn Horloge>,
+    ) -> Etat {
         Arc::new(Self {
             pool,
             pool_lecture_audit,
             decideur,
             authentification,
+            horloge,
             limiteur_adresse: LimiteurDebit::new(reglages.debit_adresse),
             limiteur_utilisateur: LimiteurDebit::new(reglages.debit_utilisateur),
             reglages,
@@ -346,9 +377,13 @@ mod tests {
             .unwrap();
         let etat = Application::new(
             pool.clone(),
-            pool,
+            pool.clone(),
             Arc::new(authz::Autorisation::charger().unwrap()),
-            Arc::new(RefusTotal),
+            Arc::new(AuthentificationSession::new(
+                pool,
+                Arc::new(HorlogeSysteme),
+                reglages.sessions,
+            )),
             reglages.clone(),
         );
         // Route de test qui lit le corps (aucune route de la table n'en lit en PR 6).
