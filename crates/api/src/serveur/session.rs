@@ -60,7 +60,7 @@ use super::authentification::{
 use super::config::{Environnement, ErreurConfiguration};
 use super::csrf::EN_TETE_CSRF;
 use crate::base::session::{self, DureesSession, EmpreinteJeton, NouvelleSession, Session};
-use crate::base::{ErreurBase, IdSession, ouvrir_transaction_utilisateur};
+use crate::base::{ErreurBase, IdSession, TransactionUtilisateur, ouvrir_transaction_utilisateur};
 
 /// Nom du cookie de session (préfixe `__Host-` : `Secure`, `Path=/`, sans `Domain`).
 pub const NOM_COOKIE: &str = "__Host-sigma_session";
@@ -241,8 +241,9 @@ pub enum ErreurOuverture {
 /// sessions closes depuis plus de [`DureesSession::conservation`] (aucune purge ne traverse
 /// plusieurs utilisateurs).
 ///
-/// Fonction interne : en PR 8a, seuls les tests l'appellent ; la connexion par secours (PR 8b)
-/// et par passkey (PR 8c) l'appelleront après la vérification du facteur.
+/// Fonction interne, pour les tests et une future connexion par passkey (PR 8c) ; la connexion
+/// par secours (PR 8b) ouvre la session dans sa propre transaction
+/// ([`ouvrir_session_dans`]), avec l'événement et l'audit.
 ///
 /// # Errors
 /// [`ErreurOuverture`].
@@ -251,13 +252,26 @@ pub async fn ouvrir_session(
     nouvelle: &NouvelleSession,
     durees: &DureesSession,
 ) -> Result<SessionOuverte, ErreurOuverture> {
+    let mut tx = ouvrir_transaction_utilisateur(pool, nouvelle.utilisateur).await?;
+    let ouverte = ouvrir_session_dans(&mut tx, nouvelle, durees).await?;
+    tx.confirmer().await?;
+    Ok(ouverte)
+}
+
+/// Comme [`ouvrir_session`], dans la transaction de l'utilisateur dont le facteur vient d'être
+/// vérifié (connexion : la consommation du facteur, la session, l'événement et l'audit sont
+/// validés ensemble, ou pas du tout).
+///
+/// # Errors
+/// [`ErreurOuverture`].
+pub async fn ouvrir_session_dans(
+    tx: &mut TransactionUtilisateur,
+    nouvelle: &NouvelleSession,
+    durees: &DureesSession,
+) -> Result<SessionOuverte, ErreurOuverture> {
     let jeton = JetonSession::tirer()?;
     let id = IdSession::nouveau();
-    let mut tx = ouvrir_transaction_utilisateur(pool, nouvelle.utilisateur).await?;
-    session::creer(&mut tx, id, nouvelle, &jeton.empreinte(), durees).await?;
-    tx.confirmer().await?;
-    // Point d'insertion de l'événement d'audit « session ouverte » (hors cabinet) : en attente
-    // de la décision du mainteneur sur la traçabilité de l'authentification (ADR 0012, 0014).
+    session::creer(tx, id, nouvelle, &jeton.empreinte(), durees).await?;
     Ok(SessionOuverte {
         id,
         jeton,

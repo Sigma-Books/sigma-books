@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use api::base::session::{MethodeSession, NatureSession, NouvelleSession};
 use api::base::{IdSession, IdUtilisateur};
+use api::facteurs::cle::CleInstance;
 use api::serveur::authentification::{
     Authentification, ErreurAuthentification, Identite, ResultatAuthentification,
 };
@@ -21,8 +22,8 @@ use api::serveur::{
     journal, routeur,
 };
 use authz::{
-    Action, ActionUtilisateur, Autorisation, Contexte, Decision, Entites, Ressource,
-    RessourceUtilisateur, Verdict,
+    Action, ActionFacteur, ActionUtilisateur, Autorisation, Contexte, ContexteFacteur, Decision,
+    Entites, Ressource, RessourceUtilisateur, Verdict,
 };
 use axum::Router;
 use axum::body::Body;
@@ -126,6 +127,43 @@ impl Decideur for ToujoursAutorise {
             politiques: vec!["test-toujours-autorise".to_owned()],
         }
     }
+
+    fn verdict_connexion(&self) -> Verdict {
+        Verdict {
+            decision: Decision::Autorise,
+            politiques: vec!["test-toujours-autorise".to_owned()],
+        }
+    }
+
+    fn verdict_facteur(
+        &self,
+        _principal: authz::IdUtilisateur,
+        _action: ActionFacteur,
+        _ressource: authz::IdUtilisateur,
+        _contexte: ContexteFacteur,
+    ) -> Verdict {
+        Verdict {
+            decision: Decision::Autorise,
+            politiques: vec!["test-toujours-autorise".to_owned()],
+        }
+    }
+}
+
+/// Clé de l'instance des tests : tirée une fois par binaire de test, jamais écrite.
+pub fn cle_de_test() -> Arc<CleInstance> {
+    static CLE: OnceLock<Arc<CleInstance>> = OnceLock::new();
+    Arc::clone(CLE.get_or_init(|| {
+        let mut octets = [0u8; 32];
+        getrandom::fill(&mut octets).expect("aléa");
+        Arc::new(CleInstance::depuis_octets(octets))
+    }))
+}
+
+/// Réglages de test : ceux par défaut, avec la clé de l'instance des tests.
+pub fn reglages_de_test() -> Reglages {
+    let mut reglages = Reglages::new(ORIGINE.to_owned());
+    reglages.facteurs.cle_instance = Some(cle_de_test());
+    reglages
 }
 
 /// Pool qui ne se connecte jamais tant qu'il n'est pas utilisé : pour les tests sans base, dont
@@ -149,7 +187,10 @@ pub fn application_base(env: &super::Env, reglages: Reglages) -> Etat {
     application_avec(env.application.clone(), env.lecture_audit.clone(), reglages)
 }
 
-fn application_avec(pool: PgPool, lecture_audit: PgPool, reglages: Reglages) -> Etat {
+fn application_avec(pool: PgPool, lecture_audit: PgPool, mut reglages: Reglages) -> Etat {
+    if reglages.facteurs.cle_instance.is_none() {
+        reglages.facteurs.cle_instance = Some(cle_de_test());
+    }
     Application::new(
         pool,
         lecture_audit,
@@ -200,7 +241,16 @@ pub fn application_sessions(
     horloge: &HorlogeTest,
     decideur: Arc<dyn Decideur>,
 ) -> Etat {
-    let reglages = Reglages::new(ORIGINE.to_owned());
+    application_sessions_avec(env, horloge, decideur, reglages_de_test())
+}
+
+/// Comme [`application_sessions`], avec des réglages donnés (débits des connexions…).
+pub fn application_sessions_avec(
+    env: &super::Env,
+    horloge: &HorlogeTest,
+    decideur: Arc<dyn Decideur>,
+    reglages: Reglages,
+) -> Etat {
     let horloge: Arc<dyn Horloge> = Arc::new(horloge.clone());
     Application::avec_horloge(
         env.application.clone(),

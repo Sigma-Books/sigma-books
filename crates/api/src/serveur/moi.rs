@@ -29,10 +29,10 @@
 //! l'utilisateur change de cabinet ; le serveur tourne le jeton sans rien mémoriser du cabinet.
 //!
 //! # Audit
-//! Ces actions ne touchent aucun cabinet : leur traçabilité (événements hors cabinet) attend une
-//! décision du mainteneur (ADR 0012 renvoie à l'ADR 0014, qui ne la couvre pas). Les points
-//! d'insertion sont marqués « Point d'insertion de l'audit ». Aucune trace n'est donc exigée
-//! d'elles par le pipeline.
+//! Ces actions ne touchent aucun cabinet : aucune trace d'audit chaîné n'est exigée d'elles par
+//! le pipeline. La déconnexion et la révocation d'une session sont inscrites au journal
+//! d'instance des événements d'authentification de l'utilisateur (ADR 0017), dans la
+//! transaction de l'action ; la rotation, sans effet sur l'accès, ne l'est pas.
 
 use authz::{
     Action, ActionUtilisateur, Contexte, Decision, Entites, Ressource, RessourceUtilisateur,
@@ -52,6 +52,7 @@ use super::erreur::{CategorieErreur, ErreurApi};
 use super::pipeline::{id_authz, id_chemin, role};
 use super::routes::{self, ActionRoute, CasUsage, Route};
 use super::session::{JetonSession, cookie, cookie_efface, jeton_de_la_requete};
+use crate::base::evenement::{self, Issue, NatureEvenement, NouvelEvenement};
 use crate::base::organisation::lister_cabinets_de_l_utilisateur;
 use crate::base::session::{self, DureesSession, MotifRevocation, Session};
 use crate::base::{
@@ -83,17 +84,17 @@ pub(crate) async fn executer(
             lister(&mut tx, &soi()?, identite, maintenant, &durees).await
         }
         CasUsage::Moi(routes::moi::Cas::RevoquerSession) => {
-            revoquer(&mut tx, &soi()?, parts, maintenant).await
+            revoquer(&mut tx, &soi()?, parts, identite, maintenant).await
         }
         CasUsage::Moi(routes::moi::Cas::ListerCabinets) => {
             lister_cabinets(etat, &mut tx, route, identite, maintenant).await
         }
-        // Cas d'usage d'un cabinet : pipeline complet, jamais ici.
-        CasUsage::Organisation(_) | CasUsage::Audit(_) => {
+        // Cas d'usage d'un cabinet : pipeline complet, jamais ici ; facteurs (voie
+        // authentification) : module `serveur::facteurs`.
+        CasUsage::Organisation(_) | CasUsage::Audit(_) | CasUsage::Facteurs(_) => {
             Err(ErreurApi::Interne(CategorieErreur::Donnee))
         }
         // Voie authentification (PR 8b, 8c, 9).
-        CasUsage::Facteurs(cas) => match cas {},
         CasUsage::Passkeys(cas) => match cas {},
         CasUsage::Administration(cas) => match cas {},
         // Voie comptabilité (PR 11, 13, 14).
@@ -158,6 +159,25 @@ impl<'a> Soi<'a> {
         } else {
             Err(ErreurApi::Introuvable)
         }
+    }
+}
+
+/// Événement d'authentification d'une action sur ses sessions (ADR 0017) : la session de la
+/// requête, sans appareil ni adresse (ceux de la session restent dans sa ligne).
+fn evenement_de_session(
+    identite: &Identite,
+    nature: NatureEvenement,
+    instant: OffsetDateTime,
+) -> NouvelEvenement {
+    NouvelEvenement {
+        utilisateur: identite.utilisateur,
+        session: Some(identite.session),
+        nature,
+        methode: None,
+        issue: Issue::Succes,
+        instant,
+        appareil: None,
+        adresse: None,
     }
 }
 
@@ -262,7 +282,7 @@ async fn tourner(
     // Même ligne, même ouverture : la fin absolue ne change pas.
     let valeur = cookie(&jeton, s.fin_absolue(durees) - maintenant)
         .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
-    // Point d'insertion de l'audit (hors cabinet) : rotation du jeton de la session.
+    // Rotation sans effet sur l'accès (même session) : aucun événement (ADR 0017).
     let vue = VueRotation { csrf: jeton.csrf() };
     Ok(avec_cookie(Json(vue).into_response(), valeur))
 }
@@ -283,7 +303,11 @@ async fn deconnecter(
         MotifRevocation::Deconnexion,
     )
     .await?;
-    // Point d'insertion de l'audit (hors cabinet) : déconnexion.
+    evenement::inscrire(
+        tx,
+        &evenement_de_session(identite, NatureEvenement::Deconnexion, maintenant),
+    )
+    .await?;
     Ok(avec_cookie(
         StatusCode::NO_CONTENT.into_response(),
         cookie_efface(),
@@ -347,6 +371,7 @@ async fn revoquer(
     tx: &mut TransactionUtilisateur,
     soi: &Soi<'_>,
     parts: &mut Parts,
+    identite: &Identite,
     maintenant: OffsetDateTime,
 ) -> Result<Response, ErreurApi> {
     let parametres = RawPathParams::from_request_parts(parts, &())
@@ -361,7 +386,14 @@ async fn revoquer(
     if !session::revoquer(tx, id, maintenant, MotifRevocation::RevocationUtilisateur).await? {
         return Err(ErreurApi::Introuvable);
     }
-    // Point d'insertion de l'audit (hors cabinet) : révocation d'une session.
+    evenement::inscrire(
+        tx,
+        &NouvelEvenement {
+            session: Some(id),
+            ..evenement_de_session(identite, NatureEvenement::RevocationSession, maintenant)
+        },
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

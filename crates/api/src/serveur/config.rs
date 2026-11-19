@@ -13,6 +13,7 @@
 //! | base | [`crate::base::config`] | `SIGMA_URL_BASE_APPLICATION`, `SIGMA_URL_BASE_LECTURE_AUDIT` |
 //! | horodatage | [`crate::horodatage::config`] | `SIGMA_AUTORITES_HORODATAGE` |
 //! | sessions | [`super::session::configurer`] | `SIGMA_CONSERVATION_SESSIONS_JOURS` |
+//! | facteurs | [`super::facteurs::configurer`] | `SIGMA_FICHIER_CLE_INSTANCE` |
 //!
 //! Variables du serveur :
 //!
@@ -116,6 +117,7 @@ impl Configuration {
         let autorites_horodatage = crate::horodatage::config::autorites(&env)?;
         super::session::configurer(&env, &mut reglages.sessions)?;
         // Voie authentification (PR 8b, 8c, 9).
+        super::facteurs::configurer(&env, &mut reglages.facteurs)?;
         //
         // Voie comptabilité (PR 11, 13, 14).
         //
@@ -188,22 +190,44 @@ mod tests {
         move |nom| table.get(nom).cloned()
     }
 
-    const COMPLETE: [(&str, &str); 4] = [
-        ("SIGMA_ADRESSE_ECOUTE", "127.0.0.1:8080"),
-        (
-            "SIGMA_URL_BASE_APPLICATION",
-            "postgres://sigma_application@localhost/sigma_books",
-        ),
-        (
-            "SIGMA_URL_BASE_LECTURE_AUDIT",
-            "postgres://sigma_lecture_audit@localhost/sigma_books",
-        ),
-        ("SIGMA_ORIGINE", "https://Compta.Exemple.invalid"),
-    ];
+    /// Fichier de clé de l'instance de ces tests (droits 0600), écrit une fois dans le
+    /// répertoire temporaire, et un fichier aux droits trop larges.
+    fn fichiers_de_cle() -> &'static (String, String) {
+        use std::os::unix::fs::PermissionsExt;
+        static FICHIERS: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+        FICHIERS.get_or_init(|| {
+            let repertoire =
+                std::env::temp_dir().join(format!("sigma-config-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&repertoire).unwrap();
+            let ecrire = |nom: &str, mode: u32| {
+                let chemin = repertoire.join(nom);
+                std::fs::write(&chemin, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=").unwrap();
+                std::fs::set_permissions(&chemin, std::fs::Permissions::from_mode(mode)).unwrap();
+                chemin.display().to_string()
+            };
+            (ecrire("cle", 0o600), ecrire("cle-ouverte", 0o644))
+        })
+    }
+
+    fn complete() -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("SIGMA_ADRESSE_ECOUTE", "127.0.0.1:8080"),
+            (
+                "SIGMA_URL_BASE_APPLICATION",
+                "postgres://sigma_application@localhost/sigma_books",
+            ),
+            (
+                "SIGMA_URL_BASE_LECTURE_AUDIT",
+                "postgres://sigma_lecture_audit@localhost/sigma_books",
+            ),
+            ("SIGMA_ORIGINE", "https://Compta.Exemple.invalid"),
+            ("SIGMA_FICHIER_CLE_INSTANCE", fichiers_de_cle().0.as_str()),
+        ]
+    }
 
     #[test]
     fn une_configuration_complete_est_acceptee() {
-        let config = Configuration::depuis(lire(&COMPLETE)).unwrap();
+        let config = Configuration::depuis(lire(&complete())).unwrap();
         assert_eq!(config.reglages.origine, "https://compta.exemple.invalid");
         assert_eq!(config.reglages.en_tete_adresse_client, None);
         assert_eq!(config.reglages.repertoire_web, None);
@@ -214,11 +238,14 @@ mod tests {
         );
         assert!(!format!("{config:?}").contains("sigma_application@"));
         assert!(!format!("{config:?}").contains("sigma_lecture_audit@"));
+        // La clé de l'instance est lue ; `Debug` n'en montre que l'identifiant.
+        assert!(config.reglages.facteurs.cle_instance.is_some());
+        assert!(!format!("{config:?}").contains("AAAAAAAA"));
     }
 
     #[test]
     fn la_conservation_des_sessions_est_configurable() {
-        let mut paires = COMPLETE.to_vec();
+        let mut paires = complete();
         paires.push(("SIGMA_CONSERVATION_SESSIONS_JOURS", " 90 "));
         let config = Configuration::depuis(lire(&paires)).unwrap();
         assert_eq!(
@@ -229,8 +256,8 @@ mod tests {
 
     #[test]
     fn chaque_variable_obligatoire_manquante_empeche_le_demarrage() {
-        for i in 0..COMPLETE.len() {
-            let mut paires = COMPLETE.to_vec();
+        for i in 0..complete().len() {
+            let mut paires = complete();
             let (nom, _) = paires.remove(i);
             assert_eq!(
                 Configuration::depuis(lire(&paires)),
@@ -261,8 +288,10 @@ mod tests {
             ("SIGMA_CONSERVATION_SESSIONS_JOURS", "0"),
             ("SIGMA_CONSERVATION_SESSIONS_JOURS", "3651"),
             ("SIGMA_CONSERVATION_SESSIONS_JOURS", "trente"),
+            ("SIGMA_FICHIER_CLE_INSTANCE", "/fichier/inexistant/sigma"),
+            ("SIGMA_FICHIER_CLE_INSTANCE", fichiers_de_cle().1.as_str()),
         ] {
-            let mut paires = COMPLETE.to_vec();
+            let mut paires = complete();
             paires.retain(|(n, _)| *n != nom);
             paires.push((nom, valeur));
             let erreur = Configuration::depuis(lire(&paires)).unwrap_err();
@@ -273,7 +302,7 @@ mod tests {
 
     #[test]
     fn la_liste_des_autorites_d_horodatage_est_configurable() {
-        let mut paires = COMPLETE.to_vec();
+        let mut paires = complete();
         paires.push((
             "SIGMA_AUTORITES_HORODATAGE",
             "http://tsa-b.exemple.invalid:3161/cle-secrete, http://tsa-a.exemple.invalid",
