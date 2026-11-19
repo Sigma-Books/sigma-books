@@ -250,10 +250,12 @@ pub fn verifier_liste_blanche(evenements: &[Evenement], interdits: &[String]) {
                 journal::CHAMPS.contains(&champ.as_str()),
                 "champ hors liste blanche : {champ} ({evenement:?})"
             );
-            for interdit in interdits {
+            // Le message d'échec ne reprend ni la valeur interdite (un jeton, par exemple) ni
+            // l'événement qui la contient : seulement son rang et le champ fautif.
+            for (rang, interdit) in interdits.iter().enumerate() {
                 assert!(
                     !valeur.contains(interdit.as_str()),
-                    "valeur interdite dans les journaux : {interdit} ({evenement:?})"
+                    "valeur interdite n° {rang} dans le champ « {champ} » des journaux"
                 );
             }
         }
