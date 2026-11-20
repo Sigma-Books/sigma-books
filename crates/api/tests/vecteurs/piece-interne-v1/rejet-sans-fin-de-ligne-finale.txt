@@ -1,0 +1,9 @@
+sigma-books piece-interne v1
+nature=note-od
+cabinet=0193e0c2-7d1a-4c4e-9f00-1a2b3c4d5e6f
+dossier=0193e0c3-1111-4a2b-8c3d-000000000001
+auteur=0193e0c4-aaaa-4bbb-8ccc-000000000001
+instant=0000-01-01T00:00:00.000000Z
+date=9999-12-31
+motif=x
+fin

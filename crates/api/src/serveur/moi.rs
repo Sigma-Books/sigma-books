@@ -101,8 +101,8 @@ pub(crate) async fn executer(
         CasUsage::Referentiel(cas) => match cas {},
         CasUsage::Brouillard(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
-        // Voie pièces (PR 12).
-        CasUsage::Pieces(cas) => match cas {},
+        // Voie pièces (PR 12) : routes d'un dossier, jamais ici.
+        CasUsage::Pieces(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
         // Voie intégrité et horodatage (PR 15).
         CasUsage::Integrite(cas) => match cas {},
     }?;

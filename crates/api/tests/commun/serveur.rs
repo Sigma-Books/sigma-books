@@ -15,7 +15,7 @@ use api::facteurs::cle::CleInstance;
 use api::serveur::authentification::{
     Authentification, ErreurAuthentification, Identite, ResultatAuthentification,
 };
-use api::serveur::routes::{CasUsage, Methode, Route, organisation};
+use api::serveur::routes::{CasUsage, Methode, Route, organisation, pieces};
 use api::serveur::session::{SessionOuverte, ouvrir_session};
 use api::serveur::{
     Application, AuthentificationSession, Decideur, Etat, Horloge, HorlogeSysteme, Reglages,
@@ -193,13 +193,23 @@ fn application_avec(pool: PgPool, lecture_audit: PgPool, mut reglages: Reglages)
     if reglages.facteurs.cle_instance.is_none() {
         reglages.facteurs.cle_instance = Some(cle_de_test());
     }
-    Application::new(
+    let etat = Application::new(
         pool,
         lecture_audit,
         Arc::new(Autorisation::charger().expect("politiques Cedar")),
         Arc::new(AuthentificationTest::default()),
         reglages,
-    )
+    );
+    brancher_pieces_memoire(&etat);
+    etat
+}
+
+/// Voie pièces (PR 12) : branche un stockage des pièces en mémoire, neuf.
+pub fn brancher_pieces_memoire(etat: &Etat) -> super::pieces::StockageMemoire {
+    let stockage = super::pieces::StockageMemoire::default();
+    etat.brancher_pieces(super::pieces::pieces_memoire(&stockage))
+        .expect("service des pièces branché une seule fois");
+    stockage
 }
 
 /// Application telle que le binaire l'assemble : authentification par les sessions de
@@ -446,6 +456,12 @@ pub fn corps_de(route: &Route) -> &'static str {
         CasUsage::Organisation(organisation::Cas::CreerDossier) => {
             r#"{"nom":"Dossier créé par le test"}"#
         }
+        // Voie pièces (PR 12) : un PDF minimal (signature seule), une note d'OD, un motif.
+        CasUsage::Pieces(pieces::Cas::Deposer) => "%PDF-1.7\n% pièce de test\n",
+        CasUsage::Pieces(pieces::Cas::CreerInterne) => {
+            r#"{"date":"2026-11-19","motif":"Régularisation de test"}"#
+        }
+        CasUsage::Pieces(pieces::Cas::Ecarter) => r#"{"motif":"Dépôt erroné"}"#,
         _ => "",
     }
 }

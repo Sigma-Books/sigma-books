@@ -7,7 +7,8 @@
 //! politiques reçues : l'en-tête ne peut donc que restreindre. Pour les fichiers de l'interface, il
 //! n'ajoute que ce qu'une balise `<meta>` ne sait pas exprimer (`frame-ancestors`), plus deux
 //! directives identiques à celles de la balise : il ne casse rien. Les réponses de l'API (JSON) ne
-//! chargent rien : `default-src 'none'`.
+//! chargent rien : `default-src 'none'` ; elles sont en outre isolées (`sandbox`), ce qu'exige le
+//! téléchargement d'une pièce justificative ouverte par erreur dans un onglet (ADR 0015, F1.5).
 
 use axum::extract::Request;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, header};
@@ -19,7 +20,7 @@ pub const PREFIXE_API: &str = "/api";
 
 /// CSP des réponses de l'API.
 pub const CSP_API: &str =
-    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+    "sandbox; default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 /// CSP des fichiers de l'interface : complète la balise `<meta>` de `SvelteKit` sans la contredire.
 pub const CSP_INTERFACE: &str = "frame-ancestors 'none'; base-uri 'none'; object-src 'none'";

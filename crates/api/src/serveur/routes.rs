@@ -30,6 +30,7 @@ pub mod referentiel;
 pub mod session;
 
 use authz::{Action, ActionFacteur, ActionUtilisateur};
+use axum::extract::RawPathParams;
 use axum::http::Method;
 use axum::response::Response;
 use axum::routing::MethodFilter;
@@ -294,6 +295,10 @@ pub struct Requete<'a> {
     pub corps: &'a [u8],
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
+    /// Paramètres du chemin (`{piece}`…), non décodés.
+    pub chemin: &'a RawPathParams,
+    /// Service des pièces, s'il est branché (voie pièces, PR 12).
+    pub pieces: Option<&'a crate::pieces::Pieces>,
 }
 
 /// Résultat d'un cas d'usage : la réponse, et les traces à inscrire au journal d'audit avant
@@ -339,7 +344,7 @@ pub(crate) async fn executer(
         CasUsage::Brouillard(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
         // Voie pièces (PR 12).
-        CasUsage::Pieces(cas) => match cas {},
+        CasUsage::Pieces(cas) => pieces::executer(cas, tx, garde, requete).await,
         // Voie intégrité et horodatage (PR 15).
         CasUsage::Integrite(cas) => match cas {},
     }

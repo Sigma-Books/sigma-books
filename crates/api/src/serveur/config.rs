@@ -14,6 +14,7 @@
 //! | horodatage | [`crate::horodatage::config`] | `SIGMA_AUTORITES_HORODATAGE` |
 //! | sessions | [`super::session::configurer`] | `SIGMA_CONSERVATION_SESSIONS_JOURS` |
 //! | facteurs | [`super::facteurs::configurer`] | `SIGMA_FICHIER_CLE_INSTANCE` |
+//! | pièces | [`crate::pieces::config`] | `SIGMA_PIECES_*` |
 //!
 //! Variables du serveur :
 //!
@@ -91,7 +92,8 @@ pub struct Configuration {
     // Voie comptabilité (PR 11, 13, 14) : configuration de ses modules.
     //
     // Voie pièces (PR 12) : configuration de ses modules.
-    //
+    /// Pièces justificatives : stockage objet et réglages ([`crate::pieces::config`]).
+    pub pieces: crate::pieces::config::ConfigurationPieces,
     // Voie intégrité et horodatage (PR 15) : configuration de ses modules.
 }
 
@@ -122,13 +124,14 @@ impl Configuration {
         // Voie comptabilité (PR 11, 13, 14).
         //
         // Voie pièces (PR 12).
-        //
+        let pieces = crate::pieces::config::configuration(&env)?;
         // Voie intégrité et horodatage (PR 15).
         Ok(Self {
             adresse_ecoute,
             base,
             reglages,
             autorites_horodatage,
+            pieces,
         })
     }
 }
