@@ -1,0 +1,45 @@
+# 0019 — Étiquette fiscale de la ligne d'écriture
+
+- **Statut :** proposée
+- **Date :** 2026-11-20
+
+## Contexte
+La question 7.2 du lot L2 (réponse a, 2026-11-19) veut que la ligne d'écriture porte une **étiquette fiscale** facultative, sans laquelle la déclaration de TVA de L5 ne saurait pas classer les écritures saisies en L2 : les comptes 443x et 445x donnent les montants de taxe par nature, jamais les bases par taux, l'exonéré ventilé entre l'art. 361 et l'art. 380, ni le motif (CGI du Sénégal consolidé, janvier 2025, art. 449-2 et 449-4). Issue #182.
+
+Ce que font les moteurs de référence :
+- **Tryton** porte des lignes de taxe sur la ligne d'écriture, mais elles restent modifiables après validation.
+- **Odoo** copie des étiquettes sur la ligne, mais hors de son hachage d'intégrité et modifiables ; un module les réécrit même rétroactivement.
+- **OCA** lit la configuration courante des taxes : son rapport change après coup.
+- **Dolibarr** (et Bigcapital) ignorent les écritures manuelles.
+
+Aucun ne fige ni ne hache l'information fiscale de la ligne.
+
+## Décision
+1. **L'étiquette est dans le contenu haché** de l'écriture (ADR 0007) : une écriture validée est définitive, son étiquette aussi. Elle ne se corrige que par contre-passation, et `Ligne::miroir` **copie l'étiquette telle quelle** (seul le sens D/C s'inverse ; la déclaration, qui somme débit − crédit par étiquette, s'annule d'elle-même).
+2. **Contenu** : nature (`base` ou `taxe`), sens (`collectee` ou `deductible`), régime (code de la liste fermée), taux (décimal exact recopié, `18` ou `10`, **jamais une référence**), exigibilité (`debit` ou `encaissement`), motif d'exonération (code de la liste fermée, **obligatoire** pour un régime exonéré, interdit sinon). Pour une opération exonérée il n'y a pas de ligne de TVA : seule la ligne de base est étiquetée, donc une ligne de taxe ne porte jamais de motif.
+3. **Valeurs stables, aucune référence à une configuration modifiable.** Les codes sont à **ajout seul** : un code n'est ni retiré ni renommé (un test fige la liste).
+4. **Régimes** (`crates/fiscal-sn/data/regimes-tva.toml`, CGI consolidé janvier 2025, la loi 2025-17 ne modifie pas la TVA), 13 codes : `IMP18` (art. 369, p. 184), `IMP10` (art. 369 al. 2, p. 184), `IMP_ENC` (fait générateur à l'encaissement, art. 362-5, p. 181-182), `EXO361` (exonéré sans déduction, art. 361, p. 176-181), `EXO380` (exonéré avec déduction, art. 380, p. 189), `HORS_CHAMP` (art. 356 à 359 et 352, p. 174-175 et 157), `AUTOLIQ_REPFISC` (art. 355-3, p. 159-160), `COLLECTE_NUM` (art. 355 bis, p. 160), `PRECOMPTE` (art. 372-1 et 372-2, p. 185-186), `MARGE` (art. 370 et 371, p. 184-185), `SUSPENSION` (art. 373, p. 187), `REGUL` (art. 386 et 387, p. 193-194), `REMB_ANNUL` (art. 389, p. 194-195). Chaque entrée porte article, alinéa, pages, droit à déduction, exigibilité et leurs sources ; « non trouvé » est dit tel quel (déduction et exigibilité de l'autoliquidation et de la collecte numérique, exigibilité du remboursement).
+5. **Motifs d'exonération** (`crates/fiscal-sn/data/motifs-exoneration.toml`) : `EXO361-n` pour les alinéas de l'art. 361 (p. 176 à 181), sauf 14, 15 et 26 ; `EXO380-a` à `EXO380-f` (art. 380, p. 189). Le code d'un motif est préfixé du code de son régime et de `-`.
+6. **Chevauchement** : les alinéas 361-14 (exportations), 361-15 (transport international de biens) et 361-26 (matériel agricole, jusqu'au 31 décembre 2026) sont aussi aux a, d et e de l'art. 380, qui ouvre droit à déduction. On retient **le code de l'art. 380** (`EXO380-a`, `-d`, `-e`) ; 361-14, 361-15 et 361-26 ne sont pas des codes distincts (table `[[chevauchement]]`). **À faire valider par l'expert-comptable et le fiscaliste** (spec §26).
+7. **Pureté de `compta-core`** : le crate ne connaît aucun régime ni motif (règle absolue 9). `EtiquetteFiscale` a des champs privés ; son constructeur `nouvelle` reçoit un `&dyn ReferentielFiscal` (trait de `compta-core`, implémenté par `fiscal-sn::ReferentielTva`) qui donne le profil du régime (exonéré ou non, taux admis, exigibilités admises) et confirme le motif. Une liste passée en paramètre aurait été équivalente, mais le trait garde l'API stable quand les listes grandissent. Le constructeur `relire` (cohérence interne seulement) sert au relecteur d'export, qui n'a pas de référentiel : tout ce que `nouvelle` accepte, `relire` l'accepte.
+8. **Formats** (`docs/integrite/format-v4.md`) : écriture canonique **v3** (clés `fiscal-nature`, `fiscal-sens`, `fiscal-regime`, puis `fiscal-taux`, `fiscal-exigibilite`, `fiscal-motif` facultatives, après `tiers=` ; date de valeur comptable facultative) et export **v4** (admet les écritures v1 à v3). La version est choisie par le contenu : sans étiquette, v1 ou v2 **à l'identique**, donc mêmes empreintes ; avec étiquette, v3. L'export est écrit en v3 sans étiquette, en v4 sinon. Lecture stricte, injectivité, vecteurs produits en Python, semences de fuzzing.
+9. **Contrôle comptable** : le total des étiquettes « taxe » égale le solde des comptes de TVA. Fonction pure `controler_taxes_et_comptes` (les comptes 443x et 445x lui sont désignés par l'appelant, depuis `syscohada`) ; son emploi sur les soldes d'un dossier relève de L5.
+10. **Hors étiquette** : le prorata de déduction (OD de régularisation étiquetée `REGUL`, L5), la période d'exigibilité à l'encaissement (déduite du lettrage, L3 et L5), la correspondance étiquette → case de déclaration (donnée versionnée et datée, L5, mémorisée par la déclaration), la déduction et l'exigibilité « non trouvées » de `AUTOLIQ_REPFISC` et `COLLECTE_NUM` (leur étiquette ne porte pas d'exigibilité tant que le texte ne la fixe pas).
+11. **Verrous de validation** : l'ordre des verrous de la validation (exercice < période < brouillon < pièce < chaîne < compteur < audit, étude PR 13) complète l'ADR 0011 ; il relève de la PR 13b et n'est pas décidé ici.
+
+## Conséquences
+- `compta-core` : `Ligne` porte une étiquette facultative ; `miroir` la copie.
+- `integrite` : `ecriture v3`, `export v4`, anomalie de lecture « étiquette incohérente » ; les vecteurs v1 à v3 et leurs empreintes ne changent pas ; `sigma-verifier` lit la v4.
+- `fiscal-sn` : premières données, avec chargement validé (code absent de la liste, entrée sans source, taux non décimal, doublon d'article et d'alinéa refusés).
+- `api` (PR 13a et suivantes) : la saisie et la validation contrôlent l'étiquette par `EtiquetteFiscale::nouvelle` avec `ReferentielTva` ; la base stocke les champs de l'étiquette et les valeurs recopiées.
+- Une erreur d'étiquette découverte après validation se corrige par contre-passation et nouvelle écriture, comme toute écriture.
+- La liste des motifs doit être revue à chaque loi de finances (le 361-26 expire le 31 décembre 2026) : on ajoute des codes, on n'en retire pas.
+
+## Alternatives écartées
+- **Sous-comptes seuls** (443x, 445x par taux ou par nature) : ils donnent les montants de taxe, jamais les bases par taux, l'exonéré ventilé entre l'art. 361 et l'art. 380, ni le motif ; les sous-comptes de quatre chiffres sont libres et aucun compte ne porte le motif propre à une opération.
+- **Étiquette hors du hachage et modifiable** (Odoo) : une écriture définitive dont l'information fiscale change après coup n'est plus une preuve.
+- **Lignes de taxe modifiables** (Tryton) : même défaut.
+- **Lecture de la configuration courante** (OCA) : le rapport d'une période change quand la configuration change ; une étiquette n'a de valeur que figée.
+- **Ignorer les écritures manuelles** (Dolibarr, Bigcapital) : L2 produit des écritures manuelles que L5 doit déclarer.
+- **Régime et motif dans un même code** (`EXO361-4` comme régime) : redondant ; deux niveaux (régime, motif préfixé) permettent au vérificateur de contrôler la cohérence sans liste.
+- **`compta-core` dépend de `fiscal-sn`** : romprait la pureté et la règle 9 dans l'autre sens (le moteur connaîtrait des données qui changent à chaque loi de finances).
