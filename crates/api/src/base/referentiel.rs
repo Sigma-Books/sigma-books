@@ -709,7 +709,8 @@ impl Instanciation {
     /// - **dossier repris** : exercice N, ou N-1. N-1 couvre la reprise en début d'année d'une
     ///   entité dont l'exercice précédent n'est pas encore arrêté (AUDCIF art. 23 : arrêté des
     ///   comptes dans les quatre mois de la clôture). Jamais une année future, ni plus ancienne :
-    ///   ce serait reprendre un exercice déjà arrêté (**à confirmer par le mainteneur**) ;
+    ///   ce serait reprendre un exercice déjà arrêté (décision du mainteneur du 2026-11-20 :
+    ///   N ou N-1, jamais N-2) ;
     /// - **entité nouvelle** : début d'activité du 1er janvier N-1 au 31 décembre N+1. Plus tôt,
     ///   l'entité n'est plus nouvelle (elle obtiendrait à tort l'option « second semestre » de
     ///   l'art. 7, réservée au premier exercice) ; plus tard, c'est une erreur de saisie, et un
