@@ -12,6 +12,7 @@
 // Aide de test : les `expect` y sont voulus (un environnement invalide doit faire échouer le test).
 #![allow(dead_code, clippy::expect_used)]
 
+pub mod banc;
 pub mod brouillard;
 pub mod facteurs;
 pub mod pieces;

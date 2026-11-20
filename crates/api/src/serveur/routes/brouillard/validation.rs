@@ -1239,4 +1239,253 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn une_contre_passation_nominale_se_numerote_et_refuse_le_double() {
+        use super::super::contre_passation::decider_contre_passation;
+        let d = decor();
+        let etat = d.inst.etat();
+        let contexte = Contexte {
+            plan: &etat.plan,
+            journaux: &etat.journaux,
+            exercices: d.inst.exercices(),
+        };
+        let journal = etat
+            .journaux
+            .journaux()
+            .find(|j| j.genre().accepte_la_saisie() && j.compte_tresorerie().is_none())
+            .unwrap()
+            .code()
+            .as_str()
+            .to_owned();
+        let empreintes = ["d".repeat(64)];
+        let brouillon = brouillon_de(
+            &journal,
+            date!(2026 - 03 - 15),
+            None,
+            "Origine",
+            None,
+            &[
+                stockee("debit", &d.caisse, "1000"),
+                stockee("credit", &d.banque, "1000"),
+            ],
+            &empreintes,
+            referentiel_tva().unwrap(),
+        )
+        .unwrap();
+        let mut livre = Livre::new();
+        let exercice = d
+            .inst
+            .exercices()
+            .exercice_contenant(date!(2026 - 03 - 15))
+            .unwrap()
+            .code()
+            .clone();
+        let eq = brouillon.valider_equilibre().unwrap();
+        let compteur = Compteur::reprendre(eq.journal().clone(), exercice, 0).unwrap();
+        let (numero, _) = livre
+            .valider(eq, &contexte, &compteur, date!(2026 - 03 - 16))
+            .unwrap();
+        let origine = livre.ecriture(&numero).unwrap().clone();
+        let tete = Tete {
+            rang: 1,
+            empreinte: Empreinte::calculer(b"tete"),
+        };
+        let libelle = TexteCourt::parse("Contre-passation").unwrap();
+        let r = decider_contre_passation(
+            &origine,
+            None,
+            date!(2026 - 03 - 20),
+            libelle.clone(),
+            &contexte,
+            1,
+            &tete,
+            date!(2026 - 03 - 20),
+        )
+        .unwrap();
+        assert!(
+            r.validation
+                .ecriture()
+                .numero()
+                .to_string()
+                .ends_with("-000002")
+        );
+        assert_eq!(r.validation.ecriture().origine(), Some(&numero));
+        assert!(r.canonique.contains(&format!("origine={numero}\n")));
+        // Une origine déjà contre-passée, ou une date antérieure : refus stables.
+        let double = decider_contre_passation(
+            &origine,
+            Some(r.validation.ecriture().numero()),
+            date!(2026 - 03 - 21),
+            libelle.clone(),
+            &contexte,
+            2,
+            &tete,
+            date!(2026 - 03 - 21),
+        )
+        .unwrap_err();
+        assert_eq!(double, super::conflit(MotifConflit::DejaContrePassee));
+        let avant = decider_contre_passation(
+            &origine,
+            None,
+            date!(2026 - 03 - 01),
+            libelle,
+            &contexte,
+            1,
+            &tete,
+            date!(2026 - 03 - 20),
+        )
+        .unwrap_err();
+        assert_eq!(avant, refus(MotifValidation::DateAnterieureAOrigine, None));
+    }
+
+    proptest! {
+        /// Pour toute suite de validations et de contre-passations (dont des doubles, des dates
+        /// avant l'origine, hors exercice ou en période clôturée), la fonction d'application de
+        /// la contre-passation rend les mêmes numéros, contenus canoniques et refus que `Livre`
+        /// de `compta-core`, et chaîne comme `integrite::Chaine`.
+        #[test]
+        fn la_contre_passation_est_celle_du_livre(
+            pas in proptest::collection::vec(
+                (0usize..12, 0usize..4, 0usize..3, any::<bool>(), 0usize..64, 0usize..4),
+                1..30,
+            )
+        ) {
+            use super::super::contre_passation::decider_contre_passation;
+            let d = decor();
+            let tva = referentiel_tva().unwrap();
+            let etat = d.inst.etat();
+            let contexte = Contexte {
+                plan: &etat.plan,
+                journaux: &etat.journaux,
+                exercices: &d.clos,
+            };
+            let mut livre = Livre::new();
+            let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
+            let mut derniers: BTreeMap<(CodeJournal, CodeExercice), u32> = BTreeMap::new();
+            let mut tete = Tete { rang: 0, empreinte: *chaine.tete() };
+            let mut numeros: Vec<NumeroEcriture> = Vec::new();
+            // Journaux de saisie sans compte de trésorerie : la plupart des validations passent.
+            let saisie_libre: Vec<String> = etat
+                .journaux
+                .journaux()
+                .filter(|j| j.genre().accepte_la_saisie() && j.compte_tresorerie().is_none())
+                .map(|j| j.code().as_str().to_owned())
+                .collect();
+            let empreinte_piece = "a".repeat(64);
+            let dernier_de = |derniers: &BTreeMap<(CodeJournal, CodeExercice), u32>,
+                              j: &CodeJournal,
+                              date: Date| {
+                contexte
+                    .exercices
+                    .exercice_contenant(date)
+                    .and_then(|e| derniers.get(&(j.clone(), e.code().clone())).copied())
+                    .unwrap_or(0)
+            };
+            for (journal, date, validation, contre, cible, date_cp) in pas {
+                let date_validation = VALIDATIONS[validation];
+                if contre && !numeros.is_empty() {
+                    let numero = numeros[cible % numeros.len()].clone();
+                    let origine = livre.ecriture(&numero).unwrap().clone();
+                    let par = livre.contre_passee_par(&numero).cloned();
+                    let date_cp = DATES[date_cp];
+                    let libelle = TexteCourt::parse("Contre-passation").unwrap();
+                    let dernier = dernier_de(&derniers, origine.journal(), date_cp);
+                    let resultat = decider_contre_passation(
+                        &origine,
+                        par.as_ref(),
+                        date_cp,
+                        libelle.clone(),
+                        &contexte,
+                        dernier,
+                        &tete,
+                        date_validation,
+                    );
+                    let exercice = contexte
+                        .exercices
+                        .exercice_contenant(date_cp)
+                        .map_or_else(|| CodeExercice::parse("0000").unwrap(), |e| e.code().clone());
+                    let compteur =
+                        Compteur::reprendre(origine.journal().clone(), exercice, dernier).unwrap();
+                    let attendu = livre
+                        .contre_passer(&numero, date_cp, libelle, &contexte, &compteur, date_validation)
+                        .map_err(|e| super::super::contre_passation::erreur(&e, contexte.exercices));
+                    match (resultat, attendu) {
+                        (Ok(r), Ok((nouveau, _))) => {
+                            let e = livre.ecriture(&nouveau).unwrap();
+                            prop_assert_eq!(e.origine(), Some(&numero));
+                            prop_assert_eq!(r.validation.ecriture().numero(), &nouveau);
+                            prop_assert_eq!(&r.canonique, &EcritureCanonique::depuis(e).serialiser());
+                            let suivante = chaine.ajouter(e);
+                            prop_assert_eq!(r.empreinte, suivante);
+                            derniers.insert(
+                                (nouveau.journal().clone(), nouveau.exercice().clone()),
+                                nouveau.sequence(),
+                            );
+                            tete = Tete { rang: r.rang, empreinte: r.empreinte };
+                            numeros.push(nouveau);
+                        }
+                        (Err(a), Err(b)) => prop_assert_eq!(a, b),
+                        (a, b) => prop_assert!(false, "divergence : {:?} contre {:?}", a.map(|r| r.canonique), b.map(|(n, _)| n)),
+                    }
+                    continue;
+                }
+                // Validation d'une écriture équilibrée (journal, date tirés au hasard).
+                let b = BrouillonStocke {
+                    id: Uuid::nil(),
+                    contenu: ContenuStocke {
+                        journal_id: Uuid::nil(),
+                        journal: saisie_libre[journal % saisie_libre.len()].clone(),
+                        date: DATES[date],
+                        date_valeur_comptable: None,
+                        libelle: "Parité".to_owned(),
+                        lignes: vec![
+                            stockee("debit", &d.caisse, "1000"),
+                            stockee("credit", &d.banque, "1000"),
+                        ],
+                    },
+                    a_revoir: false,
+                    a_revoir_par: None,
+                    version: 1,
+                    cree_par: Uuid::nil(),
+                    cree_le: time::OffsetDateTime::UNIX_EPOCH,
+                    modifie_par: Uuid::nil(),
+                    modifie_le: time::OffsetDateTime::UNIX_EPOCH,
+                    pieces: vec![],
+                    contributeurs: vec![],
+                };
+                let empreintes = vec![empreinte_piece.clone()];
+                let resultat = appliquer(
+                    &b,
+                    &empreintes,
+                    tva,
+                    &contexte,
+                    |j, e| derniers.get(&(j.clone(), e.clone())).copied().unwrap_or(0),
+                    &tete,
+                    date_validation,
+                );
+                if let Ok(r) = resultat {
+                    // Même moteur que `Livre` : on rejoue l'écriture dans le livre.
+                    let brouillon = brouillon_de(
+                        &b.contenu.journal, DATES[date], None, &b.contenu.libelle, None,
+                        &b.contenu.lignes, &empreintes, tva,
+                    ).unwrap();
+                    let eq = brouillon.valider_equilibre().unwrap();
+                    let exercice = contexte.exercices.exercice_contenant(DATES[date]).unwrap().code().clone();
+                    let dernier = derniers
+                        .get(&(eq.journal().clone(), exercice.clone()))
+                        .copied()
+                        .unwrap_or(0);
+                    let compteur = Compteur::reprendre(eq.journal().clone(), exercice, dernier).unwrap();
+                    let (numero, _) = livre.valider(eq, &contexte, &compteur, date_validation).unwrap();
+                    prop_assert_eq!(r.validation.ecriture().numero(), &numero);
+                    let e = livre.ecriture(&numero).unwrap();
+                    chaine.ajouter(e);
+                    derniers.insert((numero.journal().clone(), numero.exercice().clone()), numero.sequence());
+                    tete = Tete { rang: r.rang, empreinte: r.empreinte };
+                    numeros.push(numero);
+                }
+            }
+        }
+    }
 }

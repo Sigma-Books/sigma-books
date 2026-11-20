@@ -252,6 +252,88 @@ pub(super) async fn quand_cedar_se_trompe(routeur: &Router, m: &Monde, reference
             r.texte()
         );
     }
+    // Lot et contre-passation, Cedar forcé (PR 13c) : l'auditeur et le collaborateur sont refusés
+    // par le rôle relu en base ; la session non fraîche l'est par le cas d'usage (le lot exige la
+    // ré-authentification même si Cedar se trompe) ; un brouillon d'autrui dans le lot : 404.
+    let lot = |ids: &[Uuid]| {
+        let liste: Vec<String> = ids
+            .iter()
+            .map(|id| format!(r#"{{"ecriture":"{id}","version":1}}"#))
+            .collect();
+        format!(r#"{{"ecritures":[{}]}}"#, liste.join(","))
+    };
+    let chemin_lot = format!(
+        "{}/validation-par-lot",
+        base(a.cabinet.uuid(), a.dossier.uuid())
+    );
+    for (u, anciennete) in [
+        (m.auditeur, None),
+        (a.collaborateur, None),
+        (m.valideur, Some(3600)),
+    ] {
+        let r = super::envoyer(routeur, &chemin_lot, Some(u), &lot(&[propre]), anciennete).await;
+        assert_eq!(
+            r.statut,
+            StatusCode::FORBIDDEN,
+            "lot Cedar forcé : {}",
+            r.texte()
+        );
+    }
+    let r = super::envoyer(
+        routeur,
+        &chemin_lot,
+        Some(m.valideur),
+        &lot(&[autre_dossier, de_b]),
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::NOT_FOUND, "{}", r.texte());
+    let validee = |dossier: api::base::IdDossier| {
+        super::SOUS_RESSOURCES
+            .lock()
+            .unwrap()
+            .get(&(dossier.uuid(), "ecriture"))
+            .copied()
+            .unwrap()
+    };
+    let corps_cp = r#"{"date":"2026-11-20","libelle":"Contre-passation","motif":"Erreur"}"#;
+    for u in [m.auditeur, a.collaborateur] {
+        let r = super::envoyer(
+            routeur,
+            &format!(
+                "/api/cabinets/{}/dossiers/{}/ecritures/{}/contre-passation",
+                a.cabinet.uuid(),
+                a.dossier.uuid(),
+                validee(a.dossier)
+            ),
+            Some(u),
+            corps_cp,
+            None,
+        )
+        .await;
+        assert_eq!(
+            r.statut,
+            StatusCode::FORBIDDEN,
+            "contre-passation : {}",
+            r.texte()
+        );
+    }
+    // Écriture validée d'un autre dossier ou cabinet : 404, rien n'est contre-passé.
+    for cible in [validee(a.autre_dossier), validee(b.dossier)] {
+        let r = super::envoyer(
+            routeur,
+            &format!(
+                "/api/cabinets/{}/dossiers/{}/ecritures/{cible}/contre-passation",
+                a.cabinet.uuid(),
+                a.dossier.uuid(),
+            ),
+            Some(a.administrateur),
+            corps_cp,
+            None,
+        )
+        .await;
+        super::verifier_absent(&r, reference, "contre-passation d'autrui, Cedar forcé");
+    }
     // Modification et suppression du brouillon d'un autre dossier (de A non affecté, ou de B),
     // sous un dossier de A, au nom de l'administrateur de A : 404, rien n'est modifié.
     let racine = base(a.cabinet.uuid(), a.dossier.uuid());

@@ -32,13 +32,16 @@ use authz::Role;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use compta_core::{CodeExercice, Compteur, Contexte, ErreurValidation, NumeroEcriture, TexteCourt};
+use compta_core::{
+    CodeExercice, Compteur, Contexte, EcritureValidee, ErreurValidation, NumeroEcriture, TexteCourt,
+};
 use integrite::{EcritureCanonique, chainer};
 use serde::{Deserialize, Serialize};
+use time::Date;
 use uuid::Uuid;
 
 use super::saisie::date_lue;
-use super::validation::{donnee, finaliser, motif_validation, reconstituer, refus};
+use super::validation::{Decision, donnee, finaliser, motif_validation, reconstituer, refus};
 use super::{conflit, corps, referentiel_tva, sans_parametres};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
@@ -99,7 +102,7 @@ async fn exiger_contre_passeur(tx: &mut TransactionTenant) -> Result<(), ErreurA
 }
 
 /// Traduit un refus de `compta-core` propre à la contre-passation, ou le motif de validation.
-fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -> ErreurApi {
+pub(super) fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -> ErreurApi {
     match e {
         ErreurValidation::DejaContrePassee { .. } => conflit(MotifConflit::DejaContrePassee),
         ErreurValidation::DateAnterieureAOrigine { .. } => {
@@ -111,6 +114,44 @@ fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -> ErreurApi
             refus(motif, ligne)
         }
     }
+}
+
+/// Fonction d'application pure de la contre-passation, sur des faits fournis : l'origine relue,
+/// l'état de sa contre-passation (`par`), la dernière séquence du journal pour l'exercice de la
+/// **nouvelle** date (`dernier`), la tête de chaîne. Même résultat que
+/// [`compta_core::Livre::contre_passer`] (propriété des tests).
+///
+/// # Errors
+/// 409 (déjà contre-passée, période, exercice…), 422 (date avant l'origine, écriture invalide).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn decider_contre_passation(
+    origine: &EcritureValidee,
+    par: Option<&NumeroEcriture>,
+    date: Date,
+    libelle: TexteCourt,
+    contexte: &Contexte<'_>,
+    dernier: u32,
+    tete: &Tete,
+    date_validation: Date,
+) -> Result<Decision, ErreurApi> {
+    // Sans exercice, `compta-core` refuse la date avant d'examiner le compteur.
+    let exercice = match contexte.exercices.exercice_contenant(date) {
+        Some(e) => e.code().clone(),
+        None => CodeExercice::parse("0000").map_err(|_| donnee())?,
+    };
+    let compteur = Compteur::reprendre(origine.journal().clone(), exercice, dernier)
+        .map_err(|_| refus(MotifValidation::SequenceEpuisee, None))?;
+    let validation = compta_core::contre_passer(
+        origine,
+        par,
+        date,
+        libelle,
+        contexte,
+        &compteur,
+        date_validation,
+    )
+    .map_err(|e| erreur(&e, contexte.exercices))?;
+    finaliser(validation, tete)
 }
 
 #[allow(clippy::too_many_lines)]
@@ -184,30 +225,21 @@ pub(super) async fn contre_passer(
         .map(|n| NumeroEcriture::parse(&n))
         .transpose()
         .map_err(|_| donnee())?;
-    let compteur = Compteur::reprendre(origine.journal().clone(), exercice, dernier)
-        .map_err(|_| refus(MotifValidation::SequenceEpuisee, None))?;
     let contexte = Contexte {
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
     };
     let date_validation = instant.date();
-    let validation = compta_core::contre_passer(
+    let decision = decider_contre_passation(
         &origine,
         par.as_ref(),
         date,
         libelle,
         &contexte,
-        &compteur,
+        dernier,
+        &tete,
         date_validation,
-    )
-    .map_err(|e| erreur(&e, contexte.exercices))?;
-    let decision = finaliser(
-        validation,
-        &Tete {
-            rang: tete.rang,
-            empreinte: tete.empreinte,
-        },
     )?;
 
     // 3. Persistance : écriture miroir, lignes, liens de pièces de l'origine, tête, compteur.

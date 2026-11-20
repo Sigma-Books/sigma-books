@@ -251,9 +251,8 @@ pub(super) async fn valider_par_lot(
             }),
         }
     }
-    if !refus.is_empty() {
-        return Ok(Resultat::lecture(reponse_lot_refuse(&refus)));
-    }
+    // Même si une écriture est déjà refusée, les autres sont validées en mémoire (B) pour rendre
+    // **tous** les refus d'un coup ; rien n'est écrit dans tous les cas.
 
     // Ordre d'attribution déterministe : date comptable, création, identifiant.
     retenues.sort_by(|x, y| {
