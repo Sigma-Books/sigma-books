@@ -255,7 +255,7 @@ regime = "EXO380"
 article = "380"
 alinea = "b"
 pages = [189]
-libelle = "Services rendus à l'étranger par un assujetti identifié, non imposables au Sénégal"
+libelle = "Services rendus à l'étranger par un assujetti identifié, non imposables au Sénégal, hors prestations de télécommunications de l'art. 358"
 deduction = "oui"
 
 [[motif]]

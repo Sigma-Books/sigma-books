@@ -130,6 +130,8 @@ struct RegimeBrut {
     exigibilite: ExigibiliteCgi,
     source_deduction: String,
     source_exigibilite: String,
+    ligne_taxe: bool,
+    source_ligne_taxe: String,
     taux: Vec<String>,
     exigibilites_etiquette: Vec<String>,
     a_valider: bool,
@@ -178,6 +180,8 @@ pub struct RegimeTva {
     exigibilite: ExigibiliteCgi,
     source_deduction: String,
     source_exigibilite: String,
+    ligne_taxe: bool,
+    source_ligne_taxe: String,
     taux: Vec<TauxTva>,
     exigibilites_etiquette: Vec<Exigibilite>,
     a_valider: bool,
@@ -234,6 +238,16 @@ impl RegimeTva {
     #[must_use]
     pub fn source_exigibilite(&self) -> &str {
         &self.source_exigibilite
+    }
+    /// Le régime comporte une ligne de taxe (sinon seule la base est étiquetée).
+    #[must_use]
+    pub fn porte_une_ligne_de_taxe(&self) -> bool {
+        self.ligne_taxe
+    }
+    /// Source du champ précédent.
+    #[must_use]
+    pub fn source_ligne_taxe(&self) -> &str {
+        &self.source_ligne_taxe
     }
     /// Taux admis (pourcent).
     #[must_use]
@@ -376,7 +390,10 @@ fn regime_valide(r: RegimeBrut, unicite: &mut Unicite) -> Result<RegimeTva, Erre
     if r.libelle.trim().is_empty() {
         return Err(ErreurFiscale::SansLibelle(r.code));
     }
-    if r.source_deduction.trim().is_empty() || r.source_exigibilite.trim().is_empty() {
+    if r.source_deduction.trim().is_empty()
+        || r.source_exigibilite.trim().is_empty()
+        || r.source_ligne_taxe.trim().is_empty()
+    {
         return Err(ErreurFiscale::SansSource(r.code));
     }
     unicite.verifier(&r.code, &r.article, r.alinea.as_deref())?;
@@ -400,6 +417,12 @@ fn regime_valide(r: RegimeBrut, unicite: &mut Unicite) -> Result<RegimeTva, Erre
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+    if r.exonere && r.ligne_taxe {
+        return Err(ErreurFiscale::Incoherente {
+            code: r.code,
+            motif: "un régime exonéré n'a pas de ligne de taxe",
+        });
+    }
     if r.exonere && (!taux.is_empty() || !exigibilites_etiquette.is_empty()) {
         return Err(ErreurFiscale::Incoherente {
             code: r.code,
@@ -417,6 +440,8 @@ fn regime_valide(r: RegimeBrut, unicite: &mut Unicite) -> Result<RegimeTva, Erre
         exigibilite: r.exigibilite,
         source_deduction: r.source_deduction,
         source_exigibilite: r.source_exigibilite,
+        ligne_taxe: r.ligne_taxe,
+        source_ligne_taxe: r.source_ligne_taxe,
         taux,
         exigibilites_etiquette,
         a_valider: r.a_valider,
@@ -579,7 +604,12 @@ impl ReferentielTva {
 impl ReferentielFiscal for ReferentielTva {
     fn profil_regime(&self, code: &CodeRegime) -> Option<ProfilRegime> {
         self.regime(code.as_str()).map(|r| {
-            ProfilRegime::nouveau(r.exonere, r.taux.clone(), r.exigibilites_etiquette.clone())
+            ProfilRegime::nouveau(
+                r.exonere,
+                r.ligne_taxe,
+                r.taux.clone(),
+                r.exigibilites_etiquette.clone(),
+            )
         })
     }
 

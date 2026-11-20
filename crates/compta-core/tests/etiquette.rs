@@ -7,9 +7,9 @@ mod commun;
 
 use commun::*;
 use compta_core::{
-    CodeMotif, CodeRegime, EtiquetteFiscale, Exigibilite, Ligne, NatureEtiquette, NumeroCompte,
-    ProfilRegime, ReferentielFiscal, Sens, SensTva, TauxTva, controler_taxes_et_comptes,
-    totaux_taxe,
+    CodeMotif, CodeRegime, EtiquetteFiscale, EtiquetteRelue, Exigibilite, Ligne, NatureEtiquette,
+    NumeroCompte, ProfilRegime, ReferentielFiscal, Sens, SensTva, TauxTva,
+    controler_taxes_et_comptes, totaux_taxe,
 };
 use proptest::prelude::*;
 use rust_decimal::Decimal;
@@ -23,11 +23,12 @@ impl ReferentielFiscal for Fictif {
         match code.as_str() {
             "IMP" => Some(ProfilRegime::nouveau(
                 false,
+                true,
                 taux(&["18", "10"]),
                 vec![Exigibilite::Debit, Exigibilite::Encaissement],
             )),
-            "EXO" => Some(ProfilRegime::nouveau(true, vec![], vec![])),
-            "HC" => Some(ProfilRegime::nouveau(false, vec![], vec![])),
+            "EXO" => Some(ProfilRegime::nouveau(true, false, vec![], vec![])),
+            "HC" => Some(ProfilRegime::nouveau(false, false, vec![], vec![])),
             _ => None,
         }
     }
@@ -77,11 +78,8 @@ fn etiquettes_valides() -> impl Strategy<Value = EtiquetteFiscale> {
             Some(&format!("EXO-{m}")),
         )
     });
-    let hors_champ = (
-        prop_oneof![Just(NatureEtiquette::Base), Just(NatureEtiquette::Taxe)],
-        sens,
-    )
-        .prop_map(|(n, s)| etiquette(n, s, "HC", None, None, None));
+    // Hors champ : pas de ligne de taxe, seule la base est étiquetée.
+    let hors_champ = sens.prop_map(|s| etiquette(NatureEtiquette::Base, s, "HC", None, None, None));
     prop_oneof![imposable, exonere, hors_champ]
 }
 
@@ -93,7 +91,7 @@ proptest! {
     /// Aller-retour : les accesseurs d'une étiquette valide la reconstruisent à l'identique.
     #[test]
     fn aller_retour(e in etiquettes_valides()) {
-        let relue = EtiquetteFiscale::relire(
+        let relue = EtiquetteRelue::nouvelle(
             e.nature(),
             e.sens(),
             e.regime().clone(),
@@ -101,7 +99,7 @@ proptest! {
             e.exigibilite(),
             e.motif().cloned(),
         );
-        prop_assert_eq!(relue, Ok(e.clone()));
+        prop_assert_eq!(relue, Ok(e.en_relue()));
         // Le taux s'écrit puis se relit exactement.
         if let Some(t) = e.taux() {
             prop_assert_eq!(TauxTva::parse(&t.to_string()), Ok(t));
@@ -170,4 +168,61 @@ fn controle_des_taxes_et_des_comptes() {
     assert_eq!(ecart.sens, SensTva::Collectee);
     assert_eq!(ecart.etiquettes, Decimal::ZERO);
     assert_eq!(ecart.comptes, Decimal::from(18));
+}
+
+/// Une étiquette incohérente n'est pas construisible par l'API publique : `nouvelle` refuse
+/// chaque combinaison fautive, et le type « relu » ne se pose pas sur une ligne (doctest
+/// `compile_fail` de `EtiquetteRelue`).
+#[test]
+fn aucune_etiquette_incoherente_sur_une_ligne() {
+    let faire = |nature, regime: &str, taux: Option<&str>, exig, motif: Option<&str>| {
+        EtiquetteFiscale::nouvelle(
+            nature,
+            SensTva::Collectee,
+            CodeRegime::parse(regime).unwrap(),
+            taux.map(|t| TauxTva::parse(t).unwrap()),
+            exig,
+            motif.map(|m| CodeMotif::parse(m).unwrap()),
+            &Fictif,
+        )
+    };
+    let debit = Some(Exigibilite::Debit);
+    let incoherentes = [
+        faire(NatureEtiquette::Base, "EXO", None, None, None),
+        faire(
+            NatureEtiquette::Base,
+            "EXO",
+            Some("18"),
+            None,
+            Some("EXO-1"),
+        ),
+        faire(NatureEtiquette::Taxe, "EXO", None, None, Some("EXO-1")),
+        faire(
+            NatureEtiquette::Base,
+            "IMP",
+            Some("18"),
+            debit,
+            Some("EXO-1"),
+        ),
+        faire(NatureEtiquette::Taxe, "HC", None, None, None),
+        faire(NatureEtiquette::Base, "IMP", Some("20"), debit, None),
+        faire(NatureEtiquette::Base, "IMP", None, debit, None),
+        faire(NatureEtiquette::Base, "ABSENT", None, None, None),
+    ];
+    for e in incoherentes {
+        assert!(e.is_err(), "{e:?}");
+    }
+    // La version « relue » accepte une combinaison que le référentiel refuse, mais sans pouvoir
+    // la poser sur une ligne : `Ligne::avec_etiquette` ne prend qu'une `EtiquetteFiscale`.
+    assert!(
+        EtiquetteRelue::nouvelle(
+            NatureEtiquette::Taxe,
+            SensTva::Collectee,
+            CodeRegime::parse("HC").unwrap(),
+            None,
+            None,
+            None
+        )
+        .is_ok()
+    );
 }

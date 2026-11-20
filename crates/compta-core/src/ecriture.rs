@@ -352,6 +352,14 @@ impl Ligne {
         self
     }
 
+    /// La même ligne sans étiquette fiscale (sérialisation canonique, où l'étiquette est portée
+    /// à part par un type « relu »).
+    #[must_use]
+    pub fn sans_etiquette(mut self) -> Self {
+        self.etiquette = None;
+        self
+    }
+
     /// Compte mouvementé.
     #[must_use]
     pub fn compte(&self) -> &NumeroCompte {

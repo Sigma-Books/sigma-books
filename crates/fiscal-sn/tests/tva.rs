@@ -264,3 +264,67 @@ fn le_referentiel_pilote_l_etiquette() {
     assert!(faire(NatureEtiquette::Base, "NOUVEAU", None, None, None).is_err());
     assert!(r.profil_regime(&regime("REGUL")).is_some());
 }
+
+#[test]
+fn ligne_de_taxe_selon_le_regime() {
+    let r = ReferentielTva::charger().unwrap();
+    // Sans ligne de taxe : exonérés, hors champ, suspension. Chaque indicateur cite sa source.
+    for code in ["EXO361", "EXO380", "HORS_CHAMP", "SUSPENSION"] {
+        assert!(!r.regime(code).unwrap().porte_une_ligne_de_taxe(), "{code}");
+    }
+    for code in [
+        "IMP18",
+        "IMP10",
+        "IMP_ENC",
+        "AUTOLIQ_REPFISC",
+        "COLLECTE_NUM",
+        "PRECOMPTE",
+        "MARGE",
+        "REGUL",
+        "REMB_ANNUL",
+    ] {
+        assert!(r.regime(code).unwrap().porte_une_ligne_de_taxe(), "{code}");
+    }
+    for regime in r.regimes() {
+        assert!(
+            regime.source_ligne_taxe().contains("art."),
+            "{}",
+            regime.code()
+        );
+    }
+    let faire = |nature, reg: &str, t: Option<&str>, e| {
+        EtiquetteFiscale::nouvelle(
+            nature,
+            SensTva::Collectee,
+            CodeRegime::parse(reg).unwrap(),
+            t.map(|t| TauxTva::parse(t).unwrap()),
+            e,
+            None,
+            &r,
+        )
+    };
+    // Refus : aucune ligne `taxe` sous HORS_CHAMP ni SUSPENSION.
+    for code in ["HORS_CHAMP", "SUSPENSION"] {
+        assert!(matches!(
+            faire(NatureEtiquette::Taxe, code, None, None),
+            Err(compta_core::ErreurEtiquette::LigneTaxeInterdite(_))
+        ));
+        assert!(faire(NatureEtiquette::Base, code, None, None).is_ok());
+    }
+    // Acceptation : la taxe du précompte (372-2), de la collecte numérique (355 bis), de
+    // l'autoliquidation (355-3), de la régularisation (387-1) et du remboursement (389-1).
+    let enc = Some(Exigibilite::Encaissement);
+    assert!(faire(NatureEtiquette::Taxe, "PRECOMPTE", Some("18"), enc).is_ok());
+    assert!(faire(NatureEtiquette::Taxe, "COLLECTE_NUM", Some("18"), None).is_ok());
+    assert!(faire(NatureEtiquette::Taxe, "AUTOLIQ_REPFISC", Some("18"), None).is_ok());
+    assert!(faire(NatureEtiquette::Taxe, "REGUL", None, None).is_ok());
+    assert!(faire(NatureEtiquette::Taxe, "REMB_ANNUL", None, None).is_ok());
+}
+
+#[test]
+fn exo380_b_mentionne_l_exclusion_des_telecommunications() {
+    let r = ReferentielTva::charger().unwrap();
+    let b = r.motif("EXO380-b").unwrap();
+    assert!(b.libelle().contains("télécommunications"));
+    assert!(b.libelle().contains("358"));
+}

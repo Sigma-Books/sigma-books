@@ -13,7 +13,7 @@
 use std::fmt::Write as _;
 
 use compta_core::{
-    CodeMotif, CodeRegime, Cours, Devise, EcritureValidee, EtiquetteFiscale, Exigibilite, IdTiers,
+    CodeMotif, CodeRegime, Cours, Devise, EcritureValidee, EtiquetteRelue, Exigibilite, IdTiers,
     Ligne, Montant, NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva,
     TauxTva, TexteCourt, VersionParametres,
 };
@@ -103,7 +103,11 @@ pub struct EcritureCanonique {
     origine: Option<NumeroEcriture>,
     parametres: Option<VersionParametres>,
     justification: JustificationCanonique,
+    /// Lignes **sans** étiquette : l'étiquette lue est une [`EtiquetteRelue`], qui ne se pose pas
+    /// sur une `Ligne` (règle absolue 4).
     lignes: Vec<Ligne>,
+    /// Étiquette de chaque ligne, dans le même ordre que `lignes`.
+    etiquettes: Vec<Option<EtiquetteRelue>>,
 }
 
 impl EcritureCanonique {
@@ -121,7 +125,16 @@ impl EcritureCanonique {
             justification: JustificationCanonique::Pieces(
                 ecriture.justification().references().to_vec(),
             ),
-            lignes: ecriture.lignes().to_vec(),
+            lignes: ecriture
+                .lignes()
+                .iter()
+                .map(|l| l.clone().sans_etiquette())
+                .collect(),
+            etiquettes: ecriture
+                .lignes()
+                .iter()
+                .map(|l| l.etiquette().map(compta_core::EtiquetteFiscale::en_relue))
+                .collect(),
         }
     }
 
@@ -137,10 +150,16 @@ impl EcritureCanonique {
         self.origine.as_ref()
     }
 
-    /// Lignes, dans l'ordre de saisie.
+    /// Lignes, dans l'ordre de saisie (sans leur étiquette : voir [`Self::etiquettes`]).
     #[must_use]
     pub fn lignes(&self) -> &[Ligne] {
         &self.lignes
+    }
+
+    /// Étiquette fiscale de chaque ligne, dans l'ordre des lignes.
+    #[must_use]
+    pub fn etiquettes(&self) -> &[Option<EtiquetteRelue>] {
+        &self.etiquettes
     }
 
     /// Vrai si le total des débits égale le total des crédits (en XOF) et s'il y a des lignes.
@@ -154,7 +173,7 @@ impl EcritureCanonique {
     /// Vrai si une ligne porte une étiquette fiscale (format v3).
     #[must_use]
     pub fn a_une_etiquette(&self) -> bool {
-        self.lignes.iter().any(|l| l.etiquette().is_some())
+        self.etiquettes.iter().any(Option::is_some)
     }
 
     /// Date de valeur comptable (formats v2 et v3).
@@ -194,7 +213,7 @@ impl EcritureCanonique {
             JustificationCanonique::SansPiece(motif) => cle("sans-piece", motif),
         }
         let mut corps = String::new();
-        for ligne in &self.lignes {
+        for (ligne, etiquette) in self.lignes.iter().zip(&self.etiquettes) {
             corps.push_str(LIGNE);
             corps.push('\n');
             let mut cle = |cle: &str, valeur: &dyn std::fmt::Display| {
@@ -217,7 +236,7 @@ impl EcritureCanonique {
             if let Some(tiers) = ligne.tiers() {
                 cle("tiers", tiers);
             }
-            if let Some(e) = ligne.etiquette() {
+            if let Some(e) = etiquette {
                 cle("fiscal-nature", &e.nature().code());
                 cle("fiscal-sens", &e.sens().code());
                 cle("fiscal-regime", e.regime());
@@ -419,9 +438,14 @@ impl<'a> Lecteur<'a> {
             });
         }
         let mut lignes = Vec::new();
+        let mut etiquettes = Vec::new();
         loop {
             match self.suivante() {
-                Some((_, l)) if l == LIGNE => lignes.push(self.ligne(version >= 3)?),
+                Some((_, l)) if l == LIGNE => {
+                    let (ligne, etiquette) = self.ligne(version >= 3)?;
+                    lignes.push(ligne);
+                    etiquettes.push(etiquette);
+                }
                 Some((_, l)) if l == FIN => break,
                 Some((ligne, _)) => {
                     return Err(ErreurCanonique::Attendu {
@@ -458,6 +482,7 @@ impl<'a> Lecteur<'a> {
             parametres,
             justification,
             lignes,
+            etiquettes,
         })
     }
 
@@ -487,7 +512,10 @@ impl<'a> Lecteur<'a> {
         Ok(JustificationCanonique::Pieces(pieces))
     }
 
-    fn ligne(&mut self, avec_etiquette: bool) -> Result<Ligne, ErreurCanonique> {
+    fn ligne(
+        &mut self,
+        avec_etiquette: bool,
+    ) -> Result<(Ligne, Option<EtiquetteRelue>), ErreurCanonique> {
         let compte = self.valeur("compte", NumeroCompte::parse)?;
         let sens = self.valeur("sens", |v| match v {
             "D" => Ok(Sens::Debit),
@@ -534,19 +562,18 @@ impl<'a> Lecteur<'a> {
             Some(tiers) => ligne.avec_tiers(tiers),
             None => ligne,
         };
-        if !avec_etiquette {
-            return Ok(ligne);
-        }
-        Ok(match self.etiquette()? {
-            Some(etiquette) => ligne.avec_etiquette(etiquette),
-            None => ligne,
-        })
+        let etiquette = if avec_etiquette {
+            self.etiquette()?
+        } else {
+            None
+        };
+        Ok((ligne, etiquette))
     }
 
     /// Étiquette fiscale d'une ligne (format v3) : tout ou rien. `fiscal-nature`, `fiscal-sens`
     /// et `fiscal-regime` vont ensemble ; `fiscal-taux`, `fiscal-exigibilite` et `fiscal-motif`
     /// sont facultatifs, dans cet ordre.
-    fn etiquette(&mut self) -> Result<Option<EtiquetteFiscale>, ErreurCanonique> {
+    fn etiquette(&mut self) -> Result<Option<EtiquetteRelue>, ErreurCanonique> {
         let Some(nature) = self.valeur_optionnelle("fiscal-nature", |v| {
             NatureEtiquette::depuis_code(v).ok_or(())
         })?
@@ -562,7 +589,7 @@ impl<'a> Lecteur<'a> {
             Exigibilite::depuis_code(v).ok_or(())
         })?;
         let motif = self.valeur_optionnelle("fiscal-motif", CodeMotif::parse)?;
-        EtiquetteFiscale::relire(nature, sens, regime, taux, exigibilite, motif)
+        EtiquetteRelue::nouvelle(nature, sens, regime, taux, exigibilite, motif)
             .map(Some)
             .map_err(|_| ErreurCanonique::EtiquetteIncoherente { ligne: rang })
     }
@@ -674,10 +701,10 @@ mod tests {
         assert_eq!(e.serialiser(), v3);
         assert!(e.a_une_etiquette());
         assert_eq!(e.date_valeur_comptable(), None);
-        let taxe = e.lignes()[2].etiquette().unwrap();
+        let taxe = e.etiquettes()[2].as_ref().unwrap();
         assert_eq!(taxe.nature(), NatureEtiquette::Taxe);
         assert_eq!(taxe.regime().as_str(), "IMP18");
-        assert_eq!(e.lignes()[0].etiquette(), None);
+        assert_eq!(e.etiquettes()[0], None);
         // Date de valeur comptable facultative en v3.
         let avec = v3.replacen(
             "date-validation=2026-03-16\n",
@@ -855,7 +882,7 @@ mod tests {
         }
 
         /// Étiquette syntaxiquement valide (la cohérence avec un référentiel n'importe pas ici).
-        fn etiquette() -> impl Strategy<Value = EtiquetteFiscale> {
+        fn etiquette() -> impl Strategy<Value = EtiquetteRelue> {
             (
                 prop_oneof![Just(NatureEtiquette::Base), Just(NatureEtiquette::Taxe)],
                 prop_oneof![Just(SensTva::Collectee), Just(SensTva::Deductible)],
@@ -880,7 +907,7 @@ mod tests {
                             .map(|s| CodeMotif::parse(&format!("{regime}-{s}")))
                             .transpose()
                             .ok()?;
-                        EtiquetteFiscale::relire(
+                        EtiquetteRelue::nouvelle(
                             nature,
                             sens,
                             regime,
@@ -893,7 +920,7 @@ mod tests {
                 )
         }
 
-        fn ligne() -> impl Strategy<Value = Ligne> {
+        fn ligne() -> impl Strategy<Value = (Ligne, Option<EtiquetteRelue>)> {
             let compte = prop_oneof![Just("4111"), Just("521"), Just("605"), Just("4011-SENELEC")]
                 .prop_map(|c| NumeroCompte::parse(c).unwrap());
             let sens = prop_oneof![Just(Sens::Debit), Just(Sens::Credit)];
@@ -933,10 +960,7 @@ mod tests {
                             Some(t) => ligne.avec_tiers(t),
                             None => ligne,
                         };
-                        Some(match etiquette {
-                            Some(e) => ligne.avec_etiquette(e),
-                            None => ligne,
-                        })
+                        Some((ligne, etiquette))
                     },
                 )
         }
@@ -952,8 +976,10 @@ mod tests {
                 parametres in proptest::option::of("[a-z0-9.-]{1,12}"),
                 pieces in proptest::collection::btree_set("[0-9a-f]{64}", 1..4),
                 sans_piece in proptest::option::weighted(0.2, texte()),
-                lignes in proptest::collection::vec(ligne(), 1..6),
+                lignes_etiquetees in proptest::collection::vec(ligne(), 1..6),
             ) -> EcritureCanonique {
+                let (lignes, etiquettes): (Vec<Ligne>, Vec<Option<EtiquetteRelue>>) =
+                    lignes_etiquetees.into_iter().unzip();
                 let numero = |r: u32| NumeroEcriture::parse(&format!("OD-2026-{r:06}")).unwrap();
                 EcritureCanonique {
                     numero: numero(rang),
@@ -967,7 +993,7 @@ mod tests {
                     justification: match sans_piece {
                         Some(motif)
                             if date_valeur_comptable.is_none()
-                                && lignes.iter().all(|l| l.etiquette().is_none()) =>
+                                && etiquettes.iter().all(Option::is_none) =>
                         {
                             JustificationCanonique::SansPiece(motif)
                         }
@@ -976,6 +1002,7 @@ mod tests {
                         ),
                     },
                     lignes,
+                    etiquettes,
                 }
             }
         }

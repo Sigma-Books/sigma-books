@@ -12,10 +12,12 @@
 //! sont des codes opaques, **stables** : ni lien vers une configuration modifiable, ni taux
 //! « courant » ; le taux est recopié sous forme décimale exacte.
 //!
-//! Le relecteur d'un export (`integrite`, `sigma-verifier`) n'a pas de référentiel :
-//! [`EtiquetteFiscale::relire`] ne contrôle que la cohérence interne (règles ci-dessous), qui est
-//! un sous-ensemble de ce que contrôle `nouvelle`. Toute étiquette produite par `nouvelle` se
-//! relit donc.
+//! Le relecteur d'un export (`integrite`, `sigma-verifier`) n'a pas de référentiel. Il lit un
+//! [`EtiquetteRelue`] : un type **distinct**, qui ne contrôle que la cohérence interne (règles
+//! ci-dessous) et qui **ne peut pas être posé sur une [`Ligne`]** (`Ligne::avec_etiquette` n'accepte
+//! qu'une [`EtiquetteFiscale`]). Une étiquette incohérente n'est donc construisible par aucune
+//! voie qui mène à une écriture validable (règle absolue 4). Toute étiquette produite par
+//! `nouvelle` se convertit en [`EtiquetteRelue`] ([`EtiquetteFiscale::en_relue`]).
 //!
 //! Règles de cohérence interne : une opération exonérée n'a pas de ligne de taxe, donc un motif
 //! n'accompagne qu'une ligne de **base** ; le code d'un motif est préfixé par le code de son
@@ -62,6 +64,9 @@ pub enum ErreurEtiquette {
     /// Une opération exonérée n'a pas de ligne de taxe : seule la base est étiquetée.
     #[error("une ligne de taxe ne porte pas de motif d'exonération (seule la base l'est)")]
     TaxeAvecMotif,
+    /// Le régime n'a pas de ligne de taxe : seule la base peut être étiquetée.
+    #[error("le régime « {0} » ne porte pas de ligne de taxe")]
+    LigneTaxeInterdite(String),
     /// Taux absent alors que le régime en exige un.
     #[error("le régime « {0} » exige un taux")]
     TauxManquant(String),
@@ -301,21 +306,25 @@ impl fmt::Display for TauxTva {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfilRegime {
     exonere: bool,
+    ligne_taxe: bool,
     taux_admis: Vec<TauxTva>,
     exigibilites_admises: Vec<Exigibilite>,
 }
 
 impl ProfilRegime {
-    /// Profil d'un régime. `taux_admis` vide : le régime ne comporte pas de taux.
+    /// Profil d'un régime. `ligne_taxe` : le régime comporte une ligne de TVA (sinon seule la
+    /// base est étiquetée). `taux_admis` vide : le régime ne comporte pas de taux.
     /// `exigibilites_admises` vide : le régime n'a pas d'exigibilité propre.
     #[must_use]
     pub fn nouveau(
         exonere: bool,
+        ligne_taxe: bool,
         taux_admis: Vec<TauxTva>,
         exigibilites_admises: Vec<Exigibilite>,
     ) -> Self {
         Self {
             exonere,
+            ligne_taxe,
             taux_admis,
             exigibilites_admises,
         }
@@ -325,6 +334,12 @@ impl ProfilRegime {
     #[must_use]
     pub fn est_exonere(&self) -> bool {
         self.exonere
+    }
+
+    /// Le régime comporte une ligne de taxe.
+    #[must_use]
+    pub fn porte_une_ligne_de_taxe(&self) -> bool {
+        self.ligne_taxe
     }
 }
 
@@ -368,7 +383,18 @@ impl EtiquetteFiscale {
         let profil = referentiel
             .profil_regime(&regime)
             .ok_or_else(|| ErreurEtiquette::RegimeInconnu(regime.to_string()))?;
-        let etiquette = Self::relire(nature, sens, regime, taux, exigibilite, motif)?;
+        controle_interne(nature, &regime, motif.as_ref())?;
+        if nature == NatureEtiquette::Taxe && !profil.ligne_taxe {
+            return Err(ErreurEtiquette::LigneTaxeInterdite(regime.to_string()));
+        }
+        let etiquette = Self {
+            nature,
+            sens,
+            regime,
+            taux,
+            exigibilite,
+            motif,
+        };
         let regime = &etiquette.regime;
         match (&etiquette.motif, profil.exonere) {
             (None, true) => return Err(ErreurEtiquette::MotifManquant(regime.to_string())),
@@ -410,39 +436,17 @@ impl EtiquetteFiscale {
         Ok(etiquette)
     }
 
-    /// Relit une étiquette depuis un contenu déjà validé et haché (export, vérificateur) :
-    /// cohérence **interne** seulement, sans référentiel (le vérificateur est autonome).
-    /// Ne sert pas à saisir une étiquette : utiliser [`EtiquetteFiscale::nouvelle`].
-    ///
-    /// # Errors
-    /// [`ErreurEtiquette::TaxeAvecMotif`] ou [`ErreurEtiquette::MotifHorsRegime`] (préfixe).
-    pub fn relire(
-        nature: NatureEtiquette,
-        sens: SensTva,
-        regime: CodeRegime,
-        taux: Option<TauxTva>,
-        exigibilite: Option<Exigibilite>,
-        motif: Option<CodeMotif>,
-    ) -> Result<Self, ErreurEtiquette> {
-        if let Some(motif) = &motif {
-            if nature == NatureEtiquette::Taxe {
-                return Err(ErreurEtiquette::TaxeAvecMotif);
-            }
-            if !motif.rattache_a(&regime) {
-                return Err(ErreurEtiquette::MotifHorsRegime {
-                    regime: regime.to_string(),
-                    motif: motif.to_string(),
-                });
-            }
+    /// Vue « relue » de l'étiquette, pour la sérialisation canonique.
+    #[must_use]
+    pub fn en_relue(&self) -> EtiquetteRelue {
+        EtiquetteRelue {
+            nature: self.nature,
+            sens: self.sens,
+            regime: self.regime.clone(),
+            taux: self.taux,
+            exigibilite: self.exigibilite,
+            motif: self.motif.clone(),
         }
-        Ok(Self {
-            nature,
-            sens,
-            regime,
-            taux,
-            exigibilite,
-            motif,
-        })
     }
 
     /// Base ou taxe.
@@ -476,6 +480,111 @@ impl EtiquetteFiscale {
     }
 
     /// Motif d'exonération (régime exonéré, ligne de base).
+    #[must_use]
+    pub fn motif(&self) -> Option<&CodeMotif> {
+        self.motif.as_ref()
+    }
+}
+
+/// Cohérence **interne** d'une étiquette (sans référentiel) : un motif n'accompagne qu'une ligne
+/// de base, et son code est préfixé de celui du régime.
+fn controle_interne(
+    nature: NatureEtiquette,
+    regime: &CodeRegime,
+    motif: Option<&CodeMotif>,
+) -> Result<(), ErreurEtiquette> {
+    let Some(motif) = motif else {
+        return Ok(());
+    };
+    if nature == NatureEtiquette::Taxe {
+        return Err(ErreurEtiquette::TaxeAvecMotif);
+    }
+    if !motif.rattache_a(regime) {
+        return Err(ErreurEtiquette::MotifHorsRegime {
+            regime: regime.to_string(),
+            motif: motif.to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// Étiquette **relue** d'un contenu déjà validé et haché (export, vérificateur autonome) : seule
+/// la cohérence interne est contrôlée, pas l'appartenance aux listes de `fiscal-sn`.
+///
+/// Ce type ne peut pas être posé sur une [`Ligne`] : il ne sert qu'à lire et à écrire le format
+/// canonique. Impossible de s'en servir pour fabriquer une écriture validable :
+///
+/// ```compile_fail
+/// use compta_core::{EtiquetteRelue, Ligne};
+/// fn pose(ligne: Ligne, relue: EtiquetteRelue) -> Ligne {
+///     ligne.avec_etiquette(relue)
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EtiquetteRelue {
+    nature: NatureEtiquette,
+    sens: SensTva,
+    regime: CodeRegime,
+    taux: Option<TauxTva>,
+    exigibilite: Option<Exigibilite>,
+    motif: Option<CodeMotif>,
+}
+
+impl EtiquetteRelue {
+    /// Relit une étiquette : cohérence interne seulement.
+    ///
+    /// # Errors
+    /// [`ErreurEtiquette::TaxeAvecMotif`] ou [`ErreurEtiquette::MotifHorsRegime`] (préfixe).
+    pub fn nouvelle(
+        nature: NatureEtiquette,
+        sens: SensTva,
+        regime: CodeRegime,
+        taux: Option<TauxTva>,
+        exigibilite: Option<Exigibilite>,
+        motif: Option<CodeMotif>,
+    ) -> Result<Self, ErreurEtiquette> {
+        controle_interne(nature, &regime, motif.as_ref())?;
+        Ok(Self {
+            nature,
+            sens,
+            regime,
+            taux,
+            exigibilite,
+            motif,
+        })
+    }
+
+    /// Base ou taxe.
+    #[must_use]
+    pub fn nature(&self) -> NatureEtiquette {
+        self.nature
+    }
+
+    /// Collectée ou déductible.
+    #[must_use]
+    pub fn sens(&self) -> SensTva {
+        self.sens
+    }
+
+    /// Régime.
+    #[must_use]
+    pub fn regime(&self) -> &CodeRegime {
+        &self.regime
+    }
+
+    /// Taux en pourcent.
+    #[must_use]
+    pub fn taux(&self) -> Option<TauxTva> {
+        self.taux
+    }
+
+    /// Exigibilité.
+    #[must_use]
+    pub fn exigibilite(&self) -> Option<Exigibilite> {
+        self.exigibilite
+    }
+
+    /// Motif d'exonération.
     #[must_use]
     pub fn motif(&self) -> Option<&CodeMotif> {
         self.motif.as_ref()
@@ -579,11 +688,12 @@ mod tests {
             match code.as_str() {
                 "IMP" => Some(ProfilRegime::nouveau(
                     false,
+                    true,
                     vec![t("18"), t("10")],
                     vec![Exigibilite::Debit, Exigibilite::Encaissement],
                 )),
-                "EXO" => Some(ProfilRegime::nouveau(true, vec![], vec![])),
-                "HC" => Some(ProfilRegime::nouveau(false, vec![], vec![])),
+                "EXO" => Some(ProfilRegime::nouveau(true, false, vec![], vec![])),
+                "HC" => Some(ProfilRegime::nouveau(false, false, vec![], vec![])),
                 _ => None,
             }
         }
@@ -698,6 +808,11 @@ mod tests {
             faire(NatureEtiquette::Base, "HC", None, debit, None),
             Err(E::ExigibiliteNonAdmise(_))
         ));
+        // Un régime sans ligne de taxe n'admet que la base.
+        assert!(matches!(
+            faire(NatureEtiquette::Taxe, "HC", None, None, None),
+            Err(E::LigneTaxeInterdite(_))
+        ));
     }
 
     #[test]
@@ -742,7 +857,7 @@ mod tests {
     fn relire_controle_la_forme_seulement() {
         let r = || regime("EXO361");
         assert!(
-            EtiquetteFiscale::relire(
+            EtiquetteRelue::nouvelle(
                 NatureEtiquette::Base,
                 SensTva::Collectee,
                 r(),
@@ -754,7 +869,7 @@ mod tests {
         );
         for m in ["EXO361", "EXO361-", "EXO380-a", "EXO3617"] {
             assert!(
-                EtiquetteFiscale::relire(
+                EtiquetteRelue::nouvelle(
                     NatureEtiquette::Base,
                     SensTva::Collectee,
                     r(),
