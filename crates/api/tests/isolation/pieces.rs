@@ -1,14 +1,14 @@
 //! Cas d'isolation des routes du module `pieces` (PR 12 ; ADR 0015).
 //!
-//! Le harnais ne substitue que `{cabinet}` et `{dossier}` : sur les routes d'une pièce
-//! (`{piece}` laissé tel quel), une requête admise jusqu'au cas d'usage reçoit 400 (identifiant
-//! illisible). L'isolation **par pièce** (404 identique pour la pièce d'un autre dossier ou
-//! d'un autre cabinet) est vérifiée avec de vraies pièces dans `tests/pieces.rs`.
+//! Chaque dossier du monde a une pièce réelle, sous-ressource `{piece}` de ses routes : le
+//! harnais vérifie en outre, pour chaque route d'une pièce, que la pièce d'un autre dossier
+//! (de B, ou non affecté) placée sous un dossier de A donne le même 404 qu'une pièce
+//! inexistante. Isolation détaillée, doublons et altérations : `tests/pieces.rs`.
 
 use api::serveur::routes::{Methode, Route};
 use axum::http::StatusCode;
 
-use super::{Attendu, CasModule, Monde, Resultat, attendu};
+use super::{Attendu, CasModule, Monde, Resultat, attendu, attendu_croise};
 
 pub(super) const CAS: CasModule = CasModule {
     attentes,
@@ -21,7 +21,6 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
     let ok = || Statut(StatusCode::OK);
     let interdit = || Statut(StatusCode::FORBIDDEN);
     let absent = || Statut(StatusCode::NOT_FOUND);
-    let illisible = || Statut(StatusCode::BAD_REQUEST);
     Some(match route.chemin {
         // Le même fichier : créé dans le premier dossier de A, signalé en doublon au second
         // dépôt dans ce dossier (200), créé sans avertissement dans un autre dossier ou un autre
@@ -52,14 +51,27 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu(m.multi, b.cabinet, b.autre_dossier, absent()),
         ],
         "/api/cabinets/{cabinet}/dossiers/{dossier}/pieces/{piece}/contenu" => vec![
-            attendu(a.administrateur, a.cabinet, a.dossier, illisible()),
-            attendu(m.auditeur, a.cabinet, a.dossier, illisible()),
+            attendu(a.administrateur, a.cabinet, a.dossier, ok()),
+            attendu(m.auditeur, a.cabinet, a.dossier, ok()),
             attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu(m.multi, b.cabinet, b.dossier, ok()),
+            // Pièce du second dossier de A, sous le premier : absente même pour
+            // l'administrateur.
+            attendu_croise(
+                a.administrateur,
+                a.cabinet,
+                a.dossier,
+                a.autre_dossier,
+                absent(),
+            ),
         ],
         "/api/cabinets/{cabinet}/dossiers/{dossier}/pieces/{piece}/ecart" => vec![
-            attendu(a.administrateur, a.cabinet, a.dossier, illisible()),
             attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
             attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
+            attendu(a.administrateur, a.cabinet, a.dossier, ok()),
+            // Déjà écartée : absente.
+            attendu(m.valideur, a.cabinet, a.dossier, absent()),
         ],
         _ => return None,
     })

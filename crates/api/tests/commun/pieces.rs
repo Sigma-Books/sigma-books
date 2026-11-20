@@ -3,7 +3,11 @@
 //! contre un vrai service S3 avec verrouillage d'objet sont dans `tests/pieces_s3.rs`.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use api::base::{IdCabinet, IdDossier, IdUtilisateur};
+use integrite::Empreinte;
+use sqlx::PgPool;
 
 use api::pieces::stockage::Futur;
 use api::pieces::{
@@ -19,6 +23,14 @@ type Objets = HashMap<(String, String), Vec<u8>>;
 pub struct StockageMemoire(pub Arc<Mutex<Objets>>);
 
 impl StockageMemoire {
+    /// Stockage partagé de tout le binaire de test : celui des applications de
+    /// [`super::serveur`] et des pièces des mondes d'isolation ([`doter`]). Les clés sont
+    /// uniques : les tests parallèles ne se gênent pas.
+    pub fn partage() -> Self {
+        static PARTAGE: OnceLock<StockageMemoire> = OnceLock::new();
+        PARTAGE.get_or_init(Self::default).clone()
+    }
+
     /// Remplace le contenu de tous les objets dont la clé se termine par `suffixe` (altération
     /// « à la main »). Rend le nombre d'objets altérés.
     pub fn alterer(&self, cle: &str, contenu: &[u8]) -> usize {
@@ -82,4 +94,44 @@ impl Stockage for StockageMemoire {
 /// Service des pièces en mémoire, avec ses réglages par défaut.
 pub fn pieces_memoire(stockage: &StockageMemoire) -> Pieces {
     Pieces::new(Arc::new(stockage.clone()), ReglagesPieces::default())
+}
+
+/// Dote un dossier de test d'une pièce externe réelle (PDF propre à la pièce) : objet dans le
+/// stockage [`StockageMemoire::partage`], ligne insérée par le super-utilisateur. Rend son
+/// identifiant, sous-ressource `{piece}` des routes du dossier.
+pub async fn doter(
+    admin: &PgPool,
+    cabinet: IdCabinet,
+    dossier: IdDossier,
+    deposant: IdUtilisateur,
+) -> Uuid {
+    let id = Uuid::new_v4();
+    let contenu = format!("%PDF-1.7\n% piece de test {id}\n").into_bytes();
+    let cle = CleObjet::nouvelle(cabinet, dossier);
+    let version = Uuid::new_v4().to_string();
+    StockageMemoire::partage()
+        .0
+        .lock()
+        .expect("objets")
+        .insert((cle.as_str().to_owned(), version.clone()), contenu.clone());
+    let maintenant = time::OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO piece (cabinet_id, dossier_id, id, nature, type_contenu, taille, empreinte, \
+         nom_origine, cle_objet, version_objet, retenue_jusqu_au, deposee_par, deposee_le) \
+         VALUES ($1, $2, $3, 'externe', 'application/pdf', $4, $5, 'piece.pdf', $6, $7, $8, $9, $10)",
+    )
+    .bind(cabinet.uuid())
+    .bind(dossier.uuid())
+    .bind(id)
+    .bind(i64::try_from(contenu.len()).expect("taille"))
+    .bind(Empreinte::calculer(&contenu).octets().to_vec())
+    .bind(cle.as_str())
+    .bind(version)
+    .bind(api::pieces::ajouter_annees(maintenant, 11))
+    .bind(deposant.uuid())
+    .bind(maintenant)
+    .execute(admin)
+    .await
+    .expect("pièce de test");
+    id
 }

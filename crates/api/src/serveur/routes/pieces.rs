@@ -26,7 +26,7 @@ use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier_visible};
 use crate::pieces::base::{
     NouvellePiece, Piece, ecarter_piece, inserer_piece, lire_piece, lister_pieces,
-    pieces_de_meme_empreinte,
+    pieces_de_meme_empreinte, verrouiller_dossier,
 };
 use crate::pieces::interne::{self, NoteOd};
 use crate::pieces::{CleObjet, Nature, ObjetADeposer, Pieces, TypePiece};
@@ -344,7 +344,11 @@ async fn deposer(
             return Err(ErreurApi::RequeteInvalide);
         }
     }
-    // Doublons : dans le dossier du contexte seulement (spec §9.3, F3.5).
+    // Doublons : dans le dossier du contexte seulement (spec §9.3, F3.5), après le verrou du
+    // dossier qui sérialise les dépôts concurrents.
+    if !verrouiller_dossier(tx).await? {
+        return Err(ErreurApi::Introuvable);
+    }
     let doublons = pieces_de_meme_empreinte(tx, &empreinte).await?;
     if !doublons.is_empty() && !confirme {
         let mut trace = Trace::new(PorteeAudit::Dossier(dossier.id()), "piece", doublons[0].id);

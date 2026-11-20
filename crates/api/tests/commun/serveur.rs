@@ -204,9 +204,9 @@ fn application_avec(pool: PgPool, lecture_audit: PgPool, mut reglages: Reglages)
     etat
 }
 
-/// Voie pièces (PR 12) : branche un stockage des pièces en mémoire, neuf.
+/// Voie pièces (PR 12) : branche le stockage des pièces en mémoire partagé du binaire de test.
 pub fn brancher_pieces_memoire(etat: &Etat) -> super::pieces::StockageMemoire {
-    let stockage = super::pieces::StockageMemoire::default();
+    let stockage = super::pieces::StockageMemoire::partage();
     etat.brancher_pieces(super::pieces::pieces_memoire(&stockage))
         .expect("service des pièces branché une seule fois");
     stockage

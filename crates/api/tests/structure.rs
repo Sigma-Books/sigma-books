@@ -257,3 +257,32 @@ async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
         );
     }
 }
+
+/// Voie pièces (PR 12, ADR 0015) : le binaire ne connaît qu'un stockage des pièces, compatible
+/// S3, obligatoire et vérifié au démarrage. Le stockage en mémoire des tests
+/// (`tests/commun/pieces.rs`) n'existe pas dans les sources du crate : il ne peut pas être
+/// sélectionné, ni par la configuration ni par une fonctionnalité.
+#[test]
+fn le_seul_stockage_des_pieces_du_binaire_est_s3() {
+    let sources = sources();
+    let implementations = occurrences(&sources, "impl Stockage for");
+    assert_eq!(
+        implementations
+            .iter()
+            .map(|(_, suite)| suite.split_whitespace().next().unwrap_or(""))
+            .collect::<Vec<_>>(),
+        vec!["StockageS3"],
+        "{implementations:?}"
+    );
+    for motif in ["Memoire", "memoire", "mémoire"] {
+        assert!(
+            occurrences(&sources, &format!("Stockage{motif}")).is_empty(),
+            "stockage {motif} dans les sources du crate"
+        );
+    }
+    let main =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs")).unwrap();
+    assert!(main.contains("StockageS3::new(config.pieces.s3"));
+    assert!(main.contains(".verifier_worm()"));
+    assert_eq!(main.matches("brancher_pieces").count(), 1);
+}

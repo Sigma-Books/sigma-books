@@ -225,6 +225,11 @@ mod tests {
             ),
             ("SIGMA_ORIGINE", "https://Compta.Exemple.invalid"),
             ("SIGMA_FICHIER_CLE_INSTANCE", fichiers_de_cle().0.as_str()),
+            // Voie pièces (PR 12) : stockage objet obligatoire.
+            ("SIGMA_PIECES_S3_POINT_ACCES", "http://127.0.0.1:9100"),
+            ("SIGMA_PIECES_S3_COMPARTIMENT", "sigma-pieces"),
+            ("SIGMA_PIECES_S3_CLE", "cle-exemple"),
+            ("SIGMA_PIECES_S3_SECRET", "valeur-exemple"),
         ]
     }
 

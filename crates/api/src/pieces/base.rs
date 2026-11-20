@@ -239,6 +239,28 @@ pub async fn lister_pieces(
         .collect()
 }
 
+/// Verrouille la ligne du dossier du contexte (`FOR NO KEY UPDATE`) jusqu'à la fin de la
+/// transaction : les dépôts d'un même dossier se succèdent sur la recherche des doublons, si
+/// bien que de deux dépôts concurrents du même fichier, un seul passe sans avertissement
+/// (spec §9.3). Pris **avant** la recherche et donc avant l'écriture de l'objet : aucun objet
+/// WORM n'est écrit pour un dépôt qui serait ensuite signalé en doublon. Verrou de ligne sous
+/// RLS, borné au dossier : aucun espace de clés partagé entre tenants (F3.5). Ordre des verrous
+/// (ADR 0014) : celui de l'action, puis les têtes d'audit. `false` si le dossier est absent.
+///
+/// # Errors
+/// Hors du contexte d'un dossier, ou erreur de PostgreSQL.
+pub async fn verrouiller_dossier(tx: &mut TransactionTenant) -> Result<bool, ErreurBase> {
+    let (cabinet, dossier) = tenant(tx)?;
+    let ligne = sqlx::query_scalar!(
+        "SELECT id FROM dossier WHERE cabinet_id = $1 AND id = $2 FOR NO KEY UPDATE",
+        cabinet.uuid(),
+        dossier.uuid(),
+    )
+    .fetch_optional(tx.connexion())
+    .await?;
+    Ok(ligne.is_some())
+}
+
 /// Pièces non écartées **du dossier du contexte** de même empreinte (doublons, spec §9.3).
 /// Jamais d'un autre dossier ni d'un autre cabinet (F3.5).
 ///

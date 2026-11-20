@@ -69,24 +69,18 @@ async fn demarrer() -> Result<(), String> {
         Arc::new(authentification),
         config.reglages.clone(),
     );
-    // Voie pièces (PR 12) : stockage objet WORM vérifié avant de servir (ADR 0015).
-    if let Some(s3) = config.pieces.s3.clone() {
-        let stockage = StockageS3::new(s3).map_err(|e| e.to_string())?;
-        stockage
-            .verifier_worm()
-            .await
-            .map_err(|e| format!("pièces : {e} ; le serveur refuse de démarrer (ADR 0015)"))?;
-        if application
-            .brancher_pieces(Pieces::new(Arc::new(stockage), config.pieces.reglages))
-            .is_err()
-        {
-            return Err("pièces : service déjà branché".to_owned());
-        }
-    } else {
-        tracing::warn!(
-            target: journal::CIBLE,
-            "pièces non configurées : dépôt et téléchargement indisponibles"
-        );
+    // Voie pièces (PR 12) : stockage objet WORM obligatoire, vérifié avant de servir
+    // (ADR 0015). Le binaire ne connaît que le stockage S3.
+    let stockage = StockageS3::new(config.pieces.s3.clone()).map_err(|e| e.to_string())?;
+    stockage
+        .verifier_worm()
+        .await
+        .map_err(|e| format!("pièces : {e} ; le serveur refuse de démarrer (ADR 0015)"))?;
+    if application
+        .brancher_pieces(Pieces::new(Arc::new(stockage), config.pieces.reglages))
+        .is_err()
+    {
+        return Err("pièces : service déjà branché".to_owned());
     }
     let routeur = routeur(&application);
     let ecouteur = TcpListener::bind(config.adresse_ecoute)

@@ -1,17 +1,16 @@
 //! Configuration des pièces, lue dans l'environnement par
 //! [`crate::serveur::config::Configuration`]. Aucune valeur n'est recopiée dans une erreur.
 //!
-//! Sans `SIGMA_PIECES_S3_POINT_ACCES`, le service des pièces n'est pas branché : ses routes
-//! répondent par une erreur interne (catégorie `stockage`) et le binaire l'écrit au démarrage.
-//! Avec lui, les trois variables suivantes deviennent obligatoires, et le binaire **refuse de
-//! démarrer** si le compartiment n'a pas le versionnement et le verrouillage d'objet.
+//! Le stockage objet est **obligatoire** (ADR 0015) : sans ses quatre variables, ou si le
+//! compartiment n'a pas le versionnement et le verrouillage d'objet, le binaire **refuse de
+//! démarrer**. Aucun autre stockage n'est sélectionnable par la configuration.
 //!
 //! | Variable | Obligatoire | Contenu |
 //! |---|---|---|
-//! | `SIGMA_PIECES_S3_POINT_ACCES` | non | Point d'accès compatible S3, `http://hôte[:port]` (TLS : relais de l'hébergement, L9) |
-//! | `SIGMA_PIECES_S3_COMPARTIMENT` | avec le point d'accès | Compartiment créé **avec** verrouillage d'objet (donc versionné) |
-//! | `SIGMA_PIECES_S3_CLE` | avec le point d'accès | Identifiant d'accès du rôle applicatif (secret d'exécution) |
-//! | `SIGMA_PIECES_S3_SECRET` | avec le point d'accès | Clé secrète du rôle applicatif (secret d'exécution) |
+//! | `SIGMA_PIECES_S3_POINT_ACCES` | oui | Point d'accès compatible S3, `http://hôte[:port]` (TLS : relais de l'hébergement, L9) |
+//! | `SIGMA_PIECES_S3_COMPARTIMENT` | oui | Compartiment créé **avec** verrouillage d'objet (donc versionné) |
+//! | `SIGMA_PIECES_S3_CLE` | oui | Identifiant d'accès du rôle applicatif (secret d'exécution) |
+//! | `SIGMA_PIECES_S3_SECRET` | oui | Clé secrète du rôle applicatif (secret d'exécution) |
 //! | `SIGMA_PIECES_S3_REGION` | non | Région de la signature ; `us-east-1` par défaut |
 //! | `SIGMA_PIECES_S3_STYLE` | non | `chemin` (défaut, compartiment dans le chemin) ou `hote` (dans le nom d'hôte) |
 //! | `SIGMA_PIECES_TAILLE_MAX` | non | Taille maximale d'une pièce, en octets : 20 Mio par défaut, de 1 Kio à 100 Mio |
@@ -27,12 +26,11 @@ use super::s3::ConfigurationS3;
 use super::{RETENTION_MIN_ANS, ReglagesPieces};
 use crate::serveur::config::{Environnement, ErreurConfiguration};
 
-/// Configuration des pièces : accès au compartiment (absent : service non branché) et
-/// réglages.
+/// Configuration des pièces : accès au compartiment et réglages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigurationPieces {
     /// Accès au compartiment S3.
-    pub s3: Option<ConfigurationS3>,
+    pub s3: ConfigurationS3,
     /// Réglages du service.
     pub reglages: ReglagesPieces,
 }
@@ -40,7 +38,7 @@ pub struct ConfigurationPieces {
 /// Lit la configuration des pièces.
 ///
 /// # Errors
-/// [`ErreurConfiguration`] : variable manquante (avec le point d'accès) ou invalide.
+/// [`ErreurConfiguration`] : variable manquante ou invalide.
 pub fn configuration(env: &Environnement<'_>) -> Result<ConfigurationPieces, ErreurConfiguration> {
     let mut reglages = ReglagesPieces::default();
     if let Some(taille) = entier(env, "SIGMA_PIECES_TAILLE_MAX", 1024, 100 * 1024 * 1024)? {
@@ -59,9 +57,7 @@ pub fn configuration(env: &Environnement<'_>) -> Result<ConfigurationPieces, Err
     if let Some(secondes) = entier(env, "SIGMA_PIECES_DELAI_DEPOT", 30, 900)? {
         reglages.delai_depot = Duration::from_secs(secondes);
     }
-    let Some(point_acces) = env.facultative("SIGMA_PIECES_S3_POINT_ACCES") else {
-        return Ok(ConfigurationPieces { s3: None, reglages });
-    };
+    let point_acces = env.obligatoire("SIGMA_PIECES_S3_POINT_ACCES")?;
     let invalide = ErreurConfiguration::Invalide("SIGMA_PIECES_S3_POINT_ACCES");
     let point_acces: Url = point_acces.trim().parse().map_err(|_| invalide)?;
     let admis = point_acces.scheme() == "http"
@@ -102,13 +98,13 @@ pub fn configuration(env: &Environnement<'_>) -> Result<ConfigurationPieces, Err
         Some(_) => return Err(ErreurConfiguration::Invalide("SIGMA_PIECES_S3_STYLE")),
     };
     Ok(ConfigurationPieces {
-        s3: Some(ConfigurationS3 {
+        s3: ConfigurationS3 {
             point_acces,
             compartiment,
             region,
             style_chemin,
             identifiants: Credentials::new(cle.trim(), secret.trim()),
-        }),
+        },
         reglages,
     })
 }
@@ -155,9 +151,14 @@ mod tests {
     ];
 
     #[test]
-    fn sans_point_d_acces_le_service_n_est_pas_branche() {
-        let c = lire(&[]).unwrap();
-        assert_eq!(c.s3, None);
+    fn le_stockage_est_obligatoire_et_les_reglages_ont_leurs_defauts() {
+        assert_eq!(
+            lire(&[]),
+            Err(ErreurConfiguration::Manquante(
+                "SIGMA_PIECES_S3_POINT_ACCES"
+            ))
+        );
+        let c = lire(&S3).unwrap();
         assert_eq!(c.reglages, ReglagesPieces::default());
         assert_eq!(c.reglages.taille_max, 20 * 1024 * 1024);
         assert_eq!(c.reglages.retention_ans, 10);
@@ -173,7 +174,7 @@ mod tests {
             ("SIGMA_PIECES_S3_STYLE", "hote"),
         ]);
         let c = lire(&paires).unwrap();
-        let s3 = c.s3.clone().unwrap();
+        let s3 = c.s3.clone();
         assert_eq!(s3.compartiment, "sigma-pieces");
         assert_eq!(s3.region, "us-east-1");
         assert!(!s3.style_chemin);
@@ -185,7 +186,7 @@ mod tests {
 
     #[test]
     fn variables_manquantes_ou_invalides() {
-        for i in 1..S3.len() {
+        for i in 0..S3.len() {
             let mut paires = S3.to_vec();
             let (nom, _) = paires.remove(i);
             assert_eq!(lire(&paires), Err(ErreurConfiguration::Manquante(nom)));

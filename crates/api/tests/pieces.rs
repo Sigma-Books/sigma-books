@@ -892,3 +892,75 @@ async fn le_role_applicatif_ne_modifie_que_l_ecart() {
         .unwrap_err();
     assert_eq!(code_sql(&erreur).as_deref(), Some("23514"));
 }
+
+/// Stockage en mémoire **lent** au dépôt : élargit la fenêtre entre la recherche des doublons
+/// et l'inscription de la pièce.
+struct StockageLent(StockageMemoire);
+
+impl api::pieces::Stockage for StockageLent {
+    fn deposer<'a>(
+        &'a self,
+        objet: api::pieces::ObjetADeposer<'a>,
+    ) -> api::pieces::stockage::Futur<'a, Result<api::pieces::Depot, api::pieces::ErreurStockage>>
+    {
+        Box::pin(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            self.0.deposer(objet).await
+        })
+    }
+
+    fn lire<'a>(
+        &'a self,
+        cle: &'a api::pieces::CleObjet,
+        version: &'a str,
+        taille_max: usize,
+    ) -> api::pieces::stockage::Futur<'a, Result<Vec<u8>, api::pieces::ErreurStockage>> {
+        self.0.lire(cle, version, taille_max)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn deux_depots_concurrents_du_meme_fichier_un_seul_sans_avertissement() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let valideur = ajouter_affecte(&env.admin, &c, "valideur").await;
+    let etat = Application::new(
+        env.application.clone(),
+        env.lecture_audit.clone(),
+        Arc::new(Autorisation::charger().unwrap()),
+        Arc::new(AuthentificationTest::default()),
+        Reglages::new(ORIGINE.to_owned()),
+    );
+    let stockage = StockageMemoire::default();
+    etat.brancher_pieces(Pieces::new(
+        Arc::new(StockageLent(stockage.clone())),
+        ReglagesPieces::default(),
+    ))
+    .unwrap();
+    let routeur = routeur(&etat);
+    for tour in 0..3u8 {
+        let mut octets = PDF.to_vec();
+        octets.push(tour);
+        let (r1, r2) = tokio::join!(
+            deposer(&routeur, &c, c.dossier, c.collaborateur, "", &octets),
+            deposer(&routeur, &c, c.dossier, valideur, "", &octets),
+        );
+        let mut statuts = [r1.statut, r2.statut];
+        statuts.sort();
+        assert_eq!(
+            statuts,
+            [StatusCode::OK, StatusCode::CREATED],
+            "{} / {}",
+            r1.texte(),
+            r2.texte()
+        );
+        let avertissement = if r1.statut == StatusCode::OK {
+            &r1
+        } else {
+            &r2
+        };
+        assert_eq!(avertissement.json()["doublon"], true);
+    }
+    assert_eq!(stockage.nombre(), 3);
+    assert_eq!(compter_pieces(&env.admin, &c).await, 3);
+}
