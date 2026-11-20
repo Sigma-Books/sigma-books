@@ -9,7 +9,7 @@ mod commun;
 
 use std::time::Duration;
 
-use api::base::referentiel::{ErreurPeriode, Transition, changer_statut};
+use api::base::referentiel::{ErreurPeriode, Transition, changer_statut, dates_du_brouillard};
 use api::base::{ContexteTenant, ErreurBase, IdUtilisateur, ouvrir_transaction};
 use api::serveur::{Reglages, routeur};
 use axum::Router;
@@ -220,6 +220,17 @@ async fn transitions_par_les_routes_et_leur_audit() {
     assert_eq!(liste.json()["exercices"].as_array().unwrap().len(), 2);
 }
 
+/// Refus 409 au code stable du motif, sans autre donnée.
+fn conflit(r: &Reponse, motif: &str) {
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(
+        r.json(),
+        serde_json::json!({ "erreur": motif }),
+        "{}",
+        r.texte()
+    );
+}
+
 #[tokio::test]
 async fn refus_des_regles_sans_effet() {
     let b = banc().await;
@@ -227,18 +238,18 @@ async fn refus_des_regles_sans_effet() {
     let p = &b.periodes;
     let audit = b.entrees_audit().await;
 
-    // Période antérieure non clôturée.
-    refus(&b.cloturer(p[1], admin).await, StatusCode::BAD_REQUEST);
-    // Dernière période : elle se clôture avec l'exercice.
-    refus(&b.cloturer(p[11], admin).await, StatusCode::BAD_REQUEST);
-    // Déverrouiller une période ouverte, verrouiller deux fois.
-    refus(
+    conflit(
+        &b.cloturer(p[1], admin).await,
+        "periode_anterieure_non_cloturee",
+    );
+    conflit(
         &b.deverrouiller(p[2], admin, MOTIF).await,
-        StatusCode::BAD_REQUEST,
+        "periode_non_verrouillee",
     );
     ok(&b.verrouiller(p[2], admin).await);
-    refus(&b.verrouiller(p[2], admin).await, StatusCode::BAD_REQUEST);
-    // Déverrouillage sans motif, motif blanc ou trop long, champ inconnu.
+    conflit(&b.verrouiller(p[2], admin).await, "periode_non_ouverte");
+    // Corps invalides : 400. Déverrouillage sans motif, motif blanc ou trop long, champ
+    // inconnu ; clôture sans la confirmation exacte.
     for corps in [
         "{}",
         r#"{"motif":"   "}"#,
@@ -250,7 +261,6 @@ async fn refus_des_regles_sans_effet() {
             StatusCode::BAD_REQUEST,
         );
     }
-    // Clôture sans la confirmation exacte.
     for corps in ["{}", r#"{"confirmation":"oui"}"#] {
         refus(
             &b.poster(p[0], "cloture", admin, corps).await,
@@ -268,22 +278,32 @@ async fn refus_des_regles_sans_effet() {
         audit + 2,
         "seuls le verrouillage et la clôture sont tracés"
     );
-    refus(&b.cloturer(p[0], admin).await, StatusCode::BAD_REQUEST);
-    refus(&b.verrouiller(p[0], admin).await, StatusCode::BAD_REQUEST);
-    refus(
+    conflit(&b.cloturer(p[0], admin).await, "periode_deja_cloturee");
+    conflit(&b.verrouiller(p[0], admin).await, "periode_deja_cloturee");
+    conflit(
         &b.deverrouiller(p[0], admin, MOTIF).await,
-        StatusCode::BAD_REQUEST,
+        "periode_deja_cloturee",
     );
     assert_eq!(b.statut(p[0]).await, "cloturee");
+
+    // Toutes les périodes sauf la dernière clôturées dans l'ordre : la dernière reste refusée,
+    // pour ce seul motif (elle se clôture avec l'exercice).
+    for periode in &p[1..11] {
+        ok(&b.cloturer(*periode, admin).await);
+    }
+    conflit(&b.cloturer(p[11], admin).await, "derniere_periode");
+    assert_eq!(b.statut(p[11]).await, "ouverte");
+    let audit_apres = audit_apres + 10;
+    assert_eq!(b.entrees_audit().await, audit_apres);
 
     // Au plus deux exercices non clôturés.
     assert_eq!(
         b.ouvrir_suivant(admin, None).await.statut,
         StatusCode::CREATED
     );
-    refus(
+    conflit(
         &b.ouvrir_suivant(admin, None).await,
-        StatusCode::BAD_REQUEST,
+        "exercices_non_clotures_max",
     );
     assert_eq!(b.entrees_audit().await, audit_apres + 1);
 
@@ -291,6 +311,27 @@ async fn refus_des_regles_sans_effet() {
     refus(
         &b.verrouiller(Uuid::new_v4(), admin).await,
         StatusCode::NOT_FOUND,
+    );
+}
+
+/// Fil-piège : la lecture du brouillard à la clôture parcourt chaque table de
+/// `TABLES_BROUILLARD_LUES_A_LA_CLOTURE` ; une table ajoutée sans lecture branchée fait échouer
+/// ce test (et toute clôture).
+#[tokio::test]
+async fn chaque_table_du_brouillard_a_sa_lecture() {
+    let b = banc().await;
+    let mut tx = ouvrir_transaction(&b.env.application, b.contexte())
+        .await
+        .unwrap();
+    let (du, au) = (
+        time::Date::from_calendar_date(2000, time::Month::January, 1).unwrap(),
+        time::Date::from_calendar_date(2100, time::Month::December, 31).unwrap(),
+    );
+    let dates = dates_du_brouillard(&mut tx, du, au).await;
+    assert!(
+        dates.is_ok(),
+        "table du brouillard sans lecture branchée : {:?} ({dates:?})",
+        api::base::referentiel::TABLES_BROUILLARD_LUES_A_LA_CLOTURE
     );
 }
 
@@ -492,6 +533,33 @@ async fn une_validation_en_cours_retarde_le_verrouillage() {
     .unwrap();
 }
 
+/// Validation par lot simulée (PR 13) : les périodes de ses écritures prises `FOR SHARE` une à
+/// une, dans l'ordre chronologique, et leur statut relu.
+async fn validation_par_lot(
+    pool: &PgPool,
+    contexte: ContexteTenant,
+    lot: Vec<Uuid>,
+) -> Result<(), ErreurPeriode> {
+    let mut tx = ouvrir_transaction(pool, contexte).await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout = '10s'")
+        .execute(tx.connexion())
+        .await
+        .unwrap();
+    for periode in lot {
+        let statut: String =
+            sqlx::query_scalar("SELECT statut FROM periode WHERE id = $1 FOR SHARE")
+                .bind(periode)
+                .fetch_one(tx.connexion())
+                .await
+                .map_err(|e| ErreurPeriode::Base(ErreurBase::Sqlx(e)))?;
+        // La validation relit le statut de chaque période (visible même clôturée).
+        assert!(["ouverte", "verrouillee", "cloturee"].contains(&statut.as_str()));
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    tx.confirmer().await.unwrap();
+    Ok(())
+}
+
 #[tokio::test]
 async fn aucun_interblocage_entre_transitions_et_validations() {
     let pool = PgPoolOptions::new()
@@ -522,23 +590,19 @@ async fn aucun_interblocage_entre_transitions_et_validations() {
                 transition(&pool, contexte, periode, t).await.err()
             }));
         }
-        for periode in b.periodes.iter().copied().take(8).rev() {
+        // Validations par lot simulées (PR 13) : chacune prend les périodes de ses écritures
+        // `FOR SHARE`, une à une, **dans l'ordre chronologique**, comme les clôtures ; fenêtres
+        // de trois périodes qui chevauchent clôtures, verrouillages et déverrouillages.
+        for depart in 0..6 {
+            let lot: Vec<Uuid> = b.periodes[depart..depart + 3].to_vec();
             let pool = pool.clone();
             taches.push(tokio::spawn(async move {
-                let mut tx = ouvrir_transaction(&pool, contexte).await.unwrap();
-                sqlx::query("SELECT id FROM periode WHERE id = $1 FOR SHARE")
-                    .bind(periode)
-                    .fetch_all(tx.connexion())
-                    .await
-                    .unwrap();
-                tokio::time::sleep(Duration::from_millis(20)).await;
-                tx.confirmer().await.unwrap();
-                None
+                validation_par_lot(&pool, contexte, lot).await.err()
             }));
         }
         for tache in taches {
             // Un refus des règles est admis (une clôture qui a vu la précédente encore
-            // ouverte) ; toute erreur de base (interblocage 40P01, délai) fait échouer.
+            // ouverte) ; toute erreur de base (interblocage 40P01, délai 55P03) fait échouer.
             match tache.await.unwrap() {
                 None | Some(ErreurPeriode::Refus(_)) => {}
                 Some(autre) => panic!("échec inattendu (interblocage ?) : {autre:?}"),

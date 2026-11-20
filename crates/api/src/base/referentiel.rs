@@ -1559,8 +1559,9 @@ async fn enregistrer_tiers(
 mod periodes;
 
 pub use periodes::{
-    ChangementPeriode, ErreurPeriode, ExerciceOuvert, TABLES_BROUILLARD_LUES_A_LA_CLOTURE,
-    Transition, changer_statut, dates_du_brouillard, ouvrir_exercice_suivant,
+    ChangementPeriode, ErreurPeriode, ExerciceOuvert, RefusPeriode,
+    TABLES_BROUILLARD_LUES_A_LA_CLOTURE, Transition, appliquer, changer_statut,
+    dates_du_brouillard, ouvrir_exercice_suivant,
 };
 
 #[cfg(test)]

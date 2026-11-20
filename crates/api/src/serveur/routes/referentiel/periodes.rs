@@ -12,20 +12,21 @@
 //! suivant), une session fraîche. La période `{periode}` est cherchée dans le seul dossier du
 //! contexte : celle d'un autre dossier est absente (404).
 //!
-//! Une transition refusée par les règles (période déjà clôturée, antérieure non clôturée,
-//! dernière période, brouillard daté dans la période, deux exercices déjà ouverts…) donne 400,
-//! comme tout refus du référentiel ; rien n'est écrit.
+//! Une transition refusée par les règles donne 409, avec un code stable par motif
+//! ([`MotifConflit`] : période déjà clôturée, antérieure non clôturée, dernière période,
+//! brouillard daté dans la période avec le nombre d'écritures, deux exercices déjà ouverts…) ;
+//! rien n'est écrit. Un corps invalide donne 400.
 
 use super::{Cas, Requete, Resultat, corps, vue_exercice, vue_periode};
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::lire_appartenance;
 use crate::base::referentiel::{
-    ErreurPeriode, Transition, changer_statut, nom_statut_exercice, nom_statut_periode,
-    ouvrir_exercice_suivant,
+    ErreurPeriode, RefusPeriode, Transition, changer_statut, nom_statut_exercice,
+    nom_statut_periode, ouvrir_exercice_suivant,
 };
 use crate::base::{IdDossier, TransactionTenant};
 use crate::serveur::audit::Trace;
-use crate::serveur::erreur::{CategorieErreur, ErreurApi};
+use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
 use crate::serveur::pipeline::Garde;
 use authz::Role;
 use axum::Json;
@@ -82,9 +83,27 @@ async fn exiger(tx: &mut TransactionTenant, garde: &Garde, cas: Cas) -> Result<(
 }
 
 fn erreur(e: ErreurPeriode) -> ErreurApi {
+    let conflit = |motif| ErreurApi::Conflit {
+        motif,
+        nombre: None,
+    };
     match e {
         ErreurPeriode::Absente => ErreurApi::Introuvable,
-        ErreurPeriode::Refus(_) => ErreurApi::RequeteInvalide,
+        ErreurPeriode::Refus(refus) => match refus {
+            RefusPeriode::PeriodeDejaCloturee => conflit(MotifConflit::PeriodeDejaCloturee),
+            RefusPeriode::PeriodeNonOuverte => conflit(MotifConflit::PeriodeNonOuverte),
+            RefusPeriode::PeriodeNonVerrouillee => conflit(MotifConflit::PeriodeNonVerrouillee),
+            RefusPeriode::DernierePeriode => conflit(MotifConflit::DernierePeriode),
+            RefusPeriode::PeriodeAnterieureNonCloturee => {
+                conflit(MotifConflit::PeriodeAnterieureNonCloturee)
+            }
+            RefusPeriode::BrouillardNonValide { nombre } => ErreurApi::Conflit {
+                motif: MotifConflit::BrouillardNonValide,
+                nombre: Some(u32::try_from(nombre).unwrap_or(u32::MAX)),
+            },
+            RefusPeriode::ExercicesNonCloturesMax => conflit(MotifConflit::ExercicesNonCloturesMax),
+            RefusPeriode::Autre(_) => ErreurApi::RequeteInvalide,
+        },
         ErreurPeriode::Base(e) => ErreurApi::from(e),
     }
 }
@@ -179,4 +198,51 @@ async fn ouvrir(tx: &mut TransactionTenant, dossier: IdDossier) -> Result<Result
         reponse: (StatusCode::CREATED, Json(vue)).into_response(),
         traces: vec![trace],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chaque_refus_donne_son_conflit() {
+        let cas = [
+            (
+                RefusPeriode::PeriodeDejaCloturee,
+                "periode_deja_cloturee",
+                None,
+            ),
+            (RefusPeriode::PeriodeNonOuverte, "periode_non_ouverte", None),
+            (
+                RefusPeriode::PeriodeNonVerrouillee,
+                "periode_non_verrouillee",
+                None,
+            ),
+            (RefusPeriode::DernierePeriode, "derniere_periode", None),
+            (
+                RefusPeriode::PeriodeAnterieureNonCloturee,
+                "periode_anterieure_non_cloturee",
+                None,
+            ),
+            (
+                RefusPeriode::BrouillardNonValide { nombre: 4 },
+                "brouillard_non_valide",
+                Some(4),
+            ),
+            (
+                RefusPeriode::ExercicesNonCloturesMax,
+                "exercices_non_clotures_max",
+                None,
+            ),
+        ];
+        for (refus, code, nombre_attendu) in cas {
+            let e = erreur(ErreurPeriode::Refus(refus));
+            assert_eq!(e.statut(), StatusCode::CONFLICT);
+            assert_eq!(e.code(), code);
+            let ErreurApi::Conflit { nombre, .. } = e else {
+                panic!("{e:?}");
+            };
+            assert_eq!(nombre, nombre_attendu);
+        }
+    }
 }
