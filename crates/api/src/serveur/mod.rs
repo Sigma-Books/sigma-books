@@ -11,9 +11,10 @@
 //! 7. [`csrf::proteger`] : anti-CSRF des mutations, avant toute authentification (403) ;
 //! 8. taille **lue** du corps (`RequestBodyLimitLayer`) : un corps sans `Content-Length`
 //!    (envoyé par morceaux) est coupé à la même limite ;
-//! 9. routeur : table [`routes::ROUTES`] et [`pipeline`], sinon 404 uniforme sous `/api`, sinon
-//!    fichiers statiques de l'interface. Aucune route n'est déclarée hors de la table (test
-//!    structurel `tests/structure.rs`).
+//! 9. routeur : table [`routes::ROUTES`] (assemblée des tranches des modules de routes,
+//!    [`routes::MODULES`]) et [`pipeline`], sinon 404 uniforme sous `/api`, sinon fichiers
+//!    statiques de l'interface. Aucune route n'est déclarée hors de la table (test structurel
+//!    `tests/structure.rs`).
 //!
 //! Les limites de la couche HTTP (taille et nombre des en-têtes, délai de lecture des en-têtes)
 //! sont posées sur la connexion par [`servir`].

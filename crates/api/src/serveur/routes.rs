@@ -2,33 +2,44 @@
 //!
 //! Le routeur se construit **uniquement** à partir de [`ROUTES`] ([`super::routeur`]) : une route
 //! absente de la table n'existe pas. Le test d'isolation « chaque route »
-//! (`crates/api/tests/isolation.rs`) parcourt cette table et échoue si une route n'a pas son cas
+//! (`crates/api/tests/isolation/`) parcourt cette table et échoue si une route n'a pas son cas
 //! d'isolation.
 //!
-//! Routes de la PR 6 (lecture) et de la PR 7 : journal d'audit (consultation, vérification,
-//! export, ADR 0014 et 0016) et première mutation, la création d'un dossier, inscrite au
-//! journal d'audit dans sa transaction (`crates/api/CLAUDE.md`). PR 8a : la session courante
-//! et les ressources propres de l'utilisateur, hors de tout cabinet (ADR 0012, module
-//! [`super::moi`]).
+//! # Une tranche par module
+//! La table n'est écrite nulle part d'un seul tenant : chaque module de routes (sous-modules de
+//! celui-ci) déclare sa **tranche** ([`Module`] : ses routes, ses cas d'usage, ses champs de
+//! journal), et [`ROUTES`] est l'assemblage, à la compilation, des tranches de [`MODULES`], dans
+//! leur ordre. Une voie de travail n'édite que le fichier de son module
+//! (`crates/api/README.md`, « Travailler en voies parallèles ») ; les modules prévus par le plan
+//! du lot existent déjà, avec une tranche vide.
+//!
+//! Le cas d'usage d'une route ([`CasUsage`]) nomme son module : le test
+//! `chaque_route_releve_de_son_module` refuse une route déclarée dans la tranche d'un autre.
+
+pub mod administration;
+pub mod audit;
+pub mod brouillard;
+pub mod editions;
+pub mod facteurs;
+pub mod integrite;
+pub mod moi;
+pub mod organisation;
+pub mod passkeys;
+pub mod pieces;
+pub mod referentiel;
+pub mod session;
 
 use authz::{Action, ActionUtilisateur};
-use axum::Json;
-use axum::http::{Method, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::http::Method;
+use axum::response::Response;
 use axum::routing::MethodFilter;
-use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use super::audit::{self, Trace};
+use super::audit::Trace;
 use super::authentification::NatureSession;
-use super::erreur::ErreurApi;
-use super::pipeline::{CabinetAutorise, DossierAutorise, Garde};
+use super::erreur::{CategorieErreur, ErreurApi};
+use super::pipeline::Garde;
 use crate::base::TransactionTenant;
-use crate::base::audit::PorteeAudit;
-use crate::base::organisation::{
-    affecter_utilisateur_du_contexte, creer_dossier, lire_appartenance, lire_cabinet,
-    lire_dossier_visible, lister_dossiers_visibles,
-};
 
 /// Méthode HTTP d'une route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,36 +120,55 @@ impl Portee {
     }
 }
 
-/// Cas d'usage d'une route.
+/// Cas d'usage d'une route : celui de son module. Une variante par module, déclarée d'avance
+/// pour les modules prévus (leur énumération est vide tant qu'ils n'ont pas de route).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CasUsage {
-    /// Paramètres du cabinet.
-    LireCabinet,
-    /// Dossiers visibles du cabinet.
-    ListerDossiers,
-    /// Un dossier.
-    LireDossier,
-    /// Créer un dossier : inscrit au cabinet, puis en première entrée du dossier (ADR 0014) ;
-    /// le créateur y est affecté.
-    CreerDossier,
-    /// Consultation paginée de l'audit de la portée du chemin.
-    ConsulterAudit,
-    /// Vérification de la chaîne d'audit de la portée du chemin.
-    VerifierAudit,
-    /// Export de l'audit de la portée du chemin, inscrit lui-même à l'audit.
-    ExporterAudit,
-    /// État de la session courante et son jeton anti-CSRF.
-    EtatSession,
-    /// Rotation du jeton de la session courante (changement de cabinet actif).
-    TournerJeton,
-    /// Déconnexion : révocation de la session courante.
-    Deconnecter,
-    /// Sessions actives de l'utilisateur.
-    ListerSessions,
-    /// Révocation d'une session de l'utilisateur.
-    RevoquerSession,
-    /// Cabinets de l'utilisateur, chacun décidé par Cedar (`AccederCabinet`).
-    ListerCabinets,
+    /// Cabinet et dossiers ([`organisation`]).
+    Organisation(organisation::Cas),
+    /// Journal d'audit ([`audit`]).
+    Audit(audit::Cas),
+    /// Session courante ([`session`]).
+    Session(session::Cas),
+    /// Ressources propres de l'utilisateur ([`moi`]).
+    Moi(moi::Cas),
+    /// Facteurs de secours (PR 8b, [`facteurs`]).
+    Facteurs(facteurs::Cas),
+    /// Passkeys (PR 8c, [`passkeys`]).
+    Passkeys(passkeys::Cas),
+    /// Administration du cabinet (PR 9, [`administration`]).
+    Administration(administration::Cas),
+    /// Dossier et référentiel (PR 11, [`referentiel`]).
+    Referentiel(referentiel::Cas),
+    /// Pièces justificatives (PR 12, [`pieces`]).
+    Pieces(pieces::Cas),
+    /// Brouillard et validation (PR 13, [`brouillard`]).
+    Brouillard(brouillard::Cas),
+    /// Éditions et alertes (PR 14, [`editions`]).
+    Editions(editions::Cas),
+    /// Horodatage et intégrité (PR 15, [`integrite`]).
+    Integrite(integrite::Cas),
+}
+
+impl CasUsage {
+    /// Nom du module du cas d'usage ([`Module::nom`]).
+    #[must_use]
+    pub const fn module(self) -> &'static str {
+        match self {
+            Self::Organisation(_) => organisation::MODULE.nom,
+            Self::Audit(_) => audit::MODULE.nom,
+            Self::Session(_) => session::MODULE.nom,
+            Self::Moi(_) => moi::MODULE.nom,
+            Self::Facteurs(_) => facteurs::MODULE.nom,
+            Self::Passkeys(_) => passkeys::MODULE.nom,
+            Self::Administration(_) => administration::MODULE.nom,
+            Self::Referentiel(_) => referentiel::MODULE.nom,
+            Self::Pieces(_) => pieces::MODULE.nom,
+            Self::Brouillard(_) => brouillard::MODULE.nom,
+            Self::Editions(_) => editions::MODULE.nom,
+            Self::Integrite(_) => integrite::MODULE.nom,
+        }
+    }
 }
 
 /// Action Cedar d'une route : toute route est décidée par Cedar (règle absolue 7).
@@ -167,132 +197,72 @@ pub struct Route {
     pub cas_usage: CasUsage,
 }
 
-/// Toutes les routes de l'API.
-pub const ROUTES: &[Route] = &[
-    // §20 « Gérer cabinet » : paramètres du cabinet, administrateur seul (403 pour les autres).
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/cabinets/{cabinet}",
-        action: ActionRoute::Cabinet(Action::GererCabinet),
-        portee: Portee::Cabinet,
-        cas_usage: CasUsage::LireCabinet,
-    },
-    // Dossiers visibles : tous pour l'administrateur, les dossiers affectés pour les autres (Q5.1).
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/cabinets/{cabinet}/dossiers",
-        action: ActionRoute::Cabinet(Action::AccederDossier),
-        portee: Portee::DossiersDuCabinet,
-        cas_usage: CasUsage::ListerDossiers,
-    },
-    // §20 « Créer un dossier » : administrateur, valideur.
-    Route {
-        methode: Methode::Post,
-        chemin: "/api/cabinets/{cabinet}/dossiers",
-        action: ActionRoute::Cabinet(Action::CreerDossier),
-        portee: Portee::Cabinet,
-        cas_usage: CasUsage::CreerDossier,
-    },
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}",
-        action: ActionRoute::Cabinet(Action::AccederDossier),
-        portee: Portee::Dossier,
-        cas_usage: CasUsage::LireDossier,
-    },
-    // Audit du cabinet : administrateur seul (ADR 0016) ; l'export exige la ré-authentification.
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/cabinets/{cabinet}/audit",
-        action: ActionRoute::Cabinet(Action::ConsulterAuditCabinet),
-        portee: Portee::Cabinet,
-        cas_usage: CasUsage::ConsulterAudit,
-    },
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/cabinets/{cabinet}/audit/verification",
-        action: ActionRoute::Cabinet(Action::VerifierAuditCabinet),
-        portee: Portee::Cabinet,
-        cas_usage: CasUsage::VerifierAudit,
-    },
-    Route {
-        methode: Methode::Post,
-        chemin: "/api/cabinets/{cabinet}/audit/export",
-        action: ActionRoute::Cabinet(Action::ExporterAuditCabinet),
-        portee: Portee::Cabinet,
-        cas_usage: CasUsage::ExporterAudit,
-    },
-    // Audit d'un dossier : administrateur, valideur, auditeur affectés (§20, ADR 0016). La
-    // vérification relève de la consultation ; l'export, de l'export complet (ré-authentifié).
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit",
-        action: ActionRoute::Cabinet(Action::ConsulterAudit),
-        portee: Portee::Dossier,
-        cas_usage: CasUsage::ConsulterAudit,
-    },
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/verification",
-        action: ActionRoute::Cabinet(Action::ConsulterAudit),
-        portee: Portee::Dossier,
-        cas_usage: CasUsage::VerifierAudit,
-    },
-    Route {
-        methode: Methode::Post,
-        chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/audit/export",
-        action: ActionRoute::Cabinet(Action::ExporterComplet),
-        portee: Portee::Dossier,
-        cas_usage: CasUsage::ExporterAudit,
-    },
-    // Session courante (ADR 0012) : état et jeton anti-CSRF ; déconnexion. Toute nature.
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/session",
-        action: ActionRoute::Utilisateur(ActionUtilisateur::ConsulterSaSession),
-        portee: Portee::Session,
-        cas_usage: CasUsage::EtatSession,
-    },
-    Route {
-        methode: Methode::Post,
-        chemin: "/api/session/deconnexion",
-        action: ActionRoute::Utilisateur(ActionUtilisateur::RevoquerSaSession),
-        portee: Portee::Session,
-        cas_usage: CasUsage::Deconnecter,
-    },
-    // Rotation du jeton, appelée par l'interface au changement de cabinet actif (ADR 0012) ;
-    // le serveur ne mémorise aucun cabinet (ADR 0011, F1.14).
-    Route {
-        methode: Methode::Post,
-        chemin: "/api/session/rotation",
-        action: ActionRoute::Utilisateur(ActionUtilisateur::TournerSaSession),
-        portee: Portee::Utilisateur,
-        cas_usage: CasUsage::TournerJeton,
-    },
-    // Ses sessions (spec §21) : liste, révocation.
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/moi/sessions",
-        action: ActionRoute::Utilisateur(ActionUtilisateur::ListerSesSessions),
-        portee: Portee::Utilisateur,
-        cas_usage: CasUsage::ListerSessions,
-    },
-    Route {
-        methode: Methode::Delete,
-        chemin: "/api/moi/sessions/{session}",
-        action: ActionRoute::Utilisateur(ActionUtilisateur::RevoquerSaSession),
-        portee: Portee::Utilisateur,
-        cas_usage: CasUsage::RevoquerSession,
-    },
-    // Ses cabinets, avant le choix du cabinet actif : Cedar décide chaque appartenance.
-    Route {
-        methode: Methode::Get,
-        chemin: "/api/moi/cabinets",
-        action: ActionRoute::Cabinet(Action::AccederCabinet),
-        portee: Portee::Utilisateur,
-        cas_usage: CasUsage::ListerCabinets,
-    },
+/// Tranche d'un module de routes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Module {
+    /// Nom du module (celui de son fichier).
+    pub nom: &'static str,
+    /// Ses routes, dans l'ordre de la table.
+    pub routes: &'static [Route],
+    /// Champs de journal technique propres au module, en plus du socle
+    /// ([`super::journal::CHAMPS`]).
+    pub champs_journal: &'static [&'static str],
+}
+
+/// Les modules de routes, dans l'ordre de la table. Les modules prévus y figurent déjà : une
+/// voie n'a pas à modifier cette liste.
+pub const MODULES: &[Module] = &[
+    organisation::MODULE,
+    audit::MODULE,
+    session::MODULE,
+    moi::MODULE,
+    // Voie authentification (PR 8b, 8c, 9).
+    facteurs::MODULE,
+    passkeys::MODULE,
+    administration::MODULE,
+    // Voie comptabilité (PR 11, 13, 14).
+    referentiel::MODULE,
+    brouillard::MODULE,
+    editions::MODULE,
+    // Voie pièces (PR 12).
+    pieces::MODULE,
+    // Voie intégrité et horodatage (PR 15).
+    integrite::MODULE,
 ];
+
+/// Toutes les routes de l'API : les tranches de [`MODULES`], bout à bout.
+pub const ROUTES: &[Route] = &TABLE;
+
+const NOMBRE_DE_ROUTES: usize = nombre_de_routes(MODULES);
+const TABLE: [Route; NOMBRE_DE_ROUTES] = assembler(MODULES);
+
+const fn nombre_de_routes(modules: &[Module]) -> usize {
+    let mut n = 0;
+    let mut i = 0;
+    while i < modules.len() {
+        n += modules[i].routes.len();
+        i += 1;
+    }
+    n
+}
+
+/// Concatène les tranches à la compilation. Chaque case de la table est réécrite par une route
+/// d'un module : la valeur initiale n'en sort jamais (test `la_table_est_l_assemblage_des_tranches`).
+const fn assembler<const N: usize>(modules: &[Module]) -> [Route; N] {
+    let mut table = [organisation::ROUTES[0]; N];
+    let mut n = 0;
+    let mut i = 0;
+    while i < modules.len() {
+        let mut j = 0;
+        while j < modules[i].routes.len() {
+            table[n] = modules[i].routes[j];
+            n += 1;
+            j += 1;
+        }
+        i += 1;
+    }
+    table
+}
 
 /// Ce que le cas d'usage reçoit de la requête, en plus de la transaction et de la garde.
 #[derive(Debug, Clone, Copy)]
@@ -324,67 +294,8 @@ impl Resultat {
     }
 }
 
-/// Corps de la création d'un dossier.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NouveauDossier {
-    nom: String,
-}
-
-/// Longueur maximale du nom d'un dossier (contrainte de la table `dossier`).
-const NOM_DOSSIER_MAX: usize = 200;
-
-/// Nom de dossier admis : 1 à 200 caractères, non blanc, sans caractère de contrôle.
-fn nom_dossier(corps: &[u8]) -> Result<String, ErreurApi> {
-    let Json(NouveauDossier { nom }) =
-        Json::<NouveauDossier>::from_bytes(corps).map_err(|_| ErreurApi::RequeteInvalide)?;
-    let valide = !nom.trim().is_empty()
-        && nom.chars().count() <= NOM_DOSSIER_MAX
-        && !nom.chars().any(char::is_control);
-    if valide {
-        Ok(nom)
-    } else {
-        Err(ErreurApi::RequeteInvalide)
-    }
-}
-
-/// Vue d'un cabinet.
-#[derive(Debug, Serialize)]
-struct VueCabinet {
-    id: String,
-    nom: String,
-    separation_taches: bool,
-}
-
-/// Vue d'un dossier : ne se construit que depuis un [`DossierAutorise`], que seule la [`Garde`]
-/// fabrique.
-#[derive(Debug, Serialize)]
-struct VueDossier {
-    id: String,
-    nom: String,
-}
-
-impl From<DossierAutorise> for VueDossier {
-    fn from(dossier: DossierAutorise) -> Self {
-        Self {
-            id: dossier.id().to_string(),
-            nom: dossier.nom().to_owned(),
-        }
-    }
-}
-
-impl From<CabinetAutorise> for VueCabinet {
-    fn from(autorise: CabinetAutorise) -> Self {
-        let cabinet = autorise.cabinet();
-        Self {
-            id: cabinet.id.to_string(),
-            nom: cabinet.nom.clone(),
-            separation_taches: cabinet.separation_taches,
-        }
-    }
-}
-
-/// Exécute un cas d'usage dans la transaction du pipeline.
+/// Exécute un cas d'usage d'un cabinet dans la transaction du pipeline : chaque module exécute
+/// les siens.
 pub(crate) async fn executer(
     cas: CasUsage,
     tx: &mut TransactionTenant,
@@ -392,126 +303,30 @@ pub(crate) async fn executer(
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
     match cas {
-        CasUsage::LireCabinet => {
-            let cabinet = lire_cabinet(tx).await?.ok_or(ErreurApi::Introuvable)?;
-            let vue = VueCabinet::from(garde.cabinet_du_chemin(cabinet)?);
-            Ok(Resultat::lecture(Json(vue).into_response()))
-        }
-        CasUsage::ListerDossiers => {
-            // Filtre de la requête (affectation), puis décision Cedar pour chaque dossier.
-            let autorises = garde.filtrer(lister_dossiers_visibles(tx).await?)?;
-            let vues: Vec<VueDossier> = autorises.into_iter().map(VueDossier::from).collect();
-            Ok(Resultat::lecture(Json(vues).into_response()))
-        }
-        CasUsage::LireDossier => {
-            let id = tx.contexte().id_dossier().ok_or(ErreurApi::Introuvable)?;
-            let dossier = lire_dossier_visible(tx, id)
-                .await?
-                .ok_or(ErreurApi::Introuvable)?;
-            let vue = VueDossier::from(garde.dossier_du_chemin(dossier)?);
-            Ok(Resultat::lecture(Json(vue).into_response()))
-        }
-        CasUsage::CreerDossier => creer(tx, garde, requete).await,
-        CasUsage::ConsulterAudit => Ok(Resultat::lecture(
-            audit::consulter(tx, garde, requete).await?,
-        )),
-        CasUsage::VerifierAudit => Ok(Resultat::lecture(
-            audit::verifier(tx, garde, requete).await?,
-        )),
-        CasUsage::ExporterAudit => {
-            let (reponse, trace) = audit::exporter(tx, garde, requete).await?;
-            Ok(Resultat {
-                reponse,
-                traces: vec![trace],
-            })
-        }
-        // Cas d'usage hors cabinet : module `moi`, jamais avec une garde de cabinet.
-        CasUsage::EtatSession
-        | CasUsage::TournerJeton
-        | CasUsage::Deconnecter
-        | CasUsage::ListerSessions
-        | CasUsage::RevoquerSession
-        | CasUsage::ListerCabinets => Err(ErreurApi::Interne(super::CategorieErreur::Donnee)),
+        CasUsage::Organisation(cas) => organisation::executer(cas, tx, garde, requete).await,
+        CasUsage::Audit(cas) => audit::executer(cas, tx, garde, requete).await,
+        // Cas d'usage hors cabinet : module `moi` du serveur, jamais avec une garde de cabinet.
+        CasUsage::Session(_) | CasUsage::Moi(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
+        // Voie authentification (PR 8b, 8c, 9).
+        CasUsage::Facteurs(cas) => match cas {},
+        CasUsage::Passkeys(cas) => match cas {},
+        CasUsage::Administration(cas) => match cas {},
+        // Voie comptabilité (PR 11, 13, 14).
+        CasUsage::Referentiel(cas) => match cas {},
+        CasUsage::Brouillard(cas) => match cas {},
+        CasUsage::Editions(cas) => match cas {},
+        // Voie pièces (PR 12).
+        CasUsage::Pieces(cas) => match cas {},
+        // Voie intégrité et horodatage (PR 15).
+        CasUsage::Integrite(cas) => match cas {},
     }
-}
-
-/// Défense en profondeur de la création d'un dossier (ADR 0011) : même si Cedar se trompait,
-/// la requête exige une appartenance **active**, lue en base, de rôle `administrateur` ou
-/// `valideur` (§20 « Créer un dossier »). Appartenance absente ou suspendue : le cabinet est
-/// d'autrui (404) ; autre rôle : action refusée sur une ressource visible (403).
-async fn exiger_createur(tx: &mut TransactionTenant) -> Result<(), ErreurApi> {
-    let appartenance = lire_appartenance(tx)
-        .await?
-        .filter(|a| a.actif)
-        .ok_or(ErreurApi::Introuvable)?;
-    let autorises = [authz::Role::Administrateur, authz::Role::Valideur];
-    if autorises.iter().any(|r| r.nom() == appartenance.role) {
-        Ok(())
-    } else {
-        Err(ErreurApi::Interdit)
-    }
-}
-
-/// Création d'un dossier (action du cabinet) : le dossier, l'affectation de son créateur, puis
-/// deux traces : au cabinet, puis en première entrée de la chaîne du dossier (ADR 0014).
-async fn creer(
-    tx: &mut TransactionTenant,
-    garde: &Garde,
-    requete: &Requete<'_>,
-) -> Result<Resultat, ErreurApi> {
-    garde.exiger_cabinet()?;
-    exiger_createur(tx).await?;
-    let nom = nom_dossier(requete.corps)?;
-    let dossier = creer_dossier(tx, &nom).await?;
-    affecter_utilisateur_du_contexte(tx, dossier.id).await?;
-    let id = dossier.id.uuid();
-
-    let mut au_cabinet = Trace::new(PorteeAudit::Cabinet, "dossier", id);
-    au_cabinet.champs.push(("nom", None, Some(nom.clone())));
-    au_cabinet
-        .champs
-        .push(("affectation", None, Some(garde.utilisateur().to_string())));
-    let mut au_dossier = Trace::new(PorteeAudit::Dossier(dossier.id), "dossier", id);
-    au_dossier.champs.push(("nom", None, Some(nom.clone())));
-
-    let vue = VueDossier {
-        id: dossier.id.to_string(),
-        nom,
-    };
-    Ok(Resultat {
-        reponse: (StatusCode::CREATED, Json(vue)).into_response(),
-        traces: vec![au_cabinet, au_dossier],
-    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::BTreeSet;
 
-    #[test]
-    fn noms_de_dossier() {
-        assert_eq!(
-            nom_dossier(br#"{"nom":"SARL Exemple"}"#),
-            Ok("SARL Exemple".to_owned())
-        );
-        let long = format!(r#"{{"nom":"{}"}}"#, "é".repeat(200));
-        assert!(nom_dossier(long.as_bytes()).is_ok());
-        for invalide in [
-            r#"{"nom":""}"#.to_owned(),
-            r#"{"nom":"   "}"#.to_owned(),
-            r#"{"nom":"a\u0007b"}"#.to_owned(),
-            r#"{"nom":"a","autre":1}"#.to_owned(),
-            r#"{"nom":1}"#.to_owned(),
-            "pas du json".to_owned(),
-            format!(r#"{{"nom":"{}"}}"#, "a".repeat(201)),
-        ] {
-            assert_eq!(
-                nom_dossier(invalide.as_bytes()),
-                Err(ErreurApi::RequeteInvalide),
-                "{invalide}"
-            );
-        }
-    }
+    use super::*;
 
     #[test]
     fn chaque_mutation_porte_sur_une_ressource_unique() {
@@ -533,8 +348,8 @@ mod tests {
             // Toute route est décidée par Cedar : principal Appartenance pour un cabinet et
             // pour la liste de ses cabinets (une décision par appartenance), Utilisateur pour
             // ses sessions.
-            let de_cabinet =
-                route.portee.du_cabinet() || route.cas_usage == CasUsage::ListerCabinets;
+            let de_cabinet = route.portee.du_cabinet()
+                || route.cas_usage == CasUsage::Moi(moi::Cas::ListerCabinets);
             assert_eq!(
                 matches!(route.action, ActionRoute::Cabinet(_)),
                 de_cabinet,
@@ -558,6 +373,36 @@ mod tests {
                 assert!(!portee.admet(nature));
             }
             assert!(Portee::Session.admet(nature));
+        }
+    }
+
+    #[test]
+    fn la_table_est_l_assemblage_des_tranches() {
+        let tranches: Vec<Route> = MODULES.iter().flat_map(|m| m.routes).copied().collect();
+        assert_eq!(ROUTES, tranches.as_slice());
+    }
+
+    #[test]
+    fn chaque_route_releve_de_son_module() {
+        let mut noms = BTreeSet::new();
+        for module in MODULES {
+            assert!(noms.insert(module.nom), "module {} en double", module.nom);
+            for route in module.routes {
+                assert_eq!(route.cas_usage.module(), module.nom, "{}", route.chemin);
+            }
+        }
+    }
+
+    #[test]
+    fn aucune_route_n_est_declaree_deux_fois() {
+        let mut vues = BTreeSet::new();
+        for route in ROUTES {
+            assert!(
+                vues.insert((route.methode.nom(), route.chemin)),
+                "{} {} déclarée deux fois",
+                route.methode.nom(),
+                route.chemin
+            );
         }
     }
 }

@@ -14,7 +14,7 @@ use api::base::{IdSession, IdUtilisateur};
 use api::serveur::authentification::{
     Authentification, ErreurAuthentification, Identite, ResultatAuthentification,
 };
-use api::serveur::routes::{CasUsage, Methode, Route};
+use api::serveur::routes::{CasUsage, Methode, Route, organisation};
 use api::serveur::session::{SessionOuverte, ouvrir_session};
 use api::serveur::{
     Application, AuthentificationSession, Decideur, Etat, Horloge, HorlogeSysteme, Reglages,
@@ -391,7 +391,9 @@ pub async fn envoyer(
 /// Corps d'exemple d'une route : celui de la création d'un dossier, vide sinon.
 pub fn corps_de(route: &Route) -> &'static str {
     match route.cas_usage {
-        CasUsage::CreerDossier => r#"{"nom":"Dossier créé par le test"}"#,
+        CasUsage::Organisation(organisation::Cas::CreerDossier) => {
+            r#"{"nom":"Dossier créé par le test"}"#
+        }
         _ => "",
     }
 }

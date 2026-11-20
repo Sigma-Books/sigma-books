@@ -1,0 +1,70 @@
+// Schéma Cedar de Sigma Books, domaine « dossier » : dossier, affectation et actions sur un
+// dossier (spec §20).
+//
+// Fragment du schéma (`crates/authz/politiques/schema/`) : les fragments forment un seul schéma,
+// composé au chargement (`authz::SCHEMA`) ; un type peut citer ceux d'un autre fragment.
+
+namespace Sigma {
+  // Une entité juridique tenue par le cabinet. Un seul parent : son cabinet.
+  entity Dossier in [Cabinet];
+
+  // Affectation d'une appartenance à un dossier (Q5.1), avec la délégation
+  // du droit de valider accordée par dossier (Q5.2).
+  entity AccesDossier = {
+    appartenance: Appartenance,
+    dossier: Dossier,
+    delegation_validation: Bool,
+  };
+
+  // ---------------------------------------------------------------------
+  // Actions sur un dossier
+  // ---------------------------------------------------------------------
+
+  // Voir le dossier. Sert à distinguer une ressource visible (refus : 403)
+  // d'une ressource d'autrui, traitée comme absente (404, ADR 0011).
+  action AccederDossier appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Paramétrer plan, journaux, fiscalité » (référentiel du dossier).
+  action ParametrerDossier appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Déposer des pièces ».
+  action DeposerPiece appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Saisir, corriger dans le brouillard » (création d'un brouillon).
+  action SaisirBrouillard appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Validation par lot ». Chaque écriture du lot est aussi soumise à
+  // `ValiderEcriture` (séparation des tâches).
+  action ValiderParLot appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Liquider la TVA, verrouiller une période » (verrouillage).
+  action VerrouillerPeriode appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Déverrouiller une période ».
+  action DeverrouillerPeriode appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Clôture informatique d'une période : mêmes rôles que « Clôturer un
+  // exercice » (docs/lots/L2.md, choix techniques).
+  action CloturerPeriode appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Clôturer un exercice ».
+  action CloturerExercice appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Consulter éditions et états ».
+  action ConsulterEditions appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Vérifier l'intégrité, consulter l'audit ».
+  action VerifierIntegrite appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  action ConsulterAudit appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Exporter (FEC, profils) » : export d'une édition.
+  action Exporter appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Même ligne : export complet (FEC, livres, audit du dossier) ; ré-authentification.
+  action ExporterComplet appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Même ligne : export d'intégrité (docs/integrite/format-v3.md) ; ré-authentification.
+  action ExporterIntegrite appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+
+  // Lignes du §20 des lots ultérieurs : déclarées, **aucune politique** ;
+  // refusées à tous jusqu'à leur lot.
+  // §20 « Créer un dossier, reprise de données » (reprise) : L8.
+  action ReprendreDonnees appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Lettrer / délettrer » : L3.
+  action Lettrer appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Activer une règle apprise » : L4.
+  action ActiverRegleApprise appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Liquider la TVA, verrouiller une période » (liquidation) : L5.
+  action LiquiderTva appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Travaux de fin d'exercice » : L6.
+  action TravauxFinExercice appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Répondre aux demandes » (portail client) : L4.
+  action RepondreDemande appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+}

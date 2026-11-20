@@ -2,6 +2,13 @@
 //! lié à la session, horloge, et implémentation PostgreSQL de [`Authentification`], la seule du
 //! binaire.
 //!
+//! # Configuration
+//! Lue dans l'environnement par [`super::config::Configuration`] ([`configurer`]).
+//!
+//! | Variable | Obligatoire | Contenu |
+//! |---|---|---|
+//! | `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | Jours de conservation d'une session close avant sa purge (1 à 3650 ; 30 par défaut, à confirmer par le mainteneur, loi 2008-12) |
+//!
 //! # Jeton
 //! 256 bits tirés par le système (`getrandom`), transmis en base64url sans remplissage
 //! (43 caractères) dans le cookie [`NOM_COOKIE`]. Seule son empreinte SHA-256 est stockée
@@ -50,6 +57,7 @@ use zeroize::Zeroize;
 use super::authentification::{
     Authentification, ErreurAuthentification, Identite, NotationActivite, ResultatAuthentification,
 };
+use super::config::{Environnement, ErreurConfiguration};
 use super::csrf::EN_TETE_CSRF;
 use crate::base::session::{self, DureesSession, EmpreinteJeton, NouvelleSession, Session};
 use crate::base::{ErreurBase, IdSession, ouvrir_transaction_utilisateur};
@@ -343,6 +351,28 @@ impl Authentification for AuthentificationSession {
             }
         })
     }
+}
+
+/// Lit les variables du module et les applique aux durées des sessions.
+///
+/// # Errors
+/// [`ErreurConfiguration::Invalide`] si une valeur est hors bornes ou illisible.
+pub fn configurer(
+    env: &Environnement<'_>,
+    durees: &mut DureesSession,
+) -> Result<(), ErreurConfiguration> {
+    if let Some(jours) = env.facultative("SIGMA_CONSERVATION_SESSIONS_JOURS") {
+        let jours: i64 = jours
+            .trim()
+            .parse()
+            .ok()
+            .filter(|j| (1..=3650).contains(j))
+            .ok_or(ErreurConfiguration::Invalide(
+                "SIGMA_CONSERVATION_SESSIONS_JOURS",
+            ))?;
+        durees.conservation = Duration::days(jours);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

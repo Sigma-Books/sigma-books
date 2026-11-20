@@ -1,9 +1,12 @@
 //! Autorisation par politiques Cedar, refus par défaut (ADR 0005, spec §20).
 //!
-//! Le schéma (`politiques/schema.cedarschema`) et les politiques
-//! (`politiques/*.cedar`) sont embarqués dans le binaire. [`Autorisation::charger`]
-//! les valide contre le schéma en mode strict et échoue sinon : le serveur
-//! ne démarre pas avec des politiques invalides.
+//! Le schéma, en fragments par domaine (`politiques/schema/*.cedarschema` :
+//! cabinet, dossier, écritures, utilisateur), et les politiques
+//! (`politiques/invariants.cedar`, `politiques/roles/*.cedar` par domaine,
+//! `politiques/utilisateur.cedar`) sont embarqués dans le binaire.
+//! [`Autorisation::charger`] compose le schéma, valide les politiques contre
+//! lui en mode strict et échoue sinon : le serveur ne démarre pas avec des
+//! politiques invalides.
 //!
 //! # Modélisation
 //! - Le **principal** d'une action de cabinet est une [`Appartenance`] (un utilisateur dans un
@@ -68,7 +71,7 @@ use std::str::FromStr;
 
 use cedar_policy::{
     Authorizer, Context, Entities, Entity, EntityId, EntityTypeName, EntityUid, PolicyId,
-    PolicySet, Request, RestrictedExpression, Schema, ValidationMode, Validator,
+    PolicySet, Request, RestrictedExpression, Schema, SchemaFragment, ValidationMode, Validator,
 };
 
 pub use action::{Action, ActionUtilisateur, TypeRessource, TypeRessourceUtilisateur};
@@ -82,16 +85,47 @@ pub use entites::{
 /// Espace de noms Cedar des entités et des actions.
 const ESPACE: &str = "Sigma";
 
-/// Schéma Cedar, embarqué.
-pub const SCHEMA: &str = include_str!("../politiques/schema.cedarschema");
+/// Fragments du schéma Cedar, par domaine, embarqués : (nom, contenu). Ils sont composés en un
+/// seul schéma au chargement (`Schema::from_schema_fragments`) ; un fragment peut citer les
+/// types d'un autre.
+pub const SCHEMA: [(&str, &str); 4] = [
+    (
+        "schema/cabinet.cedarschema",
+        include_str!("../politiques/schema/cabinet.cedarschema"),
+    ),
+    (
+        "schema/dossier.cedarschema",
+        include_str!("../politiques/schema/dossier.cedarschema"),
+    ),
+    (
+        "schema/ecritures.cedarschema",
+        include_str!("../politiques/schema/ecritures.cedarschema"),
+    ),
+    (
+        "schema/utilisateur.cedarschema",
+        include_str!("../politiques/schema/utilisateur.cedarschema"),
+    ),
+];
 
-/// Fichiers de politiques, embarqués : (nom, contenu).
-pub const POLITIQUES: [(&str, &str); 3] = [
+/// Fichiers de politiques, embarqués : (nom, contenu). Les invariants restent d'un seul
+/// tenant ; les autorisations des rôles sont découpées par domaine.
+pub const POLITIQUES: [(&str, &str); 5] = [
     (
         "invariants.cedar",
         include_str!("../politiques/invariants.cedar"),
     ),
-    ("roles.cedar", include_str!("../politiques/roles.cedar")),
+    (
+        "roles/cabinet.cedar",
+        include_str!("../politiques/roles/cabinet.cedar"),
+    ),
+    (
+        "roles/dossier.cedar",
+        include_str!("../politiques/roles/dossier.cedar"),
+    ),
+    (
+        "roles/ecritures.cedar",
+        include_str!("../politiques/roles/ecritures.cedar"),
+    ),
     (
         "utilisateur.cedar",
         include_str!("../politiques/utilisateur.cedar"),
@@ -241,19 +275,34 @@ impl Autorisation {
     /// contre le schéma échoue ou avertit, ou si [`Action`] diverge du schéma.
     /// L'appelant doit alors refuser de démarrer.
     pub fn charger() -> Result<Self, ErreurChargement> {
-        Self::charger_depuis(SCHEMA, &POLITIQUES)
+        Self::charger_depuis(&SCHEMA, &POLITIQUES)
+    }
+
+    /// Compose le schéma de ses fragments : chacun doit s'analyser sans avertissement, et leur
+    /// réunion former un schéma valide (tout type cité déclaré dans un fragment).
+    fn composer_schema(fragments: &[(&str, &str)]) -> Result<Schema, ErreurChargement> {
+        let mut analyses = Vec::with_capacity(fragments.len());
+        for (nom, texte) in fragments {
+            let (fragment, avertissements) = SchemaFragment::from_cedarschema_str(texte)
+                .map_err(|e| ErreurChargement::Schema(format!("{nom} : {e:?}")))?;
+            let avertissements: Vec<String> = avertissements.map(|a| a.to_string()).collect();
+            if !avertissements.is_empty() {
+                return Err(ErreurChargement::Schema(format!(
+                    "{nom} : {}",
+                    avertissements.join(" ; ")
+                )));
+            }
+            analyses.push(fragment);
+        }
+        Schema::from_schema_fragments(analyses)
+            .map_err(|e| ErreurChargement::Schema(format!("{e:?}")))
     }
 
     fn charger_depuis(
-        schema_src: &str,
+        schema_src: &[(&str, &str)],
         fichiers: &[(&'static str, &str)],
     ) -> Result<Self, ErreurChargement> {
-        let (schema, avertissements) = Schema::from_cedarschema_str(schema_src)
-            .map_err(|e| ErreurChargement::Schema(format!("{e:?}")))?;
-        let avertissements: Vec<String> = avertissements.map(|a| a.to_string()).collect();
-        if !avertissements.is_empty() {
-            return Err(ErreurChargement::Schema(avertissements.join(" ; ")));
-        }
+        let schema = Self::composer_schema(schema_src)?;
 
         let mut politiques = PolicySet::new();
         for (fichier, texte) in fichiers {
@@ -695,6 +744,74 @@ impl Autorisation {
 mod tests {
     use super::*;
 
+    /// Le schéma embarqué, `de` remplacé par `vers` dans le premier fragment qui le contient.
+    fn schema_modifie(de: &str, vers: &str) -> Vec<(&'static str, String)> {
+        let mut remplace = false;
+        SCHEMA
+            .iter()
+            .map(|(nom, texte)| {
+                let texte = if !remplace && texte.contains(de) {
+                    remplace = true;
+                    texte.replacen(de, vers, 1)
+                } else {
+                    (*texte).to_owned()
+                };
+                (*nom, texte)
+            })
+            .collect()
+    }
+
+    fn fragments<'a>(schema: &'a [(&'static str, String)]) -> Vec<(&'static str, &'a str)> {
+        schema.iter().map(|(nom, t)| (*nom, t.as_str())).collect()
+    }
+
+    #[test]
+    fn le_schema_compose_des_fragments_vaut_le_schema_d_un_seul_tenant() {
+        // La réunion des fragments, mise dans un seul espace de noms, donne le même schéma.
+        let corps: String = SCHEMA
+            .iter()
+            .map(|(_, t)| {
+                let debut = t.find("namespace Sigma {").unwrap() + "namespace Sigma {".len();
+                let fin = t.rfind('}').unwrap();
+                t[debut..fin].to_owned()
+            })
+            .collect();
+        let un_seul = format!("namespace Sigma {{{corps}}}");
+        let (seul, _) = Schema::from_cedarschema_str(&un_seul).unwrap();
+        let compose = Autorisation::composer_schema(&SCHEMA).unwrap();
+        let actions = |s: &Schema| s.actions().map(ToString::to_string).collect::<HashSet<_>>();
+        let types = |s: &Schema| {
+            s.entity_types()
+                .map(ToString::to_string)
+                .collect::<HashSet<_>>()
+        };
+        assert_eq!(actions(&seul), actions(&compose));
+        assert_eq!(types(&seul), types(&compose));
+        // Mêmes actions pour chaque couple (principal, ressource).
+        for principal in seul.entity_types() {
+            for ressource in seul.entity_types() {
+                let applicables = |s: &Schema| {
+                    s.actions_for_principal_and_resource(principal, ressource)
+                        .map(ToString::to_string)
+                        .collect::<HashSet<_>>()
+                };
+                assert_eq!(applicables(&seul), applicables(&compose));
+            }
+        }
+    }
+
+    #[test]
+    fn un_fragment_qui_cite_un_type_inconnu_empeche_le_chargement() {
+        let schema = schema_modifie(
+            "entity Dossier in [Cabinet];",
+            "entity Dossier in [Inconnu];",
+        );
+        assert!(matches!(
+            Autorisation::charger_depuis(&fragments(&schema), &POLITIQUES),
+            Err(ErreurChargement::Schema(_))
+        ));
+    }
+
     #[test]
     fn les_politiques_embarquees_sont_valides_contre_le_schema() {
         let autorisation = Autorisation::charger();
@@ -709,7 +826,7 @@ mod tests {
                when { principal.grade == "chef" };"#,
         )];
         assert!(matches!(
-            Autorisation::charger_depuis(SCHEMA, &fichiers),
+            Autorisation::charger_depuis(&SCHEMA, &fichiers),
             Err(ErreurChargement::Validation(_))
         ));
     }
@@ -721,7 +838,7 @@ mod tests {
             r#"@id("faux") permit (principal, action == Sigma::Action::"ModifierEcritureValidee", resource);"#,
         )];
         assert!(matches!(
-            Autorisation::charger_depuis(SCHEMA, &fichiers),
+            Autorisation::charger_depuis(&SCHEMA, &fichiers),
             Err(ErreurChargement::Validation(_))
         ));
     }
@@ -733,7 +850,7 @@ mod tests {
             r#"permit (principal, action == Sigma::Action::"GererCabinet", resource);"#,
         )];
         assert!(matches!(
-            Autorisation::charger_depuis(SCHEMA, &fichiers),
+            Autorisation::charger_depuis(&SCHEMA, &fichiers),
             Err(ErreurChargement::Identifiant { .. })
         ));
     }
@@ -746,20 +863,19 @@ mod tests {
                @id("x") permit (principal, action == Sigma::Action::"CreerDossier", resource);"#,
         )];
         assert!(matches!(
-            Autorisation::charger_depuis(SCHEMA, &fichiers),
+            Autorisation::charger_depuis(&SCHEMA, &fichiers),
             Err(ErreurChargement::Identifiant { .. })
         ));
     }
 
     #[test]
     fn une_action_du_schema_absente_du_code_empeche_le_chargement() {
-        let schema = SCHEMA.replacen(
+        let schema = schema_modifie(
             "namespace Sigma {",
             "namespace Sigma {\n  action ActionFantome appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };",
-            1,
         );
         assert!(matches!(
-            Autorisation::charger_depuis(&schema, &POLITIQUES),
+            Autorisation::charger_depuis(&fragments(&schema), &POLITIQUES),
             Err(ErreurChargement::Actions(_))
         ));
     }
@@ -904,25 +1020,27 @@ mod tests {
         }
         // Un schéma qui admettrait le principal Utilisateur sur une action de
         // cabinet empêche le chargement.
-        let schema = SCHEMA.replacen(
+        let schema = schema_modifie(
             "action GererCabinet appliesTo { principal: Appartenance,",
             "action GererCabinet appliesTo { principal: [Appartenance, Utilisateur],",
-            1,
         );
-        assert_ne!(schema, SCHEMA);
+        assert_ne!(fragments(&schema), SCHEMA);
         // Sans politique, la validation passe : c'est le contrôle des actions
         // qui refuse.
         assert!(matches!(
-            Autorisation::charger_depuis(&schema, &[]),
+            Autorisation::charger_depuis(&fragments(&schema), &[]),
             Err(ErreurChargement::Actions(_))
         ));
-        assert!(Autorisation::charger_depuis(SCHEMA, &[]).is_ok());
+        assert!(Autorisation::charger_depuis(&SCHEMA, &[]).is_ok());
     }
 
     #[test]
     fn un_schema_invalide_empeche_le_chargement() {
         assert!(matches!(
-            Autorisation::charger_depuis("namespace Sigma { entity ; }", &POLITIQUES),
+            Autorisation::charger_depuis(
+                &[("faux.cedarschema", "namespace Sigma { entity ; }")],
+                &POLITIQUES
+            ),
             Err(ErreurChargement::Schema(_))
         ));
     }

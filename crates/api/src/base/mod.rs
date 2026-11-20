@@ -1,4 +1,5 @@
 //! Accès à PostgreSQL : pool du rôle applicatif et transaction au contexte de tenant (ADR 0011).
+//! Variables d'environnement : [`config`].
 //!
 //! L'isolation entre tenants tient à trois niveaux (Fondations §3.2) ; ce module porte les deux
 //! derniers :
@@ -33,6 +34,7 @@
 //! toujours sous RLS et contexte (ADR 0014).
 
 pub mod audit;
+pub mod config;
 pub mod organisation;
 pub mod session;
 

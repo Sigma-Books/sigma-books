@@ -76,15 +76,14 @@ impl Trace {
     }
 }
 
-/// Version du jeu de politiques Cedar embarqué (`audit-v1.md` §6) : SHA-256 du schéma puis de
-/// chaque fichier, chacun précédé de son nom et de sa longueur.
+/// Version du jeu de politiques Cedar embarqué (`audit-v1.md` §6) : SHA-256 de chaque fragment
+/// du schéma puis de chaque fichier de politiques, chacun précédé de son nom et de sa longueur.
 #[must_use]
 pub fn version_politiques() -> Empreinte {
     static VERSION: OnceLock<Empreinte> = OnceLock::new();
     *VERSION.get_or_init(|| {
         let mut suite = Vec::new();
-        let fichiers =
-            std::iter::once(("schema.cedarschema", authz::SCHEMA)).chain(authz::POLITIQUES);
+        let fichiers = authz::SCHEMA.into_iter().chain(authz::POLITIQUES);
         for (nom, contenu) in fichiers {
             suite.extend_from_slice(nom.as_bytes());
             suite.push(b'\n');

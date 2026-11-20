@@ -2,24 +2,34 @@
 //! refuse de démarrer. Aucun message d'erreur ne recopie une valeur (l'URL de la base contient
 //! un mot de passe) : seul le nom de la variable est cité.
 //!
+//! # Une lecture par module
+//! Chaque module qui a des variables d'environnement a sa structure, sa lecture et la table de
+//! ses variables dans sa documentation ; [`Configuration`] les compose. Index de toutes les
+//! variables : `crates/api/README.md`, « Variables d'environnement ».
+//!
+//! | Module | Lecture | Variables |
+//! |---|---|---|
+//! | serveur (ce module) | [`Configuration::depuis`] | `SIGMA_ADRESSE_ECOUTE`, `SIGMA_ORIGINE`, `SIGMA_REPERTOIRE_WEB`, `SIGMA_EN_TETE_ADRESSE_CLIENT` |
+//! | base | [`crate::base::config`] | `SIGMA_URL_BASE_APPLICATION`, `SIGMA_URL_BASE_LECTURE_AUDIT` |
+//! | horodatage | [`crate::horodatage::config`] | `SIGMA_AUTORITES_HORODATAGE` |
+//! | sessions | [`super::session::configurer`] | `SIGMA_CONSERVATION_SESSIONS_JOURS` |
+//!
+//! Variables du serveur :
+//!
 //! | Variable | Obligatoire | Contenu |
 //! |---|---|---|
 //! | `SIGMA_ADRESSE_ECOUTE` | oui | Adresse et port d'écoute (`127.0.0.1:8080`) |
-//! | `SIGMA_URL_BASE_APPLICATION` | oui | URL PostgreSQL du **rôle applicatif** (`sigma_application`) |
-//! | `SIGMA_URL_BASE_LECTURE_AUDIT` | oui | URL PostgreSQL du **rôle de lecture d'audit** (`sigma_lecture_audit`, ADR 0014) |
 //! | `SIGMA_ORIGINE` | oui | Origine publique (`https://compta.exemple.sn`), contrôlée par l'anti-CSRF |
 //! | `SIGMA_REPERTOIRE_WEB` | non | Répertoire de l'interface compilée ; doit exister |
 //! | `SIGMA_EN_TETE_ADRESSE_CLIENT` | non | En-tête de confiance du mandataire inverse (L9) ; **absent par défaut** |
-//! | `SIGMA_AUTORITES_HORODATAGE` | non | Autorités RFC 3161, séparées par des virgules, dans l'ordre d'essai (`http://` seul) ; par défaut DigiCert puis Sectigo (ADR 0010) |
-//! | `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | Jours de conservation d'une session close avant sa purge (1 à 3650 ; 30 par défaut, à confirmer par le mainteneur, loi 2008-12) |
 
-use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use axum::http::HeaderName;
 
 use super::Reglages;
+use crate::base::config::ConfigurationBase;
 use crate::horodatage::Autorite;
 
 /// Configuration refusée.
@@ -33,32 +43,55 @@ pub enum ErreurConfiguration {
     Invalide(&'static str),
 }
 
-/// Configuration du binaire.
-#[derive(Clone, PartialEq, Eq)]
+/// Accès aux variables d'environnement, commun aux lectures de chaque module : une variable vide
+/// (ou faite d'espaces) vaut une variable absente.
+pub struct Environnement<'a> {
+    lire: &'a dyn Fn(&str) -> Option<String>,
+}
+
+impl<'a> Environnement<'a> {
+    /// Variables lues par la fonction `lire` (nom de variable → valeur).
+    #[must_use]
+    pub fn new(lire: &'a dyn Fn(&str) -> Option<String>) -> Self {
+        Self { lire }
+    }
+
+    /// Variable obligatoire.
+    ///
+    /// # Errors
+    /// [`ErreurConfiguration::Manquante`] si elle est absente ou vide.
+    pub fn obligatoire(&self, nom: &'static str) -> Result<String, ErreurConfiguration> {
+        self.facultative(nom)
+            .ok_or(ErreurConfiguration::Manquante(nom))
+    }
+
+    /// Variable facultative : `None` si elle est absente ou vide.
+    #[must_use]
+    pub fn facultative(&self, nom: &'static str) -> Option<String> {
+        (self.lire)(nom).filter(|v| !v.trim().is_empty())
+    }
+}
+
+/// Configuration du binaire : la composition des configurations des modules. `Debug` ne montre
+/// aucun secret (chaque module masque les siens).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Configuration {
     /// Adresse d'écoute.
     pub adresse_ecoute: SocketAddr,
-    /// URL de la base, rôle applicatif (secrète : jamais affichée).
-    pub url_base: String,
-    /// URL de la base, rôle de lecture d'audit (secrète : jamais affichée).
-    pub url_base_lecture_audit: String,
-    /// Réglages du serveur.
+    /// Accès à la base ([`crate::base::config`]).
+    pub base: ConfigurationBase,
+    /// Réglages du serveur, durées des sessions comprises ([`super::session::configurer`]).
     pub reglages: Reglages,
     /// Autorités d'horodatage, dans l'ordre d'essai : les seules destinations du client
-    /// d'horodatage (ADR 0010).
+    /// d'horodatage (ADR 0010 ; [`crate::horodatage::config`]).
     pub autorites_horodatage: Vec<Autorite>,
-}
-
-impl fmt::Debug for Configuration {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Configuration")
-            .field("adresse_ecoute", &self.adresse_ecoute)
-            .field("url_base", &"<masquée>")
-            .field("url_base_lecture_audit", &"<masquée>")
-            .field("reglages", &self.reglages)
-            .field("autorites_horodatage", &self.autorites_horodatage)
-            .finish()
-    }
+    // Voie authentification (PR 8b, 8c, 9) : configuration de ses modules.
+    //
+    // Voie comptabilité (PR 11, 13, 14) : configuration de ses modules.
+    //
+    // Voie pièces (PR 12) : configuration de ses modules.
+    //
+    // Voie intégrité et horodatage (PR 15) : configuration de ses modules.
 }
 
 impl Configuration {
@@ -70,75 +103,61 @@ impl Configuration {
         Self::depuis(|nom| std::env::var(nom).ok())
     }
 
-    /// Lit la configuration par la fonction `lire` (nom de variable → valeur).
+    /// Lit la configuration par la fonction `lire` (nom de variable → valeur), module par
+    /// module.
     ///
     /// # Errors
     /// [`ErreurConfiguration`] si une variable obligatoire manque ou si une valeur est invalide.
     pub fn depuis(lire: impl Fn(&str) -> Option<String>) -> Result<Self, ErreurConfiguration> {
-        let obligatoire = |nom: &'static str| {
-            lire(nom)
-                .filter(|v| !v.trim().is_empty())
-                .ok_or(ErreurConfiguration::Manquante(nom))
-        };
-        let facultative = |nom: &'static str| lire(nom).filter(|v| !v.trim().is_empty());
-
-        let adresse_ecoute = obligatoire("SIGMA_ADRESSE_ECOUTE")?
-            .trim()
-            .parse()
-            .map_err(|_| ErreurConfiguration::Invalide("SIGMA_ADRESSE_ECOUTE"))?;
-        let url_base = obligatoire("SIGMA_URL_BASE_APPLICATION")?;
-        if !(url_base.starts_with("postgres://") || url_base.starts_with("postgresql://")) {
-            return Err(ErreurConfiguration::Invalide("SIGMA_URL_BASE_APPLICATION"));
-        }
-        let url_base_lecture_audit = obligatoire("SIGMA_URL_BASE_LECTURE_AUDIT")?;
-        if !(url_base_lecture_audit.starts_with("postgres://")
-            || url_base_lecture_audit.starts_with("postgresql://"))
-        {
-            return Err(ErreurConfiguration::Invalide(
-                "SIGMA_URL_BASE_LECTURE_AUDIT",
-            ));
-        }
-        let origine = origine(&obligatoire("SIGMA_ORIGINE")?)
-            .ok_or(ErreurConfiguration::Invalide("SIGMA_ORIGINE"))?;
-
-        let mut reglages = Reglages::new(origine);
-        if let Some(repertoire) = facultative("SIGMA_REPERTOIRE_WEB") {
-            let repertoire = PathBuf::from(repertoire);
-            if !repertoire.is_dir() {
-                return Err(ErreurConfiguration::Invalide("SIGMA_REPERTOIRE_WEB"));
-            }
-            reglages.repertoire_web = Some(repertoire);
-        }
-        if let Some(nom) = facultative("SIGMA_EN_TETE_ADRESSE_CLIENT") {
-            reglages.en_tete_adresse_client = Some(
-                HeaderName::try_from(nom.trim())
-                    .map_err(|_| ErreurConfiguration::Invalide("SIGMA_EN_TETE_ADRESSE_CLIENT"))?,
-            );
-        }
-        let autorites_horodatage = match facultative("SIGMA_AUTORITES_HORODATAGE") {
-            Some(liste) => Autorite::liste(&liste)
-                .map_err(|_| ErreurConfiguration::Invalide("SIGMA_AUTORITES_HORODATAGE"))?,
-            None => Autorite::par_defaut(),
-        };
-        if let Some(jours) = facultative("SIGMA_CONSERVATION_SESSIONS_JOURS") {
-            let jours: i64 = jours
-                .trim()
-                .parse()
-                .ok()
-                .filter(|j| (1..=3650).contains(j))
-                .ok_or(ErreurConfiguration::Invalide(
-                    "SIGMA_CONSERVATION_SESSIONS_JOURS",
-                ))?;
-            reglages.sessions.conservation = time::Duration::days(jours);
-        }
+        let env = Environnement::new(&lire);
+        let adresse_ecoute = adresse_ecoute(&env)?;
+        let base = ConfigurationBase::depuis(&env)?;
+        let mut reglages = reglages(&env)?;
+        let autorites_horodatage = crate::horodatage::config::autorites(&env)?;
+        super::session::configurer(&env, &mut reglages.sessions)?;
+        // Voie authentification (PR 8b, 8c, 9).
+        //
+        // Voie comptabilité (PR 11, 13, 14).
+        //
+        // Voie pièces (PR 12).
+        //
+        // Voie intégrité et horodatage (PR 15).
         Ok(Self {
             adresse_ecoute,
-            url_base,
-            url_base_lecture_audit,
+            base,
             reglages,
             autorites_horodatage,
         })
     }
+}
+
+/// Adresse d'écoute du serveur.
+fn adresse_ecoute(env: &Environnement<'_>) -> Result<SocketAddr, ErreurConfiguration> {
+    env.obligatoire("SIGMA_ADRESSE_ECOUTE")?
+        .trim()
+        .parse()
+        .map_err(|_| ErreurConfiguration::Invalide("SIGMA_ADRESSE_ECOUTE"))
+}
+
+/// Réglages du serveur : origine, interface compilée, en-tête du mandataire.
+fn reglages(env: &Environnement<'_>) -> Result<Reglages, ErreurConfiguration> {
+    let origine = origine(&env.obligatoire("SIGMA_ORIGINE")?)
+        .ok_or(ErreurConfiguration::Invalide("SIGMA_ORIGINE"))?;
+    let mut reglages = Reglages::new(origine);
+    if let Some(repertoire) = env.facultative("SIGMA_REPERTOIRE_WEB") {
+        let repertoire = PathBuf::from(repertoire);
+        if !repertoire.is_dir() {
+            return Err(ErreurConfiguration::Invalide("SIGMA_REPERTOIRE_WEB"));
+        }
+        reglages.repertoire_web = Some(repertoire);
+    }
+    if let Some(nom) = env.facultative("SIGMA_EN_TETE_ADRESSE_CLIENT") {
+        reglages.en_tete_adresse_client = Some(
+            HeaderName::try_from(nom.trim())
+                .map_err(|_| ErreurConfiguration::Invalide("SIGMA_EN_TETE_ADRESSE_CLIENT"))?,
+        );
+    }
+    Ok(reglages)
 }
 
 /// Forme sérialisée d'une origine (`schéma://hôte[:port]`, en minuscules, sans chemin), telle
