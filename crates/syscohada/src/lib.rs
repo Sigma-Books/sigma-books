@@ -128,6 +128,13 @@ pub enum ErreurReferentiel {
          exige un ascendant admis"
     )]
     MarqueJournalTresorerie(NumeroCompte),
+    /// Marque `tiers` sans `page_tiers` dans la plage des fiches de fonctionnement, ou
+    /// inversement ; liste vide, type inconnu ou en double.
+    #[error(
+        "compte {0} : `tiers` exige `page_tiers` entre {PAGE_FONCTIONNEMENT_MIN} et \
+         {PAGE_FONCTIONNEMENT_MAX}, et inversement, avec des types connus et distincts"
+    )]
+    MarqueTiers(NumeroCompte),
     /// Page hors de la plage de la liste officielle.
     #[error("page {page} hors de la source ({PAGE_MIN} à {PAGE_MAX}) pour {numero}")]
     Page {
@@ -177,7 +184,11 @@ pub struct CompteOfficiel {
     page: u16,
     note: Option<String>,
     marque_journal_tresorerie: Option<(bool, u16)>,
+    marque_tiers: Option<(Vec<String>, u16)>,
 }
+
+/// Types de tiers que les données peuvent admettre sur un compte (spec §5.3).
+pub const TYPES_TIERS: [&str; 5] = ["client", "fournisseur", "salarie", "associe", "autre"];
 
 impl CompteOfficiel {
     /// Numéro officiel (2 à 4 chiffres).
@@ -237,6 +248,17 @@ impl CompteOfficiel {
     pub fn marque_journal_tresorerie(&self) -> Option<(bool, u16)> {
         self.marque_journal_tresorerie
     }
+
+    /// Marque `tiers` portée par ce compte lui-même : types de tiers admis sur ce compte et
+    /// ses sous-comptes ([`TYPES_TIERS`]), et page PDF de la fiche de fonctionnement qui la
+    /// fonde. Les sous-comptes héritent de la marque la plus proche
+    /// ([`Referentiel::types_de_tiers_admis`]).
+    #[must_use]
+    pub fn marque_tiers(&self) -> Option<(&[String], u16)> {
+        self.marque_tiers
+            .as_ref()
+            .map(|(types, page)| (types.as_slice(), *page))
+    }
 }
 
 /// Liste officielle des comptes, validée.
@@ -285,6 +307,8 @@ struct CompteBrut {
     note: Option<String>,
     journal_tresorerie: Option<bool>,
     page_fonctionnement: Option<u16>,
+    tiers: Option<Vec<String>>,
+    page_tiers: Option<u16>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -378,8 +402,24 @@ impl Referentiel {
                 }
                 _ => return Err(ErreurReferentiel::MarqueJournalTresorerie(numero)),
             };
+            let marque_tiers = match (c.tiers, c.page_tiers) {
+                (None, None) => None,
+                (Some(types), Some(page))
+                    if (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page)
+                        && !types.is_empty()
+                        && types.iter().all(|t| TYPES_TIERS.contains(&t.as_str()))
+                        && types
+                            .iter()
+                            .enumerate()
+                            .all(|(i, t)| !types[..i].contains(t)) =>
+                {
+                    Some((types, page))
+                }
+                _ => return Err(ErreurReferentiel::MarqueTiers(numero)),
+            };
             let compte = CompteOfficiel {
                 marque_journal_tresorerie,
+                marque_tiers,
                 intitule: texte(&c.numero, &c.intitule)?,
                 page: verifier_page(&c.numero, c.page)?,
                 nature: c.nature,
@@ -471,6 +511,16 @@ impl Referentiel {
                     .and_then(|c| c.marque_journal_tresorerie)
             })
             .is_some_and(|(admis, _)| admis)
+    }
+
+    /// Types de tiers admis sur le numéro comme compte collectif d'un tiers : ceux de la
+    /// marque `tiers` la plus proche, sur lui-même ou sur ses ascendants de la liste officielle.
+    /// Vide si aucune marque ne s'applique.
+    #[must_use]
+    pub fn types_de_tiers_admis(&self, numero: &NumeroCompte) -> &[String] {
+        std::iter::successors(Some(numero.clone()), NumeroCompte::parent)
+            .find_map(|n| self.comptes.get(&n).and_then(|c| c.marque_tiers.as_ref()))
+            .map_or(&[], |(types, _)| types.as_slice())
     }
 
     /// Nombre de comptes.
