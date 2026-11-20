@@ -1,5 +1,10 @@
-//! Cas d'isolation des routes du module `referentiel` (PR 11a de `docs/lots/L2.md`) : plan,
-//! journaux, tiers, exercices d'un dossier.
+//! Cas d'isolation des routes du module `referentiel` (PR 11a et 11b de `docs/lots/L2.md`) :
+//! plan, journaux, tiers, exercices d'un dossier ; transitions de ses périodes et exercice
+//! suivant.
+//!
+//! Les routes des périodes s'enchaînent dans l'ordre de la table, sur la première période de
+//! chaque dossier : verrouillée (administrateur sur le second dossier de A, valideur sur le
+//! premier), déverrouillée (administrateur seul : le second dossier), puis clôturée (les deux).
 //!
 //! Chaque dossier du monde a son référentiel et ses sous-ressources fixes (`Monde::fixtures`) :
 //! une lecture rend celles de son dossier et aucune d'un autre ; une mutation réussie porte sur
@@ -18,7 +23,7 @@ use super::{
 };
 use crate::commun::Env;
 use crate::commun::referentiel::Fixtures;
-use crate::commun::serveur::Reponse;
+use crate::commun::serveur::{Reponse, corps_de, envoyer};
 
 pub(super) const CAS: CasModule = CasModule {
     attentes,
@@ -109,6 +114,33 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             croises(mutation(&|d| Ressource(m.fixtures[&d].compte)))
         }
         Cas::ModifierTiers => croises(mutation(&|d| Ressource(m.fixtures[&d].tiers))),
+        Cas::VerrouillerPeriode | Cas::CloturerPeriode => {
+            croises(mutation(&|d| Ressource(m.fixtures[&d].periode)))
+        }
+        // Administrateur seul : le valideur est refusé, même sur son dossier affecté.
+        Cas::DeverrouillerPeriode => vec![
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(m.valideur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu(m.multi, b.cabinet, b.dossier, interdit()),
+            attendu(
+                a.administrateur,
+                a.cabinet,
+                a.autre_dossier,
+                Ressource(m.fixtures[&a.autre_dossier].periode),
+            ),
+            attendu_croise(a.administrateur, a.cabinet, a.dossier, b.dossier, absent()),
+            attendu_croise(
+                a.administrateur,
+                a.cabinet,
+                a.dossier,
+                a.autre_dossier,
+                absent(),
+            ),
+            attendu_croise(m.multi, a.cabinet, a.autre_dossier, b.dossier, absent()),
+        ],
+        Cas::OuvrirExerciceSuivant => mutation(&|_| Cree),
     })
 }
 
@@ -117,6 +149,11 @@ async fn compter(env: &Env, table: &str, dossier: api::base::IdDossier) -> i64 {
     let sql = match table {
         "compte" => "SELECT count(*) FROM compte WHERE dossier_id = $1 AND actif",
         "tiers" => "SELECT count(*) FROM tiers WHERE dossier_id = $1 AND actif",
+        "exercice" => "SELECT count(*) FROM exercice WHERE dossier_id = $1",
+        "ouverte" => {
+            "SELECT count(*) FROM periode WHERE dossier_id = $1 AND statut = 'ouverte' \
+             AND statut_par IS NULL"
+        }
         _ => "SELECT count(*) FROM audit_dossier WHERE dossier_id = $1",
     };
     sqlx::query_scalar(sql)
@@ -211,5 +248,73 @@ pub(super) async fn quand_cedar_se_trompe(
     )
     .await;
     verifier_absent(&reponse, reference, "dossier de B sous A, Cedar forcé");
+    periodes_quand_cedar_se_trompe(env, routeur, m, reference).await;
+    assert_eq!(etat().await, avant);
+}
+
+/// Cedar forcé, routes des périodes et de l'exercice suivant : le rôle relu en base refuse le
+/// collaborateur et l'auditeur (et le valideur pour le déverrouillage) ; une session non fraîche
+/// est refusée pour les actions ré-authentifiées ; la période d'un autre dossier est absente.
+/// Aucune période ni aucun exercice ne change.
+async fn periodes_quand_cedar_se_trompe(
+    env: &Env,
+    routeur: &Router,
+    m: &Monde,
+    reference: &Reponse,
+) {
+    let (a, b) = (&m.a, &m.b);
+    let etat = || async {
+        (
+            compter(env, "ouverte", a.dossier).await,
+            compter(env, "exercice", a.dossier).await,
+            compter(env, "ouverte", b.dossier).await,
+            compter(env, "exercice", b.dossier).await,
+        )
+    };
+    let avant = etat().await;
+    let cas_des_periodes = [
+        Cas::VerrouillerPeriode,
+        Cas::DeverrouillerPeriode,
+        Cas::CloturerPeriode,
+        Cas::OuvrirExerciceSuivant,
+    ];
+    for cas in cas_des_periodes {
+        let r = ROUTES
+            .iter()
+            .find(|r| r.cas_usage == CasUsage::Referentiel(cas))
+            .unwrap();
+        let chemin_a = chemin(r, a.cabinet.uuid(), a.dossier.uuid());
+        let mut refuses = vec![a.collaborateur, m.auditeur];
+        if cas == Cas::DeverrouillerPeriode {
+            refuses.push(m.valideur);
+        }
+        for utilisateur in refuses {
+            let reponse = appel(routeur, r, &chemin_a, Some(utilisateur)).await;
+            assert_eq!(reponse.statut, StatusCode::FORBIDDEN, "{}", reponse.texte());
+        }
+        // Session vérifiée il y a dix minutes : non fraîche.
+        if cas != Cas::VerrouillerPeriode {
+            let reponse = envoyer(
+                routeur,
+                &chemin_a,
+                Some(a.administrateur),
+                corps_de(r),
+                Some(600),
+            )
+            .await;
+            assert_eq!(reponse.statut, StatusCode::FORBIDDEN, "{}", reponse.texte());
+        }
+        if cas != Cas::OuvrirExerciceSuivant {
+            // Période de B sous un dossier de A : absente.
+            let reponse = appel(
+                routeur,
+                r,
+                &chemin_de(r, a.cabinet.uuid(), a.dossier.uuid(), b.dossier.uuid()),
+                Some(a.administrateur),
+            )
+            .await;
+            verifier_absent(&reponse, reference, "période de B sous A, Cedar forcé");
+        }
+    }
     assert_eq!(etat().await, avant);
 }

@@ -83,6 +83,8 @@ pub struct Fixtures {
     pub journal: Uuid,
     /// Premier exercice.
     pub exercice: Uuid,
+    /// Première période du premier exercice (ouverte, et pas la dernière).
+    pub periode: Uuid,
 }
 
 impl Fixtures {
@@ -91,6 +93,7 @@ impl Fixtures {
         match nom {
             "compte" => self.compte,
             "tiers" => self.tiers,
+            "periode" => self.periode,
             autre => panic!("sous-ressource de test inconnue : {autre}"),
         }
     }
@@ -145,15 +148,16 @@ pub async fn doter(
     let journal = relu
         .id_journal(relu.etat().journaux.journaux().next().unwrap().code())
         .unwrap();
-    let exercice = relu
-        .id_exercice(relu.exercices().exercices()[0].code())
-        .unwrap();
+    let premier = &relu.exercices().exercices()[0];
+    let exercice = relu.id_exercice(premier.code()).unwrap();
+    let periode = relu.id_periode(premier.periodes()[0].debut()).unwrap();
     tx.confirmer().await.unwrap();
     Fixtures {
         compte,
         tiers,
         journal,
         exercice,
+        periode,
     }
 }
 
@@ -193,7 +197,12 @@ pub fn corps(cas: api::serveur::routes::referentiel::Cas) -> &'static str {
             )
         }),
         Cas::ModifierTiers => r#"{"nom":"Tiers renommé"}"#,
-        Cas::DesactiverCompte | Cas::ReactiverCompte => "{}",
+        Cas::DesactiverCompte
+        | Cas::ReactiverCompte
+        | Cas::VerrouillerPeriode
+        | Cas::OuvrirExerciceSuivant => "{}",
+        Cas::DeverrouillerPeriode => r#"{"motif":"Correction d'une erreur de saisie"}"#,
+        Cas::CloturerPeriode => r#"{"confirmation":"irreversible"}"#,
         Cas::ListerComptes | Cas::ListerJournaux | Cas::ListerTiers | Cas::ListerExercices => "",
     }
 }
