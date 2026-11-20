@@ -535,3 +535,64 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn types_de_tiers_admis_par_les_fiches_40_41_42_et_46() {
+    // Fiches « Contenu et fonctionnement des comptes » : 40 p. PDF 380, 41 p. 384, 42 p. 389,
+    // 46 p. 399. La marque la plus proche s'applique aux sous-comptes.
+    let r = officiel();
+    let admis = |numero: &str| r.types_de_tiers_admis(&n(numero)).to_vec();
+    assert_eq!(admis("401"), ["fournisseur"]);
+    assert_eq!(admis("4011"), ["fournisseur"]);
+    assert_eq!(admis("411"), ["client"]);
+    assert_eq!(admis("421"), ["salarie"]);
+    assert_eq!(admis("462"), ["associe"]);
+    assert_eq!(r.compte(&n("40")).unwrap().marque_tiers().unwrap().1, 380);
+    assert_eq!(r.compte(&n("41")).unwrap().marque_tiers().unwrap().1, 384);
+    // Aucun tiers sur les autres collectifs en L2 (Groupe, capital, investissements…).
+    for numero in ["466", "103", "109", "181", "451", "481", "485", "488"] {
+        assert!(admis(numero).is_empty(), "{numero}");
+    }
+    // Aucun compte n'admet le type « autre ».
+    assert!(r.comptes().all(|c| {
+        !r.types_de_tiers_admis(c.numero())
+            .contains(&"autre".to_owned())
+    }));
+}
+
+#[test]
+fn une_marque_de_tiers_invalide_est_refusee() {
+    let base = r#"
+[source]
+document = "d"
+version = "v"
+[[classe]]
+numero = 4
+intitule = "TIERS"
+page = 238
+[[compte]]
+numero = "40"
+intitule = "FOURNISSEURS"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+"#;
+    for marque in [
+        "tiers = [\"fournisseur\"]",
+        "page_tiers = 380",
+        "tiers = []\npage_tiers = 380",
+        "tiers = [\"inconnu\"]\npage_tiers = 380",
+        "tiers = [\"client\", \"client\"]\npage_tiers = 380",
+        "tiers = [\"client\"]\npage_tiers = 100",
+    ] {
+        assert_eq!(
+            Referentiel::depuis_toml(&format!("{base}{marque}\n")),
+            Err(ErreurReferentiel::MarqueTiers(n("40"))),
+            "{marque}"
+        );
+    }
+    assert!(
+        Referentiel::depuis_toml(&format!("{base}tiers = [\"client\"]\npage_tiers = 380\n"))
+            .is_ok()
+    );
+}

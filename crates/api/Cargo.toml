@@ -23,7 +23,10 @@ tests-s3 = ["tests-postgres"]
 
 [dependencies]
 authz = { path = "../authz" }
+compta-core = { path = "../compta-core" }
 integrite = { path = "../integrite" }
+# Référentiel officiel copié dans chaque nouveau dossier (PR 11).
+syscohada = { path = "../syscohada" }
 aes-gcm.workspace = true
 argon2.workspace = true
 axum.workspace = true
@@ -53,6 +56,8 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Propriétés du stockage à plat du référentiel (`base::referentiel`).
+proptest.workspace = true
 # Lecture du nonce dans la requête figée des vecteurs (tests du client d'horodatage).
 der.workspace = true
 x509-tsp.workspace = true

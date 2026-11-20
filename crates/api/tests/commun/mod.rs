@@ -14,6 +14,7 @@
 
 pub mod facteurs;
 pub mod pieces;
+pub mod referentiel;
 pub mod serveur;
 
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
@@ -35,6 +36,32 @@ pub const ROLE_CONTOURNEMENT: &str = "sigma_test_contournement";
 
 const AIDE: &str = "les tests `tests-postgres` exigent un PostgreSQL approvisionné et migré \
                     (voir crates/api/README.md) ; sans base, lancez `cargo test` sans cette fonctionnalité";
+
+/// Chemin concret d'un modèle de route : cabinet, dossier, puis chaque autre paramètre
+/// (`{compte}`, `{tiers}`, `{piece}`…) donné par `sous_ressource`. Mécanisme unique des voies
+/// référentiel et pièces (tests d'audit et d'isolation).
+pub fn chemin_concret(
+    modele: &str,
+    cabinet: Uuid,
+    dossier: Uuid,
+    sous_ressource: impl Fn(&str) -> Uuid,
+) -> String {
+    let mut chemin = String::new();
+    let mut reste = modele;
+    while let Some(debut) = reste.find('{') {
+        let fin = reste[debut..].find('}').expect("accolade fermante") + debut;
+        chemin.push_str(&reste[..debut]);
+        let valeur = match &reste[debut + 1..fin] {
+            "cabinet" => cabinet,
+            "dossier" => dossier,
+            autre => sous_ressource(autre),
+        };
+        chemin.push_str(&valeur.to_string());
+        reste = &reste[fin + 1..];
+    }
+    chemin.push_str(reste);
+    chemin
+}
 
 /// Lit une variable d'environnement obligatoire.
 pub fn variable(nom: &str) -> String {

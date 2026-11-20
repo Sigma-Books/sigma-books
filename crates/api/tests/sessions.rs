@@ -386,7 +386,7 @@ async fn csrf_absent_faux_ou_d_une_autre_session_donne_403() {
         &creation,
         Some(&cookie),
         Some(&s.jeton.csrf()),
-        r#"{"nom":"Dossier"}"#,
+        &commun::referentiel::corps_creation("Dossier"),
     )
     .await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());

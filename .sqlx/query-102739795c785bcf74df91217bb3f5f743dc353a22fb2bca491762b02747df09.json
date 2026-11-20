@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT dossier_id FROM dossier_referentiel WHERE cabinet_id = $1 AND dossier_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dossier_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "dossier_referentiel",
+            "name": "dossier_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "102739795c785bcf74df91217bb3f5f743dc353a22fb2bca491762b02747df09"
+}

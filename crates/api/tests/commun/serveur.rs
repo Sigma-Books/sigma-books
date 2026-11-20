@@ -454,7 +454,8 @@ pub async fn envoyer(
 pub fn corps_de(route: &Route) -> &'static str {
     match route.cas_usage {
         CasUsage::Organisation(organisation::Cas::CreerDossier) => {
-            r#"{"nom":"Dossier créé par le test"}"#
+            static CORPS: OnceLock<String> = OnceLock::new();
+            CORPS.get_or_init(|| super::referentiel::corps_creation("Dossier créé par le test"))
         }
         // Voie pièces (PR 12) : un PDF minimal (signature seule), une note d'OD, un motif.
         CasUsage::Pieces(pieces::Cas::Deposer) => "%PDF-1.7\n% pièce de test\n",
@@ -462,6 +463,8 @@ pub fn corps_de(route: &Route) -> &'static str {
             r#"{"date":"2026-11-19","motif":"Régularisation de test"}"#
         }
         CasUsage::Pieces(pieces::Cas::Ecarter) => r#"{"motif":"Dépôt erroné"}"#,
+        // Voie comptabilité (PR 11, 13, 14).
+        CasUsage::Referentiel(cas) => super::referentiel::corps(cas),
         _ => "",
     }
 }

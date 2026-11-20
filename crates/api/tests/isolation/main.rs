@@ -57,6 +57,7 @@ use api::serveur::{Application, Reglages, routeur};
 use authz::Autorisation;
 use axum::Router;
 use axum::http::StatusCode;
+use commun::referentiel::{Fixtures, doter};
 use commun::serveur::{
     AuthentificationTest, HorlogeTest, ORIGINE, Reponse, ToujoursAutorise, appeler_route,
     appeler_session, application_base, application_sessions, capture_globale, cookie_de,
@@ -75,14 +76,16 @@ struct Monde {
     /// Valideur et auditeur de A, affectés au premier dossier de A.
     valideur: IdUtilisateur,
     auditeur: IdUtilisateur,
+    /// Sous-ressources du référentiel de chaque dossier (PR 11).
+    fixtures: BTreeMap<IdDossier, Fixtures>,
 }
 
-/// Sous-ressources réelles des dossiers de tous les mondes, par (dossier, nom) : `{piece}`
-/// (PR 12). Chaque monde a ses propres dossiers : les tests parallèles ne se gênent pas.
+/// Sous-ressources réelles des dossiers de tous les mondes, par (dossier, nom) : `{compte}`,
+/// `{tiers}` (PR 11) et `{piece}` (PR 12). Chaque monde a ses propres dossiers : les tests
+/// parallèles ne se gênent pas.
 ///
-/// Même mécanisme que celui de la PR 11 (`{compte}`, `{tiers}`, sur sa branche) : un chemin
-/// concret prend les sous-ressources d'un dossier « source », par défaut celui du chemin ;
-/// absentes, un UUID neuf, donc inexistant. À la fusion, ses `Fixtures` s'inscrivent ici.
+/// Mécanisme unique des deux voies : un chemin concret prend les sous-ressources d'un dossier
+/// « source », par défaut celui du chemin ; absentes, un UUID neuf, donc inexistant.
 static SOUS_RESSOURCES: Mutex<BTreeMap<(Uuid, &'static str), Uuid>> = Mutex::new(BTreeMap::new());
 
 /// Inscrit la sous-ressource `{nom}` du dossier `dossier`.
@@ -105,11 +108,17 @@ async fn monde(admin: &PgPool) -> Monde {
     tx.commit().await.unwrap();
     let valideur = ajouter_affecte(admin, &a, "valideur").await;
     let auditeur = ajouter_affecte(admin, &a, "auditeur").await;
-    // Une pièce réelle dans chaque dossier (PR 12).
+    // Une pièce réelle (PR 12), puis le référentiel (sous-compte, tiers ; PR 11), dans chaque
+    // dossier.
+    let mut fixtures = BTreeMap::new();
     for c in [&a, &b] {
         for dossier in [c.dossier, c.autre_dossier] {
             let piece = commun::pieces::doter(admin, c.cabinet, dossier, c.administrateur).await;
             inscrire_sous_ressource(dossier, "piece", piece);
+            let f = doter(admin, c.cabinet, dossier, c.administrateur).await;
+            inscrire_sous_ressource(dossier, "compte", f.compte);
+            inscrire_sous_ressource(dossier, "tiers", f.tiers);
+            fixtures.insert(dossier, f);
         }
     }
     Monde {
@@ -118,11 +127,12 @@ async fn monde(admin: &PgPool) -> Monde {
         multi,
         valideur,
         auditeur,
+        fixtures,
     }
 }
 
-/// Chemin concret d'une route ; ses sous-ressources (`{piece}`…) sont celles du dossier du
-/// chemin.
+/// Chemin concret d'une route ; ses sous-ressources (`{compte}`, `{tiers}`, `{piece}`…) sont
+/// celles du dossier du chemin.
 fn chemin(route: &Route, cabinet: Uuid, dossier: Uuid) -> String {
     chemin_de(route, cabinet, dossier, dossier)
 }
@@ -131,7 +141,7 @@ fn chemin(route: &Route, cabinet: Uuid, dossier: Uuid) -> String {
 /// UUID neuf, donc inexistant, si `source` n'en a pas).
 fn chemin_de(route: &Route, cabinet: Uuid, dossier: Uuid, source: Uuid) -> String {
     let inscrites = SOUS_RESSOURCES.lock().unwrap().clone();
-    chemin_concret(route.chemin, cabinet, dossier, |nom| {
+    commun::chemin_concret(route.chemin, cabinet, dossier, |nom| {
         inscrites
             .iter()
             .find_map(|((d, n), id)| (*d == source && *n == nom).then_some(*id))
@@ -139,31 +149,7 @@ fn chemin_de(route: &Route, cabinet: Uuid, dossier: Uuid, source: Uuid) -> Strin
     })
 }
 
-/// Remplace chaque `{nom}` du modèle : cabinet, dossier, puis sous-ressources.
-fn chemin_concret(
-    modele: &str,
-    cabinet: Uuid,
-    dossier: Uuid,
-    sous_ressource: impl Fn(&str) -> Uuid,
-) -> String {
-    let mut chemin = String::new();
-    let mut reste = modele;
-    while let Some(debut) = reste.find('{') {
-        let fin = reste[debut..].find('}').unwrap() + debut;
-        chemin.push_str(&reste[..debut]);
-        let valeur = match &reste[debut + 1..fin] {
-            "cabinet" => cabinet,
-            "dossier" => dossier,
-            autre => sous_ressource(autre),
-        };
-        chemin.push_str(&valeur.to_string());
-        reste = &reste[fin + 1..];
-    }
-    chemin.push_str(reste);
-    chemin
-}
-
-/// Vrai si le chemin désigne une sous-ressource du dossier (`{piece}`…).
+/// Vrai si le chemin désigne une sous-ressource du dossier (`{compte}`, `{piece}`…).
 fn a_une_sous_ressource(route: &Route) -> bool {
     route
         .chemin
@@ -200,6 +186,13 @@ enum Resultat {
     Verification,
     /// 200, export d'audit.
     ExportAudit,
+    /// 200, objet dont la liste `cle` contient l'élément d'identifiant `present`, et aucun de
+    /// `absents` (référentiel d'un autre dossier).
+    ListeContient {
+        cle: &'static str,
+        present: Uuid,
+        absents: Vec<Uuid>,
+    },
     /// Refus (403) ou ressource d'autrui (404).
     Statut(StatusCode),
 }
@@ -375,12 +368,37 @@ async fn verifier_attendu(routeur: &Router, route: &Route, attendu: &Attendu, re
                 "{contexte}"
             );
         }
+        Resultat::ListeContient {
+            cle,
+            present,
+            absents,
+        } => verifier_liste(&reponse, cle, *present, absents, &contexte),
         Resultat::Statut(statut) => {
             assert_eq!(reponse.statut, *statut, "{contexte} : {}", reponse.texte());
             if *statut == StatusCode::NOT_FOUND {
                 assert_eq!(reponse.corps, reference.corps, "{contexte}");
             }
         }
+    }
+}
+
+/// 200, et la liste `cle` contient `present` et aucun de `absents`.
+fn verifier_liste(reponse: &Reponse, cle: &str, present: Uuid, absents: &[Uuid], contexte: &str) {
+    assert_eq!(
+        reponse.statut,
+        StatusCode::OK,
+        "{contexte} : {}",
+        reponse.texte()
+    );
+    let ids: Vec<String> = reponse.json()[cle]
+        .as_array()
+        .expect("liste")
+        .iter()
+        .map(|e| e["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(ids.contains(&present.to_string()), "{contexte}");
+    for absent in absents {
+        assert!(!ids.contains(&absent.to_string()), "{contexte}");
     }
 }
 
@@ -682,6 +700,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     assert_eq!(ids(&reponse), vec![b.dossier.to_string()]);
 
     creation_refusee_quand_cedar_se_trompe(&env, &routeur, &m).await;
+    referentiel::quand_cedar_se_trompe(&env, &routeur, &m, &reference).await;
     audit_refuse_quand_cedar_se_trompe(&routeur, &m, &reference).await;
     sessions_bornees_quand_cedar_se_trompe(&env, &m).await;
     cabinets_bornes_quand_cedar_se_trompe(&env, &m).await;

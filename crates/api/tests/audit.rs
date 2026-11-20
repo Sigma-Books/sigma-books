@@ -62,7 +62,7 @@ async fn creer_dossier(
         routeur,
         &format!("/api/cabinets/{}/dossiers", c.cabinet),
         Some(par),
-        &serde_json::json!({ "nom": nom }).to_string(),
+        &commun::referentiel::corps_creation(nom),
         None,
     )
     .await;
@@ -568,7 +568,7 @@ async fn un_echec_d_ecriture_de_l_audit_annule_l_action() {
         &routeur,
         &format!("/api/cabinets/{}/dossiers", c.cabinet),
         Some(c.administrateur),
-        r#"{"nom":"Jamais créé"}"#,
+        &commun::referentiel::corps_creation("Jamais créé"),
         None,
     )
     .await;
@@ -610,7 +610,7 @@ async fn des_actions_concurrentes_donnent_des_rangs_continus() {
                     &routeur,
                     &chemin,
                     Some(admin),
-                    &format!(r#"{{"nom":"D{i}"}}"#),
+                    &commun::referentiel::corps_creation(&format!("D{i}")),
                     None,
                 )
                 .await
@@ -688,7 +688,7 @@ async fn aucune_fausse_alerte_de_verification_pendant_des_actions_concurrentes()
                         &routeur,
                         &format!("/api/cabinets/{cabinet}/dossiers"),
                         Some(admin),
-                        &format!(r#"{{"nom":"C{t}-{i}"}}"#),
+                        &commun::referentiel::corps_creation(&format!("C{t}-{i}")),
                         None,
                     )
                     .await;
@@ -804,9 +804,12 @@ async fn deux_entrees_reordonnees_par_le_proprietaire_sont_detectees() {
 async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
+    // Référentiel du dossier et ses sous-ressources (sous-compte, tiers) : PR 11.
+    let fixtures =
+        commun::referentiel::doter(&env.application, c.cabinet, c.dossier, c.administrateur).await;
     let routeur = routeur_de(&env);
     // Voie pièces (PR 12) : `{piece}` désigne la dernière pièce créée par une route précédente.
-    let mut piece = String::new();
+    let mut piece = uuid::Uuid::new_v4();
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -819,11 +822,15 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 .as_u64()
                 .unwrap(),
         );
-        let chemin = route
-            .chemin
-            .replace("{cabinet}", &c.cabinet.to_string())
-            .replace("{dossier}", &c.dossier.to_string())
-            .replace("{piece}", &piece);
+        let chemin = commun::chemin_concret(
+            route.chemin,
+            c.cabinet.uuid(),
+            c.dossier.uuid(),
+            |nom| match nom {
+                "piece" => piece,
+                autre => fixtures.sous_ressource(autre),
+            },
+        );
         let reponse = appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await;
         assert!(
             reponse.statut.is_success(),
@@ -832,7 +839,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             reponse.texte()
         );
         if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
-            piece = reponse.json()["id"].as_str().unwrap().to_owned();
+            piece = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         }
         let (cabinet_apres, dossier_apres) = (
             verification(&routeur, &c, None).await["nombre"]

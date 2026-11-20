@@ -41,6 +41,7 @@ pub mod config;
 pub mod evenement;
 pub mod facteurs;
 pub mod organisation;
+pub mod referentiel;
 pub mod session;
 
 use std::time::Duration;

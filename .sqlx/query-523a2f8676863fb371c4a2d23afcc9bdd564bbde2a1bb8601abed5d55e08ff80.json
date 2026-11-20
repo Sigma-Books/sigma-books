@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, code, intitule, type, admis_en_cloture, compte_tresorerie FROM journal WHERE cabinet_id = $1 AND dossier_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "intitule",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "intitule"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "admis_en_cloture",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "admis_en_cloture"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "compte_tresorerie",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "compte_tresorerie"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "523a2f8676863fb371c4a2d23afcc9bdd564bbde2a1bb8601abed5d55e08ff80"
+}

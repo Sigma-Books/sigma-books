@@ -36,6 +36,15 @@
 #   l'emporte sur l'héritage : 526 et 536, intérêts courus : ni encaisse ni avoir disponible
 #   (les fiches des comptes 52 et 53, p. PDF 416 et 418, ne font que les lister en subdivision).
 
+# - tiers, page_tiers : types de tiers (spec §5.3 : client, fournisseur, salarie, associe) admis
+#   sur ce compte et ses sous-comptes, comme compte collectif d'un tiers ; `page_tiers` est la
+#   page PDF de la fiche « Contenu et fonctionnement des comptes » qui le fonde. La marque la plus
+#   proche, sur le compte ou un ascendant, s'applique. 40 « Fournisseurs et comptes rattachés »
+#   (p. 380) : fournisseur ; 41 « Clients et comptes rattachés » (p. 384) : client ; 42
+#   « Personnel » (p. 389) : salarie ; 461, 462, 463, 465 et 467, apporteurs et associés de la
+#   fiche 46 (p. 399) : associe. 466 « Groupe, comptes courants » et les autres collectifs (103,
+#   109, 18x, 45x, 48x) n'admettent aucun tiers en L2.
+
 [source]
 document = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes »"
 version = "SYSCOHADA révisé 2017"
@@ -3871,6 +3880,8 @@ intitule = "FOURNISSEURS ET COMPTES RATTACHÉS"
 page = 240
 nature = "bilan"
 sens = "crediteur"
+tiers = ["fournisseur"]
+page_tiers = 380
 
 [[compte]]
 numero = "401"
@@ -4065,6 +4076,8 @@ intitule = "CLIENTS ET COMPTES RATTACHÉS"
 page = 241
 nature = "bilan"
 sens = "debiteur"
+tiers = ["client"]
+page_tiers = 384
 
 [[compte]]
 numero = "411"
@@ -4326,6 +4339,8 @@ intitule = "PERSONNEL"
 page = 242
 nature = "bilan"
 sens = "variable"
+tiers = ["salarie"]
+page_tiers = 389
 
 [[compte]]
 numero = "421"
@@ -4995,6 +5010,8 @@ page = 245
 nature = "bilan"
 sens = "variable"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "4611"
@@ -5066,6 +5083,8 @@ page = 245
 nature = "bilan"
 sens = "crediteur"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "4621"
@@ -5088,6 +5107,8 @@ page = 245
 nature = "bilan"
 sens = "variable"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "4631"
@@ -5110,6 +5131,8 @@ page = 245
 nature = "bilan"
 sens = "crediteur"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "466"
@@ -5126,6 +5149,8 @@ page = 245
 nature = "bilan"
 sens = "debiteur"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "47"
