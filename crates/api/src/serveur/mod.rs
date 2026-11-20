@@ -9,8 +9,8 @@
 //! 5. délai d'expiration du traitement (503) ;
 //! 6. limitation de débit par adresse (429) et taille **annoncée** du corps (413) ;
 //! 7. [`csrf::proteger`] : anti-CSRF des mutations, avant toute authentification (403) ;
-//! 8. taille **lue** du corps (`RequestBodyLimitLayer`) : un corps sans `Content-Length`
-//!    (envoyé par morceaux) est coupé à la même limite ;
+//! 8. taille **lue** du corps ([`borner_corps`]) : un corps sans `Content-Length` (envoyé par
+//!    morceaux) est coupé à la même limite ;
 //! 9. routeur : table [`routes::ROUTES`] (assemblée des tranches des modules de routes,
 //!    [`routes::MODULES`]) et [`pipeline`], sinon 404 uniforme sous `/api`, sinon fichiers
 //!    statiques de l'interface. Aucune route n'est déclarée hors de la table (test structurel
@@ -18,6 +18,10 @@
 //!
 //! Les limites de la couche HTTP (taille et nombre des en-têtes, délai de lecture des en-têtes)
 //! sont posées sur la connexion par [`servir`].
+//!
+//! Taille du corps et délai de traitement valent ceux des [`Reglages`], sauf pour une route qui
+//! a les siens ([`Application::limites`] : le dépôt d'une pièce, ADR 0015). Les étapes 5, 6 et
+//! 8 retrouvent la route d'après le modèle de chemin reconnu et la méthode.
 //!
 //! # Limites connues
 //! - Les réponses que `hyper` émet lui-même, **avant** le routeur (431 pour des en-têtes trop
@@ -33,6 +37,7 @@ pub mod config;
 pub mod csrf;
 pub mod entetes;
 pub mod erreur;
+pub mod facteurs;
 pub mod journal;
 pub mod limites;
 mod moi;
@@ -46,7 +51,7 @@ use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use axum::Router;
@@ -55,13 +60,13 @@ use axum::http::{HeaderName, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, on};
+use http_body_util::Limited;
 use hyper::body::Incoming;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::limit::RequestBodyLimitLayer;
 
 pub use authentification::{Authentification, Identite, NatureSession};
 pub use erreur::{CategorieErreur, ErreurApi};
@@ -71,6 +76,7 @@ pub use session::{AuthentificationSession, Horloge, HorlogeSysteme};
 
 use crate::base::IdUtilisateur;
 use crate::base::session::DureesSession;
+use crate::pieces::Pieces;
 use limites::{CleAdresse, LimiteurDebit, adresse_client};
 
 /// Réglages du serveur. [`Reglages::new`] donne les valeurs par défaut documentées.
@@ -100,6 +106,9 @@ pub struct Reglages {
     pub nombre_en_tetes_max: usize,
     /// Durées des sessions (ADR 0012) et conservation des sessions closes.
     pub sessions: DureesSession,
+    /// Méthode de secours (PR 8b) : clé de l'instance, débits des connexions et des
+    /// vérifications, hachages simultanés ([`facteurs::configurer`]).
+    pub facteurs: facteurs::ReglagesFacteurs,
 }
 
 impl Reglages {
@@ -126,6 +135,7 @@ impl Reglages {
             taille_en_tetes_max: 16 * 1024,
             nombre_en_tetes_max: 64,
             sessions: DureesSession::default(),
+            facteurs: facteurs::ReglagesFacteurs::default(),
         }
     }
 }
@@ -141,6 +151,12 @@ pub struct Application {
     reglages: Reglages,
     limiteur_adresse: LimiteurDebit<CleAdresse>,
     limiteur_utilisateur: LimiteurDebit<IdUtilisateur>,
+    /// Voie authentification : état de la méthode de secours (débits, hachages).
+    facteurs: facteurs::EtatFacteurs,
+    // Services des voies, branchés après l'assemblage.
+    //
+    // Voie pièces (PR 12) : stockage objet des pièces ([`Application::brancher_pieces`]).
+    pieces: OnceLock<Pieces>,
 }
 
 /// État partagé, tel que le reçoivent les intergiciels et le pipeline.
@@ -187,8 +203,56 @@ impl Application {
             horloge,
             limiteur_adresse: LimiteurDebit::new(reglages.debit_adresse),
             limiteur_utilisateur: LimiteurDebit::new(reglages.debit_utilisateur),
+            facteurs: facteurs::EtatFacteurs::new(&reglages.facteurs),
             reglages,
+            pieces: OnceLock::new(),
         })
+    }
+
+    /// Branche le service des pièces (ADR 0015), une seule fois, avant de servir. Sans lui,
+    /// les routes des pièces répondent par une erreur interne (catégorie `stockage`).
+    ///
+    /// # Errors
+    /// Le service rendu s'il était déjà branché.
+    pub fn brancher_pieces(&self, pieces: Pieces) -> Result<(), Pieces> {
+        self.pieces.set(pieces)
+    }
+
+    /// Le service des pièces, s'il est branché.
+    #[must_use]
+    pub fn pieces(&self) -> Option<&Pieces> {
+        self.pieces.get()
+    }
+
+    /// Taille maximale du corps et délai de traitement de la route : ceux des [`Reglages`],
+    /// sauf exigence propre de la route.
+    #[must_use]
+    pub fn limites(&self, route: &routes::Route) -> (usize, Duration) {
+        let defaut = (self.reglages.taille_corps_max, self.reglages.delai_requete);
+        match route.cas_usage {
+            // Voie pièces (PR 12) : le dépôt d'une pièce.
+            routes::CasUsage::Pieces(cas) => {
+                routes::pieces::limites(cas, self.pieces()).unwrap_or(defaut)
+            }
+            _ => defaut,
+        }
+    }
+
+    /// Limites de la requête : celles de sa route si elle en a une (modèle de chemin reconnu et
+    /// méthode), sinon celles des [`Reglages`].
+    fn limites_requete(&self, requete: &Request) -> (usize, Duration) {
+        let route = requete
+            .extensions()
+            .get::<MatchedPath>()
+            .and_then(|modele| {
+                routes::ROUTES.iter().find(|r| {
+                    r.chemin == modele.as_str() && r.methode.methode() == *requete.method()
+                })
+            });
+        route.map_or(
+            (self.reglages.taille_corps_max, self.reglages.delai_requete),
+            |r| self.limites(r),
+        )
     }
 
     /// Les réglages.
@@ -227,7 +291,10 @@ fn envelopper(routeur: Router, etat: &Etat) -> Router {
     let taille = etat.reglages.taille_corps_max;
     routeur
         .layer(DefaultBodyLimit::max(taille))
-        .layer(RequestBodyLimitLayer::new(taille))
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(etat),
+            borner_corps,
+        ))
         .layer(middleware::from_fn_with_state(
             Arc::clone(etat),
             csrf::proteger,
@@ -295,24 +362,38 @@ async fn limiter(State(etat): State<Etat>, requete: Request, suivant: Next) -> R
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .map(str::parse::<u64>);
+    let (taille_max, _) = etat.limites_requete(&requete);
     match annoncee {
-        Some(Ok(taille)) if taille > etat.reglages.taille_corps_max as u64 => {
+        Some(Ok(taille)) if taille > taille_max as u64 => {
             return ErreurApi::CorpsTropGrand.into_response();
         }
         Some(Err(_)) => return ErreurApi::RequeteInvalide.into_response(),
         _ => {}
     }
-    // Corps sans longueur annoncée : borné à la lecture par `DefaultBodyLimit`.
+    // Corps sans longueur annoncée : borné à la lecture par `borner_corps`.
     suivant.run(requete).await
 }
 
 /// Délai d'expiration du traitement : au-delà, la requête est abandonnée (sa transaction est
 /// annulée) et le client reçoit 503.
 async fn borner_duree(State(etat): State<Etat>, requete: Request, suivant: Next) -> Response {
-    match tokio::time::timeout(etat.reglages.delai_requete, suivant.run(requete)).await {
+    let (_, delai) = etat.limites_requete(&requete);
+    match tokio::time::timeout(delai, suivant.run(requete)).await {
         Ok(reponse) => reponse,
         Err(_) => ErreurApi::DelaiDepasse.into_response(),
     }
+}
+
+/// Taille **lue** du corps : coupé à la limite de sa route (erreur de lecture, que le pipeline
+/// et les extracteurs d'`axum` traduisent en 413), qu'il ait ou non une longueur annoncée.
+async fn borner_corps(State(etat): State<Etat>, requete: Request, suivant: Next) -> Response {
+    let (taille_max, _) = etat.limites_requete(&requete);
+    let (parts, corps) = requete.into_parts();
+    let requete = Request::from_parts(
+        parts,
+        axum::body::Body::new(Limited::new(corps, taille_max)),
+    );
+    suivant.run(requete).await
 }
 
 /// Sert le routeur sur l'écouteur jusqu'à `arret`, en HTTP/1.1, avec les limites de la couche

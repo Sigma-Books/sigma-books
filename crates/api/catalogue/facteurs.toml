@@ -1,0 +1,41 @@
+# Catalogue « facteurs » : méthode de secours, codes de récupération, événements
+# d'authentification (ADR 0012, ADR 0017 ; L2 PR 8b ; migration 0100_secours.sql).
+#
+# Un fichier par module (`crates/api/catalogue/<module>.toml`) : une voie de travail n'édite que le
+# sien. Le test les lit tous et refuse une table (ou fonction) déclarée deux fois, même dans deux
+# fichiers. Chaque entrée est justifiée ; toute modification passe par la revue de l'équipe core.
+# Listes possibles : `security_definer`, `ajout_seul`, `instance`, `lecture_membre`,
+# `dossier_facultatif` ; une liste absente d'un fichier y est vide. `ajout_seul` se combine avec
+# les autres listes (une table d'instance peut être en ajout seul).
+
+[[instance]]
+nom = "facteur_secours"
+rls = true
+justification = """
+Méthode de secours (ADR 0012) : un utilisateur, hors de tout cabinet. Mot de passe haché \
+(Argon2id) et secret TOTP chiffré par la clé de l'instance ; aucune donnée comptable. Sous RLS : \
+visible de son titulaire (`sigma.utilisateur`) ; à la connexion, lecture et consommation du pas \
+TOTP pour le seul compte du courriel saisi (`sigma.courriel_connexion`), jamais de création."""
+
+[[instance]]
+nom = "code_recuperation"
+rls = true
+justification = """
+Codes de récupération (ADR 0012, F1.12) : un utilisateur, hors de tout cabinet ; seule leur \
+empreinte est stockée. Sous RLS : visibles de leur titulaire ; à la connexion, lecture et usage \
+pour le seul compte du courriel saisi, jamais de création."""
+
+[[instance]]
+nom = "evenement_authentification"
+rls = true
+justification = """
+Journal d'instance des événements d'authentification (ADR 0017) : un utilisateur, avant tout \
+choix de cabinet ; non chaîné. Ni secret, ni code, ni jeton. Sous RLS : lu par son seul \
+titulaire ; inscrit par lui ou, à la connexion, pour le compte du courriel saisi. Rien pour un \
+courriel inconnu."""
+
+[[ajout_seul]]
+nom = "evenement_authentification"
+justification = """
+ADR 0017 : le rôle applicatif n'y a qu'INSERT et SELECT (lecture de ses propres événements), \
+ni UPDATE ni DELETE ; aucune purge en L2."""

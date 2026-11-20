@@ -12,6 +12,8 @@
 // Aide de test : les `expect` y sont voulus (un environnement invalide doit faire échouer le test).
 #![allow(dead_code, clippy::expect_used)]
 
+pub mod facteurs;
+pub mod pieces;
 pub mod serveur;
 
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};

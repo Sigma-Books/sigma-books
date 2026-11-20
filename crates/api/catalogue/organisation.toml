@@ -14,9 +14,9 @@ rls = true
 justification = """
 Identité (ADR 0011 et 0012) : un utilisateur peut appartenir à plusieurs cabinets (spec §4.1), \
 son compte existe donc hors de tout cabinet. Courriel et nom seulement, aucune donnée comptable. \
-Sous RLS : visibles, l'utilisateur du contexte et les membres du cabinet du contexte ; sans \
-contexte, aucune ligne. La recherche par courriel à la connexion, sans contexte, sera conçue \
-en PR 8 (ADR 0012), par exemple par une fonction dédiée et auditée."""
+Sous RLS : visibles, l'utilisateur du contexte et les membres du cabinet du contexte ; à la \
+connexion, sans autre contexte, la seule ligne du courriel saisi (`sigma.courriel_connexion`, \
+politique `utilisateur_connexion`, migration 0100) ; sans contexte, aucune ligne."""
 
 # Tables de dossier admises sans dossier en contexte : une action du cabinet y voit tous les
 # dossiers du cabinet ; avec un dossier en contexte, ce dossier seulement. Toute autre table qui

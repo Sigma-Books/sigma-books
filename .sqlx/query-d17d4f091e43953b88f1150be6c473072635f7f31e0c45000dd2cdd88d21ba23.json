@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.utilisateur_id, s.mot_de_passe, s.totp_chiffre, s.totp_cle_id, s.totp_dernier_pas, s.modifie_le FROM facteur_secours s JOIN utilisateur u ON u.id = s.utilisateur_id WHERE lower(u.courriel) = lower($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "utilisateur_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "facteur_secours",
+            "name": "utilisateur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "mot_de_passe",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "facteur_secours",
+            "name": "mot_de_passe"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "totp_chiffre",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "facteur_secours",
+            "name": "totp_chiffre"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "totp_cle_id",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "facteur_secours",
+            "name": "totp_cle_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "totp_dernier_pas",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "facteur_secours",
+            "name": "totp_dernier_pas"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "modifie_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "facteur_secours",
+            "name": "modifie_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d17d4f091e43953b88f1150be6c473072635f7f31e0c45000dd2cdd88d21ba23"
+}

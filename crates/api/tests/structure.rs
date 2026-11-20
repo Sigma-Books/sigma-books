@@ -167,7 +167,9 @@ fn la_transaction_utilisateur_est_reservee_aux_utilisateurs_authentifies() {
     assert_eq!(
         appelants,
         vec![
-            // Cas d'usage hors cabinet : l'utilisateur de la session authentifiée.
+            // Cas d'usage hors cabinet : l'utilisateur de la session authentifiée (ses facteurs,
+            // ses sessions et ses cabinets).
+            "src/serveur/facteurs.rs",
             "src/serveur/moi.rs",
             // Ouverture d'une session (après vérification d'un facteur), puis notation de
             // l'activité d'une requête admise.
@@ -175,6 +177,61 @@ fn la_transaction_utilisateur_est_reservee_aux_utilisateurs_authentifies() {
             "src/serveur/session.rs",
         ]
     );
+}
+
+/// À la connexion, `sigma.utilisateur` n'est posé que sur présentation d'un facteur vérifié :
+/// une `TransactionUtilisateur` ne se fabrique que par `ouvrir_transaction_utilisateur`
+/// (`base/mod.rs`) ou par `TransactionConnexion::authentifier` (`base/facteurs.rs`, qui la rend
+/// aussi après l'audit des cabinets), et la preuve `FacteurVerifie` n'est fabriquée que par la
+/// consommation d'un pas TOTP ou d'un code de récupération, dans `base/facteurs.rs`.
+#[test]
+fn la_transaction_utilisateur_de_la_connexion_exige_un_facteur_verifie() {
+    let sources = sources();
+    let fichiers = |motif: &str| {
+        let mut trouves: Vec<String> = occurrences(&sources, motif)
+            .into_iter()
+            .filter(|(_, suite)| suite.starts_with("tx") && !suite.starts_with("tx: Transaction<"))
+            .map(|(chemin, _)| {
+                chemin
+                    .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                    .unwrap()
+                    .display()
+                    .to_string()
+            })
+            .collect();
+        trouves.sort();
+        trouves
+    };
+    assert_eq!(
+        fichiers("TransactionUtilisateur {"),
+        vec![
+            "src/base/facteurs.rs",
+            "src/base/facteurs.rs",
+            "src/base/mod.rs"
+        ]
+    );
+    let constructions: Vec<_> = occurrences(&sources, "FacteurVerifie {")
+        .into_iter()
+        .filter(|(_, suite)| suite.starts_with("utilisateur,"))
+        .collect();
+    assert_eq!(constructions.len(), 2, "{constructions:?}");
+    assert!(
+        constructions
+            .iter()
+            .all(|(chemin, _)| chemin.ends_with("src/base/facteurs.rs"))
+    );
+    // Le passage de la connexion à l'utilisateur, et lui seul, pose `sigma.utilisateur` à
+    // partir d'une preuve.
+    let base = &sources
+        .iter()
+        .find(|(c, _)| c.ends_with("src/base/facteurs.rs"))
+        .expect("base/facteurs.rs")
+        .1;
+    assert_eq!(
+        base.matches("set_config('sigma.utilisateur', $1").count(),
+        1
+    );
+    assert!(base.contains("preuve: FacteurVerifie,"));
 }
 
 #[tokio::test]
@@ -199,4 +256,33 @@ async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
             "{voisin}"
         );
     }
+}
+
+/// Voie pièces (PR 12, ADR 0015) : le binaire ne connaît qu'un stockage des pièces, compatible
+/// S3, obligatoire et vérifié au démarrage. Le stockage en mémoire des tests
+/// (`tests/commun/pieces.rs`) n'existe pas dans les sources du crate : il ne peut pas être
+/// sélectionné, ni par la configuration ni par une fonctionnalité.
+#[test]
+fn le_seul_stockage_des_pieces_du_binaire_est_s3() {
+    let sources = sources();
+    let implementations = occurrences(&sources, "impl Stockage for");
+    assert_eq!(
+        implementations
+            .iter()
+            .map(|(_, suite)| suite.split_whitespace().next().unwrap_or(""))
+            .collect::<Vec<_>>(),
+        vec!["StockageS3"],
+        "{implementations:?}"
+    );
+    for motif in ["Memoire", "memoire", "mémoire"] {
+        assert!(
+            occurrences(&sources, &format!("Stockage{motif}")).is_empty(),
+            "stockage {motif} dans les sources du crate"
+        );
+    }
+    let main =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs")).unwrap();
+    assert!(main.contains("StockageS3::new(config.pieces.s3"));
+    assert!(main.contains(".verifier_worm()"));
+    assert_eq!(main.matches("brancher_pieces").count(), 1);
 }

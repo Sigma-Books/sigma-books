@@ -57,3 +57,4 @@ Une PR qui porte du code coche « code porté » dans sa description, lie l'entr
 | Projet | Fichier du registre | Reprises |
 |---|---|---|
 | Tryton | [`tryton.md`](tryton.md) | `move-cancel` (scénario de contre-passation, tests, PR des écritures) ; `syscohada-collectifs` (comptes collectifs et intitulés du plan SYSCOHADA, données, PR du référentiel) |
+| SecLists | [`seclists.md`](seclists.md) | `mots-de-passe-compromis` (empreintes des mots de passe compromis de 12 caractères ou plus, données, PR 8b du lot L2) |

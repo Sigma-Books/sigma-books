@@ -29,7 +29,8 @@ pub mod pieces;
 pub mod referentiel;
 pub mod session;
 
-use authz::{Action, ActionUtilisateur};
+use authz::{Action, ActionFacteur, ActionUtilisateur};
+use axum::extract::RawPathParams;
 use axum::http::Method;
 use axum::response::Response;
 use axum::routing::MethodFilter;
@@ -99,6 +100,14 @@ pub enum Portee {
     /// La session courante elle-même (état, déconnexion) : toute nature de session admise
     /// (une session restreinte doit pouvoir lire son état et se fermer).
     Session,
+    /// Enrôlement d'un facteur (PR 8b) : toute nature de session admise par le pipeline, car
+    /// la session restreinte d'un code de récupération ne sert qu'à cela (F1.12). Cedar décide
+    /// selon la nature et la méthode de la session (`adr0012-enrolement-secours`).
+    Facteurs,
+    /// Connexion, **sans session** (PR 8b) : aucune authentification ; Cedar décide
+    /// `SeConnecter` avec le principal anonyme, puis l'ouverture de la session après la
+    /// vérification du facteur. Limitation de débit propre (adresse, courriel).
+    Anonyme,
 }
 
 impl Portee {
@@ -113,10 +122,17 @@ impl Portee {
     }
 
     /// Vrai si une session de cette nature est admise : seule une session complète ouvre les
-    /// routes métier et les ressources de l'utilisateur (ADR 0012, F1.12).
+    /// routes métier et les ressources de l'utilisateur (ADR 0012, F1.12). Une route de
+    /// connexion n'admet aucune session : elle ne passe pas par l'authentification.
     #[must_use]
     pub const fn admet(self, nature: NatureSession) -> bool {
-        matches!(self, Self::Session) || matches!(nature, NatureSession::Complete)
+        match self {
+            Self::Anonyme => false,
+            Self::Session | Self::Facteurs => true,
+            Self::Cabinet | Self::DossiersDuCabinet | Self::Dossier | Self::Utilisateur => {
+                matches!(nature, NatureSession::Complete)
+            }
+        }
     }
 }
 
@@ -180,6 +196,12 @@ pub enum ActionRoute {
     /// Action de l'utilisateur sur lui-même (ses sessions, ADR 0012) : principal
     /// `Utilisateur`, ressource lue en base sous RLS (titulaire de la session).
     Utilisateur(ActionUtilisateur),
+    /// Action de l'utilisateur sur ses facteurs (ADR 0012, PR 8b) : principal `Utilisateur`,
+    /// ressource lui-même, contexte de la session lue en base (nature, méthode, fraîcheur).
+    Facteur(ActionFacteur),
+    /// Connexion (PR 8b) : `SeConnecter`, principal `Anonyme`, ressource l'instance ; puis
+    /// `OuvrirSession` (principal Utilisateur) après la vérification du facteur.
+    Connexion,
 }
 
 /// Une route : méthode, modèle de chemin, action Cedar, portée et cas d'usage.
@@ -273,6 +295,10 @@ pub struct Requete<'a> {
     pub corps: &'a [u8],
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
+    /// Paramètres du chemin (`{piece}`…), non décodés.
+    pub chemin: &'a RawPathParams,
+    /// Service des pièces, s'il est branché (voie pièces, PR 12).
+    pub pieces: Option<&'a crate::pieces::Pieces>,
 }
 
 /// Résultat d'un cas d'usage : la réponse, et les traces à inscrire au journal d'audit avant
@@ -305,10 +331,12 @@ pub(crate) async fn executer(
     match cas {
         CasUsage::Organisation(cas) => organisation::executer(cas, tx, garde, requete).await,
         CasUsage::Audit(cas) => audit::executer(cas, tx, garde, requete).await,
-        // Cas d'usage hors cabinet : module `moi` du serveur, jamais avec une garde de cabinet.
-        CasUsage::Session(_) | CasUsage::Moi(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
+        // Cas d'usage hors cabinet : modules `moi` et `facteurs` du serveur, jamais avec une
+        // garde de cabinet.
+        CasUsage::Session(_) | CasUsage::Moi(_) | CasUsage::Facteurs(_) => {
+            Err(ErreurApi::Interne(CategorieErreur::Donnee))
+        }
         // Voie authentification (PR 8b, 8c, 9).
-        CasUsage::Facteurs(cas) => match cas {},
         CasUsage::Passkeys(cas) => match cas {},
         CasUsage::Administration(cas) => match cas {},
         // Voie comptabilité (PR 11, 13, 14).
@@ -316,7 +344,7 @@ pub(crate) async fn executer(
         CasUsage::Brouillard(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
         // Voie pièces (PR 12).
-        CasUsage::Pieces(cas) => match cas {},
+        CasUsage::Pieces(cas) => pieces::executer(cas, tx, garde, requete).await,
         // Voie intégrité et horodatage (PR 15).
         CasUsage::Integrite(cas) => match cas {},
     }
@@ -369,10 +397,31 @@ mod tests {
                 Portee::DossiersDuCabinet,
                 Portee::Dossier,
                 Portee::Utilisateur,
+                Portee::Anonyme,
             ] {
                 assert!(!portee.admet(nature));
             }
             assert!(Portee::Session.admet(nature));
+            assert!(Portee::Facteurs.admet(nature));
+        }
+        assert!(!Portee::Anonyme.admet(NatureSession::Complete));
+        // Une route de connexion, et elle seule, est décidée avec le principal anonyme ; une
+        // route d'enrôlement ne décide qu'une action sur ses facteurs.
+        for route in ROUTES {
+            assert_eq!(
+                route.portee == Portee::Anonyme,
+                route.action == ActionRoute::Connexion,
+                "{}",
+                route.chemin
+            );
+            if route.portee == Portee::Facteurs {
+                assert_eq!(
+                    route.action,
+                    ActionRoute::Facteur(ActionFacteur::EnrolerSecours),
+                    "{}",
+                    route.chemin
+                );
+            }
         }
     }
 

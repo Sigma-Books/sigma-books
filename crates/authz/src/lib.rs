@@ -43,9 +43,13 @@
 //! **aussi** par Cedar (règle absolue 7), avec un autre principal :
 //! l'**utilisateur** ([`ActionUtilisateur`],
 //! [`Autorisation::decider_utilisateur`]). Ses sessions d'abord (ADR 0012 :
-//! consultation, rotation, révocation et déconnexion, liste) ; la gestion de
-//! ses propres facteurs (passkeys, secours, codes de récupération, PR 8b et
-//! 8c) suivra le même modèle, avec la ré-authentification. Les politiques
+//! consultation, rotation, révocation et déconnexion, liste) ; ses facteurs
+//! ensuite (méthode de secours, codes de récupération, ré-authentification,
+//! événements d'authentification : [`ActionFacteur`],
+//! [`Autorisation::verdict_facteur`], PR 8b), avec un contexte (nature,
+//! méthode et fraîcheur de la session). La connexion, avant toute session,
+//! est décidée avec un principal **anonyme** (action publique et bornée,
+//! [`Autorisation::verdict_connexion`]). Les politiques
 //! (`utilisateur.cedar`) n'autorisent que le titulaire, et deux invariants
 //! interdisent toute action sur ce qui est à un autre. Les invariants de
 //! cabinet, eux, ne visent que le principal `Appartenance`.
@@ -65,6 +69,7 @@
 
 mod action;
 mod entites;
+mod facteurs;
 
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -81,6 +86,9 @@ pub use entites::{
     IdDossier, IdEcriture, IdSession, IdUtilisateur, Ressource, RessourceUtilisateur, Role,
     Session,
 };
+pub use facteurs::{
+    ACTION_CONNEXION, ActionFacteur, ContexteFacteur, MethodeDeSession, NatureDeSession,
+};
 
 /// Espace de noms Cedar des entités et des actions.
 const ESPACE: &str = "Sigma";
@@ -88,7 +96,7 @@ const ESPACE: &str = "Sigma";
 /// Fragments du schéma Cedar, par domaine, embarqués : (nom, contenu). Ils sont composés en un
 /// seul schéma au chargement (`Schema::from_schema_fragments`) ; un fragment peut citer les
 /// types d'un autre.
-pub const SCHEMA: [(&str, &str); 4] = [
+pub const SCHEMA: [(&str, &str); 5] = [
     (
         "schema/cabinet.cedarschema",
         include_str!("../politiques/schema/cabinet.cedarschema"),
@@ -105,11 +113,15 @@ pub const SCHEMA: [(&str, &str); 4] = [
         "schema/utilisateur.cedarschema",
         include_str!("../politiques/schema/utilisateur.cedarschema"),
     ),
+    (
+        "schema/facteurs.cedarschema",
+        include_str!("../politiques/schema/facteurs.cedarschema"),
+    ),
 ];
 
 /// Fichiers de politiques, embarqués : (nom, contenu). Les invariants restent d'un seul
 /// tenant ; les autorisations des rôles sont découpées par domaine.
-pub const POLITIQUES: [(&str, &str); 5] = [
+pub const POLITIQUES: [(&str, &str); 6] = [
     (
         "invariants.cedar",
         include_str!("../politiques/invariants.cedar"),
@@ -129,6 +141,10 @@ pub const POLITIQUES: [(&str, &str); 5] = [
     (
         "utilisateur.cedar",
         include_str!("../politiques/utilisateur.cedar"),
+    ),
+    (
+        "facteurs.cedar",
+        include_str!("../politiques/facteurs.cedar"),
     ),
 ];
 
@@ -264,6 +280,8 @@ pub struct Autorisation {
     types: Types,
     actions: HashMap<Action, EntityUid>,
     actions_utilisateur: HashMap<ActionUtilisateur, EntityUid>,
+    /// Actions du domaine « facteurs » (connexion, secours : `facteurs.rs`).
+    facteurs: facteurs::ActionsFacteurs,
 }
 
 impl Autorisation {
@@ -346,6 +364,7 @@ impl Autorisation {
 
         let types = Types::analyser()?;
         let (actions, actions_utilisateur) = Self::verifier_actions(&schema, &types)?;
+        let facteurs = facteurs::ActionsFacteurs::verifier(&schema, &types)?;
         Ok(Self {
             schema,
             politiques,
@@ -353,6 +372,7 @@ impl Autorisation {
             types,
             actions,
             actions_utilisateur,
+            facteurs,
         })
     }
 
@@ -373,7 +393,8 @@ impl Autorisation {
         let type_action = EntityTypeName::from_str(&format!("{ESPACE}::Action"))
             .map_err(|e| ErreurChargement::Actions(e.to_string()))?;
         let declarees: HashSet<&EntityUid> = schema.actions().collect();
-        let dans_le_code = Action::TOUTES.len() + ActionUtilisateur::TOUTES.len();
+        let dans_le_code =
+            Action::TOUTES.len() + ActionUtilisateur::TOUTES.len() + facteurs::NOMBRE_ACTIONS;
         if declarees.len() != dans_le_code {
             return Err(ErreurChargement::Actions(format!(
                 "{} actions au schéma, {dans_le_code} dans le code",

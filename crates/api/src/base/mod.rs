@@ -20,12 +20,15 @@
 //! appartenances et ses cabinets (`appartenance_membre`, `cabinet_membre`), sa ligne
 //! `utilisateur`. Il ne doit **jamais** désigner un utilisateur seulement revendiqué, par exemple
 //! le titulaire d'un courriel saisi à la connexion (PR 8b et 8c) : une telle transaction utilise
-//! un autre réglage, propre à la connexion (`sigma.courriel_connexion`, note d'étude de la
-//! PR 8), et un autre type de transaction. Seuls le posent :
+//! un autre réglage, propre à la connexion (`sigma.courriel_connexion`), et un autre type de
+//! transaction ([`facteurs::TransactionConnexion`]). Seuls le posent :
 //! - [`ouvrir_transaction_utilisateur`], **réservée au crate** (`pub(crate)`), appelée pour
 //!   l'utilisateur d'une session authentifiée (pipeline, `serveur::moi` ; notation de
 //!   l'activité) ou pour ouvrir la session d'un utilisateur dont un facteur vient d'être
 //!   vérifié (`serveur::session::ouvrir_session`) ;
+//! - [`facteurs::TransactionConnexion::authentifier`], sur présentation d'un
+//!   [`facteurs::FacteurVerifie`] (pas TOTP ou code de récupération consommé), que seul le
+//!   module [`facteurs`] fabrique ;
 //! - [`ouvrir_transaction`] et [`ouvrir_transaction_lecture`], au contexte d'un cabinet, avec
 //!   l'utilisateur authentifié du pipeline.
 //!
@@ -35,6 +38,8 @@
 
 pub mod audit;
 pub mod config;
+pub mod evenement;
+pub mod facteurs;
 pub mod organisation;
 pub mod session;
 

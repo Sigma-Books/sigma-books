@@ -26,6 +26,12 @@ pub enum ErreurApi {
     MethodeNonAdmise,
     /// 413 : corps trop grand.
     CorpsTropGrand,
+    /// 415 : type de fichier non admis (pièce justificative reconnue par sa signature,
+    /// ADR 0015).
+    TypeNonAdmis,
+    /// 422 : facteur ou mot de passe refusé à l'enrôlement ou à la ré-authentification
+    /// (méthode de secours, PR 8b) ; le motif appartient à une liste fermée.
+    Refus(MotifRefus),
     /// 429 : limite de débit atteinte ; délai en secondes avant de réessayer.
     TropDeRequetes {
         /// Valeur de `Retry-After`, en secondes.
@@ -35,6 +41,40 @@ pub enum ErreurApi {
     Interne(CategorieErreur),
     /// 503 : délai de traitement dépassé.
     DelaiDepasse,
+}
+
+/// Motif d'un refus de facteur (422), rendu au client pour qu'il corrige sa saisie. Aucun ne
+/// dit lequel du mot de passe ou du code était faux à la ré-authentification
+/// ([`MotifRefus::FacteursRefuses`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotifRefus {
+    /// Mot de passe de moins de 12 caractères (ADR 0012).
+    MotDePasseTropCourt,
+    /// Mot de passe trop long (borne du coût du hachage).
+    MotDePasseTropLong,
+    /// Mot de passe présent dans la liste des mots de passe compromis.
+    MotDePasseCompromis,
+    /// Code TOTP faux ou déjà utilisé, à l'enrôlement.
+    CodeInvalide,
+    /// Jeton d'enrôlement invalide, d'une autre session ou expiré.
+    JetonEnrolementInvalide,
+    /// Ré-authentification refusée (mot de passe ou code).
+    FacteursRefuses,
+}
+
+impl MotifRefus {
+    /// Code du corps de la réponse.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::MotDePasseTropCourt => "mot_de_passe_trop_court",
+            Self::MotDePasseTropLong => "mot_de_passe_trop_long",
+            Self::MotDePasseCompromis => "mot_de_passe_compromis",
+            Self::CodeInvalide => "code_invalide",
+            Self::JetonEnrolementInvalide => "jeton_enrolement_invalide",
+            Self::FacteursRefuses => "facteurs_refuses",
+        }
+    }
 }
 
 /// Catégorie d'une erreur interne, pour les journaux techniques (liste fermée : aucun message
@@ -53,6 +93,8 @@ pub enum CategorieErreur {
     Couche,
     /// Inscription au journal d'audit impossible, ou mutation sans trace : l'action est annulée.
     Audit,
+    /// Stockage objet des pièces indisponible, non configuré, ou objet altéré (ADR 0015).
+    Stockage,
 }
 
 impl CategorieErreur {
@@ -66,6 +108,7 @@ impl CategorieErreur {
             Self::Panique => "panique",
             Self::Couche => "couche",
             Self::Audit => "audit",
+            Self::Stockage => "stockage",
         }
     }
 }
@@ -81,6 +124,8 @@ impl ErreurApi {
             Self::Introuvable => StatusCode::NOT_FOUND,
             Self::MethodeNonAdmise => StatusCode::METHOD_NOT_ALLOWED,
             Self::CorpsTropGrand => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::TypeNonAdmis => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Self::Refus(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::TropDeRequetes { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Interne(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DelaiDepasse => StatusCode::SERVICE_UNAVAILABLE,
@@ -97,6 +142,8 @@ impl ErreurApi {
             Self::Introuvable => "introuvable",
             Self::MethodeNonAdmise => "methode_non_admise",
             Self::CorpsTropGrand => "corps_trop_grand",
+            Self::TypeNonAdmis => "type_non_admis",
+            Self::Refus(motif) => motif.code(),
             Self::TropDeRequetes { .. } => "trop_de_requetes",
             Self::Interne(_) => "erreur_interne",
             Self::DelaiDepasse => "delai_depasse",
@@ -131,6 +178,7 @@ pub(crate) fn pour_statut(statut: StatusCode) -> Response {
         StatusCode::NOT_FOUND => ErreurApi::Introuvable,
         StatusCode::METHOD_NOT_ALLOWED => ErreurApi::MethodeNonAdmise,
         StatusCode::PAYLOAD_TOO_LARGE => ErreurApi::CorpsTropGrand,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => ErreurApi::TypeNonAdmis,
         StatusCode::SERVICE_UNAVAILABLE => ErreurApi::DelaiDepasse,
         s if s.is_server_error() => ErreurApi::Interne(CategorieErreur::Couche),
         _ => ErreurApi::RequeteInvalide,
@@ -180,6 +228,13 @@ mod tests {
             ErreurApi::Introuvable,
             ErreurApi::MethodeNonAdmise,
             ErreurApi::CorpsTropGrand,
+            ErreurApi::TypeNonAdmis,
+            ErreurApi::Refus(MotifRefus::MotDePasseTropCourt),
+            ErreurApi::Refus(MotifRefus::MotDePasseTropLong),
+            ErreurApi::Refus(MotifRefus::MotDePasseCompromis),
+            ErreurApi::Refus(MotifRefus::CodeInvalide),
+            ErreurApi::Refus(MotifRefus::JetonEnrolementInvalide),
+            ErreurApi::Refus(MotifRefus::FacteursRefuses),
             ErreurApi::TropDeRequetes { reessayer_dans: 1 },
             ErreurApi::Interne(CategorieErreur::Base),
             ErreurApi::DelaiDepasse,

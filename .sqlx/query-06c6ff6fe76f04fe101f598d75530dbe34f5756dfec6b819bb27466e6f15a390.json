@@ -1,0 +1,186 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, nature, type_contenu, taille, empreinte, nom_origine, cle_objet,\n               version_objet, retenue_jusqu_au, deposee_par, deposee_le, ecartee_le,\n               ecartee_par, motif_ecart\n        FROM piece\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND empreinte = $3 AND ecartee_le IS NULL\n        ORDER BY deposee_le, id\n        LIMIT 20\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nature",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "nature"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "type_contenu",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "type_contenu"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "taille",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "taille"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "empreinte"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "nom_origine",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "nom_origine"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "cle_objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "cle_objet"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "version_objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "version_objet"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "retenue_jusqu_au",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "retenue_jusqu_au"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "deposee_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "deposee_par"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "deposee_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "deposee_le"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "ecartee_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "ecartee_le"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "ecartee_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "ecartee_par"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "motif_ecart",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "motif_ecart"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "06c6ff6fe76f04fe101f598d75530dbe34f5756dfec6b819bb27466e6f15a390"
+}
