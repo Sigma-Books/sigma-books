@@ -23,8 +23,8 @@
 //!
 //! # Brouillard
 //! La clôture d'une période est refusée tant qu'une écriture du brouillard y est datée (#135).
-//! Les dates sont lues **après** le verrou de la période ([`dates_du_brouillard`]). Aucune table
-//! de brouillard n'existe avant la PR 13 : la liste vide est alors exacte. Fil-piège : toute table
+//! Les dates sont lues **après** le verrou de la période ([`dates_du_brouillard`]). La table
+//! `brouillon` (PR 13a) y est lue. Fil-piège : toute table
 //! dont le nom contient `brouill` doit figurer dans [`TABLES_BROUILLARD_LUES_A_LA_CLOTURE`] (test de catalogue).
 
 use std::collections::BTreeMap;
@@ -44,14 +44,15 @@ use super::{
 /// de la base dont le nom contient `brouill` et la liste `[[brouillard]]` du catalogue soient le même ensemble. La
 /// PR 13 ne peut donc pas créer sa table sans brancher sa lecture ici (et sans prendre la période
 /// `FOR SHARE` à la création et au changement de date d'un brouillon).
-pub const TABLES_BROUILLARD_LUES_A_LA_CLOTURE: &[&str] = &[];
+pub const TABLES_BROUILLARD_LUES_A_LA_CLOTURE: &[&str] = &["brouillon"];
 
 /// Date comptable de chaque écriture du brouillard du dossier du contexte datée dans
 /// `[du, au]`, une par écriture : la lecture de **chaque** table de
 /// [`TABLES_BROUILLARD_LUES_A_LA_CLOTURE`]. À appeler **après** le verrou `FOR UPDATE` de la
 /// période.
 ///
-/// Aucune table de brouillard n'existe encore : la liste vide est exacte.
+/// Seule la table `brouillon` porte une date comptable ; ses tables dépendantes sont exemptées
+/// au catalogue (`brouillard_exempte`).
 ///
 /// # Errors
 /// Contexte sans dossier ; table de la liste sans lecture branchée ([`lire_dates`]) ; erreur de
@@ -73,17 +74,18 @@ pub async fn dates_du_brouillard(
 /// requête `sqlx::query!` par table ; une table de [`TABLES_BROUILLARD_LUES_A_LA_CLOTURE`] sans
 /// lecture branchée est une erreur : toute clôture échoue alors, et les tests avec elle
 /// (`tests/periodes.rs`, `chaque_table_du_brouillard_a_sa_lecture`).
-#[allow(clippy::unused_async)] // Lira la base à la PR 13.
 async fn lire_dates(
     tx: &mut TransactionTenant,
     table: &str,
     du: Date,
     au: Date,
 ) -> Result<Vec<Date>, ErreurBase> {
-    let _ = (tx, table, du, au);
-    Err(ErreurBase::Donnee(
-        "table du brouillard sans lecture branchée à la clôture",
-    ))
+    match table {
+        "brouillon" => crate::base::brouillard::dates_dans(tx, du, au).await,
+        _ => Err(ErreurBase::Donnee(
+            "table du brouillard sans lecture branchée à la clôture",
+        )),
+    }
 }
 
 /// Transition d'une période.
@@ -440,7 +442,7 @@ mod tests {
     /// vide avant la PR 13.)
     #[test]
     fn appliquer_refuse_la_cloture_avec_brouillard_injecte() {
-        assert_eq!(TABLES_BROUILLARD_LUES_A_LA_CLOTURE, &[] as &[&str]);
+        assert_eq!(TABLES_BROUILLARD_LUES_A_LA_CLOTURE, &["brouillon"]);
         let mut relus = Exercices::new();
         relus.ouvrir_repris(2026).unwrap();
         let debut = jour(Month::January, 1);

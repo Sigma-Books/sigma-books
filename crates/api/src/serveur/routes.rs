@@ -94,6 +94,11 @@ pub enum Portee {
     DossiersDuCabinet,
     /// Un dossier (`{cabinet}`, `{dossier}`) : visibilité (`AccederDossier`), puis l'action.
     Dossier,
+    /// Un brouillon d'un dossier (`{cabinet}`, `{dossier}`, `{brouillon}`) : visibilité du
+    /// dossier (`AccederDossier`), puis l'action décidée sur l'**écriture**, avec son créateur
+    /// et ses contributeurs lus en base (séparation des tâches, spec §20). Brouillon absent du
+    /// dossier : 404.
+    Brouillon,
     /// Ressources propres de l'utilisateur authentifié, hors de tout cabinet (ses sessions, ses
     /// cabinets) : transaction au contexte du seul utilisateur ; session complète exigée.
     Utilisateur,
@@ -117,7 +122,7 @@ impl Portee {
     pub const fn du_cabinet(self) -> bool {
         matches!(
             self,
-            Self::Cabinet | Self::DossiersDuCabinet | Self::Dossier
+            Self::Cabinet | Self::DossiersDuCabinet | Self::Dossier | Self::Brouillon
         )
     }
 
@@ -129,7 +134,11 @@ impl Portee {
         match self {
             Self::Anonyme => false,
             Self::Session | Self::Facteurs => true,
-            Self::Cabinet | Self::DossiersDuCabinet | Self::Dossier | Self::Utilisateur => {
+            Self::Cabinet
+            | Self::DossiersDuCabinet
+            | Self::Dossier
+            | Self::Brouillon
+            | Self::Utilisateur => {
                 matches!(nature, NatureSession::Complete)
             }
         }
@@ -345,7 +354,7 @@ pub(crate) async fn executer(
         CasUsage::Administration(cas) => match cas {},
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => referentiel::executer(cas, tx, garde, requete).await,
-        CasUsage::Brouillard(cas) => match cas {},
+        CasUsage::Brouillard(cas) => brouillard::executer(cas, tx, garde, requete).await,
         CasUsage::Editions(cas) => match cas {},
         // Voie pièces (PR 12).
         CasUsage::Pieces(cas) => pieces::executer(cas, tx, garde, requete).await,
@@ -400,6 +409,7 @@ mod tests {
                 Portee::Cabinet,
                 Portee::DossiersDuCabinet,
                 Portee::Dossier,
+                Portee::Brouillon,
                 Portee::Utilisateur,
                 Portee::Anonyme,
             ] {

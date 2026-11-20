@@ -294,12 +294,24 @@ pub async fn pieces_de_meme_empreinte(
         .collect()
 }
 
+/// Issue d'un écart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IssueEcart {
+    /// Pièce écartée.
+    Ecartee(Box<Piece>),
+    /// Pièce absente du dossier, ou déjà écartée.
+    Absente,
+    /// Pièce liée à un brouillon : elle ne s'écarte pas (une pièce liée à une écriture validée
+    /// non plus, PR 13b).
+    Liee,
+}
+
 /// Écarte une pièce non écartée du dossier du contexte (dépôt erroné), au nom de l'utilisateur
-/// du contexte. `None` si elle est absente ou déjà écartée. La pièce reste stockée sous
-/// verrou jusqu'au terme de sa rétention.
+/// du contexte. La pièce reste stockée sous verrou jusqu'au terme de sa rétention.
 ///
-/// Tant que le lien aux écritures n'existe pas (PR 13), aucune pièce n'est liée ; la PR 13
-/// ajoutera ici le refus d'écarter une pièce liée à une écriture validée.
+/// La pièce est d'abord verrouillée `FOR UPDATE` : un lien concurrent (qui la tient `FOR SHARE`)
+/// est attendu, puis vu ; les liens sont comptés **après** ce verrou. Une pièce liée à un
+/// brouillon n'est pas écartée ([`IssueEcart::Liee`]).
 ///
 /// # Errors
 /// Hors du contexte d'un dossier, ou erreur de PostgreSQL.
@@ -308,9 +320,24 @@ pub async fn ecarter_piece(
     id: Uuid,
     motif: &str,
     instant: OffsetDateTime,
-) -> Result<Option<Piece>, ErreurBase> {
+) -> Result<IssueEcart, ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     let auteur = tx.contexte().id_utilisateur().uuid();
+    let verrou = sqlx::query_scalar!(
+        "SELECT id FROM piece WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3 \
+         AND ecartee_le IS NULL FOR UPDATE",
+        cabinet.uuid(),
+        dossier.uuid(),
+        id,
+    )
+    .fetch_optional(tx.connexion())
+    .await?;
+    if verrou.is_none() {
+        return Ok(IssueEcart::Absente);
+    }
+    if crate::base::brouillard::brouillons_lies_a_la_piece(tx, id).await? > 0 {
+        return Ok(IssueEcart::Liee);
+    }
     let ligne = sqlx::query_as!(
         Ligne,
         r#"
@@ -330,5 +357,8 @@ pub async fn ecarter_piece(
     )
     .fetch_optional(tx.connexion())
     .await?;
-    ligne.map(|l| l.piece(cabinet, dossier)).transpose()
+    Ok(match ligne {
+        Some(l) => IssueEcart::Ecartee(Box::new(l.piece(cabinet, dossier)?)),
+        None => IssueEcart::Absente,
+    })
 }

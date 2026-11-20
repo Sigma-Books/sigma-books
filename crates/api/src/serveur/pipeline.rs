@@ -54,6 +54,7 @@ use super::csrf::est_mutation;
 use super::erreur::{CategorieErreur, ErreurApi};
 use super::routes::{ActionRoute, Portee, Requete, Route, executer};
 use crate::base::audit::PorteeAudit;
+use crate::base::brouillard;
 use crate::base::organisation::{
     AccesDossier, Appartenance, Cabinet, Dossier, DossierVisible, lire_acces_dossier,
     lire_appartenance, lire_cabinet, lire_dossier,
@@ -214,6 +215,8 @@ enum RessourceChemin {
     Cabinet,
     DossiersDuCabinet,
     Dossier(IdDossier),
+    /// Un brouillon du dossier (PR 13a) : décidé sur l'écriture, non sur le dossier.
+    Brouillon(IdDossier, Uuid),
 }
 
 /// Ressource du chemin selon la portée de la route. Une incohérence (portée de dossier sans
@@ -225,9 +228,12 @@ fn ressource_chemin(
     match (portee, dossier) {
         (Portee::Cabinet, None) => Ok(RessourceChemin::Cabinet),
         (Portee::DossiersDuCabinet, None) => Ok(RessourceChemin::DossiersDuCabinet),
-        (Portee::Dossier, Some(dossier)) => Ok(RessourceChemin::Dossier(dossier)),
+        // Le brouillon du chemin est lu ensuite (étape 3) : il complète la ressource.
+        (Portee::Dossier | Portee::Brouillon, Some(dossier)) => {
+            Ok(RessourceChemin::Dossier(dossier))
+        }
         (Portee::Cabinet | Portee::DossiersDuCabinet, Some(_))
-        | (Portee::Dossier, None)
+        | (Portee::Dossier | Portee::Brouillon, None)
         | (Portee::Utilisateur | Portee::Session | Portee::Facteurs | Portee::Anonyme, _) => {
             Err(ErreurApi::Interne(CategorieErreur::Donnee))
         }
@@ -270,10 +276,14 @@ impl Garde {
     /// [`ErreurApi::Introuvable`] si ce n'est pas le dossier décidé.
     pub fn dossier_du_chemin(&self, dossier: Dossier) -> Result<DossierAutorise, ErreurApi> {
         match self.decidee {
-            Some(RessourceChemin::Dossier(id)) if id == dossier.id => Ok(DossierAutorise {
-                id,
-                nom: dossier.nom,
-            }),
+            Some(RessourceChemin::Dossier(id) | RessourceChemin::Brouillon(id, _))
+                if id == dossier.id =>
+            {
+                Ok(DossierAutorise {
+                    id,
+                    nom: dossier.nom,
+                })
+            }
             _ => Err(ErreurApi::Introuvable),
         }
     }
@@ -314,8 +324,20 @@ impl Garde {
     pub fn portee_audit(&self) -> Result<PorteeAudit, ErreurApi> {
         match self.decidee {
             Some(RessourceChemin::Cabinet) => Ok(PorteeAudit::Cabinet),
-            Some(RessourceChemin::Dossier(dossier)) => Ok(PorteeAudit::Dossier(dossier)),
+            Some(RessourceChemin::Dossier(dossier) | RessourceChemin::Brouillon(dossier, _)) => {
+                Ok(PorteeAudit::Dossier(dossier))
+            }
             Some(RessourceChemin::DossiersDuCabinet) | None => Err(ErreurApi::Introuvable),
+        }
+    }
+
+    /// Le brouillon du chemin, sur lequel l'action de la route a été autorisée (portée
+    /// [`Portee::Brouillon`]) ; `None` sinon.
+    #[must_use]
+    pub fn brouillon_du_chemin(&self) -> Option<Uuid> {
+        match self.decidee {
+            Some(RessourceChemin::Brouillon(_, id)) => Some(id),
+            _ => None,
         }
     }
 
@@ -509,7 +531,9 @@ async fn traiter_requete(
         | Portee::Session
         | Portee::Facteurs
         | Portee::Anonyme => None,
-        Portee::Dossier => Some(IdDossier::depuis_uuid(id_chemin(&parametres, "dossier")?)),
+        Portee::Dossier | Portee::Brouillon => {
+            Some(IdDossier::depuis_uuid(id_chemin(&parametres, "dossier")?))
+        }
     };
     let ressource_chemin = ressource_chemin(route.portee, dossier)?;
     let ActionRoute::Cabinet(action) = route.action else {
@@ -525,6 +549,7 @@ async fn traiter_requete(
     let mut garde = etablir(etat, action, &mut tx, &identite, utilisateur).await?;
 
     // 3. Décision Cedar sur la ressource du chemin.
+    let mut brouillon = None;
     match ressource_chemin {
         RessourceChemin::Cabinet => {
             let entites = Entites::new().avec(garde.cabinet.clone());
@@ -535,24 +560,17 @@ async fn traiter_requete(
             }
         }
         RessourceChemin::Dossier(dossier) => {
-            // Dossier lu dans le contexte du cabinet du chemin : absent s'il est d'autrui.
-            if lire_dossier(&mut tx, dossier).await?.is_none() {
-                return Err(ErreurApi::Introuvable);
-            }
-            let acces = lire_acces_dossier(&mut tx, dossier).await?;
-            let (ressource, entites, contexte) = garde.entites_dossier(dossier, acces.as_ref())?;
-            // Visibilité d'abord : un dossier non visible est une ressource d'autrui (404).
-            if !garde.decider(Action::AccederDossier, ressource, &entites, &contexte) {
-                return Err(ErreurApi::Introuvable);
-            }
-            if !garde.decider_route(ressource, &entites, &contexte) {
-                return Err(ErreurApi::Interdit);
-            }
+            brouillon = decider_dossier(&mut garde, &mut tx, route, &parametres, dossier).await?;
         }
         // Liste : chaque élément est décidé par [`Garde::filtrer`], seule voie vers une vue.
         RessourceChemin::DossiersDuCabinet => {}
+        // Le brouillon n'est lu qu'à l'étape 3, sous la ressource « dossier ».
+        RessourceChemin::Brouillon(..) => return Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }
-    garde.decidee = Some(ressource_chemin);
+    garde.decidee = Some(match (ressource_chemin, brouillon) {
+        (RessourceChemin::Dossier(d), Some(id)) => RessourceChemin::Brouillon(d, id),
+        (autre, _) => autre,
+    });
 
     // 4. Cas d'usage, dans la transaction.
     let requete = Requete {
@@ -573,6 +591,57 @@ async fn traiter_requete(
     // Requête admise et traitée : seule une telle requête prolonge la session.
     etat.authentification.noter_activite(&identite).await;
     Ok(resultat.reponse)
+}
+
+/// Décision Cedar d'une route de dossier : visibilité du dossier (`AccederDossier`, 404 sinon),
+/// puis l'action de la route, sur le dossier ou, pour la portée [`Portee::Brouillon`], sur
+/// l'**écriture** du chemin (créateur et contributeurs lus en base sous RLS ; absente : 404).
+/// Rend l'identifiant du brouillon décidé, s'il y en a un.
+async fn decider_dossier(
+    garde: &mut Garde,
+    tx: &mut TransactionTenant,
+    route: &Route,
+    parametres: &RawPathParams,
+    dossier: IdDossier,
+) -> Result<Option<Uuid>, ErreurApi> {
+    // Dossier lu dans le contexte du cabinet du chemin : absent s'il est d'autrui.
+    if lire_dossier(tx, dossier).await?.is_none() {
+        return Err(ErreurApi::Introuvable);
+    }
+    let acces = lire_acces_dossier(tx, dossier).await?;
+    let (ressource, mut entites, contexte) = garde.entites_dossier(dossier, acces.as_ref())?;
+    // Visibilité d'abord : un dossier non visible est une ressource d'autrui (404).
+    if !garde.decider(Action::AccederDossier, ressource, &entites, &contexte) {
+        return Err(ErreurApi::Introuvable);
+    }
+    if route.portee != Portee::Brouillon {
+        return if garde.decider_route(ressource, &entites, &contexte) {
+            Ok(None)
+        } else {
+            Err(ErreurApi::Interdit)
+        };
+    }
+    // Brouillon du chemin, lu sous RLS : absent s'il est d'un autre dossier (404).
+    let id = id_chemin(parametres, "brouillon")?;
+    let Some((createur, autres)) = brouillard::contributeurs(tx, id).await? else {
+        return Err(ErreurApi::Introuvable);
+    };
+    let id_ecriture = id_authz(id, authz::IdEcriture::new)?;
+    entites.ajouter(authz::EcritureBrouillon {
+        id: id_ecriture,
+        dossier: id_authz(dossier.uuid(), authz::IdDossier::new)?,
+        createur: id_authz(createur, authz::IdUtilisateur::new)?,
+        correcteurs: autres
+            .into_iter()
+            .map(|u| id_authz(u, authz::IdUtilisateur::new))
+            .collect::<Result<Vec<_>, _>>()?,
+    });
+    let ressource = Ressource::EcritureBrouillon(id_ecriture);
+    if garde.decider_route(ressource, &entites, &contexte) {
+        Ok(Some(id))
+    } else {
+        Err(ErreurApi::Interdit)
+    }
 }
 
 /// Une mutation doit laisser au moins une trace au journal d'audit (ADR 0014 : aucune action
@@ -788,7 +857,7 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 17);
+        assert_eq!(mutations.len(), 24);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

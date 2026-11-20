@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO brouillon_piece (cabinet_id, dossier_id, brouillon_id, piece_id, role, lie_par, lie_le) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e6cec96bd33557b71b6692f2d6008483f6ab0c92b56444142d87a936fc1dfd5a"
+}

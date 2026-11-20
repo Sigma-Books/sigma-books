@@ -1,0 +1,154 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT compte_numero, sens, montant::text AS \"montant!\", devise,\n               montant_devise::text AS montant_devise, cours::text AS cours, tiers_id,\n               fiscal_nature, fiscal_sens, fiscal_regime, fiscal_taux::text AS fiscal_taux,\n               fiscal_exigibilite, fiscal_motif\n        FROM brouillon_ligne\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3\n        ORDER BY position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "compte_numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "compte_numero"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sens",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "sens"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "montant!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "devise",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "devise"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "montant_devise",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "cours",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "tiers_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "tiers_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fiscal_nature",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "fiscal_nature"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "fiscal_sens",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "fiscal_sens"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "fiscal_regime",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "fiscal_regime"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "fiscal_taux",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "fiscal_exigibilite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "fiscal_exigibilite"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "fiscal_motif",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "fiscal_motif"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "91a848ba64b269c182fb917f720a4915cfdc921e38c7982f5372c83f1801e12d"
+}

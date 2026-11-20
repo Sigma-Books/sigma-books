@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ecartee_le IS NOT NULL AS \"ecartee!\" FROM piece WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3 FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ecartee!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "43734de30cb0fccba1b81936af98bac9c8bf4bcfc9faed824551504d19aa5981"
+}

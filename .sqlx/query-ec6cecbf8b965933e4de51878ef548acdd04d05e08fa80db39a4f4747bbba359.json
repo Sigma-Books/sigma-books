@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM brouillon_piece WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 AND piece_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ec6cecbf8b965933e4de51878ef548acdd04d05e08fa80db39a4f4747bbba359"
+}

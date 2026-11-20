@@ -24,7 +24,7 @@ use api::base::{
     ContexteTenant, ErreurBase, IdCabinet, IdDossier, IdUtilisateur, ouvrir_transaction,
     verifier_role_lecture_audit,
 };
-use api::serveur::routes::{Methode, ROUTES};
+use api::serveur::routes::{CasUsage, Methode, ROUTES};
 use api::serveur::{Reglages, routeur};
 use axum::Router;
 use axum::http::StatusCode;
@@ -801,6 +801,7 @@ async fn deux_entrees_reordonnees_par_le_proprietaire_sont_detectees() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
@@ -810,6 +811,13 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let routeur = routeur_de(&env);
     // Voie pièces (PR 12) : `{piece}` désigne la dernière pièce créée par une route précédente.
     let mut piece = uuid::Uuid::new_v4();
+    // Voie brouillard (PR 13a) : `{brouillon}` est celui que crée la première route du module ;
+    // la suppression porte sur un second brouillon (les routes suivantes gardent le premier) ;
+    // le lien porte sur une pièce réelle.
+    let mut brouillon = uuid::Uuid::nil();
+    let mut version = 1;
+    let piece_liee =
+        commun::pieces::doter(&env.admin, c.cabinet, c.dossier, c.administrateur).await;
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -827,18 +835,63 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             c.cabinet.uuid(),
             c.dossier.uuid(),
             |nom| match nom {
+                "piece" if matches!(route.cas_usage, CasUsage::Brouillard(_)) => piece_liee,
                 "piece" => piece,
+                "brouillon" => brouillon,
                 autre => fixtures.sous_ressource(autre),
             },
         );
-        let reponse = appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await;
+        let reponse = if let CasUsage::Brouillard(cas) = route.cas_usage {
+            use api::serveur::routes::brouillard::Cas;
+            let (chemin, corps) = match cas {
+                Cas::Modifier => (
+                    chemin,
+                    commun::brouillard::saisie("Libellé modifié", Some(version)),
+                ),
+                Cas::Supprimer => {
+                    let second = commun::brouillard::doter(
+                        &env.admin,
+                        c.cabinet,
+                        c.dossier,
+                        c.administrateur,
+                    )
+                    .await;
+                    (
+                        chemin.replace(&brouillon.to_string(), &second.to_string()),
+                        r#"{"version":1}"#.to_owned(),
+                    )
+                }
+                Cas::LierPiece => (
+                    chemin,
+                    format!(
+                        r#"{{"piece":"{piece_liee}","role":"principale","version":{version}}}"#
+                    ),
+                ),
+                Cas::RetirerPiece => (chemin, format!(r#"{{"version":{version}}}"#)),
+                _ => (chemin, commun::serveur::corps_de(route).to_owned()),
+            };
+            commun::serveur::envoyer(&routeur, &chemin, Some(c.administrateur), &corps, None).await
+        } else {
+            appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await
+        };
         assert!(
             reponse.statut.is_success(),
             "{} : {}",
             route.chemin,
             reponse.texte()
         );
-        if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
+        if let CasUsage::Brouillard(cas) = route.cas_usage {
+            use api::serveur::routes::brouillard::Cas;
+            match cas {
+                Cas::Creer => {
+                    brouillon = reponse.json()["id"].as_str().unwrap().parse().unwrap();
+                }
+                Cas::Modifier | Cas::LierPiece | Cas::RetirerPiece => {
+                    version = i32::try_from(reponse.json()["version"].as_i64().unwrap()).unwrap();
+                }
+                _ => {}
+            }
+        } else if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
             piece = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         }
         let (cabinet_apres, dossier_apres) = (

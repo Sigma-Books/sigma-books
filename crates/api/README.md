@@ -72,6 +72,10 @@ prennent jamais le même numéro.
 | `0300` à `0399` | Pièces (PR 12) |
 | `0400` à `0499` | Intégrité et horodatage (PR 15) |
 
+Exception, pour la dépendance entre voies décrite ci-dessous : `0350_brouillard_pieces.sql` (voie
+comptabilité, PR 13a) lie le brouillard aux pièces (`0300_pieces.sql`) ; elle porte un numéro
+supérieur à celui de la voie dont elle dépend, hors de sa plage.
+
 `sqlx migrate` accepte des versions non contiguës et les applique dans l'ordre croissant sur une
 base neuve (vérifié avec `sqlx-cli` 0.9.1). Limites :
 - sur une base **existante**, une migration de numéro inférieur à la plus haute déjà appliquée

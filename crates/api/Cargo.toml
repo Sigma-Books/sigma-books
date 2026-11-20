@@ -27,6 +27,9 @@ compta-core = { path = "../compta-core" }
 integrite = { path = "../integrite" }
 # Référentiel officiel copié dans chaque nouveau dossier (PR 11).
 syscohada = { path = "../syscohada" }
+# Étiquette fiscale d'une ligne du brouillard, contrôlée contre la liste fermée des régimes et
+# des motifs de TVA (PR 13a ; crate du dépôt, aucune dépendance externe de plus).
+fiscal-sn = { path = "../fiscal-sn" }
 aes-gcm.workspace = true
 argon2.workspace = true
 axum.workspace = true

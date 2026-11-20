@@ -60,7 +60,7 @@ use axum::http::StatusCode;
 use commun::referentiel::{Fixtures, doter};
 use commun::serveur::{
     AuthentificationTest, HorlogeTest, ORIGINE, Reponse, ToujoursAutorise, appeler_route,
-    appeler_session, application_base, application_sessions, capture_globale, cookie_de,
+    appeler_session, application_base, application_sessions, capture_globale, cookie_de, envoyer,
     evenements_de, id_requete, lire, ouvrir, verifier_liste_blanche,
 };
 use commun::{
@@ -68,6 +68,15 @@ use commun::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+
+/// Réglages des tests : le parcours de toutes les routes dépasse le débit par adresse par
+/// défaut (600 requêtes par minute), propre à la production, qui n'est pas ce que l'on teste ici.
+fn reglages() -> Reglages {
+    let mut r = Reglages::new(ORIGINE.to_owned());
+    r.debit_adresse.capacite = 20_000;
+    r.debit_utilisateur.capacite = 20_000;
+    r
+}
 
 struct Monde {
     a: CabinetTest,
@@ -119,6 +128,9 @@ async fn monde(admin: &PgPool) -> Monde {
             inscrire_sous_ressource(dossier, "compte", f.compte);
             inscrire_sous_ressource(dossier, "tiers", f.tiers);
             inscrire_sous_ressource(dossier, "periode", f.periode);
+            // Un brouillon réel (PR 13a), sous-ressource `{brouillon}`.
+            let b = commun::brouillard::doter(admin, c.cabinet, dossier, c.administrateur).await;
+            inscrire_sous_ressource(dossier, "brouillon", b);
             fixtures.insert(dossier, f);
         }
     }
@@ -532,7 +544,7 @@ fn chaque_module_a_son_fichier_de_cas() {
 async fn chaque_route_a_son_cas_d_isolation_et_le_respecte() {
     let env = env().await;
     let m = monde(&env.admin).await;
-    let routeur = routeur(&application_base(&env, Reglages::new(ORIGINE.to_owned())));
+    let routeur = routeur(&application_base(&env, reglages()));
 
     let sans_cas: Vec<&str> = ROUTES
         .iter()
@@ -648,7 +660,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
         env.lecture_audit.clone(),
         Arc::new(ToujoursAutorise),
         Arc::new(AuthentificationTest::default()),
-        Reglages::new(ORIGINE.to_owned()),
+        reglages(),
     ));
     let reference = lire(
         &routeur,
@@ -702,6 +714,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
 
     creation_refusee_quand_cedar_se_trompe(&env, &routeur, &m).await;
     referentiel::quand_cedar_se_trompe(&env, &routeur, &m, &reference).await;
+    brouillard::quand_cedar_se_trompe(&routeur, &m, &reference).await;
     audit_refuse_quand_cedar_se_trompe(&routeur, &m, &reference).await;
     sessions_bornees_quand_cedar_se_trompe(&env, &m).await;
     cabinets_bornes_quand_cedar_se_trompe(&env, &m).await;
@@ -885,7 +898,7 @@ async fn une_appartenance_suspendue_vaut_non_membre_sur_chaque_route() {
     let env = env().await;
     let m = monde(&env.admin).await;
     let (a, b) = (&m.a, &m.b);
-    let routeur = routeur(&application_base(&env, Reglages::new(ORIGINE.to_owned())));
+    let routeur = routeur(&application_base(&env, reglages()));
     // Suspension de l'administrateur de A et du membre des deux cabinets dans B seulement.
     for (cabinet, utilisateur) in [(a.cabinet, a.administrateur), (b.cabinet, m.multi)] {
         sqlx::query(
@@ -957,7 +970,7 @@ async fn les_journaux_d_un_scenario_complet_restent_en_liste_blanche() {
     let capture = capture_globale();
     let env = env().await;
     let m = monde(&env.admin).await;
-    let routeur = routeur(&application_base(&env, Reglages::new(ORIGINE.to_owned())));
+    let routeur = routeur(&application_base(&env, reglages()));
     let mut reponses = Vec::new();
     for route in ROUTES.iter().filter(|r| r.portee.du_cabinet()) {
         reponses.extend(verifier_generique(&routeur, route, &m).await);

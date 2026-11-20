@@ -75,6 +75,7 @@ dependencies = [
  "compta-core",
  "ctutils",
  "der",
+ "fiscal-sn",
  "getrandom 0.4.3",
  "hkdf",
  "hmac",
