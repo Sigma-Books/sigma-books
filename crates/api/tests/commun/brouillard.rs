@@ -113,8 +113,7 @@ pub fn corps(cas: Cas) -> &'static str {
         Cas::LierPiece => {
             r#"{"piece":"00000000-0000-4000-8000-0000000000aa","role":"principale","version":0}"#
         }
-        Cas::Supprimer | Cas::RetirerPiece => r#"{"version":0}"#,
-        Cas::Valider => r#"{"version":0}"#,
+        Cas::Supprimer | Cas::RetirerPiece | Cas::Valider => r#"{"version":0}"#,
         Cas::Lister | Cas::Lire | Cas::ListerEcritures | Cas::LireEcriture => "",
     }
 }

@@ -532,6 +532,7 @@ pub struct ResumeEcriture {
 ///
 /// # Errors
 /// Contexte sans dossier, données incohérentes, erreur de PostgreSQL.
+#[allow(clippy::too_many_lines)]
 pub async fn lire(
     tx: &mut TransactionTenant,
     id: Uuid,

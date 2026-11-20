@@ -118,8 +118,8 @@ pub fn ligne_depuis_stockee(l: &LigneStockee, tva: &ReferentielTva) -> Result<Li
         ligne = ligne.avec_tiers(IdTiers::parse(&t.to_string()).map_err(|_| incoherent())?);
     }
     if let Some(e) = &l.etiquette {
-        let nature = NatureEtiquette::depuis_code(&e.nature).ok_or_else(|| incoherent())?;
-        let sens = SensTva::depuis_code(&e.sens).ok_or_else(|| incoherent())?;
+        let nature = NatureEtiquette::depuis_code(&e.nature).ok_or_else(incoherent)?;
+        let sens = SensTva::depuis_code(&e.sens).ok_or_else(incoherent)?;
         let regime = CodeRegime::parse(&e.regime).map_err(|_| incoherent())?;
         let taux = e
             .taux
@@ -130,7 +130,7 @@ pub fn ligne_depuis_stockee(l: &LigneStockee, tva: &ReferentielTva) -> Result<Li
         let exigibilite = e
             .exigibilite
             .as_deref()
-            .map(|x| Exigibilite::depuis_code(x).ok_or_else(|| incoherent()))
+            .map(|x| Exigibilite::depuis_code(x).ok_or_else(incoherent))
             .transpose()?;
         let motif = e
             .motif
@@ -147,6 +147,7 @@ pub fn ligne_depuis_stockee(l: &LigneStockee, tva: &ReferentielTva) -> Result<Li
 }
 
 /// Brouillon de `compta-core` rebâti d'un contenu stocké et des empreintes de ses pièces.
+#[allow(clippy::too_many_arguments)]
 fn brouillon_de(
     code_journal: &str,
     date: Date,
@@ -386,21 +387,21 @@ pub fn decider(
             refus(motif, ligne)
         })?;
     let canonique = EcritureCanonique::depuis(validation.ecriture());
-    let texte = canonique.serialiser();
+    let contenu_texte = canonique.serialiser();
     // Le contenu haché doit se relire à l'identique (format de `integrite`).
-    if EcritureCanonique::lire(&texte).as_ref() != Ok(&canonique) {
+    if EcritureCanonique::lire(&contenu_texte).as_ref() != Ok(&canonique) {
         return Err(refus(MotifValidation::NonRepresentable, None));
     }
-    let format = match texte.lines().next() {
+    let format = match contenu_texte.lines().next() {
         Some("ecriture v1") => 1,
         Some("ecriture v2") => 2,
         Some("ecriture v3") => 3,
         _ => return Err(donnee()),
     };
-    let empreinte = chainer(&tete.empreinte, texte.as_bytes());
+    let empreinte = chainer(&tete.empreinte, contenu_texte.as_bytes());
     Ok(Decision {
         validation,
-        canonique: texte,
+        canonique: contenu_texte,
         format,
         empreinte,
         rang: tete.rang + 1,
@@ -481,6 +482,7 @@ struct VueValidation {
     date_validation: String,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) async fn valider(
     tx: &mut TransactionTenant,
     garde: &Garde,

@@ -23,6 +23,7 @@ pub(super) const CAS: CasModule = CasModule {
     hors_cabinet: CasModule::AUCUN.hors_cabinet,
 };
 
+#[allow(clippy::too_many_lines)]
 fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
     use Resultat::{Cree, Statut};
     let (a, b) = (&m.a, &m.b);
@@ -105,15 +106,13 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
             attendu(m.valideur, a.cabinet, a.dossier, perime()),
         ],
-        (Methode::Get, c) if c == "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures" => vec![
+        (Methode::Get, "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures") => vec![
             attendu(a.administrateur, a.cabinet, a.autre_dossier, ok()),
             attendu(m.auditeur, a.cabinet, a.dossier, ok()),
             attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
             attendu(m.multi, b.cabinet, b.autre_dossier, absent()),
         ],
-        (Methode::Get, c)
-            if c == "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures/{ecriture}" =>
-        {
+        (Methode::Get, "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures/{ecriture}") => {
             vec![
                 attendu(a.administrateur, a.cabinet, a.dossier, ok()),
                 attendu(m.auditeur, a.cabinet, a.dossier, ok()),
