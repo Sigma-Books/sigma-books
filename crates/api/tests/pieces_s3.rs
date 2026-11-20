@@ -224,6 +224,12 @@ async fn le_demarrage_exige_versionnement_et_verrou() {
             .await,
         Ok(())
     );
+    // Identifiants qui peuvent contourner le mode gouvernance (administrateur du service) :
+    // la sentinelle est supprimée, le démarrage refusé.
+    assert_eq!(
+        stockage(&avec, identifiants_admin()).verifier_worm().await,
+        Err(ErreurStockage::ContournementPossible)
+    );
     // Compartiment ordinaire : ni versionnement, ni verrou.
     let sans = nouveau_compartiment(false).await;
     assert_eq!(
@@ -357,9 +363,25 @@ async fn le_verrou_refuse_suppression_et_raccourcissement() {
         refuse_par_le_verrou(&r);
         assert_eq!(s.lire(&cle, &version, PDF.len()).await.unwrap(), PDF);
     }
+    // Le rôle applicatif ne contourne pas le mode gouvernance, même en le demandant.
+    let app = identifiants_application();
+    let mut action = DeleteObject::new(&bucket, Some(&app), cle.as_str());
+    action.query_mut().insert("versionId", version.as_str());
+    let r = signer_et_envoyer(
+        action,
+        &[("x-amz-bypass-governance-retention", "true".to_owned())],
+        Vec::new(),
+    )
+    .await;
+    assert!(
+        r.statut.is_client_error(),
+        "{} : {}",
+        r.statut,
+        String::from_utf8_lossy(&r.corps)
+    );
+    assert_eq!(s.lire(&cle, &version, PDF.len()).await.unwrap(), PDF);
     // La prolonger : admis (le verrou ne peut que s'allonger).
     let (corps, somme) = corps_retention("2060-01-01T00:00:00Z");
-    let app = identifiants_application();
     let mut action = PutObject::new(&bucket, Some(&app), cle.as_str());
     action.query_mut().insert("retention", "");
     action.query_mut().insert("versionId", version.as_str());

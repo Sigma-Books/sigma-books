@@ -230,6 +230,7 @@ mod tests {
             ("SIGMA_PIECES_S3_COMPARTIMENT", "sigma-pieces"),
             ("SIGMA_PIECES_S3_CLE", "cle-exemple"),
             ("SIGMA_PIECES_S3_SECRET", "valeur-exemple"),
+            ("SIGMA_PIECES_S3_HTTP_ASSUME", "1"),
         ]
     }
 

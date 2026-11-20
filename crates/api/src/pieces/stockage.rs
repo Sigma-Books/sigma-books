@@ -28,6 +28,13 @@ impl CleObjet {
         Self(format!("{cabinet}/{dossier}/{}", Uuid::new_v4()))
     }
 
+    /// Clé d'un objet sentinelle (`sentinelle/<UUID v4>`), hors de tout cabinet : sert au seul
+    /// contrôle de démarrage ([`super::s3::StockageS3::verifier_worm`]).
+    #[must_use]
+    pub fn sentinelle() -> Self {
+        Self(format!("sentinelle/{}", Uuid::new_v4()))
+    }
+
     /// Clé relue en base, si elle a la forme exacte d'une clé de ce cabinet et de ce dossier.
     #[must_use]
     pub fn relue(texte: &str, cabinet: IdCabinet, dossier: IdDossier) -> Option<Self> {
@@ -96,6 +103,13 @@ pub enum ErreurStockage {
     /// Verrouillage d'objet absent sur le compartiment.
     #[error("compartiment sans verrouillage d'objet")]
     SansVerrouillage,
+    /// La version écrite ne porte pas la rétention demandée (mode gouvernance, date de fin).
+    #[error("stockage objet : rétention absente ou différente sur la version écrite")]
+    RetentionNonPosee,
+    /// Les identifiants du serveur peuvent contourner le mode gouvernance (droit
+    /// `s3:BypassGovernanceRetention`, ou identifiants racine).
+    #[error("les identifiants du stockage peuvent contourner le verrou (mode gouvernance)")]
+    ContournementPossible,
 }
 
 /// Stockage objet des pièces : écriture unique sous rétention, lecture d'une version précise.

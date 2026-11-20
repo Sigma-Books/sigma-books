@@ -25,7 +25,7 @@ use base64ct::{Base64, Encoding};
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
 use hyper::client::conn::http1;
 use hyper_util::rt::TokioIo;
-use rusty_s3::actions::{GetObject, PutObject};
+use rusty_s3::actions::{DeleteObject, GetObject, HeadObject, PutObject};
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use time::OffsetDateTime;
 use tokio::net::TcpStream;
@@ -135,10 +135,56 @@ impl StockageS3 {
             }
             Err(e) => return Err(e),
         };
-        if verrou.contains("<ObjectLockEnabled>Enabled</ObjectLockEnabled>") {
+        if !verrou.contains("<ObjectLockEnabled>Enabled</ObjectLockEnabled>") {
+            return Err(ErreurStockage::SansVerrouillage);
+        }
+        self.verifier_sans_contournement().await
+    }
+
+    /// Dépose un objet **sentinelle** (`sentinelle/<UUID>`, quelques octets, rétention de
+    /// gouvernance d'un jour), puis tente de supprimer sa version en **contournant** le mode
+    /// gouvernance. Le service doit refuser : sinon les identifiants du serveur ont
+    /// `s3:BypassGovernanceRetention` (ou sont ceux de l'administrateur) et le binaire refuse de
+    /// démarrer. Chaque démarrage laisse donc une sentinelle, effaçable après un jour.
+    ///
+    /// # Errors
+    /// [`ErreurStockage::ContournementPossible`], ou échec du dépôt de la sentinelle.
+    pub async fn verifier_sans_contournement(&self) -> Result<(), ErreurStockage> {
+        let cle = CleObjet::sentinelle();
+        let contenu: &[u8] = b"sigma-books sentinelle du verrou\n";
+        let depot = self
+            .deposer(ObjetADeposer {
+                cle: &cle,
+                contenu,
+                empreinte: integrite::Empreinte::calculer(contenu),
+                type_contenu: "text/plain; charset=utf-8",
+                retenir_jusqu_au: OffsetDateTime::now_utc() + time::Duration::DAY,
+            })
+            .await?;
+        let entetes = [("x-amz-bypass-governance-retention", "true".to_owned())];
+        let mut action =
+            DeleteObject::new(&self.compartiment, Some(&self.identifiants), cle.as_str());
+        action
+            .query_mut()
+            .insert("versionId", depot.version.as_str());
+        for (nom, valeur) in &entetes {
+            action.headers_mut().insert(*nom, valeur.clone());
+        }
+        let url = action.sign(VALIDITE_SIGNATURE);
+        let reponse = echanger(
+            Method::DELETE,
+            &url,
+            &entetes,
+            Bytes::new(),
+            TAILLE_REPONSE_CONFIGURATION,
+        )
+        .await?;
+        if reponse.statut.is_success() {
+            Err(ErreurStockage::ContournementPossible)
+        } else if reponse.statut.is_client_error() {
             Ok(())
         } else {
-            Err(ErreurStockage::SansVerrouillage)
+            Err(ErreurStockage::Refus(reponse.statut.as_u16()))
         }
     }
 
@@ -167,6 +213,48 @@ impl StockageS3 {
             statut => Err(ErreurStockage::Refus(statut.as_u16())),
         }
     }
+}
+
+/// Contrôle les en-têtes de verrou d'une version relue (`HEAD`) : mode `GOVERNANCE` et fin de
+/// rétention au moins égale à `attendu` (à la seconde).
+///
+/// # Errors
+/// [`ErreurStockage::RetentionNonPosee`].
+pub fn verifier_retention(
+    entetes: &HeaderMap,
+    attendu: OffsetDateTime,
+) -> Result<(), ErreurStockage> {
+    let texte = |nom: &str| entetes.get(nom).and_then(|v| v.to_str().ok());
+    let mode = texte("x-amz-object-lock-mode");
+    let fin = texte("x-amz-object-lock-retain-until-date").and_then(lire_instant_s3);
+    let attendu = attendu.replace_nanosecond(0).unwrap_or(attendu);
+    match (mode, fin) {
+        (Some("GOVERNANCE"), Some(fin)) if fin >= attendu => Ok(()),
+        _ => Err(ErreurStockage::RetentionNonPosee),
+    }
+}
+
+/// Lit un instant S3 `AAAA-MM-JJTHH:MM:SS[.fff…]Z` (UTC), à la seconde.
+fn lire_instant_s3(texte: &str) -> Option<OffsetDateTime> {
+    let o = texte.as_bytes();
+    let valide = o.len() >= 20
+        && o[10] == b'T'
+        && o[13] == b':'
+        && o[16] == b':'
+        && texte.ends_with('Z')
+        && (o.len() == 20 || o[19] == b'.');
+    if !valide {
+        return None;
+    }
+    let date = super::interne::lire_date(texte.get(..10)?).ok()?;
+    let nombre = |a: usize| -> Option<u8> {
+        let t = texte.get(a..a + 2)?;
+        t.bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| t.parse().ok())?
+    };
+    let heure = time::Time::from_hms(nombre(11)?, nombre(14)?, nombre(17)?).ok()?;
+    Some(date.with_time(heure).assume_utc())
 }
 
 /// Instant de fin de rétention au format attendu par S3 (`AAAA-MM-JJTHH:MM:SSZ`, UTC).
@@ -223,10 +311,23 @@ impl Stockage for StockageS3 {
                 .get("x-amz-version-id")
                 .and_then(|v| v.to_str().ok())
                 .filter(|v| !v.is_empty() && *v != "null" && v.len() <= 1024)
-                .ok_or(ErreurStockage::ReponseInattendue)?;
-            Ok(Depot {
-                version: version.to_owned(),
-            })
+                .ok_or(ErreurStockage::ReponseInattendue)?
+                .to_owned();
+            // Rétention relue sur la version écrite : mode gouvernance et fin au moins égale à
+            // celle demandée ; sinon l'objet n'est pas inscrit en base (ADR 0015).
+            let mut action = HeadObject::new(
+                &self.compartiment,
+                Some(&self.identifiants),
+                objet.cle.as_str(),
+            );
+            action.query_mut().insert("versionId", version.as_str());
+            let url = action.sign(VALIDITE_SIGNATURE);
+            let tete = echanger(Method::HEAD, &url, &[], Bytes::new(), objet.contenu.len()).await?;
+            if tete.statut != StatusCode::OK {
+                return Err(ErreurStockage::Refus(tete.statut.as_u16()));
+            }
+            verifier_retention(&tete.entetes, objet.retenir_jusqu_au)?;
+            Ok(Depot { version })
         })
     }
 
@@ -397,6 +498,41 @@ mod tests {
         let texte = format!("{c:?} {:?}", StockageS3::new(c.clone()).unwrap());
         assert!(!texte.contains("secret"), "{texte}");
         assert!(texte.contains("sigma-pieces"), "{texte}");
+    }
+
+    #[test]
+    fn retention_relue() {
+        let entetes = |mode: &str, fin: &str| {
+            let mut h = HeaderMap::new();
+            h.insert("x-amz-object-lock-mode", mode.parse().unwrap());
+            h.insert("x-amz-object-lock-retain-until-date", fin.parse().unwrap());
+            h
+        };
+        let attendu = datetime!(2036-11-19 08:05:03.4 UTC);
+        assert_eq!(
+            verifier_retention(&entetes("GOVERNANCE", "2036-11-19T08:05:03Z"), attendu),
+            Ok(())
+        );
+        assert_eq!(
+            verifier_retention(&entetes("GOVERNANCE", "2036-11-19T08:05:04.000Z"), attendu),
+            Ok(())
+        );
+        for (mode, fin) in [
+            ("COMPLIANCE", "2036-11-19T08:05:03Z"),
+            ("GOVERNANCE", "2036-11-19T08:05:02Z"),
+            ("GOVERNANCE", "2026-11-19T08:05:03Z"),
+            ("GOVERNANCE", "pas une date"),
+        ] {
+            assert_eq!(
+                verifier_retention(&entetes(mode, fin), attendu),
+                Err(ErreurStockage::RetentionNonPosee),
+                "{mode} {fin}"
+            );
+        }
+        assert_eq!(
+            verifier_retention(&HeaderMap::new(), attendu),
+            Err(ErreurStockage::RetentionNonPosee)
+        );
     }
 
     #[test]

@@ -11,6 +11,7 @@
 //! | `SIGMA_PIECES_S3_COMPARTIMENT` | oui | Compartiment créé **avec** verrouillage d'objet (donc versionné) |
 //! | `SIGMA_PIECES_S3_CLE` | oui | Identifiant d'accès du rôle applicatif (secret d'exécution) |
 //! | `SIGMA_PIECES_S3_SECRET` | oui | Clé secrète du rôle applicatif (secret d'exécution) |
+//! | `SIGMA_PIECES_S3_HTTP_ASSUME` | oui (point d'accès `http://`) | `1` : absence de TLS vers le stockage assumée. **L9 : TLS ou relais local** ; en L2 le client n'a pas TLS |
 //! | `SIGMA_PIECES_S3_REGION` | non | Région de la signature ; `us-east-1` par défaut |
 //! | `SIGMA_PIECES_S3_STYLE` | non | `chemin` (défaut, compartiment dans le chemin) ou `hote` (dans le nom d'hôte) |
 //! | `SIGMA_PIECES_TAILLE_MAX` | non | Taille maximale d'une pièce, en octets : 20 Mio par défaut, de 1 Kio à 100 Mio |
@@ -68,6 +69,21 @@ pub fn configuration(env: &Environnement<'_>) -> Result<ConfigurationPieces, Err
         && point_acces.fragment().is_none();
     if !admis {
         return Err(invalide);
+    }
+    // Transport en clair : seulement si l'exploitant l'assume explicitement (L9 : TLS ou relais
+    // local). Aucun mode « production » n'existe encore : l'exigence vaut partout.
+    match env
+        .facultative("SIGMA_PIECES_S3_HTTP_ASSUME")
+        .as_deref()
+        .map(str::trim)
+    {
+        Some("1") => {}
+        Some(_) => return Err(ErreurConfiguration::Invalide("SIGMA_PIECES_S3_HTTP_ASSUME")),
+        None => {
+            return Err(ErreurConfiguration::Manquante(
+                "SIGMA_PIECES_S3_HTTP_ASSUME",
+            ));
+        }
     }
     let compartiment = env.obligatoire("SIGMA_PIECES_S3_COMPARTIMENT")?;
     let compartiment = compartiment.trim().to_owned();
@@ -143,11 +159,12 @@ mod tests {
         configuration(&Environnement::new(&f))
     }
 
-    const S3: [(&str, &str); 4] = [
+    const S3: [(&str, &str); 5] = [
         ("SIGMA_PIECES_S3_POINT_ACCES", "http://127.0.0.1:9100"),
         ("SIGMA_PIECES_S3_COMPARTIMENT", "sigma-pieces"),
         ("SIGMA_PIECES_S3_CLE", "cle-exemple"),
         ("SIGMA_PIECES_S3_SECRET", "valeur-confidentielle"),
+        ("SIGMA_PIECES_S3_HTTP_ASSUME", "1"),
     ];
 
     #[test]
@@ -203,6 +220,8 @@ mod tests {
             ("SIGMA_PIECES_S3_COMPARTIMENT", "xy"),
             ("SIGMA_PIECES_S3_REGION", "us east"),
             ("SIGMA_PIECES_S3_STYLE", "autre"),
+            ("SIGMA_PIECES_S3_HTTP_ASSUME", "oui"),
+            ("SIGMA_PIECES_S3_HTTP_ASSUME", "0"),
             ("SIGMA_PIECES_TAILLE_MAX", "0"),
             ("SIGMA_PIECES_TAILLE_MAX", "104857601"),
             ("SIGMA_PIECES_RETENTION_ANS", "9"),
