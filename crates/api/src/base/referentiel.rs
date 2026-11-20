@@ -24,6 +24,11 @@
 //! collectifs des tiers), puis enregistrement des **seules différences** entre l'état relu et
 //! la copie. Rien d'autre n'écrit dans ces tables après la création.
 //!
+//! # Périodes et exercice suivant
+//! Transitions de statut des périodes et ouverture de l'exercice suivant : [`changer_statut`] et
+//! [`ouvrir_exercice_suivant`] (module `periodes`, PR 11b), seules à écrire dans `exercice` et
+//! `periode` après la création.
+//!
 //! # Verrou du référentiel
 //! `SELECT … FROM dossier … FOR NO KEY UPDATE` ([`verrouiller`]) : deux mutations du référentiel
 //! d'un même dossier se suivent. `NO KEY` n'entre pas en conflit avec le `FOR KEY SHARE` que
@@ -1047,57 +1052,9 @@ async fn inserer_exercices(
     tx: &mut TransactionTenant,
     exercices: &Exercices,
 ) -> Result<(), ErreurBase> {
-    let (cabinet, dossier) = contexte(tx)?;
-    let (lignes, periodes) = exercices.aplatir();
-    let mut ids: BTreeMap<CodeExercice, Uuid> = BTreeMap::new();
-    for e in lignes {
-        let id = Uuid::new_v4();
-        sqlx::query!(
-            "INSERT INTO exercice (cabinet_id, dossier_id, id, code, debut, fin, statut) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            cabinet,
-            dossier,
-            id,
-            e.code.as_str(),
-            e.debut,
-            e.fin,
-            nom_statut_exercice(e.statut),
-        )
-        .execute(tx.connexion())
-        .await?;
-        ids.insert(e.code, id);
+    for exercice in exercices.exercices() {
+        periodes::inserer_exercice(tx, exercice).await?;
     }
-    let mut ids_periodes = Vec::new();
-    let mut exercices_periodes = Vec::new();
-    let mut debuts = Vec::new();
-    let mut fins = Vec::new();
-    let mut statuts = Vec::new();
-    for p in periodes {
-        let exercice = ids
-            .get(&p.exercice)
-            .copied()
-            .ok_or(ErreurBase::Donnee("période sans exercice"))?;
-        ids_periodes.push(Uuid::new_v4());
-        exercices_periodes.push(exercice);
-        debuts.push(p.debut);
-        fins.push(p.fin);
-        statuts.push(nom_statut_periode(p.statut).to_owned());
-    }
-    sqlx::query!(
-        "INSERT INTO periode (cabinet_id, dossier_id, id, exercice_id, debut, fin, statut) \
-         SELECT $1, $2, p.id, p.exercice, p.debut, p.fin, p.statut \
-         FROM UNNEST($3::uuid[], $4::uuid[], $5::date[], $6::date[], $7::text[]) \
-              AS p (id, exercice, debut, fin, statut)",
-        cabinet,
-        dossier,
-        &ids_periodes,
-        &exercices_periodes,
-        &debuts,
-        &fins,
-        &statuts,
-    )
-    .execute(tx.connexion())
-    .await?;
     Ok(())
 }
 
@@ -1598,6 +1555,13 @@ async fn enregistrer_tiers(
     }
     Ok(changements)
 }
+
+mod periodes;
+
+pub use periodes::{
+    ChangementPeriode, ErreurPeriode, ExerciceOuvert, TABLES_BROUILLARD_LUES_A_LA_CLOTURE,
+    Transition, changer_statut, dates_du_brouillard, ouvrir_exercice_suivant,
+};
 
 #[cfg(test)]
 mod tests;
