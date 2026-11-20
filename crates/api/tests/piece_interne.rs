@@ -42,7 +42,7 @@ fn les_rejets_sont_refuses() {
         .filter(|n| n.starts_with("rejet-"))
         .map(|n| (n.clone(), lire(&n)))
         .collect();
-    assert!(rejets.len() >= 8, "vecteurs de rejet introuvables");
+    assert!(rejets.len() >= 10, "vecteurs de rejet introuvables");
     // Fins de ligne CRLF : construites ici (le dépôt normalise les fins de ligne des fichiers).
     rejets.push((
         "crlf".to_owned(),

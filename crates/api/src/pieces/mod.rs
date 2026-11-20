@@ -123,6 +123,45 @@ pub fn ajouter_annees(instant: OffsetDateTime, annees: u16) -> OffsetDateTime {
     instant.replace_date(cible)
 }
 
+/// Vrai pour un caractère refusé dans un texte d'une pièce (nom d'origine, motif, note
+/// interne) : contrôle (`Cc`), format (`Cf`, dont les contrôles bidirectionnels comme U+202E
+/// qui inversent l'affichage d'un nom de fichier), séparateurs de ligne et de paragraphe
+/// (`Zl`, `Zp`). Liste `Cf` d'Unicode 16.0.
+#[must_use]
+pub fn caractere_interdit(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{00AD}'
+                | '\u{0600}'..='\u{0605}'
+                | '\u{061C}'
+                | '\u{06DD}'
+                | '\u{070F}'
+                | '\u{0890}'..='\u{0891}'
+                | '\u{08E2}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{206F}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}'
+                | '\u{110BD}'
+                | '\u{110CD}'
+                | '\u{13430}'..='\u{1343F}'
+                | '\u{1BCA0}'..='\u{1BCA3}'
+                | '\u{1D173}'..='\u{1D17A}'
+                | '\u{E0001}'
+                | '\u{E0020}'..='\u{E007F}'
+        )
+}
+
+/// Texte d'une pièce admis : sans [`caractere_interdit`].
+#[must_use]
+pub fn texte_sur(texte: &str) -> bool {
+    !texte.chars().any(caractere_interdit)
+}
+
 /// Nature d'une pièce (ADR 0015).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Nature {
@@ -254,6 +293,27 @@ mod tests {
         ] {
             assert_eq!(TypePiece::reconnaitre(refuse), None, "{refuse:?}");
         }
+    }
+
+    #[test]
+    fn caracteres_interdits() {
+        for c in [
+            '\u{7}',
+            '\n',
+            '\u{202E}',
+            '\u{200B}',
+            '\u{FEFF}',
+            '\u{2028}',
+            '\u{2029}',
+            '\u{E0041}',
+        ] {
+            assert!(caractere_interdit(c), "{:X}", u32::from(c));
+        }
+        for c in ['a', 'é', ' ', '°', '€', '\u{00A0}', 'ض'] {
+            assert!(!caractere_interdit(c), "{:X}", u32::from(c));
+        }
+        assert!(texte_sur("Facture n°1.pdf"));
+        assert!(!texte_sur("facture\u{202E}fdp.cmd"));
     }
 
     #[test]

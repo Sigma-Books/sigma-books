@@ -234,7 +234,7 @@ fn valeur<'a>(lus: &'a [(&'static str, String)], nom: &str) -> Option<&'a str> {
 /// Nom de fichier d'origine admis : 1 à 255 octets UTF-8, sans caractère de contrôle. Il reste
 /// une métadonnée ; le chemin éventuel n'est pas interprété.
 fn nom_origine(texte: &str) -> Result<String, ErreurApi> {
-    if (1..=255).contains(&texte.len()) && !texte.chars().any(char::is_control) {
+    if (1..=255).contains(&texte.len()) && crate::pieces::texte_sur(texte) {
         Ok(texte.to_owned())
     } else {
         Err(ErreurApi::RequeteInvalide)
@@ -243,7 +243,7 @@ fn nom_origine(texte: &str) -> Result<String, ErreurApi> {
 
 /// Texte d'un motif : non blanc, 1 à 1 000 octets, sans caractère de contrôle.
 fn motif(texte: &str) -> Result<String, ErreurApi> {
-    if !texte.trim().is_empty() && texte.len() <= 1000 && !texte.chars().any(char::is_control) {
+    if !texte.trim().is_empty() && texte.len() <= 1000 && crate::pieces::texte_sur(texte) {
         Ok(texte.to_owned())
     } else {
         Err(ErreurApi::RequeteInvalide)
@@ -589,10 +589,10 @@ async fn telecharger(
 /// `nosniff` ; la CSP `sandbox; default-src 'none'` de l'API est posée par
 /// [`crate::serveur::entetes`].
 fn piece_jointe(piece: &Piece, octets: Vec<u8>) -> Response {
-    let nom = piece
-        .nom_origine
-        .clone()
-        .unwrap_or_else(|| format!("piece-{}.{}", piece.id, piece.type_piece.extension()));
+    let nom = match &piece.nom_origine {
+        Some(nom) => nom_telecharge(nom, piece.type_piece),
+        None => format!("piece-{}.{}", piece.id, piece.type_piece.extension()),
+    };
     let mut reponse = (StatusCode::OK, octets).into_response();
     let entetes = reponse.headers_mut();
     entetes.insert(
@@ -612,6 +612,24 @@ fn piece_jointe(piece: &Piece, octets: Vec<u8>) -> Response {
         HeaderValue::from_static("nosniff"),
     );
     reponse
+}
+
+/// Nom proposé au téléchargement : le nom d'origine, terminé par l'extension du **type
+/// reconnu** (ajoutée si elle manque) : un PDF déposé sous `facture.cmd` est servi sous
+/// `facture.cmd.pdf`, jamais sous un nom qu'un système ouvrirait comme exécutable.
+fn nom_telecharge(nom: &str, type_piece: TypePiece) -> String {
+    let minuscule = nom.to_lowercase();
+    let admises: &[&str] = match type_piece {
+        TypePiece::Jpeg => &[".jpg", ".jpeg"],
+        TypePiece::Pdf => &[".pdf"],
+        TypePiece::Png => &[".png"],
+        TypePiece::NoteOd => &[".txt"],
+    };
+    if admises.iter().any(|e| minuscule.ends_with(e)) {
+        nom.to_owned()
+    } else {
+        format!("{nom}.{}", type_piece.extension())
+    }
 }
 
 /// `Content-Disposition: attachment` (RFC 6266) : `filename` de repli en ASCII sûr, puis
@@ -708,10 +726,36 @@ mod tests {
         assert!(nom_origine("relevé.pdf").is_ok());
         assert!(nom_origine("").is_err());
         assert!(nom_origine("a\nb.pdf").is_err());
+        assert!(nom_origine("facture\u{202E}fdp.cmd").is_err());
+        assert!(nom_origine("a\u{2028}b.pdf").is_err());
+        assert!(nom_origine("a\u{2029}b.pdf").is_err());
+        assert!(nom_origine("a\u{200B}b.pdf").is_err());
+        assert!(motif("Dépôt\u{202E}").is_err());
         assert!(nom_origine(&"a".repeat(256)).is_err());
         assert!(motif("Dépôt en double").is_ok());
         assert!(motif("   ").is_err());
         assert!(motif("a\u{7}").is_err());
+    }
+
+    #[test]
+    fn l_extension_suit_le_type_reconnu() {
+        for (nom, type_piece, attendu) in [
+            ("facture.cmd", TypePiece::Pdf, "facture.cmd.pdf"),
+            ("facture.hta", TypePiece::Pdf, "facture.hta.pdf"),
+            ("Facture.PDF", TypePiece::Pdf, "Facture.PDF"),
+            ("photo.png", TypePiece::Pdf, "photo.png.pdf"),
+            ("photo.JPEG", TypePiece::Jpeg, "photo.JPEG"),
+            ("photo.jpg", TypePiece::Jpeg, "photo.jpg"),
+            ("scan", TypePiece::Png, "scan.png"),
+            (
+                "note-od-2026-11-30.txt",
+                TypePiece::NoteOd,
+                "note-od-2026-11-30.txt",
+            ),
+            ("pdf", TypePiece::Pdf, "pdf.pdf"),
+        ] {
+            assert_eq!(nom_telecharge(nom, type_piece), attendu, "{nom}");
+        }
     }
 
     #[test]

@@ -17,7 +17,7 @@ Celles de `audit-v1.md` §1 :
 | Nom | Forme |
 |---|---|
 | UUID | 36 caractères `8-4-4-4-12`, hexadécimal **minuscule** |
-| texte | 0 à 1 000 octets UTF-8, sans caractère de contrôle (`Cc`, tabulation comprise), repris tel quel : ni normalisation Unicode, ni retrait d'espaces |
+| texte | 0 à 1 000 octets UTF-8, sans caractère de contrôle (`Cc`, tabulation comprise), de format (`Cf`, dont U+202E) ni séparateur de ligne ou de paragraphe (`Zl`, `Zp`) ; repris tel quel : ni normalisation Unicode, ni retrait d'espaces |
 | instant | `AAAA-MM-JJTHH:MM:SS.ffffffZ` : UTC, toujours six décimales, années 0000 à 9999 |
 | date | `AAAA-MM-JJ`, date du calendrier grégorien, années 0000 à 9999 |
 
@@ -67,5 +67,5 @@ SHA-256 : `980f78942ec243e9f5b9f0fcc12c15730c771efcfb982ce0c58e2c73878b04b2` (`n
 | Fichier | Attendu |
 |---|---|
 | `note-od.txt`, `note-od-minimale.txt` | admis ; resérialisés à l'identique ; SHA-256 du fichier `.sha256` voisin |
-| `rejet-*.txt` | refusés : fin de ligne finale absente, UUID en majuscules, instant sans microsecondes, motif blanc, clés dans le désordre, clé inconnue, date invalide (29 février 2027), tabulation |
+| `rejet-*.txt` | refusés : fin de ligne finale absente, UUID en majuscules, instant sans microsecondes, motif blanc, clés dans le désordre, clé inconnue, date invalide (29 février 2027), tabulation, caractère de format U+202E, séparateur de ligne U+2028 |
 | (construit par le test) | refusé : fins de ligne CRLF (le dépôt normalise les fins de ligne de ses fichiers texte) |

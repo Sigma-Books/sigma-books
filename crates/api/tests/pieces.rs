@@ -964,3 +964,52 @@ async fn deux_depots_concurrents_du_meme_fichier_un_seul_sans_avertissement() {
     assert_eq!(stockage.nombre(), 3);
     assert_eq!(compter_pieces(&env.admin, &c).await, 3);
 }
+
+#[tokio::test]
+async fn le_nom_servi_porte_l_extension_du_type_reconnu() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let (routeur, _, _) = cedar(&env);
+    for (nom, servi) in [
+        ("facture.cmd", "facture.cmd.pdf"),
+        ("facture.hta", "facture.hta.pdf"),
+        ("Facture.PDF", "Facture.PDF"),
+    ] {
+        let mut octets = PDF.to_vec();
+        octets.extend_from_slice(nom.as_bytes());
+        let id = cree(
+            &deposer(
+                &routeur,
+                &c,
+                c.dossier,
+                c.collaborateur,
+                &format!("nom={nom}"),
+                &octets,
+            )
+            .await,
+        );
+        let r = contenu(&routeur, &c, c.dossier, &id, c.collaborateur).await;
+        assert_eq!(
+            r.entetes[header::CONTENT_DISPOSITION],
+            format!("attachment; filename=\"{servi}\"; filename*=UTF-8''{servi}").as_str()
+        );
+    }
+    // Caractères de format (U+202E, inversion d'affichage) et séparateurs : refusés au dépôt.
+    for nom in [
+        "facture%E2%80%AEfdp.cmd",
+        "a%E2%80%A8b.pdf",
+        "a%E2%80%A9b.pdf",
+        "a%EF%BB%BFb.pdf",
+    ] {
+        let r = deposer(
+            &routeur,
+            &c,
+            c.dossier,
+            c.collaborateur,
+            &format!("nom={nom}"),
+            PDF,
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{nom}");
+    }
+}

@@ -54,7 +54,7 @@ pub struct NoteOd {
 }
 
 fn texte_admis(texte: &str) -> bool {
-    texte.len() <= TEXTE_MAX && !texte.chars().any(char::is_control)
+    texte.len() <= TEXTE_MAX && super::texte_sur(texte)
 }
 
 impl NoteOd {
