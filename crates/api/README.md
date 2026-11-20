@@ -403,12 +403,14 @@ refuse de démarrer. Chaque démarrage laisse donc une sentinelle, effaçable ap
 `If-None-Match: *`, `x-amz-checksum-sha256` ; lecture de la version écrite (`versionId`). Le rôle
 applicatif du stockage n'a ni `s3:DeleteObjectVersion` ni `s3:BypassGovernanceRetention`.
 
-**Service de développement et de test** (`MinIO`, conteneur à soi, port local seulement ;
-identifiants tirés au hasard, jamais versionnés) :
+**Service de développement et de test** (Silo, `pgsty/silo` : fork de MinIO, AGPL-3.0, même API ; MinIO
+est archivé depuis avril 2026 et n'a plus d'image publiée. Conteneur à soi, port local seulement ;
+identifiants tirés au hasard, jamais versionnés). Les images épinglées par empreinte sont dans
+`.github/workflows/rust.yml` (`SIGMA_S3_IMAGE`, `SIGMA_S3_CLIENT_IMAGE`) :
 
 ```sh
 docker run -d --name sigma-pieces-s3 -p 127.0.0.1:9100:9000 \
-  -e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD minio/minio server /data
+  -e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD "$SIGMA_S3_IMAGE" server /data
 # Rôle applicatif : lecture et écriture des objets, rétention, configuration du compartiment.
 cat > politique.json <<'FIN'
 {"Version":"2012-10-17","Statement":[
@@ -417,24 +419,28 @@ cat > politique.json <<'FIN'
  {"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject",
   "s3:GetObjectVersion","s3:GetObjectRetention"],"Resource":["arn:aws:s3:::sigma-*/*"]}]}
 FIN
-docker cp politique.json sigma-pieces-s3:/tmp/politique.json
-docker exec -e MC_HOST_local="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9000" \
-  -e U="$SIGMA_TEST_S3_CLE" -e S="$SIGMA_TEST_S3_SECRET" sigma-pieces-s3 sh -c \
-  'mc admin user add local "$U" "$S" && mc admin policy create local sigma-pieces /tmp/politique.json \
-   && mc admin policy attach local sigma-pieces --user "$U" && mc mb --with-lock local/sigma-pieces'
+# Client `mc` : image `pgsty/mc` (l'image du serveur n'en contient pas).
+mc() { docker run --rm --network host -e MC_HOST_local -v "$PWD/politique.json:/politique.json:ro" \
+  "$SIGMA_S3_CLIENT_IMAGE" "$@"; }
+export MC_HOST_local="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9100"
+mc admin user add local "$SIGMA_TEST_S3_CLE" "$SIGMA_TEST_S3_SECRET"
+mc admin policy create local sigma-pieces /politique.json
+mc admin policy attach local sigma-pieces --user "$SIGMA_TEST_S3_CLE"
+mc mb --with-lock local/sigma-pieces
 ```
 
 **Tests** :
 - sans service S3 : `tests/pieces.rs` (`tests-postgres`, stockage en mémoire de même contrat) et
   `tests/piece_interne.rs` (vecteurs) ;
 - contre le service : `tests/pieces_s3.rs`, fonctionnalité `tests-s3`. Ses tests sont marqués
-  `#[ignore]` : `--all-features` les compile et les compte « ignorés » sans les exécuter, parce
-  que la CI n'a pas encore de service S3. Les lancer :
+  `#[ignore]` : `--all-features` les compile et les compte « ignorés » dans l'étape principale
+  de la CI. Les lancer :
   `cargo test -p api --features tests-s3 --test pieces_s3 -- --include-ignored`. Sans service ni
   variables (`SIGMA_TEST_S3_*`, `.env.example`), ils **échouent**. Ils créent leurs propres
   compartiments `sigma-test-…` avec l'identité d'administrateur.
-- **À trancher** : ajouter un service `MinIO` à la CI (`.github/workflows/rust.yml`, hors de cette
-  voie) et y lancer `-- --include-ignored` sur `pieces_s3`.
+- **En CI** : le job `rust-test` lance Silo (`docker run`, identifiants tirés au hasard et masqués),
+  prépare le rôle et le compartiment, puis exécute ces tests dans une étape dédiée
+  (`-- --include-ignored`). Aucun nouveau check requis.
 
 ## Travailler en voies parallèles
 
