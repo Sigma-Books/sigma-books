@@ -71,6 +71,8 @@ const MATRICE: &[(Action, [bool; 5])] = &[
     // « Clôturer un exercice » ; clôture informatique d'une période : idem
     (Action::CloturerExercice, [OUI, OUI, NON, NON, NON]),
     (Action::CloturerPeriode, [OUI, OUI, NON, NON, NON]),
+    // Ouvrir l'exercice suivant : décision du mainteneur du 2026-11-19 (#172)
+    (Action::OuvrirExerciceSuivant, [OUI, OUI, NON, NON, NON]),
     // « Consulter éditions et états »
     (Action::ConsulterEditions, [OUI, OUI, OUI, OUI, NON]),
     // « Vérifier l'intégrité, consulter l'audit »
@@ -99,6 +101,7 @@ const SENSIBLES: &[Action] = &[
     Action::ValiderParLot,
     Action::CloturerPeriode,
     Action::CloturerExercice,
+    Action::OuvrirExerciceSuivant,
     Action::DeverrouillerPeriode,
     Action::ExporterComplet,
     Action::ExporterIntegrite,

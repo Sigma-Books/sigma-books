@@ -39,6 +39,9 @@ namespace Sigma {
   // Clôture informatique d'une période : mêmes rôles que « Clôturer un
   // exercice » (docs/lots/L2.md, choix techniques).
   action CloturerPeriode appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Ouvrir l'exercice suivant : mêmes rôles que « Clôturer un exercice »
+  // (décision du mainteneur du 2026-11-19, #172) ; ré-authentification.
+  action OuvrirExerciceSuivant appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // §20 « Clôturer un exercice ».
   action CloturerExercice appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // §20 « Consulter éditions et états ».

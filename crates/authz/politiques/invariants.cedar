@@ -70,6 +70,7 @@ forbid (
     Sigma::Action::"ValiderParLot",
     Sigma::Action::"CloturerPeriode",
     Sigma::Action::"CloturerExercice",
+    Sigma::Action::"OuvrirExerciceSuivant",
     Sigma::Action::"DeverrouillerPeriode",
     Sigma::Action::"ExporterComplet",
     Sigma::Action::"ExporterIntegrite",
