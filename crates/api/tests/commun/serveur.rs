@@ -159,10 +159,12 @@ pub fn cle_de_test() -> Arc<CleInstance> {
     }))
 }
 
-/// Réglages de test : ceux par défaut, avec la clé de l'instance des tests.
+/// Réglages de test : ceux par défaut, avec la clé de l'instance des tests et une durée
+/// plancher des échecs de connexion courte (les tests de la durée la règlent eux-mêmes).
 pub fn reglages_de_test() -> Reglages {
     let mut reglages = Reglages::new(ORIGINE.to_owned());
     reglages.facteurs.cle_instance = Some(cle_de_test());
+    reglages.facteurs.duree_plancher_connexion = Duration::from_millis(10);
     reglages
 }
 

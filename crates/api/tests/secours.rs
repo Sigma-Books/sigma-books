@@ -533,95 +533,217 @@ async fn code_de_recuperation_usage_unique_et_session_restreinte() {
     assert!(contenu.contains("valeur=code_recuperation"), "{contenu}");
 }
 
-#[tokio::test]
-async fn courriel_inconnu_meme_reponse_duree_comparable_et_rien_d_inscrit() {
-    let env = env().await;
-    let c = creer_cabinet(&env.admin, "Cabinet").await;
-    let secret = installer_secours(&env.admin, c.administrateur, MOT_DE_PASSE).await;
-    // Un compte sans secours.
-    let sans_secours = c.collaborateur;
-    let horloge = HorlogeTest::default();
+/// Application aux débits en mémoire relâchés (le plafond par compte reste celui donné), avec
+/// une durée plancher des échecs de connexion donnée.
+fn routeur_plancher(
+    env: &commun::Env,
+    horloge: &HorlogeTest,
+    plancher: DureeStd,
+    echecs_max: i64,
+) -> Router {
     let mut reglages = reglages_de_test();
     reglages.facteurs.debit_connexion_courriel.capacite = 1000;
     reglages.facteurs.debit_connexion_adresse.capacite = 1000;
-    let routeur = routeur_de(&application_sessions_avec(
-        &env,
-        &horloge,
+    reglages.facteurs.duree_plancher_connexion = plancher;
+    reglages.facteurs.echecs_max_par_compte = echecs_max;
+    routeur_de(&application_sessions_avec(
+        env,
+        horloge,
         Arc::new(Autorisation::charger().unwrap()),
         reglages,
-    ));
-    let code_faux = code(&secret, horloge.maintenant() + Duration::hours(1));
-    let appareil = format!("appareil-{}", Uuid::new_v4());
+    ))
+}
+
+/// Médiane d'une série de durées.
+fn mediane(mut durees: Vec<DureeStd>) -> DureeStd {
+    durees.sort();
+    durees[durees.len() / 2]
+}
+
+#[tokio::test]
+async fn chaque_echec_de_connexion_dure_le_plancher_quel_que_soit_le_compte() {
+    const PLANCHER: DureeStd = DureeStd::from_millis(300);
+    const TOLERANCE: DureeStd = DureeStd::from_millis(30);
+    const ESSAIS: usize = 5;
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let avec = c.administrateur;
+    let sans = c.collaborateur;
+    let secret = installer_secours(&env.admin, avec, MOT_DE_PASSE).await;
+    installer_codes(&env.admin, avec).await;
+    // Plafond : un compte qui l'a atteint (ses échecs déjà inscrits).
+    let plafonne = commun::ajouter_affecte(&env.admin, &c, "valideur").await;
+    installer_secours(&env.admin, plafonne, MOT_DE_PASSE).await;
+    let horloge = HorlogeTest::default();
+    let routeur = routeur_plancher(&env, &horloge, PLANCHER, 3);
+    for _ in 0..3 {
+        connecter(
+            &routeur,
+            CODE,
+            &corps_code(&courriel(plafonne), "x"),
+            "test",
+        )
+        .await;
+    }
     let inconnu = format!("{}@exemple.invalid", Uuid::new_v4());
-    let mesurer = |courriel: String| {
-        let routeur = routeur.clone();
-        let appareil = appareil.clone();
-        let code_faux = code_faux.clone();
-        async move {
-            let mut durees = Vec::new();
-            let mut reponses = Vec::new();
-            for _ in 0..7 {
-                let debut = Instant::now();
-                let r = connecter(
-                    &routeur,
-                    SECOURS,
-                    &corps_secours(&courriel, "mauvais mot de passe", &code_faux),
-                    &appareil,
-                )
-                .await;
-                durees.push(debut.elapsed());
-                reponses.push(r);
-            }
-            durees.sort();
-            // Le minimum : le moins sensible à la charge des tests qui tournent en parallèle.
-            (durees[0], reponses)
+    let code_faux = code(&secret, horloge.maintenant() + Duration::hours(1));
+    let code_recup_faux = "0000-0000-0000-0000-0000-0000";
+    // Pour chaque route, chaque cas d'échec : (nom, corps).
+    let cas: Vec<(&str, &str, String)> = vec![
+        (
+            "secours, inconnu",
+            SECOURS,
+            corps_secours(&inconnu, MOT_DE_PASSE, &code_faux),
+        ),
+        (
+            "secours, sans secours",
+            SECOURS,
+            corps_secours(&courriel(sans), MOT_DE_PASSE, &code_faux),
+        ),
+        (
+            "secours, mot de passe faux",
+            SECOURS,
+            corps_secours(&courriel(avec), "mauvais mot de passe", &code_faux),
+        ),
+        (
+            "secours, code faux",
+            SECOURS,
+            corps_secours(&courriel(avec), MOT_DE_PASSE, &code_faux),
+        ),
+        (
+            "secours, plafonné",
+            SECOURS,
+            corps_secours(&courriel(plafonne), MOT_DE_PASSE, &code_faux),
+        ),
+        ("code, inconnu", CODE, corps_code(&inconnu, code_recup_faux)),
+        (
+            "code, sans codes",
+            CODE,
+            corps_code(&courriel(sans), code_recup_faux),
+        ),
+        (
+            "code, code faux",
+            CODE,
+            corps_code(&courriel(avec), code_recup_faux),
+        ),
+        (
+            "code, plafonné",
+            CODE,
+            corps_code(&courriel(plafonne), code_recup_faux),
+        ),
+    ];
+    let medianes = medianes_des_echecs(&routeur, &cas, ESSAIS, PLANCHER).await;
+    let (min, max) = (
+        *medianes.iter().min().unwrap(),
+        *medianes.iter().max().unwrap(),
+    );
+    let ecart = max.saturating_sub(min);
+    assert!(
+        ecart < TOLERANCE,
+        "écart des médianes {ecart:?} : {:?}",
+        cas.iter().map(|c| c.0).zip(&medianes).collect::<Vec<_>>()
+    );
+}
+
+/// Durée médiane de chaque cas d'échec, sur des essais entrelacés (une dérive de la charge
+/// touche tous les cas pareillement) ; chaque réponse est un 401 identique, sans cookie, qui
+/// dure au moins le plancher.
+async fn medianes_des_echecs(
+    routeur: &Router,
+    cas: &[(&str, &str, String)],
+    essais: usize,
+    plancher: DureeStd,
+) -> Vec<DureeStd> {
+    let mut durees: Vec<Vec<DureeStd>> = vec![Vec::new(); cas.len()];
+    let mut reference: Option<Vec<u8>> = None;
+    for _ in 0..essais {
+        for (rang, (nom, chemin, corps)) in cas.iter().enumerate() {
+            let debut = Instant::now();
+            let r = connecter(routeur, chemin, corps, "test").await;
+            let duree = debut.elapsed();
+            assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{nom} : {}", r.texte());
+            assert!(r.entetes.get("set-cookie").is_none(), "{nom}");
+            assert_eq!(
+                &r.corps,
+                reference.get_or_insert_with(|| r.corps.clone()),
+                "{nom}"
+            );
+            assert!(duree >= plancher, "{nom} : {duree:?} sous le plancher");
+            durees[rang].push(duree);
         }
-    };
-    let (d_inconnu, r_inconnu) = mesurer(inconnu.clone()).await;
-    let (d_connu, r_connu) = mesurer(courriel(c.administrateur)).await;
-    let (d_sans, r_sans) = mesurer(courriel(sans_secours)).await;
-    for r in r_inconnu.iter().chain(&r_connu).chain(&r_sans) {
-        assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
-        assert_eq!(r.corps, r_connu[0].corps);
-        assert!(r.entetes.get("set-cookie").is_none());
     }
-    // Durée comparable : Argon2id est exécuté dans les trois cas (minimums). Sans lui, un
-    // courriel inconnu répondrait plus de dix fois plus vite.
-    let rapport = |a: DureeStd, b: DureeStd| a.as_secs_f64() / b.as_secs_f64();
-    for (nom, d) in [("inconnu", d_inconnu), ("sans secours", d_sans)] {
-        let r = rapport(d, d_connu);
-        assert!((0.4..2.5).contains(&r), "{nom} : {d:?} contre {d_connu:?}");
-    }
-    // Rien pour le courriel inconnu ; un échec par tentative pour les comptes connus.
-    let par_appareil = |id: Option<Uuid>| {
-        let admin = env.admin.clone();
-        let appareil = appareil.clone();
-        async move {
-            sqlx::query_scalar::<_, i64>(
-                "SELECT count(*) FROM evenement_authentification \
-                 WHERE appareil = $1 AND ($2::uuid IS NULL OR utilisateur_id = $2)",
-            )
-            .bind(appareil)
-            .bind(id)
-            .fetch_one(&admin)
-            .await
-            .unwrap()
-        }
-    };
-    assert_eq!(par_appareil(None).await, 14);
-    assert_eq!(par_appareil(Some(c.administrateur.uuid())).await, 7);
-    assert_eq!(par_appareil(Some(sans_secours.uuid())).await, 7);
-    // Code de récupération pour un courriel inconnu : même réponse, rien d'inscrit.
-    let r = connecter(
+    durees.into_iter().map(mediane).collect()
+}
+
+#[tokio::test]
+async fn le_plafond_par_compte_refuse_les_bons_facteurs_sans_le_dire() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let u = c.administrateur;
+    let secret = installer_secours(&env.admin, u, MOT_DE_PASSE).await;
+    let codes = installer_codes(&env.admin, u).await;
+    let horloge = HorlogeTest::default();
+    let routeur = routeur_plancher(&env, &horloge, DureeStd::from_millis(10), 3);
+    let faux = connecter(
         &routeur,
-        CODE,
-        &corps_code(&inconnu, "0000-0000-0000-0000-0000-0000"),
-        &appareil,
+        SECOURS,
+        &corps_secours(&courriel(u), "mauvais mot de passe", "000000"),
+        "test",
     )
     .await;
+    assert_eq!(faux.statut, StatusCode::UNAUTHORIZED);
+    for _ in 0..2 {
+        connecter(
+            &routeur,
+            CODE,
+            &corps_code(&courriel(u), "0000-0000-0000-0000-0000-0000"),
+            "test",
+        )
+        .await;
+    }
+    // Trois échecs : les bons facteurs sont refusés, même réponse, jamais 429.
+    let r = connexion_secours(&routeur, &horloge, u, &secret).await;
+    assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{}", r.texte());
+    assert_eq!(r.corps, faux.corps);
+    let r = connecter(&routeur, CODE, &corps_code(&courriel(u), &codes[0]), "test").await;
     assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
-    assert_eq!(r.corps, r_connu[0].corps);
-    assert_eq!(par_appareil(None).await, 14);
+    assert_eq!(r.corps, faux.corps);
+    // Rien n'est consommé ; les tentatives restent inscrites.
+    assert_eq!(compter(&env.admin, "SELECT count(*) FROM code_recuperation WHERE utilisateur_id = $1 AND utilise_le IS NOT NULL", u.uuid()).await, 0);
+    assert_eq!(compter(&env.admin, "SELECT count(*) FROM evenement_authentification WHERE utilisateur_id = $1 AND issue = 'echec'", u.uuid()).await, 5);
+    // La fenêtre passée, les bons facteurs ouvrent de nouveau une session.
+    horloge.avancer(Duration::minutes(16));
+    let r = connexion_secours(&routeur, &horloge, u, &secret).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+}
+
+#[tokio::test]
+async fn rien_n_est_inscrit_pour_un_courriel_inconnu() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let horloge = HorlogeTest::default();
+    let routeur = routeur_plancher(&env, &horloge, DureeStd::from_millis(10), 10);
+    let appareil = format!("appareil-{}", Uuid::new_v4());
+    let inconnu = format!("{}@exemple.invalid", Uuid::new_v4());
+    for (chemin, corps) in [
+        (SECOURS, corps_secours(&inconnu, MOT_DE_PASSE, "000000")),
+        (CODE, corps_code(&inconnu, "0000-0000-0000-0000-0000-0000")),
+        (
+            SECOURS,
+            corps_secours(&courriel(c.collaborateur), MOT_DE_PASSE, "000000"),
+        ),
+    ] {
+        let r = connecter(&routeur, chemin, &corps, &appareil).await;
+        assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
+    }
+    let inscrits: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT utilisateur_id FROM evenement_authentification WHERE appareil = $1",
+    )
+    .bind(&appareil)
+    .fetch_all(&env.admin)
+    .await
+    .unwrap();
+    assert_eq!(inscrits, vec![c.collaborateur.uuid()]);
 }
 
 #[tokio::test]
@@ -967,4 +1089,170 @@ async fn deconnexion_et_revocation_sont_des_evenements_d_authentification() {
     .unwrap();
     assert!(evenements.contains(&("revocation_session".to_owned(), Some(autre.id.uuid()))));
     assert!(evenements.contains(&("deconnexion".to_owned(), Some(courante.id.uuid()))));
+}
+
+/// Exécute `sql` (lié à `id`) dans une transaction du rôle applicatif dont le contexte est le
+/// réglage `reglage` = `valeur`, puis l'annule : `Ok(lignes touchées)` ou le SQLSTATE.
+async fn sous_contexte(
+    pool: &PgPool,
+    reglage: &str,
+    valeur: &str,
+    sql: &'static str,
+    id: Uuid,
+) -> Result<u64, Option<String>> {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config($1, $2, true)")
+        .bind(reglage)
+        .bind(valeur)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let resultat = sqlx::query(sql).bind(id).execute(&mut *tx).await;
+    tx.rollback().await.unwrap();
+    resultat
+        .map(|r| r.rows_affected())
+        .map_err(|e| code_sql(&e))
+}
+
+#[tokio::test]
+async fn la_connexion_ne_peut_que_consommer_un_pas_ou_un_code_et_inscrire_un_echec() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let u = c.administrateur;
+    installer_secours(&env.admin, u, MOT_DE_PASSE).await;
+    installer_codes(&env.admin, u).await;
+    // Un code déjà utilisé.
+    sqlx::query(
+        "UPDATE code_recuperation SET utilise_le = now() \
+         WHERE id = (SELECT id FROM code_recuperation WHERE utilisateur_id = $1 LIMIT 1)",
+    )
+    .bind(u.uuid())
+    .execute(&env.admin)
+    .await
+    .unwrap();
+    let connexion = |sql: &'static str| {
+        let pool = env.application.clone();
+        let courriel = courriel(u);
+        async move { sous_contexte(&pool, "sigma.courriel_connexion", &courriel, sql, u.uuid()).await }
+    };
+    let refus = Err(Some("42501".to_owned()));
+    for sql in [
+        "UPDATE facteur_secours SET mot_de_passe = '$argon2id$v=19$x' WHERE utilisateur_id = $1",
+        "UPDATE facteur_secours SET totp_dernier_pas = 0 WHERE utilisateur_id = $1",
+        "UPDATE facteur_secours SET totp_dernier_pas = totp_dernier_pas + 1, \
+             modifie_le = now() WHERE utilisateur_id = $1",
+        "UPDATE facteur_secours SET totp_cle_id = decode('0000000000000000', 'hex') \
+             WHERE utilisateur_id = $1",
+        "UPDATE code_recuperation SET utilise_le = NULL \
+             WHERE utilisateur_id = $1 AND utilise_le IS NOT NULL",
+        "UPDATE code_recuperation SET utilise_le = now() \
+             WHERE utilisateur_id = $1 AND utilise_le IS NOT NULL",
+        "UPDATE code_recuperation SET empreinte = decode(repeat('cd', 32), 'hex'), \
+             utilise_le = now() WHERE id = (SELECT id FROM code_recuperation \
+             WHERE utilisateur_id = $1 AND utilise_le IS NULL LIMIT 1)",
+        "INSERT INTO evenement_authentification (id, utilisateur_id, nature, issue, instant) \
+             VALUES (gen_random_uuid(), $1, 'enrolement_secours', 'succes', now())",
+        "INSERT INTO evenement_authentification (id, utilisateur_id, nature, issue, instant) \
+             VALUES (gen_random_uuid(), $1, 'connexion', 'succes', now())",
+        "INSERT INTO evenement_authentification \
+             (id, utilisateur_id, session_id, nature, issue, instant) \
+             VALUES (gen_random_uuid(), $1, gen_random_uuid(), 'connexion', 'echec', now())",
+    ] {
+        assert_eq!(connexion(sql).await, refus, "{sql}");
+    }
+    // Ce que la connexion doit pouvoir faire.
+    for sql in [
+        "UPDATE facteur_secours SET totp_dernier_pas = totp_dernier_pas + 1 \
+             WHERE utilisateur_id = $1",
+        "UPDATE code_recuperation SET utilise_le = now() WHERE id = (SELECT id FROM \
+             code_recuperation WHERE utilisateur_id = $1 AND utilise_le IS NULL LIMIT 1)",
+        "INSERT INTO evenement_authentification (id, utilisateur_id, nature, issue, instant) \
+             VALUES (gen_random_uuid(), $1, 'connexion', 'echec', now())",
+    ] {
+        assert_eq!(connexion(sql).await, Ok(1), "{sql}");
+    }
+    // L'utilisateur authentifié, lui, modifie ses propres facteurs (enrôlement, re-hachage).
+    let r = sous_contexte(
+        &env.application,
+        "sigma.utilisateur",
+        &u.to_string(),
+        "UPDATE facteur_secours SET totp_dernier_pas = 0, mot_de_passe = '$argon2id$v=19$y' \
+         WHERE utilisateur_id = $1",
+        u.uuid(),
+    )
+    .await;
+    assert_eq!(r, Ok(1));
+}
+
+#[tokio::test]
+async fn reenroler_avec_un_pas_anterieur_ne_rouvre_pas_un_code_consomme() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let u = c.administrateur;
+    let horloge = HorlogeTest::default();
+    let routeur = routeur_s(&env, &horloge);
+    let ouverte = ouvrir(&env, &horloge, u, NatureSession::Complete).await;
+    let (cookie, csrf) = (cookie_de(&ouverte), ouverte.jeton.csrf());
+    let r = post(
+        &routeur,
+        "/api/moi/facteurs/secours/preparation",
+        &cookie,
+        &csrf,
+        "",
+    )
+    .await;
+    let secret = SecretTotp::depuis_octets(
+        base32_decoder(r.json()["secret"].as_str().unwrap())
+            .try_into()
+            .unwrap(),
+    );
+    let jeton = r.json()["jeton_enrolement"].as_str().unwrap().to_owned();
+    let code_ancien = code(&secret, horloge.maintenant());
+    let enroler = serde_json::json!({
+        "jeton_enrolement": jeton, "mot_de_passe": MOT_DE_PASSE, "code": code_ancien,
+    })
+    .to_string();
+    let r = post(
+        &routeur,
+        "/api/moi/facteurs/secours",
+        &cookie,
+        &csrf,
+        &enroler,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    // Le pas suivant ouvre une session, et se consomme.
+    horloge.avancer(Duration::seconds(30));
+    let code_suivant = code(&secret, horloge.maintenant());
+    let corps = corps_secours(&courriel(u), MOT_DE_PASSE, &code_suivant);
+    assert_eq!(
+        connecter(&routeur, SECOURS, &corps, "test").await.statut,
+        StatusCode::OK
+    );
+    // Réenrôlement avec le même jeton et le code du pas antérieur : admis, mais le dernier pas
+    // accepté ne recule pas ; le code consommé reste refusé.
+    let r = post(
+        &routeur,
+        "/api/moi/facteurs/secours",
+        &cookie,
+        &csrf,
+        &enroler,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    assert_eq!(
+        connecter(&routeur, SECOURS, &corps, "test").await.statut,
+        StatusCode::UNAUTHORIZED
+    );
+    let pas: i64 = sqlx::query_scalar(
+        "SELECT totp_dernier_pas FROM facteur_secours WHERE utilisateur_id = $1",
+    )
+    .bind(u.uuid())
+    .fetch_one(&env.admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        u64::try_from(pas).unwrap(),
+        api::facteurs::totp::pas_de(horloge.maintenant()).unwrap()
+    );
 }

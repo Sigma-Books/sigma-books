@@ -217,7 +217,30 @@ impl TransactionConnexion {
         }))
     }
 
-    /// Inscrit un événement pour le compte du courriel saisi (la RLS refuse tout autre).
+    /// Nombre d'échecs de connexion inscrits pour `utilisateur` depuis `depuis` (plafond
+    /// persistant par compte ; la RLS ne laisse lire à la connexion que ces échecs).
+    ///
+    /// # Errors
+    /// Erreur de PostgreSQL.
+    pub async fn compter_echecs(
+        &mut self,
+        utilisateur: IdUtilisateur,
+        depuis: OffsetDateTime,
+    ) -> Result<i64, ErreurBase> {
+        let n = sqlx::query_scalar!(
+            r#"SELECT count(*) AS "n!" FROM evenement_authentification
+               WHERE utilisateur_id = $1 AND nature = 'connexion' AND issue = 'echec'
+                 AND instant >= $2"#,
+            utilisateur.uuid(),
+            depuis,
+        )
+        .fetch_one(&mut *self.tx)
+        .await?;
+        Ok(n)
+    }
+
+    /// Inscrit l'échec d'une connexion pour le compte du courriel saisi (la RLS refuse tout
+    /// autre compte, toute autre nature, une réussite et une session).
     ///
     /// # Errors
     /// Erreur de PostgreSQL (dont le refus de la RLS).
@@ -326,7 +349,8 @@ pub async fn consommer_pas_totp(
 
 /// Enregistre (ou remplace) la méthode de secours de l'utilisateur du contexte : mot de passe
 /// haché, secret TOTP chiffré, identifiant de clé, et pas du code de confirmation (déjà
-/// consommé : il ne servira pas à une connexion).
+/// consommé : il ne servira pas à une connexion). Le dernier pas accepté ne recule jamais : un
+/// réenrôlement avec un code d'un pas antérieur ne rouvre pas un code déjà consommé.
 ///
 /// # Errors
 /// Erreur de PostgreSQL.
@@ -345,7 +369,9 @@ pub async fn enregistrer_secours(
          VALUES ($1, $2, $3, $4, $5, $6, $6) \
          ON CONFLICT (utilisateur_id) DO UPDATE SET mot_de_passe = EXCLUDED.mot_de_passe, \
              totp_chiffre = EXCLUDED.totp_chiffre, totp_cle_id = EXCLUDED.totp_cle_id, \
-             totp_dernier_pas = EXCLUDED.totp_dernier_pas, modifie_le = EXCLUDED.modifie_le",
+             totp_dernier_pas = GREATEST(facteur_secours.totp_dernier_pas, \
+                                         EXCLUDED.totp_dernier_pas), \
+             modifie_le = EXCLUDED.modifie_le",
         utilisateur,
         mot_de_passe,
         totp_chiffre,

@@ -37,13 +37,17 @@ pub async fn installer_secours(
         .chiffrer_totp(utilisateur.uuid(), &secret)
         .expect("chiffrement");
     let chaine = mot_de_passe::hacher(mot_de_passe).expect("hachage");
+    // Remplacement par suppression puis insertion : une mise à jour sans utilisateur en
+    // contexte serait refusée par le déclencheur de garde de la connexion (migration 0100).
+    sqlx::query("DELETE FROM facteur_secours WHERE utilisateur_id = $1")
+        .bind(utilisateur.uuid())
+        .execute(admin)
+        .await
+        .expect("secours retiré");
     sqlx::query(
         "INSERT INTO facteur_secours (utilisateur_id, mot_de_passe, totp_chiffre, totp_cle_id, \
                                       totp_dernier_pas, cree_le, modifie_le) \
-         VALUES ($1, $2, $3, $4, 0, now(), now()) \
-         ON CONFLICT (utilisateur_id) DO UPDATE SET mot_de_passe = EXCLUDED.mot_de_passe, \
-             totp_chiffre = EXCLUDED.totp_chiffre, totp_cle_id = EXCLUDED.totp_cle_id, \
-             totp_dernier_pas = 0",
+         VALUES ($1, $2, $3, $4, 0, now(), now())",
     )
     .bind(utilisateur.uuid())
     .bind(chaine)

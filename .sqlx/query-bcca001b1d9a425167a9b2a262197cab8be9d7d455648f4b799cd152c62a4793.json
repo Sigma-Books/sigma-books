@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"n!\" FROM evenement_authentification\n               WHERE utilisateur_id = $1 AND nature = 'connexion' AND issue = 'echec'\n                 AND instant >= $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bcca001b1d9a425167a9b2a262197cab8be9d7d455648f4b799cd152c62a4793"
+}

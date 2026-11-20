@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO facteur_secours (utilisateur_id, mot_de_passe, totp_chiffre, totp_cle_id, totp_dernier_pas, cree_le, modifie_le) VALUES ($1, $2, $3, $4, $5, $6, $6) ON CONFLICT (utilisateur_id) DO UPDATE SET mot_de_passe = EXCLUDED.mot_de_passe, totp_chiffre = EXCLUDED.totp_chiffre, totp_cle_id = EXCLUDED.totp_cle_id, totp_dernier_pas = GREATEST(facteur_secours.totp_dernier_pas, EXCLUDED.totp_dernier_pas), modifie_le = EXCLUDED.modifie_le",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d8e07913782248f8fe234826f4571da362f09ea233d03cabe03da984952fac0f"
+}
