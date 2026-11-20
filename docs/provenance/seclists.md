@@ -12,7 +12,7 @@ SecLists est publié sous licence MIT (fichier `LICENSE` à la racine du dépôt
 | Commit ou version | `f90961c9c5be42d80e2f1b6e27b968530918862d` |
 | Licence | MIT (fichier `LICENSE` du dépôt vérifié, SHA-256 `3dbdc93d5f8829de0941744841730a09c106d0732e5ae0e98ca1d77be7ded66c`) |
 | Auteurs / titulaires | Copyright (c) 2018 Daniel Miessler |
-| Nature de la reprise | Jeu de données transformé : seuls les mots de passe d'au moins 12 caractères sont gardés, normalisés (lettres ASCII en minuscules), puis remplacés par les 8 premiers octets de leur SHA-256 préfixé, triés et dédoublonnés. Aucun mot de passe n'est stocké en clair. |
+| Nature de la reprise | Jeu de données transformé : normalisés (blancs ASCII de tête et de fin retirés, suites internes réduites à une espace, lettres ASCII en minuscules), seuls ceux d'au moins 12 caractères sous cette forme sont gardés, puis remplacés par les 8 premiers octets de leur SHA-256 préfixé, triés et dédoublonnés. Aucun mot de passe n'est stocké en clair. |
 | Destination | `crates/api/donnees/mots-de-passe-compromis.bin` (72 540 empreintes, 580 320 octets), lu par `crates/api/src/facteurs/compromis.rs` |
 | Génération | `scripts/generer-mots-de-passe-compromis.py` : télécharge les deux fichiers au commit épinglé, vérifie leur SHA-256, produit le fichier octet pour octet (reproductible). SHA-256 du fichier produit : `62e9efcc7dfcfd528becc15dc9a17b21b0ed959738ca30696c7b05bdc999ef62` |
 | Modifications | filtrage par longueur, normalisation, empreintes tronquées (voir ci-dessus) |

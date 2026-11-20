@@ -1,7 +1,8 @@
 //! Mot de passe de la méthode de secours (ADR 0012 ; NIST SP 800-63B §5.1.1.2 ; ASVS 4.0.3
 //! V2.1, V2.4).
 //!
-//! - **Règles** : 12 caractères au moins (caractères Unicode, espaces compris), 128 au plus
+//! - **Règles** : 12 caractères au moins (caractères Unicode, sur la forme normalisée : blancs
+//!   de tête et de fin retirés, suites internes réduites à une espace), 128 au plus
 //!   (borne du coût du hachage), aucune règle de composition, refus de tout mot de passe de la
 //!   liste embarquée des mots de passe compromis ([`super::compromis`]).
 //! - **Hachage** : Argon2id, 19 Mio de mémoire, 2 passes, 1 voie (repère OWASP, ADR 0012), sel
@@ -46,11 +47,13 @@ pub enum RefusMotDePasse {
 /// # Errors
 /// [`RefusMotDePasse`].
 pub fn valider(mot_de_passe: &str) -> Result<(), RefusMotDePasse> {
-    let longueur = mot_de_passe.chars().count();
-    if longueur < LONGUEUR_MIN {
+    // Minimum compté sur la forme normalisée (blancs de tête et de fin retirés, suites internes
+    // réduites) : des espaces ajoutées ne font pas d'un mot de passe court un mot de passe long,
+    // ni d'un mot de passe compromis un mot de passe nouveau.
+    if compromis::normaliser(mot_de_passe).chars().count() < LONGUEUR_MIN {
         return Err(RefusMotDePasse::TropCourt);
     }
-    if longueur > LONGUEUR_MAX {
+    if mot_de_passe.chars().count() > LONGUEUR_MAX {
         return Err(RefusMotDePasse::TropLong);
     }
     if compromis::est_compromis(mot_de_passe) {
@@ -153,6 +156,10 @@ mod tests {
             );
         }
         assert_eq!(valider("cheval agrafe pile correcte"), Ok(()));
+        // Espaces ajoutées : ni plus long, ni nouveau.
+        assert_eq!(valider(" q1w2e3r4t5y6"), Err(RefusMotDePasse::Compromis));
+        assert_eq!(valider("  q1w2e3r4t5y6 "), Err(RefusMotDePasse::Compromis));
+        assert_eq!(valider("password    "), Err(RefusMotDePasse::TropCourt));
     }
 
     #[test]

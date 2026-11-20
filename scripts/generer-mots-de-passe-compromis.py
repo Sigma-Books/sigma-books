@@ -9,8 +9,10 @@
 # chacun les 8 premiers octets de SHA-256(PREFIXE ‖ mot de passe normalisé). Aucun mot de passe
 # n'y figure en clair. Ne sont gardés que les mots de passe d'au moins 12 caractères (les plus
 # courts sont déjà refusés par la longueur minimale). Normalisation, identique à celle de
-# `compromis.rs` : lettres ASCII A à Z mises en minuscules, rien d'autre ; une ligne qui n'est
-# pas de l'UTF-8 valide est ignorée ; la longueur se compte en caractères Unicode.
+# `compromis.rs` : blancs ASCII (espace, tabulation, sauts de ligne, saut de page) retirés en
+# tête et en fin, suites internes réduites à une espace, lettres ASCII A à Z en minuscules ; une
+# ligne qui n'est pas de l'UTF-8 valide est ignorée ; la longueur se compte en caractères
+# Unicode, sur la forme normalisée.
 #
 # Usage (réseau requis ; aucun autre fichier écrit) :
 #   scripts/generer-mots-de-passe-compromis.py
@@ -21,6 +23,7 @@
 import argparse
 import hashlib
 import os
+import re
 import sys
 import urllib.request
 
@@ -41,6 +44,8 @@ LONGUEUR_MIN = 12
 MAJUSCULES = bytes(range(ord("A"), ord("Z") + 1))
 MINUSCULES = bytes(range(ord("a"), ord("z") + 1))
 TABLE = bytes.maketrans(MAJUSCULES, MINUSCULES)
+# Blancs ASCII de `str::split_ascii_whitespace` (Rust) : espace, \t, \n, \x0c, \r.
+BLANCS = re.compile(rb"[ \t\n\x0c\r]+")
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SORTIE = os.path.join(RACINE, "crates", "api", "donnees", "mots-de-passe-compromis.bin")
 
@@ -58,12 +63,12 @@ def empreintes(contenu):
     for ligne in contenu.split(b"\n"):
         ligne = ligne.rstrip(b"\r")
         try:
-            texte = ligne.decode("utf-8")
+            ligne.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        if len(texte) < LONGUEUR_MIN:
+        normalise = b" ".join(m for m in BLANCS.split(ligne) if m).translate(TABLE)
+        if len(normalise.decode("utf-8")) < LONGUEUR_MIN:
             continue
-        normalise = ligne.translate(TABLE)
         yield hashlib.sha256(PREFIXE + normalise).digest()[:8]
 
 
