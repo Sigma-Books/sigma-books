@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT piece_id, role, lie_par FROM brouillon_piece WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 ORDER BY piece_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "piece_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "brouillon_piece",
+            "name": "piece_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_piece",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "lie_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "brouillon_piece",
+            "name": "lie_par"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b1d00a779830f8ba79f5388f3fa9bbfb0005c42d18048ddf03b5271f6226c0fe"
+}

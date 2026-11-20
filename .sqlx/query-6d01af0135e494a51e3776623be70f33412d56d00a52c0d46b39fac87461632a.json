@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT utilisateur_id FROM brouillon_contributeur WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 ORDER BY utilisateur_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "utilisateur_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "brouillon_contributeur",
+            "name": "utilisateur_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6d01af0135e494a51e3776623be70f33412d56d00a52c0d46b39fac87461632a"
+}

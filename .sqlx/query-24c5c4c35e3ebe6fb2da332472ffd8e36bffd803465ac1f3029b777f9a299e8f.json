@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT statut FROM exercice WHERE cabinet_id = $1 AND dossier_id = $2 AND debut <= $3 AND fin >= $3 FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "statut",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "exercice",
+            "name": "statut"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "24c5c4c35e3ebe6fb2da332472ffd8e36bffd803465ac1f3029b777f9a299e8f"
+}

@@ -1,0 +1,44 @@
+# Catalogue « brouillard » (PR 13a ; migrations `0202_brouillard.sql` et
+# `0350_brouillard_pieces.sql`) : exceptions et listes du test de catalogue (ADR 0011 ;
+# crates/api/tests/catalogue.rs).
+#
+# Un fichier par module (`crates/api/catalogue/<module>.toml`) : une voie de travail n'édite que le
+# sien. Le test les lit tous et refuse une table (ou fonction) déclarée deux fois, même dans deux
+# fichiers. Chaque entrée est justifiée ; toute modification passe par la revue de l'équipe core.
+#
+# Aucune exception de RLS ni d'ajout seul : les quatre tables sont des tables de dossier à la
+# règle commune (RLS forcée, politique « cabinet ET dossier du contexte »). Contrairement aux
+# écritures validées, un brouillon est modifiable et supprimable (spec §6.1) : `DELETE` y est
+# accordé, et lui seul (tables `brouill%`), jamais sur une table d'écritures validées.
+#
+# Fil-piège du brouillard (PR 11b) : toute table dont le nom contient `brouill` est soit déclarée
+# dans `[[brouillard]]` **et** lue à la clôture d'une période
+# (`api::base::referentiel::TABLES_BROUILLARD_LUES_A_LA_CLOTURE`), soit exemptée dans
+# `[[brouillard_exempte]]` avec sa justification. Le test de catalogue vérifie qu'une table
+# exemptée existe, n'a aucune colonne de date comptable et dépend, par clé étrangère, d'une
+# table déclarée : sa date est celle de l'en-tête, déjà lue.
+
+[[brouillard]]
+nom = "brouillon"
+justification = """
+En-tête d'un brouillon : porte la date comptable, lue à la clôture d'une période (refus 409 avec \
+le nombre de brouillons datés dans la période). La création et le changement de date prennent la \
+période `FOR SHARE`."""
+
+[[brouillard_exempte]]
+nom = "brouillon_ligne"
+justification = """
+Ligne d'un brouillon : aucune date propre, elle suit l'en-tête (`brouillon`), lu à la clôture. \
+Un brouillon daté dans la période empêche la clôture avec ou sans ses lignes."""
+
+[[brouillard_exempte]]
+nom = "brouillon_contributeur"
+justification = """
+Contributeurs d'un brouillon (séparation des tâches) : aucune date comptable, l'instant de la \
+première contribution seul ; dépend de l'en-tête, lu à la clôture."""
+
+[[brouillard_exempte]]
+nom = "brouillon_piece"
+justification = """
+Lien d'un brouillon à ses pièces : aucune date comptable, l'instant du lien seul ; dépend de \
+l'en-tête, lu à la clôture."""

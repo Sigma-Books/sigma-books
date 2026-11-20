@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE brouillon SET a_revoir = $4, a_revoir_par = $5 WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "00d7b83dc8addbd19a0fb986f679862c5bb40741cad5699358dc1dcc4614f1c1"
+}

@@ -465,6 +465,7 @@ pub fn corps_de(route: &Route) -> &'static str {
         CasUsage::Pieces(pieces::Cas::Ecarter) => r#"{"motif":"Dépôt erroné"}"#,
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => super::referentiel::corps(cas),
+        CasUsage::Brouillard(cas) => super::brouillard::corps(cas),
         _ => "",
     }
 }

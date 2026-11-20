@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT cree_par FROM brouillon WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cree_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "brouillon",
+            "name": "cree_par"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5ff9fe6bc1f64f8f4009a791567f14201d98ea1e843d7354aa7c4eba4d5760fd"
+}

@@ -11,6 +11,8 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
+use crate::base::brouillard::RefusSaisie;
+
 /// Erreur rendue au client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErreurApi {
@@ -40,6 +42,14 @@ pub enum ErreurApi {
     /// 422 : facteur ou mot de passe refusé à l'enrôlement ou à la ré-authentification
     /// (méthode de secours, PR 8b) ; le motif appartient à une liste fermée.
     Refus(MotifRefus),
+    /// 422 : saisie du brouillard invalide en soi (compte, journal, tiers, étiquette fiscale…) ;
+    /// motif stable, et position (à partir de 1) de la ligne concernée s'il y en a une.
+    Saisie {
+        /// Motif, code du corps.
+        refus: RefusSaisie,
+        /// Ligne concernée.
+        ligne: Option<u32>,
+    },
     /// 429 : limite de débit atteinte ; délai en secondes avant de réessayer.
     TropDeRequetes {
         /// Valeur de `Retry-After`, en secondes.
@@ -102,11 +112,33 @@ pub enum MotifConflit {
     BrouillardNonValide,
     /// Deux exercices sont déjà non clôturés.
     ExercicesNonCloturesMax,
+    /// Brouillon modifié depuis que le client l'a lu (verrou optimiste).
+    BrouillonPerime,
+    /// Date comptable dans une période ou un exercice clôturé.
+    DateDansPeriodeCloturee,
+    /// Exercice en clôture, journal non admis.
+    JournalNonAdmisEnCloture,
+    /// Modification qui ne change rien.
+    AucunChangement,
+    /// Drapeau « à revoir » déjà dans l'état demandé.
+    DrapeauInchange,
+    /// Pièce écartée : elle ne se lie pas.
+    PieceEcartee,
+    /// Pièce déjà liée au brouillon.
+    PieceDejaLiee,
+    /// Le brouillon a déjà une pièce principale.
+    PrincipaleExistante,
+    /// Pièce liée à un brouillon : elle ne s'écarte pas.
+    PieceLiee,
+    /// Le drapeau « à revoir » ne se lève pas par celui qui l'a posé.
+    RevueParLePoseur,
+    /// Trop de pièces liées au brouillon.
+    TropDePieces,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 7] = [
+    pub const TOUS: [Self; 18] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -114,6 +146,17 @@ impl MotifConflit {
         Self::PeriodeAnterieureNonCloturee,
         Self::BrouillardNonValide,
         Self::ExercicesNonCloturesMax,
+        Self::BrouillonPerime,
+        Self::DateDansPeriodeCloturee,
+        Self::JournalNonAdmisEnCloture,
+        Self::AucunChangement,
+        Self::DrapeauInchange,
+        Self::PieceEcartee,
+        Self::PieceDejaLiee,
+        Self::PrincipaleExistante,
+        Self::PieceLiee,
+        Self::RevueParLePoseur,
+        Self::TropDePieces,
     ];
 
     /// Code du corps de la réponse.
@@ -127,6 +170,17 @@ impl MotifConflit {
             Self::PeriodeAnterieureNonCloturee => "periode_anterieure_non_cloturee",
             Self::BrouillardNonValide => "brouillard_non_valide",
             Self::ExercicesNonCloturesMax => "exercices_non_clotures_max",
+            Self::BrouillonPerime => "brouillon_perime",
+            Self::DateDansPeriodeCloturee => "date_dans_periode_cloturee",
+            Self::JournalNonAdmisEnCloture => "journal_non_admis_en_cloture",
+            Self::AucunChangement => "aucun_changement",
+            Self::DrapeauInchange => "drapeau_inchange",
+            Self::PieceEcartee => "piece_ecartee",
+            Self::PieceDejaLiee => "piece_deja_liee",
+            Self::PrincipaleExistante => "piece_principale_existante",
+            Self::PieceLiee => "piece_liee",
+            Self::RevueParLePoseur => "revue_par_le_poseur",
+            Self::TropDePieces => "trop_de_pieces",
         }
     }
 }
@@ -180,7 +234,7 @@ impl ErreurApi {
             Self::Conflit { .. } => StatusCode::CONFLICT,
             Self::CorpsTropGrand => StatusCode::PAYLOAD_TOO_LARGE,
             Self::TypeNonAdmis => StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            Self::Refus(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::Refus(_) | Self::Saisie { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             Self::TropDeRequetes { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Interne(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DelaiDepasse => StatusCode::SERVICE_UNAVAILABLE,
@@ -200,6 +254,7 @@ impl ErreurApi {
             Self::CorpsTropGrand => "corps_trop_grand",
             Self::TypeNonAdmis => "type_non_admis",
             Self::Refus(motif) => motif.code(),
+            Self::Saisie { refus, .. } => refus.code(),
             Self::TropDeRequetes { .. } => "trop_de_requetes",
             Self::Interne(_) => "erreur_interne",
             Self::DelaiDepasse => "delai_depasse",
@@ -249,6 +304,8 @@ struct Corps {
     erreur: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     nombre: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ligne: Option<u32>,
 }
 
 impl IntoResponse for ErreurApi {
@@ -259,6 +316,10 @@ impl IntoResponse for ErreurApi {
                 erreur: self.code(),
                 nombre: match self {
                     Self::Conflit { nombre, .. } => nombre,
+                    _ => None,
+                },
+                ligne: match self {
+                    Self::Saisie { ligne, .. } => ligne,
                     _ => None,
                 },
             }),
@@ -301,6 +362,7 @@ mod tests {
             ErreurApi::Interne(CategorieErreur::Base),
             ErreurApi::DelaiDepasse,
         ];
+        toutes.extend(RefusSaisie::TOUS.map(|refus| ErreurApi::Saisie { refus, ligne: None }));
         toutes.extend(MotifConflit::TOUS.map(|motif| ErreurApi::Conflit {
             motif,
             nombre: None,

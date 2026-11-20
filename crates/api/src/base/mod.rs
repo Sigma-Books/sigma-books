@@ -37,6 +37,7 @@
 //! toujours sous RLS et contexte (ADR 0014).
 
 pub mod audit;
+pub mod brouillard;
 pub mod config;
 pub mod evenement;
 pub mod facteurs;

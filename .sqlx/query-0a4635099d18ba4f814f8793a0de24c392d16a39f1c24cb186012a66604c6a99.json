@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE brouillon\n        SET journal_id = $4, date_comptable = $5, date_valeur_comptable = $6, libelle = $7,\n            version = version + 1, modifie_par = $8, modifie_le = $9\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3\n        RETURNING version\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "brouillon",
+            "name": "version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Date",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0a4635099d18ba4f814f8793a0de24c392d16a39f1c24cb186012a66604c6a99"
+}

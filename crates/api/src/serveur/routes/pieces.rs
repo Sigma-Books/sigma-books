@@ -25,13 +25,13 @@ use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier_visible};
 use crate::pieces::base::{
-    NouvellePiece, Piece, ecarter_piece, inserer_piece, lire_piece, lister_pieces,
+    IssueEcart, NouvellePiece, Piece, ecarter_piece, inserer_piece, lire_piece, lister_pieces,
     pieces_de_meme_empreinte, verrouiller_dossier,
 };
 use crate::pieces::interne::{self, NoteOd};
 use crate::pieces::{CleObjet, Nature, ObjetADeposer, Pieces, TypePiece};
 use crate::serveur::audit::Trace;
-use crate::serveur::erreur::{CategorieErreur, ErreurApi};
+use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
 use crate::serveur::journal::CIBLE;
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
 
@@ -677,9 +677,17 @@ async fn ecarter(
         Json::<CorpsEcart>::from_bytes(requete.corps).map_err(|_| ErreurApi::RequeteInvalide)?;
     let motif = motif(&texte)?;
     let id = id_chemin(requete.chemin, "piece")?;
-    let piece = ecarter_piece(tx, id, &motif, maintenant())
-        .await?
-        .ok_or(ErreurApi::Introuvable)?;
+    let piece = match ecarter_piece(tx, id, &motif, maintenant()).await? {
+        IssueEcart::Ecartee(piece) => piece,
+        IssueEcart::Absente => return Err(ErreurApi::Introuvable),
+        // Pièce liée à un brouillon : elle justifie une saisie en cours.
+        IssueEcart::Liee => {
+            return Err(ErreurApi::Conflit {
+                motif: MotifConflit::PieceLiee,
+                nombre: None,
+            });
+        }
+    };
     let mut trace = Trace::new(PorteeAudit::Dossier(dossier.id()), "piece", piece.id);
     trace.motif = Some(motif);
     trace
