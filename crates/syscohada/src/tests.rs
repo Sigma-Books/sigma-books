@@ -2,6 +2,7 @@
 //! officielle (AUDCIF + SYSCOHADA, JO OHADA 15/02/2017), rejet des données invalides.
 
 use super::*;
+use compta_core::{Journal, TypeJournal};
 use proptest::prelude::*;
 
 fn n(numero: &str) -> NumeroCompte {
@@ -254,6 +255,190 @@ fn le_plan_du_dossier_reprend_tout_le_referentiel() {
     assert!(plan.compte_de_mouvement_actif(&n("401")).is_err());
 }
 
+/// Comptes admis en journal de trésorerie, et leur fiche de fonctionnement (AUDCIF, Titre VII,
+/// ch. 3) : 52 Banques, 53 Établissements financiers, 55 Monnaie électronique, 57 Caisse.
+const ADMIS: [(&str, u16); 4] = [("52", 417), ("53", 419), ("55", 424), ("57", 428)];
+/// Comptes de la classe 5 exclus (motifs dans data/comptes.toml) ; 581 et 582 en attente du
+/// mainteneur.
+const EXCLUS: [&str; 9] = ["50", "51", "54", "56", "581", "582", "585", "588", "59"];
+/// Sous-comptes d'intérêts courus des comptes admis, exclus explicitement (ni encaisse ni avoir
+/// disponible), avec la page de la fiche du compte parent.
+const INTERETS_COURUS: [(&str, u16); 2] = [("526", 416), ("536", 418)];
+
+/// Premier compte de mouvement actif du plan sous `racine` (ou `racine` elle-même).
+fn compte_de_mouvement_sous(plan: &PlanComptes, racine: &str) -> NumeroCompte {
+    let racine = n(racine);
+    plan.comptes()
+        .map(|c| c.numero().clone())
+        .find(|numero| {
+            racine.est_ascendant_ou_egal(numero) && plan.compte_de_mouvement_actif(numero).is_ok()
+        })
+        .unwrap()
+}
+
+#[test]
+fn comptes_admis_en_journal_de_tresorerie_lus_des_donnees() {
+    let r = officiel();
+    // Les marques des données sont exactement celles instruites, avec leur page.
+    let marques: Vec<(String, bool, u16)> = r
+        .comptes()
+        .filter_map(|c| {
+            c.marque_journal_tresorerie()
+                .map(|(admis, page)| (c.numero().to_string(), admis, page))
+        })
+        .collect();
+    let mut attendu: Vec<(String, bool, u16)> = ADMIS
+        .iter()
+        .map(|(c, p)| ((*c).to_owned(), true, *p))
+        .chain(
+            INTERETS_COURUS
+                .iter()
+                .map(|(c, p)| ((*c).to_owned(), false, *p)),
+        )
+        .collect();
+    attendu.sort();
+    assert_eq!(marques, attendu);
+    // Les exclusions explicites portent toutes sur des intérêts courus ; tout compte d'intérêts
+    // courus sous un compte admis, repéré par son intitulé, est exclu.
+    let interets_courus = |c: &CompteOfficiel| {
+        c.intitule()
+            .as_str()
+            .to_uppercase()
+            .contains("INTÉRÊTS COURUS")
+    };
+    for (exclu, _) in INTERETS_COURUS {
+        assert!(interets_courus(r.compte(&n(exclu)).unwrap()), "{exclu}");
+    }
+    for c in r.comptes().filter(|c| {
+        interets_courus(c)
+            && ADMIS
+                .iter()
+                .any(|(admis, _)| n(admis).est_ascendant_ou_egal(c.numero()))
+    }) {
+        assert!(
+            !r.admis_en_journal_de_tresorerie(c.numero()),
+            "{}",
+            c.numero()
+        );
+    }
+    // Les comptes exclus existent dans les données, et ni eux ni leurs sous-comptes ne sont admis.
+    for exclu in EXCLUS {
+        let exclu = n(exclu);
+        assert!(r.compte(&exclu).is_some(), "{exclu}");
+        for c in r
+            .comptes()
+            .filter(|c| exclu.est_ascendant_ou_egal(c.numero()))
+        {
+            assert!(
+                !r.admis_en_journal_de_tresorerie(c.numero()),
+                "{}",
+                c.numero()
+            );
+        }
+    }
+    // Le plan du dossier porte la même marque, héritée par les sous-comptes sauf exclusion.
+    let mut plan = r.plan_comptes().unwrap();
+    let sous = |liste: &[(&str, u16)], numero: &NumeroCompte| {
+        liste
+            .iter()
+            .any(|(racine, _)| n(racine).est_ascendant_ou_egal(numero))
+    };
+    for compte in plan.comptes() {
+        assert_eq!(
+            compte.est_admis_en_journal_de_tresorerie(),
+            sous(&ADMIS, compte.numero()) && !sous(&INTERETS_COURUS, compte.numero()),
+            "{}",
+            compte.numero()
+        );
+        assert_eq!(
+            compte.est_admis_en_journal_de_tresorerie(),
+            r.admis_en_journal_de_tresorerie(compte.numero())
+        );
+    }
+    for (admis, _) in ADMIS {
+        let feuille = compte_de_mouvement_sous(&plan, admis);
+        let sous_compte = NumeroCompte::parse(&format!("{feuille}-A")).unwrap();
+        let ajoute = plan
+            .ajouter_sous_compte(sous_compte, TexteCourt::parse("A").unwrap())
+            .unwrap();
+        assert!(ajoute.est_admis_en_journal_de_tresorerie());
+    }
+}
+
+#[test]
+fn journal_de_tresorerie_sur_un_compte_admis_ou_exclu() {
+    let r = officiel();
+    let plan = r.plan_comptes().unwrap();
+    let journal = |compte: NumeroCompte| {
+        Journal::nouveau(
+            CodeJournal::parse("BQ1").unwrap(),
+            TexteCourt::parse("Trésorerie").unwrap(),
+            TypeJournal::Tresorerie,
+            Some(compte),
+            &plan,
+        )
+    };
+    for (admis, _) in ADMIS {
+        let compte = compte_de_mouvement_sous(&plan, admis);
+        assert!(journal(compte.clone()).is_ok(), "{compte}");
+    }
+    for exclu in ["54", "56", "585", "59", "526", "536"] {
+        let compte = compte_de_mouvement_sous(&plan, exclu);
+        assert_eq!(
+            journal(compte.clone()),
+            Err(ErreurJournal::CompteNonAdmisEnTresorerie(
+                CodeJournal::parse("BQ1").unwrap(),
+                compte
+            ))
+        );
+    }
+}
+
+#[test]
+fn rejette_une_marque_de_journal_de_tresorerie_incomplete() {
+    let marque = |suite: &str| avec(&format!("{}{suite}\n", compte("10")));
+    for suite in [
+        "journal_tresorerie = true",
+        "page_fonctionnement = 417",
+        "journal_tresorerie = false\npage_fonctionnement = 417",
+        "journal_tresorerie = true\npage_fonctionnement = 273",
+        "journal_tresorerie = true\npage_fonctionnement = 540",
+    ] {
+        assert_eq!(
+            marque(suite).unwrap_err(),
+            ErreurReferentiel::MarqueJournalTresorerie(n("10")),
+            "{suite}"
+        );
+    }
+    let r = marque("journal_tresorerie = true\npage_fonctionnement = 274").unwrap();
+    assert_eq!(
+        r.compte(&n("10")).unwrap().marque_journal_tresorerie(),
+        Some((true, 274))
+    );
+    assert!(r.admis_en_journal_de_tresorerie(&n("10-A")));
+    assert!(!r.admis_en_journal_de_tresorerie(&n("11")));
+    // Exclusion explicite sous un compte admis : elle l'emporte sur l'héritage.
+    let r = avec(&format!(
+        "{}journal_tresorerie = true\npage_fonctionnement = 274\n{}{}journal_tresorerie = \
+         false\npage_fonctionnement = 275\n",
+        compte("10"),
+        compte("101"),
+        compte("1011")
+    ))
+    .unwrap();
+    assert!(r.admis_en_journal_de_tresorerie(&n("10")));
+    assert!(r.admis_en_journal_de_tresorerie(&n("101")));
+    assert!(!r.admis_en_journal_de_tresorerie(&n("1011")));
+    assert!(!r.admis_en_journal_de_tresorerie(&n("1011-A")));
+    let plan = r.plan_comptes().unwrap();
+    assert!(
+        !plan
+            .compte(&n("1011"))
+            .unwrap()
+            .est_admis_en_journal_de_tresorerie()
+    );
+}
+
 const ENTETE: &str = r#"
 [source]
 document = "doc"
@@ -349,4 +534,65 @@ proptest! {
             courant = p.parent();
         }
     }
+}
+
+#[test]
+fn types_de_tiers_admis_par_les_fiches_40_41_42_et_46() {
+    // Fiches « Contenu et fonctionnement des comptes » : 40 p. PDF 380, 41 p. 384, 42 p. 389,
+    // 46 p. 399. La marque la plus proche s'applique aux sous-comptes.
+    let r = officiel();
+    let admis = |numero: &str| r.types_de_tiers_admis(&n(numero)).to_vec();
+    assert_eq!(admis("401"), ["fournisseur"]);
+    assert_eq!(admis("4011"), ["fournisseur"]);
+    assert_eq!(admis("411"), ["client"]);
+    assert_eq!(admis("421"), ["salarie"]);
+    assert_eq!(admis("462"), ["associe"]);
+    assert_eq!(r.compte(&n("40")).unwrap().marque_tiers().unwrap().1, 380);
+    assert_eq!(r.compte(&n("41")).unwrap().marque_tiers().unwrap().1, 384);
+    // Aucun tiers sur les autres collectifs en L2 (Groupe, capital, investissements…).
+    for numero in ["466", "103", "109", "181", "451", "481", "485", "488"] {
+        assert!(admis(numero).is_empty(), "{numero}");
+    }
+    // Aucun compte n'admet le type « autre ».
+    assert!(r.comptes().all(|c| {
+        !r.types_de_tiers_admis(c.numero())
+            .contains(&"autre".to_owned())
+    }));
+}
+
+#[test]
+fn une_marque_de_tiers_invalide_est_refusee() {
+    let base = r#"
+[source]
+document = "d"
+version = "v"
+[[classe]]
+numero = 4
+intitule = "TIERS"
+page = 238
+[[compte]]
+numero = "40"
+intitule = "FOURNISSEURS"
+page = 240
+nature = "bilan"
+sens = "crediteur"
+"#;
+    for marque in [
+        "tiers = [\"fournisseur\"]",
+        "page_tiers = 380",
+        "tiers = []\npage_tiers = 380",
+        "tiers = [\"inconnu\"]\npage_tiers = 380",
+        "tiers = [\"client\", \"client\"]\npage_tiers = 380",
+        "tiers = [\"client\"]\npage_tiers = 100",
+    ] {
+        assert_eq!(
+            Referentiel::depuis_toml(&format!("{base}{marque}\n")),
+            Err(ErreurReferentiel::MarqueTiers(n("40"))),
+            "{marque}"
+        );
+    }
+    assert!(
+        Referentiel::depuis_toml(&format!("{base}tiers = [\"client\"]\npage_tiers = 380\n"))
+            .is_ok()
+    );
 }

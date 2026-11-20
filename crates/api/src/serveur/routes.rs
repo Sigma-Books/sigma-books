@@ -293,9 +293,13 @@ pub struct Requete<'a> {
     pub parametres: Option<&'a str>,
     /// Corps, déjà borné.
     pub corps: &'a [u8],
+    /// Instant de la requête, lu sur l'horloge de l'application (injectable en test) : date du
+    /// jour des règles d'ouverture d'un dossier.
+    pub maintenant: time::OffsetDateTime,
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
-    /// Paramètres du chemin (`{piece}`…), non décodés.
+    /// Paramètres du chemin, dont les sous-ressources (`{compte}`, `{tiers}`, `{piece}`…), à
+    /// lire par `id_chemin`.
     pub chemin: &'a RawPathParams,
     /// Service des pièces, s'il est branché (voie pièces, PR 12).
     pub pieces: Option<&'a crate::pieces::Pieces>,
@@ -312,7 +316,7 @@ pub struct Resultat {
 }
 
 impl Resultat {
-    fn lecture(reponse: Response) -> Self {
+    pub(crate) fn lecture(reponse: Response) -> Self {
         Self {
             reponse,
             traces: Vec::new(),
@@ -340,7 +344,7 @@ pub(crate) async fn executer(
         CasUsage::Passkeys(cas) => match cas {},
         CasUsage::Administration(cas) => match cas {},
         // Voie comptabilité (PR 11, 13, 14).
-        CasUsage::Referentiel(cas) => match cas {},
+        CasUsage::Referentiel(cas) => referentiel::executer(cas, tx, garde, requete).await,
         CasUsage::Brouillard(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
         // Voie pièces (PR 12).

@@ -9,7 +9,15 @@
 //!   la numérotation des écritures (spec §6.3). Le code est dérivé de la date de clôture,
 //!   jamais choisi par l'appelant.
 //!
+//! - un **dossier repris** (entité déjà en activité à son entrée dans Sigma Books) ouvre
+//!   l'**exercice civil en cours**, du 1er janvier au 31 décembre, sans durée dérogatoire :
+//!   l'option « second semestre » ne vaut que pour le premier exercice de l'entité, celui qui
+//!   commence à sa création (art. 7, p. PDF 18) ([`Exercices::ouvrir_repris`]).
+//!
 //! La cessation d'activité (exercice de liquidation) relève du lot L6.
+//!
+//! Les exercices relus de la persistance sont reconstitués par [`Exercices::reconstituer`],
+//! à partir des lignes plates produites par [`Exercices::aplatir`].
 //!
 //! Statuts :
 //! - exercice : `ouvert` → `en_cloture` → `cloture` (irréversible), sans retour. Au plus
@@ -31,6 +39,10 @@ use std::fmt;
 use time::{Date, Month};
 
 use crate::texte::TexteCourt;
+
+mod reconstitution;
+
+pub use reconstitution::{ErreurReconstitutionExercices, LigneExercice, LignePeriode};
 
 /// Nombre maximal d'exercices non clôturés en même temps.
 const EXERCICES_NON_CLOTURES_MAX: usize = 2;
@@ -370,6 +382,29 @@ impl Exercices {
             }
         };
         let exercice = Exercice::nouveau(debut_activite, annee_de_cloture)?;
+        Ok(self.pousser(exercice))
+    }
+
+    /// Ouvre l'exercice d'un **dossier repris** : entité déjà en activité à son entrée dans
+    /// Sigma Books. L'exercice ouvert est l'**exercice civil en cours** (`annee`, fournie par
+    /// l'appelant), du 1er janvier au 31 décembre, sans durée dérogatoire : l'option « second
+    /// semestre » de l'AUDCIF art. 7 (p. PDF 18) ne vaut que pour le premier exercice de
+    /// l'entité, celui qui commence à sa création ([`Exercices::ouvrir_premier`]).
+    ///
+    /// **À-nouveaux** : au 1er janvier, le bilan d'ouverture est égal au bilan de clôture de
+    /// l'exercice précédent (AUDCIF art. 34, p. PDF 27). Leur saisie, depuis la balance de
+    /// clôture N-1 du logiciel d'origine (spec §18.1), relève d'un lot ultérieur (L8) ; cette
+    /// fonction n'ouvre que l'exercice et ses périodes.
+    ///
+    /// # Errors
+    /// Premier exercice déjà ouvert, ou année hors de la plage représentable.
+    pub fn ouvrir_repris(&mut self, annee: i32) -> Result<&Exercice, ErreurExercice> {
+        if !self.exercices.is_empty() {
+            return Err(ErreurExercice::PremierExerciceExistant);
+        }
+        let debut = Date::from_calendar_date(annee, Month::January, 1)
+            .map_err(|_| ErreurExercice::DateHorsPlage)?;
+        let exercice = Exercice::nouveau(debut, annee)?;
         Ok(self.pousser(exercice))
     }
 
@@ -896,6 +931,46 @@ mod tests {
     }
 
     #[test]
+    fn dossier_repris_sur_l_exercice_civil_en_cours() {
+        // AUDCIF art. 7 et 34 : une entité déjà en activité ouvre l'exercice civil en cours,
+        // sans durée dérogatoire ; ses à-nouveaux (lot ultérieur) reprennent le bilan de
+        // clôture N-1.
+        let mut exercices = Exercices::new();
+        let e = exercices.ouvrir_repris(2026).unwrap();
+        assert_eq!(e.code(), &code("2026"));
+        assert_eq!(e.debut(), date!(2026 - 01 - 01));
+        assert_eq!(e.fin(), date!(2026 - 12 - 31));
+        assert_eq!(e.statut(), StatutExercice::Ouvert);
+        assert_eq!(e.periodes().len(), 12);
+        assert_eq!(e.periodes()[0].fin(), date!(2026 - 01 - 31));
+        assert_eq!(
+            exercices.ouvrir_repris(2027),
+            Err(ErreurExercice::PremierExerciceExistant)
+        );
+        assert_eq!(
+            exercices.ouvrir_premier(date!(2027 - 08 - 01), FinPremierExercice::AnneeSuivante),
+            Err(ErreurExercice::PremierExerciceExistant)
+        );
+        // La suite est celle de tout dossier : l'année civile suivante.
+        assert_eq!(exercices.ouvrir_suivant().unwrap().code(), &code("2027"));
+        // Années hors de la plage des codes à quatre chiffres.
+        for annee in [999, 10_000] {
+            assert_eq!(
+                Exercices::new().ouvrir_repris(annee),
+                Err(ErreurExercice::DateHorsPlage)
+            );
+        }
+        let mut premier = Exercices::new();
+        premier
+            .ouvrir_premier(date!(2026 - 03 - 01), FinPremierExercice::AnneeDeDebut)
+            .unwrap();
+        assert_eq!(
+            premier.ouvrir_repris(2026),
+            Err(ErreurExercice::PremierExerciceExistant)
+        );
+    }
+
+    #[test]
     fn exercices_suivants_sur_l_annee_civile() {
         let mut exercices = dossier(date!(2026 - 09 - 10));
         let e = exercices.ouvrir_suivant().unwrap();
@@ -1014,8 +1089,8 @@ mod tests {
         /// clôturée ; positif : une période qui n'est pas la suivante), un jour quelconque de
         /// la période (`jour` modulo sa durée). Hors de la liste : une date hors de tout exercice.
         Relative(i64, u8),
-        /// Jour quelconque compté depuis le début d'activité (souvent hors de l'ordre, parfois
-        /// hors de tout exercice).
+        /// Jour quelconque compté depuis le début du premier exercice tiré (souvent hors de
+        /// l'ordre, parfois hors de tout exercice).
         Jour(i64),
     }
 
@@ -1047,10 +1122,11 @@ mod tests {
             .collect()
     }
 
-    /// Date visée par une clôture de période, calculée sur l'état avant l'opération.
-    fn date_cible(exercices: &Exercices, cible: &CiblePeriode) -> Date {
+    /// Date visée par une clôture de période, calculée sur l'état avant l'opération ; `debut`
+    /// est le début du premier exercice tiré.
+    fn date_cible(exercices: &Exercices, debut: Date, cible: &CiblePeriode) -> Date {
         match *cible {
-            CiblePeriode::Jour(d) => DEBUT_ACTIVITE + Duration::days(d),
+            CiblePeriode::Jour(d) => debut + Duration::days(d),
             CiblePeriode::Relative(rang, jour) => {
                 let periodes = toutes_les_periodes(exercices);
                 let premiere = periodes
@@ -1221,7 +1297,7 @@ mod tests {
                     Operation::Verrouiller(d) => exercices.verrouiller_periode(jour(*d)),
                     Operation::Deverrouiller(d) => exercices.deverrouiller_periode(jour(*d), motif()).map(|_| ()),
                     Operation::CloturerPeriode(cible) => {
-                        let date = date_cible(&avant, cible);
+                        let date = date_cible(&avant, DEBUT_ACTIVITE, cible);
                         let resultat = exercices.cloturer_periode(date, []);
                         prop_assert_eq!(
                             resultat.is_ok(),
@@ -1248,8 +1324,303 @@ mod tests {
                 }
                 invariants_de_transition(&avant, &exercices)?;
                 invariants(&exercices)?;
+                aller_retour(&exercices)?;
             }
         }
+
+        /// Pour tout premier exercice (début d'activité quelconque, prolongé ou non, ou dossier
+        /// repris) et toute suite de transitions : `reconstituer(aplatir(x)) == x`, y compris
+        /// lignes relues dans l'ordre inverse.
+        #[test]
+        fn reconstitution_apres_transitions(
+            premier in (0i64..1500, 0u8..3),
+            ops in proptest::collection::vec(operation(), 0..60),
+        ) {
+            let (jour, genre) = premier;
+            let mut exercices = Exercices::new();
+            let Some(debut) = premier_exercice_tire(&mut exercices, jour, genre) else {
+                return Err(TestCaseError::reject("premier exercice refusé"));
+            };
+            aller_retour(&exercices)?;
+            for op in ops {
+                appliquer(&mut exercices, debut, &op);
+                aller_retour(&exercices)?;
+            }
+        }
+
+        /// Réciproque : partant des lignes plates d'un état atteignable, une altération
+        /// quelconque (date, statut ou code changé, ligne supprimée ou doublée) est soit
+        /// refusée par `reconstituer`, soit acceptée avec un état qui respecte les invariants
+        /// (et se relit lui-même sans perte).
+        #[test]
+        fn reconstitution_d_un_etat_altere(
+            premier in (0i64..1500, 0u8..3),
+            ops in proptest::collection::vec(operation(), 0..60),
+            alterations in proptest::collection::vec(alteration(), 1..4),
+        ) {
+            let (jour, genre) = premier;
+            let mut exercices = Exercices::new();
+            let Some(debut) = premier_exercice_tire(&mut exercices, jour, genre) else {
+                return Err(TestCaseError::reject("premier exercice refusé"));
+            };
+            for op in &ops {
+                appliquer(&mut exercices, debut, op);
+            }
+            let (mut lignes, mut periodes) = exercices.aplatir();
+            for alteration in &alterations {
+                alterer(&mut lignes, &mut periodes, alteration);
+            }
+            if let Ok(relu) = Exercices::reconstituer(lignes, periodes) {
+                invariants(&relu)?;
+                aller_retour(&relu)?;
+            }
+        }
+    }
+
+    /// Ouvre le premier exercice tiré : début d'activité décalé de `jour`, prolongé ou non
+    /// (`genre` 0 ou 1), ou dossier repris (`genre` 2). Renvoie le début tiré, ou `None` si
+    /// l'ouverture est refusée.
+    fn premier_exercice_tire(exercices: &mut Exercices, jour: i64, genre: u8) -> Option<Date> {
+        let debut = DEBUT_ACTIVITE + Duration::days(jour);
+        let ouvert = match genre {
+            0 => exercices
+                .ouvrir_premier(debut, FinPremierExercice::AnneeDeDebut)
+                .map(|_| ()),
+            1 => exercices
+                .ouvrir_premier(debut, FinPremierExercice::AnneeSuivante)
+                .map(|_| ()),
+            _ => exercices.ouvrir_repris(debut.year()).map(|_| ()),
+        };
+        ouvert.is_ok().then_some(debut)
+    }
+
+    /// Applique une opération, qu'elle réussisse ou non ; `debut` est le début tiré.
+    fn appliquer(exercices: &mut Exercices, debut: Date, op: &Operation) {
+        let codes: Vec<CodeExercice> = exercices
+            .exercices()
+            .iter()
+            .map(|e| e.code().clone())
+            .collect();
+        let jour = |d: i64| debut + Duration::days(d);
+        let _ = match op {
+            Operation::Suivant => exercices.ouvrir_suivant().map(|_| ()),
+            Operation::EnCloture(i) => exercices.passer_en_cloture(&codes[i % codes.len()]),
+            Operation::Cloturer(i) => exercices.cloturer(&codes[i % codes.len()], []),
+            Operation::Verrouiller(d) => exercices.verrouiller_periode(jour(*d)),
+            Operation::Deverrouiller(d) => exercices
+                .deverrouiller_periode(jour(*d), motif())
+                .map(|_| ()),
+            Operation::CloturerPeriode(cible) => {
+                let date = date_cible(exercices, debut, cible);
+                exercices.cloturer_periode(date, [])
+            }
+        };
+    }
+
+    /// Altération d'une ligne plate (exercice ou période), désignée par son rang modulo le
+    /// nombre de lignes.
+    #[derive(Debug, Clone)]
+    enum Alteration {
+        /// Décale le premier (`true`) ou le dernier jour d'un nombre de jours non nul.
+        Date {
+            periode: bool,
+            rang: usize,
+            premier_jour: bool,
+            decalage: i64,
+        },
+        /// Remplace le statut (rang du statut modulo 3).
+        Statut {
+            periode: bool,
+            rang: usize,
+            statut: u8,
+        },
+        /// Décale l'année du code d'un nombre d'années non nul.
+        Code {
+            periode: bool,
+            rang: usize,
+            decalage: i32,
+        },
+        /// Supprime la ligne.
+        Supprimer { periode: bool, rang: usize },
+        /// Double la ligne.
+        Doubler { periode: bool, rang: usize },
+    }
+
+    fn alteration() -> impl Strategy<Value = Alteration> {
+        let decalage_jours = prop_oneof![-400i64..0, 1i64..400];
+        let decalage_annees = prop_oneof![-3i32..0, 1i32..4];
+        prop_oneof![
+            (any::<bool>(), any::<usize>(), any::<bool>(), decalage_jours).prop_map(
+                |(periode, rang, premier_jour, decalage)| Alteration::Date {
+                    periode,
+                    rang,
+                    premier_jour,
+                    decalage,
+                }
+            ),
+            (any::<bool>(), any::<usize>(), any::<u8>()).prop_map(|(periode, rang, statut)| {
+                Alteration::Statut {
+                    periode,
+                    rang,
+                    statut,
+                }
+            }),
+            (any::<bool>(), any::<usize>(), decalage_annees).prop_map(
+                |(periode, rang, decalage)| Alteration::Code {
+                    periode,
+                    rang,
+                    decalage,
+                }
+            ),
+            (any::<bool>(), any::<usize>())
+                .prop_map(|(periode, rang)| Alteration::Supprimer { periode, rang }),
+            (any::<bool>(), any::<usize>())
+                .prop_map(|(periode, rang)| Alteration::Doubler { periode, rang }),
+        ]
+    }
+
+    /// Applique une altération aux lignes plates (sans effet sur une liste vide).
+    fn alterer(
+        lignes: &mut Vec<LigneExercice>,
+        periodes: &mut Vec<LignePeriode>,
+        alteration: &Alteration,
+    ) {
+        match *alteration {
+            Alteration::Supprimer {
+                periode: true,
+                rang,
+            } => supprimer_ou_doubler(periodes, rang, false),
+            Alteration::Supprimer {
+                periode: false,
+                rang,
+            } => supprimer_ou_doubler(lignes, rang, false),
+            Alteration::Doubler {
+                periode: true,
+                rang,
+            } => supprimer_ou_doubler(periodes, rang, true),
+            Alteration::Doubler {
+                periode: false,
+                rang,
+            } => supprimer_ou_doubler(lignes, rang, true),
+            Alteration::Date {
+                periode: true,
+                rang,
+                premier_jour,
+                decalage,
+            } => {
+                if let Some(p) = choisir(periodes, rang) {
+                    let date = if premier_jour {
+                        &mut p.debut
+                    } else {
+                        &mut p.fin
+                    };
+                    *date = decaler_date(*date, decalage);
+                }
+            }
+            Alteration::Date {
+                periode: false,
+                rang,
+                premier_jour,
+                decalage,
+            } => {
+                if let Some(e) = choisir(lignes, rang) {
+                    let date = if premier_jour {
+                        &mut e.debut
+                    } else {
+                        &mut e.fin
+                    };
+                    *date = decaler_date(*date, decalage);
+                }
+            }
+            Alteration::Statut {
+                periode: true,
+                rang,
+                statut,
+            } => {
+                if let Some(p) = choisir(periodes, rang) {
+                    p.statut = match statut % 3 {
+                        0 => StatutPeriode::Ouverte,
+                        1 => StatutPeriode::Verrouillee,
+                        _ => StatutPeriode::Cloturee,
+                    };
+                }
+            }
+            Alteration::Statut {
+                periode: false,
+                rang,
+                statut,
+            } => {
+                if let Some(e) = choisir(lignes, rang) {
+                    e.statut = match statut % 3 {
+                        0 => StatutExercice::Ouvert,
+                        1 => StatutExercice::EnCloture,
+                        _ => StatutExercice::Cloture,
+                    };
+                }
+            }
+            Alteration::Code {
+                periode: true,
+                rang,
+                decalage,
+            } => {
+                if let Some(p) = choisir(periodes, rang) {
+                    p.exercice = decaler_code(&p.exercice, decalage);
+                }
+            }
+            Alteration::Code {
+                periode: false,
+                rang,
+                decalage,
+            } => {
+                if let Some(e) = choisir(lignes, rang) {
+                    e.code = decaler_code(&e.code, decalage);
+                }
+            }
+        }
+    }
+
+    /// Ligne de rang `rang` modulo la longueur (aucune si la liste est vide).
+    fn choisir<T>(liste: &mut [T], rang: usize) -> Option<&mut T> {
+        let n = liste.len();
+        liste.get_mut(rang % n.max(1))
+    }
+
+    /// Supprime ou double la ligne de rang `rang` modulo la longueur.
+    fn supprimer_ou_doubler<T: Clone>(liste: &mut Vec<T>, rang: usize, doubler: bool) {
+        if liste.is_empty() {
+            return;
+        }
+        let i = rang % liste.len();
+        if doubler {
+            liste.push(liste[i].clone());
+        } else {
+            liste.remove(i);
+        }
+    }
+
+    fn decaler_date(date: Date, jours: i64) -> Date {
+        date.checked_add(Duration::days(jours)).unwrap_or(date)
+    }
+
+    /// Code décalé de `annees` ans (inchangé si le résultat n'est pas un code valide).
+    fn decaler_code(code: &CodeExercice, annees: i32) -> CodeExercice {
+        code.as_str()
+            .parse::<i32>()
+            .ok()
+            .and_then(|annee| CodeExercice::parse(&(annee + annees).to_string()).ok())
+            .unwrap_or_else(|| code.clone())
+    }
+
+    /// `reconstituer(aplatir(x)) == x`, lignes dans l'ordre ou en ordre inverse.
+    fn aller_retour(exercices: &Exercices) -> Result<(), TestCaseError> {
+        let (mut lignes, mut periodes) = exercices.aplatir();
+        let relu = Exercices::reconstituer(lignes.clone(), periodes.clone());
+        prop_assert_eq!(relu.as_ref(), Ok(exercices));
+        lignes.reverse();
+        periodes.reverse();
+        let relu = Exercices::reconstituer(lignes, periodes);
+        prop_assert_eq!(relu.as_ref(), Ok(exercices));
+        Ok(())
     }
 
     proptest! {

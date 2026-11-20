@@ -49,6 +49,9 @@ async fn main() -> ExitCode {
 async fn demarrer() -> Result<(), String> {
     let config = Configuration::depuis_environnement().map_err(|e| e.to_string())?;
     let autorisation = Autorisation::charger().map_err(|e| e.to_string())?;
+    // Référentiel officiel copié dans chaque nouveau dossier (voie comptabilité, PR 11) :
+    // invalide, le serveur ne démarre pas.
+    api::base::referentiel::Modele::officiel().map_err(|e| e.to_string())?;
     // Le message d'une erreur de connexion ne cite pas l'URL (ni son mot de passe).
     let pool = ouvrir_pool_application(&config.base.url_application, ReglagesPool::default())
         .await

@@ -37,6 +37,17 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
 - les notes de bas de page.
 
 ## Champs qui ne viennent pas de la liste officielle
+- **`journal_tresorerie`** et **`page_fonctionnement`** : compte admis comme compte d'un journal de trésorerie (spec §5.2), marque héritée par ses sous-comptes dans le plan du dossier. La page est celle de la fiche « Contenu et fonctionnement des comptes » qui fonde la marque.
+  - **Admis** : 52 Banques (p. PDF 417), 53 Établissements financiers et assimilés (p. 419), 55 Instruments de monnaie électronique (p. 424-425), 57 Caisse (p. 428).
+  - **Exclus** : 50 et 51 (p. 413, 415) ; 54, qui fonctionne contre le 52 ou le 53 (p. 420) ; 56, une dette dont la contrepartie est le 52 (p. 426) ; 585 et 588, comptes de passage des virements internes à solder, ligne de contrepartie et jamais compte d'un journal (p. 430-431) ; 59, dépréciations (p. 433).
+  - **Exclusion explicite** (`journal_tresorerie = false`, l'emporte sur l'héritage) : 526 et 536, intérêts courus : ni encaisse ni avoir disponible. Les fiches des comptes 52 et 53 (p. PDF 416 et 418) ne font que les lister en subdivision.
+  - **581, 582 : en attente du mainteneur** (régies d'avances et accréditifs, cas ambigu, p. 430) ; exclus d'ici là.
+- **`tiers`** et **`page_tiers`** : types de tiers (spec §5.3) admis sur le compte et ses sous-comptes comme compte collectif d'un tiers ; la marque la plus proche s'applique. La page est celle de la fiche « Contenu et fonctionnement des comptes » qui fonde la marque.
+  - **40** « Fournisseurs et comptes rattachés » (p. PDF 380, « tiers auxquels l'entité a recours pour ses achats ») : `fournisseur` ;
+  - **41** « Clients et comptes rattachés » (p. PDF 384, « tiers auxquels l'entité vend les biens ou services ») : `client` ;
+  - **42** « Personnel » (p. PDF 389, personnes liées à l'entité par un contrat de travail) : `salarie` ;
+  - **461, 462, 463, 465, 467**, apporteurs et associés de la fiche 46 (p. PDF 399) : `associe`.
+  - **Aucun tiers** en L2 sur les autres collectifs : 466 « Groupe, comptes courants », 103, 109, 18x, 45x, 48x. Le type `autre` n'est admis nulle part. Un tiers client et fournisseur est deux tiers, chacun sur son compte (fiches 40 et 41 : aucune compensation).
 - **`nature`** : déduite de l'intitulé officiel de la classe.
 
   | Comptes | Nature |
@@ -60,6 +71,15 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
   - **Repris des comptes `party_required` du module Tryton `account_syscohada`** : 103, 109, 181 à 185, 401, 402, 408, 409, 411, 412, 414 à 416, 418, 419, 421, 451, 452, 461 à 463, 465, 466, 481, 482, 485.
   - **Ajouts de Sigma Books**, comptes de tiers de la liste officielle absents de Tryton : 404, 413, 467 et 488 « Autres créances H.A.O. » (créances sur cessions d'immobilisations notamment ; décision du mainteneur du 2026-11-18, en accord avec Odoo `l10n_syscohada`, qui rend 488 lettrable).
   - Voir `docs/provenance/tryton.md`.
+
+## Compte des journaux par défaut (`data/journaux.toml`)
+Les journaux par défaut d'un dossier (spec §5.2) sont décrits sans compte dans `crates/compta-core/data/journaux-par-defaut.txt`. Le compte de chaque journal de **trésorerie** par défaut est une donnée de ce crate, avec sa source :
+
+| Journal | Compte | Source | Motif |
+|---|---|---|---|
+| CA (caisse) | 5711 « Caisse en monnaie nationale » | Liste des comptes, p. PDF 252 | 571 se subdivise en 5711 et 5712 ; on ne saisit que sur un compte sans subdivision. |
+
+Le chargement refuse un compte absent de la liste officielle ou subdivisé. Les journaux BQx et MMx ne sont pas des journaux par défaut : leur compte est fourni à leur création. `Referentiel::journaux_par_defaut(plan)` instancie les journaux d'un nouveau dossier.
 
 ## Comparaison avec Tryton et Odoo
 | | Tryton `account_syscohada` (2016, `f5354cc`) | Odoo 19.0 `l10n_syscohada` (`fa175fb`) |

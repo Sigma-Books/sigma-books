@@ -18,6 +18,32 @@
 # - collectif : compte collectif de tiers (spec §5.1) ; hérité par les sous-comptes. Repris des comptes
 #   « party_required » du module Tryton account_syscohada (docs/provenance/), complétés de 404, 413, 467
 #   et 488 (liste dans crates/syscohada/README.md).
+# - journal_tresorerie, page_fonctionnement : compte admis comme compte d'un journal de trésorerie
+#   (spec §5.2), hérité par ses sous-comptes ; `page_fonctionnement` est la page PDF de la fiche
+#   « Contenu et fonctionnement des comptes » (Titre VII, ch. 3, p. PDF 274 à 539) qui fonde la
+#   marque. Comptes admis : 52 Banques (p. 417), 53 Établissements financiers (p. 419),
+#   55 Instruments de monnaie électronique (p. 424-425), 57 Caisse (p. 428).
+#   Comptes de la classe 5 exclus, et motif :
+#   - 50 Titres de placement (p. 413), 51 Valeurs à encaisser (p. 415) : pas des disponibilités ;
+#   - 54 Instruments de trésorerie : fonctionne contre le 52 ou le 53 (p. 420) ;
+#   - 56 Banques, crédits de trésorerie et d'escompte : une dette, dont la contrepartie est le 52
+#     (p. 426) ;
+#   - 585, 588 Virements internes : comptes de passage à solder, ligne de contrepartie et jamais
+#     compte d'un journal (p. 430-431) ;
+#   - 59 Dépréciations (p. 433) ;
+#   - 581, 582 : en attente du mainteneur (régies d'avances et accréditifs, cas ambigu, p. 430).
+#   `journal_tresorerie = false` exclut explicitement un sous-compte d'un compte admis et
+#   l'emporte sur l'héritage : 526 et 536, intérêts courus : ni encaisse ni avoir disponible
+#   (les fiches des comptes 52 et 53, p. PDF 416 et 418, ne font que les lister en subdivision).
+
+# - tiers, page_tiers : types de tiers (spec §5.3 : client, fournisseur, salarie, associe) admis
+#   sur ce compte et ses sous-comptes, comme compte collectif d'un tiers ; `page_tiers` est la
+#   page PDF de la fiche « Contenu et fonctionnement des comptes » qui le fonde. La marque la plus
+#   proche, sur le compte ou un ascendant, s'applique. 40 « Fournisseurs et comptes rattachés »
+#   (p. 380) : fournisseur ; 41 « Clients et comptes rattachés » (p. 384) : client ; 42
+#   « Personnel » (p. 389) : salarie ; 461, 462, 463, 465 et 467, apporteurs et associés de la
+#   fiche 46 (p. 399) : associe. 466 « Groupe, comptes courants » et les autres collectifs (103,
+#   109, 18x, 45x, 48x) n'admettent aucun tiers en L2.
 
 [source]
 document = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes »"
@@ -3854,6 +3880,8 @@ intitule = "FOURNISSEURS ET COMPTES RATTACHÉS"
 page = 240
 nature = "bilan"
 sens = "crediteur"
+tiers = ["fournisseur"]
+page_tiers = 380
 
 [[compte]]
 numero = "401"
@@ -4048,6 +4076,8 @@ intitule = "CLIENTS ET COMPTES RATTACHÉS"
 page = 241
 nature = "bilan"
 sens = "debiteur"
+tiers = ["client"]
+page_tiers = 384
 
 [[compte]]
 numero = "411"
@@ -4309,6 +4339,8 @@ intitule = "PERSONNEL"
 page = 242
 nature = "bilan"
 sens = "variable"
+tiers = ["salarie"]
+page_tiers = 389
 
 [[compte]]
 numero = "421"
@@ -4978,6 +5010,8 @@ page = 245
 nature = "bilan"
 sens = "variable"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "4611"
@@ -5049,6 +5083,8 @@ page = 245
 nature = "bilan"
 sens = "crediteur"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "4621"
@@ -5071,6 +5107,8 @@ page = 245
 nature = "bilan"
 sens = "variable"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "4631"
@@ -5093,6 +5131,8 @@ page = 245
 nature = "bilan"
 sens = "crediteur"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "466"
@@ -5109,6 +5149,8 @@ page = 245
 nature = "bilan"
 sens = "debiteur"
 collectif = true
+tiers = ["associe"]
+page_tiers = 399
 
 [[compte]]
 numero = "47"
@@ -5989,6 +6031,8 @@ intitule = "BANQUES"
 page = 250
 nature = "bilan"
 sens = "variable"
+journal_tresorerie = true
+page_fonctionnement = 417
 
 [[compte]]
 numero = "521"
@@ -6045,6 +6089,9 @@ intitule = "BANQUES, INTÉRÊTS COURUS"
 page = 251
 nature = "bilan"
 sens = "variable"
+# Intérêts courus : ni encaisse ni avoir disponible (la fiche du 52 ne fait que les lister).
+journal_tresorerie = false
+page_fonctionnement = 416
 
 [[compte]]
 numero = "5261"
@@ -6066,6 +6113,8 @@ intitule = "ÉTABLISSEMENTS FINANCIERS ET ASSIMILÉS"
 page = 251
 nature = "bilan"
 sens = "debiteur"
+journal_tresorerie = true
+page_fonctionnement = 419
 
 [[compte]]
 numero = "531"
@@ -6094,6 +6143,9 @@ intitule = "ÉTABLISSEMENTS FINANCIERS, INTÉRÊTS COURUS"
 page = 251
 nature = "bilan"
 sens = "debiteur"
+# Intérêts courus : ni encaisse ni avoir disponible (la fiche du 53 ne fait que les lister).
+journal_tresorerie = false
+page_fonctionnement = 418
 
 [[compte]]
 numero = "538"
@@ -6150,6 +6202,8 @@ intitule = "INSTRUMENTS DE MONNAIE ÉLECTRONIQUE"
 page = 251
 nature = "bilan"
 sens = "debiteur"
+journal_tresorerie = true
+page_fonctionnement = 424
 
 [[compte]]
 numero = "551"
@@ -6227,6 +6281,8 @@ intitule = "CAISSE"
 page = 252
 nature = "bilan"
 sens = "debiteur"
+journal_tresorerie = true
+page_fonctionnement = 428
 
 [[compte]]
 numero = "571"

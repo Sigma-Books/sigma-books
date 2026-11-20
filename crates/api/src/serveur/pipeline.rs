@@ -558,6 +558,7 @@ async fn traiter_requete(
     let requete = Requete {
         parametres: parts.uri.query(),
         corps: &corps,
+        maintenant: etat.horloge.maintenant(),
         lecture_audit: &etat.pool_lecture_audit,
         chemin: &parametres,
         pieces: etat.pieces(),
@@ -787,7 +788,7 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 6);
+        assert_eq!(mutations.len(), 13);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

@@ -7,7 +7,9 @@
 #   mainteneur du 2026-11-18).
 # Les journaux BQx (un par compte bancaire) et MMx (un par portefeuille mobile money) ne sont
 # pas des journaux par défaut : ils sont créés avec leur compte de trésorerie.
-# Un journal de trésorerie (CA) reçoit son compte à la création du dossier.
+# Un journal de trésorerie (CA) reçoit son compte à la création du dossier. Ce compte est une
+# donnée du référentiel, avec sa source : crates/syscohada/data/journaux.toml (CLAUDE.md,
+# règle 9 : aucun numéro de compte hors des données de syscohada et fiscal-sn).
 AC;achats;;Achats
 VT;ventes;;Ventes
 CA;tresorerie;;Caisse

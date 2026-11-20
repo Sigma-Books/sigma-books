@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dossier_referentiel (cabinet_id, dossier_id, nature, debut_activite, referentiel_version, referentiel_empreinte) VALUES ($1, $2, $3, $4, $5, $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Date",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5a49256a39a1e760cdc9bb4a74f29974f08049a56aa7e61765a9498bdaadadb8"
+}

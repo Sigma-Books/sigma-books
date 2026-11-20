@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO compte (cabinet_id, dossier_id, id, numero, parent_numero, intitule, genre, sens, collectif, tresorerie, actif, types_tiers) SELECT $1, $2, l.id, l.numero, l.parent, l.intitule, l.genre, l.sens, l.collectif, l.tresorerie, l.actif, l.types FROM UNNEST($3::uuid[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::bool[], $10::bool[], $11::bool[], $12::text[]) AS l (id, numero, parent, intitule, genre, sens, collectif, tresorerie, actif, types)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "BoolArray",
+        "BoolArray",
+        "BoolArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "25a43eb649492249b6acdab258f5355be359f9930af070ba14f1f144218c9878"
+}

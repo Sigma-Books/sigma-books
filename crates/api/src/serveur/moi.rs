@@ -89,20 +89,18 @@ pub(crate) async fn executer(
         CasUsage::Moi(routes::moi::Cas::ListerCabinets) => {
             lister_cabinets(etat, &mut tx, route, identite, maintenant).await
         }
-        // Cas d'usage d'un cabinet : pipeline complet, jamais ici ; facteurs (voie
-        // authentification) : module `serveur::facteurs`.
-        CasUsage::Organisation(_) | CasUsage::Audit(_) | CasUsage::Facteurs(_) => {
-            Err(ErreurApi::Interne(CategorieErreur::Donnee))
-        }
+        // Cas d'usage d'un cabinet ou d'un dossier (référentiel, pièces) : pipeline complet,
+        // jamais ici ; facteurs (voie authentification) : module `serveur::facteurs`.
+        CasUsage::Organisation(_)
+        | CasUsage::Audit(_)
+        | CasUsage::Facteurs(_)
+        | CasUsage::Referentiel(_)
+        | CasUsage::Pieces(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
         // Voie authentification (PR 8b, 8c, 9).
         CasUsage::Passkeys(cas) => match cas {},
         CasUsage::Administration(cas) => match cas {},
-        // Voie comptabilité (PR 11, 13, 14).
-        CasUsage::Referentiel(cas) => match cas {},
         CasUsage::Brouillard(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
-        // Voie pièces (PR 12) : routes d'un dossier, jamais ici.
-        CasUsage::Pieces(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
         // Voie intégrité et horodatage (PR 15).
         CasUsage::Integrite(cas) => match cas {},
     }?;

@@ -80,28 +80,36 @@ pub struct Dossier {
 impl Dossier {
     pub fn nouveau() -> Self {
         let references = [
-            ("40", SensNormal::Crediteur, false),
-            ("401", SensNormal::Crediteur, true),
-            ("4011", SensNormal::Crediteur, false),
-            ("41", SensNormal::Debiteur, false),
-            ("411", SensNormal::Debiteur, true),
-            ("4111", SensNormal::Debiteur, false),
-            ("52", SensNormal::Debiteur, false),
-            ("521", SensNormal::Debiteur, false),
-            ("57", SensNormal::Debiteur, false),
-            ("571", SensNormal::Debiteur, false),
-            ("60", SensNormal::Debiteur, false),
-            ("605", SensNormal::Debiteur, false),
-            ("6052", SensNormal::Debiteur, false),
-            ("70", SensNormal::Crediteur, false),
-            ("701", SensNormal::Crediteur, false),
-            ("7011", SensNormal::Crediteur, false),
+            ("40", SensNormal::Crediteur, false, false),
+            ("401", SensNormal::Crediteur, true, false),
+            ("4011", SensNormal::Crediteur, false, false),
+            ("41", SensNormal::Debiteur, false, false),
+            ("411", SensNormal::Debiteur, true, false),
+            ("4111", SensNormal::Debiteur, false, false),
+            ("52", SensNormal::Debiteur, false, true),
+            ("521", SensNormal::Debiteur, false, true),
+            ("57", SensNormal::Debiteur, false, true),
+            ("571", SensNormal::Debiteur, false, true),
+            ("60", SensNormal::Debiteur, false, false),
+            ("605", SensNormal::Debiteur, false, false),
+            ("6052", SensNormal::Debiteur, false, false),
+            ("70", SensNormal::Crediteur, false, false),
+            ("701", SensNormal::Crediteur, false, false),
+            ("7011", SensNormal::Crediteur, false, false),
         ];
-        let plan =
-            PlanComptes::depuis_referentiel(references.into_iter().map(|(num, sens, coll)| {
-                CompteReference::nouveau(n(num), t("Intitulé fictif"), sens, coll).unwrap()
-            }))
-            .unwrap();
+        let plan = PlanComptes::depuis_referentiel(references.into_iter().map(
+            |(num, sens, coll, tres)| {
+                let reference =
+                    CompteReference::nouveau(n(num), t("Intitulé fictif"), sens, coll).unwrap();
+                // Dernier champ : compte admis en journal de trésorerie.
+                if tres {
+                    reference.admettre_en_journal_de_tresorerie()
+                } else {
+                    reference
+                }
+            },
+        ))
+        .unwrap();
         let mut journaux = Journaux::new();
         for (code, genre, compte, cloture) in [
             ("AC", TypeJournal::Achats, None, false),

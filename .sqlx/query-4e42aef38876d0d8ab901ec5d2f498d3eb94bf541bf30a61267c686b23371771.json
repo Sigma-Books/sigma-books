@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.id, e.code, p.debut, p.fin, p.statut FROM periode p JOIN exercice e ON e.cabinet_id = p.cabinet_id AND e.dossier_id = p.dossier_id AND e.id = p.exercice_id WHERE p.cabinet_id = $1 AND p.dossier_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "periode",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "exercice",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "debut",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "periode",
+            "name": "debut"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "fin",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "periode",
+            "name": "fin"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "statut",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "periode",
+            "name": "statut"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4e42aef38876d0d8ab901ec5d2f498d3eb94bf541bf30a61267c686b23371771"
+}
