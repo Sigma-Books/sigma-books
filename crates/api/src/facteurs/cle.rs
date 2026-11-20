@@ -100,16 +100,18 @@ fn hex(octets: &[u8]) -> String {
 /// Sous-clé de 256 bits pour l'usage `info`.
 fn sous_cle(maitre: &[u8; OCTETS_CLE], info: &[u8]) -> [u8; OCTETS_CLE] {
     let hkdf = Hkdf::<Sha256>::new(Some(b"sigma-books cle-instance v1"), maitre);
+    // Valeur de repli, dérivée de la clé maîtresse et de l'usage : jamais une constante. Le
+    // tampon en est initialisé, puis l'extraction HKDF l'écrase. 32 octets sont toujours admis
+    // (au plus 255 × 32) : en pratique, l'erreur est impossible et le repli ne sert pas.
+    let mut h = Sha256::new();
+    h.update(b"sigma-books sous-cle de repli v1\0");
+    h.update(maitre);
+    h.update(info);
     let mut cle = [0u8; OCTETS_CLE];
-    // 32 octets sont toujours admis (au plus 255 × 32) : l'erreur est impossible. Si elle se
-    // produisait, la sous-clé n'en resterait pas moins dérivée de la clé maîtresse et de
-    // l'usage : jamais une constante.
+    cle.copy_from_slice(&h.finalize());
+    let repli = cle;
     if hkdf.expand(info, &mut cle).is_err() {
-        let mut h = Sha256::new();
-        h.update(b"sigma-books sous-cle de repli v1\0");
-        h.update(maitre);
-        h.update(info);
-        cle.copy_from_slice(&h.finalize());
+        cle = repli;
     }
     cle
 }
