@@ -50,6 +50,14 @@ pub enum ErreurApi {
         /// Ligne concernée.
         ligne: Option<u32>,
     },
+    /// 409 ou 422 : validation d'une écriture refusée par `compta-core` ou par un contrôle de
+    /// forme (PR 13b) ; motif stable, et ligne concernée (à partir de 1) s'il y en a une.
+    Validation {
+        /// Motif, code du corps (le statut en dépend).
+        motif: MotifValidation,
+        /// Ligne concernée.
+        ligne: Option<u32>,
+    },
     /// 429 : limite de débit atteinte ; délai en secondes avant de réessayer.
     TropDeRequetes {
         /// Valeur de `Retry-After`, en secondes.
@@ -185,6 +193,153 @@ impl MotifConflit {
     }
 }
 
+/// Motif d'un refus de validation (liste fermée, un code stable par motif de `compta-core` ;
+/// PR 13b). 409 : l'état du dossier (calendrier, séquence) s'oppose à la validation ; 422 :
+/// l'écriture elle-même est invalide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotifValidation {
+    /// Période verrouillée (réversible).
+    PeriodeVerrouillee,
+    /// Période clôturée.
+    PeriodeCloturee,
+    /// Échéance de la clôture informatique dépassée.
+    EcheanceDeCloture,
+    /// Exercice clôturé.
+    ExerciceCloture,
+    /// Exercice en clôture, journal non admis.
+    ExerciceEnCloture,
+    /// Date de valeur comptable dans une période ouverte.
+    DateValeurPeriodeOuverte,
+    /// Date de valeur comptable dans une période verrouillée.
+    DateValeurPeriodeVerrouillee,
+    /// Date de valeur comptable dans une période dont l'échéance est passée.
+    DateValeurPeriodeEchue,
+    /// Période qui doit accueillir l'opération tardive verrouillée.
+    PeriodeAccueilVerrouillee,
+    /// Opération tardive mal datée.
+    OperationTardiveMalDatee,
+    /// Séquence du journal épuisée.
+    SequenceEpuisee,
+    /// ∑ débits ≠ ∑ crédits.
+    Desequilibree,
+    /// Une seule ligne.
+    UneSeuleLigne,
+    /// Aucune ligne.
+    Vide,
+    /// Compte inconnu du plan.
+    CompteInconnu,
+    /// Compte désactivé.
+    CompteInactif,
+    /// Compte de regroupement.
+    CompteDeRegroupement,
+    /// Ligne sur un compte collectif sans tiers.
+    TiersManquant,
+    /// Aucune pièce justificative.
+    JustificationManquante,
+    /// Journal de trésorerie sans mouvement de son compte.
+    CompteTresorerieAbsent,
+    /// Journal inconnu.
+    JournalInconnu,
+    /// Journal qui n'accepte pas la saisie.
+    JournalSansSaisie,
+    /// Date hors de tout exercice.
+    DateHorsExercice,
+    /// Date de valeur comptable non antérieure à la date comptable.
+    DateValeurNonAnterieure,
+    /// Montant dont l'échelle dépasse celle du format canonique.
+    MontantEchelleExcessive,
+    /// Autre invalidité de l'écriture (montant, texte).
+    EcritureInvalide,
+    /// Contenu qui ne se relit pas à l'identique du format canonique.
+    NonRepresentable,
+}
+
+impl MotifValidation {
+    /// Tous les motifs.
+    pub const TOUS: [Self; 27] = [
+        Self::PeriodeVerrouillee,
+        Self::PeriodeCloturee,
+        Self::EcheanceDeCloture,
+        Self::ExerciceCloture,
+        Self::ExerciceEnCloture,
+        Self::DateValeurPeriodeOuverte,
+        Self::DateValeurPeriodeVerrouillee,
+        Self::DateValeurPeriodeEchue,
+        Self::PeriodeAccueilVerrouillee,
+        Self::OperationTardiveMalDatee,
+        Self::SequenceEpuisee,
+        Self::Desequilibree,
+        Self::UneSeuleLigne,
+        Self::Vide,
+        Self::CompteInconnu,
+        Self::CompteInactif,
+        Self::CompteDeRegroupement,
+        Self::TiersManquant,
+        Self::JustificationManquante,
+        Self::CompteTresorerieAbsent,
+        Self::JournalInconnu,
+        Self::JournalSansSaisie,
+        Self::DateHorsExercice,
+        Self::DateValeurNonAnterieure,
+        Self::MontantEchelleExcessive,
+        Self::EcritureInvalide,
+        Self::NonRepresentable,
+    ];
+
+    /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
+    #[must_use]
+    pub const fn statut(self) -> StatusCode {
+        match self {
+            Self::PeriodeVerrouillee
+            | Self::PeriodeCloturee
+            | Self::EcheanceDeCloture
+            | Self::ExerciceCloture
+            | Self::ExerciceEnCloture
+            | Self::DateValeurPeriodeOuverte
+            | Self::DateValeurPeriodeVerrouillee
+            | Self::DateValeurPeriodeEchue
+            | Self::PeriodeAccueilVerrouillee
+            | Self::OperationTardiveMalDatee
+            | Self::SequenceEpuisee => StatusCode::CONFLICT,
+            _ => StatusCode::UNPROCESSABLE_ENTITY,
+        }
+    }
+
+    /// Code du corps de la réponse.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::PeriodeVerrouillee => "periode_verrouillee",
+            Self::PeriodeCloturee => "periode_cloturee",
+            Self::EcheanceDeCloture => "echeance_de_cloture_depassee",
+            Self::ExerciceCloture => "exercice_cloture",
+            Self::ExerciceEnCloture => "exercice_en_cloture",
+            Self::DateValeurPeriodeOuverte => "date_valeur_dans_periode_ouverte",
+            Self::DateValeurPeriodeVerrouillee => "date_valeur_dans_periode_verrouillee",
+            Self::DateValeurPeriodeEchue => "date_valeur_dans_periode_echue",
+            Self::PeriodeAccueilVerrouillee => "periode_accueil_verrouillee",
+            Self::OperationTardiveMalDatee => "operation_tardive_mal_datee",
+            Self::SequenceEpuisee => "sequence_epuisee",
+            Self::Desequilibree => "ecriture_desequilibree",
+            Self::UneSeuleLigne => "ecriture_une_seule_ligne",
+            Self::Vide => "ecriture_vide",
+            Self::CompteInconnu => "validation_compte_inconnu",
+            Self::CompteInactif => "validation_compte_inactif",
+            Self::CompteDeRegroupement => "validation_compte_de_regroupement",
+            Self::TiersManquant => "tiers_manquant",
+            Self::JustificationManquante => "justification_manquante",
+            Self::CompteTresorerieAbsent => "compte_tresorerie_absent",
+            Self::JournalInconnu => "validation_journal_inconnu",
+            Self::JournalSansSaisie => "validation_journal_sans_saisie",
+            Self::DateHorsExercice => "validation_date_hors_exercice",
+            Self::DateValeurNonAnterieure => "validation_date_valeur_non_anterieure",
+            Self::MontantEchelleExcessive => "montant_echelle_excessive",
+            Self::EcritureInvalide => "ecriture_invalide",
+            Self::NonRepresentable => "ecriture_non_representable",
+        }
+    }
+}
+
 /// Catégorie d'une erreur interne, pour les journaux techniques (liste fermée : aucun message
 /// d'erreur de PostgreSQL n'y est recopié, car il peut contenir des valeurs, F2.11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +390,7 @@ impl ErreurApi {
             Self::CorpsTropGrand => StatusCode::PAYLOAD_TOO_LARGE,
             Self::TypeNonAdmis => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Self::Refus(_) | Self::Saisie { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::Validation { motif, .. } => motif.statut(),
             Self::TropDeRequetes { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Interne(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::DelaiDepasse => StatusCode::SERVICE_UNAVAILABLE,
@@ -255,6 +411,7 @@ impl ErreurApi {
             Self::TypeNonAdmis => "type_non_admis",
             Self::Refus(motif) => motif.code(),
             Self::Saisie { refus, .. } => refus.code(),
+            Self::Validation { motif, .. } => motif.code(),
             Self::TropDeRequetes { .. } => "trop_de_requetes",
             Self::Interne(_) => "erreur_interne",
             Self::DelaiDepasse => "delai_depasse",
@@ -319,7 +476,7 @@ impl IntoResponse for ErreurApi {
                     _ => None,
                 },
                 ligne: match self {
-                    Self::Saisie { ligne, .. } => ligne,
+                    Self::Saisie { ligne, .. } | Self::Validation { ligne, .. } => ligne,
                     _ => None,
                 },
             }),
@@ -363,6 +520,9 @@ mod tests {
             ErreurApi::DelaiDepasse,
         ];
         toutes.extend(RefusSaisie::TOUS.map(|refus| ErreurApi::Saisie { refus, ligne: None }));
+        toutes.extend(
+            MotifValidation::TOUS.map(|motif| ErreurApi::Validation { motif, ligne: None }),
+        );
         toutes.extend(MotifConflit::TOUS.map(|motif| ErreurApi::Conflit {
             motif,
             nombre: None,

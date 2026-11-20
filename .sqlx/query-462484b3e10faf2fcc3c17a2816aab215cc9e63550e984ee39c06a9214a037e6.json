@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rang, empreinte FROM chaine_tete WHERE cabinet_id = $1 AND dossier_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "chaine_tete",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "chaine_tete",
+            "name": "empreinte"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "462484b3e10faf2fcc3c17a2816aab215cc9e63550e984ee39c06a9214a037e6"
+}

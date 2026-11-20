@@ -44,6 +44,7 @@ pub mod facteurs;
 pub mod organisation;
 pub mod referentiel;
 pub mod session;
+pub mod validation;
 
 use std::time::Duration;
 

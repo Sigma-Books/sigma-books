@@ -114,6 +114,75 @@ pub fn corps(cas: Cas) -> &'static str {
             r#"{"piece":"00000000-0000-4000-8000-0000000000aa","role":"principale","version":0}"#
         }
         Cas::Supprimer | Cas::RetirerPiece => r#"{"version":0}"#,
-        Cas::Lister | Cas::Lire => "",
+        Cas::Valider => r#"{"version":0}"#,
+        Cas::Lister | Cas::Lire | Cas::ListerEcritures | Cas::LireEcriture => "",
     }
+}
+
+/// Insère, par le super-utilisateur, une écriture validée minimale dans un dossier doté (lecture
+/// seule : contenu canonique et empreintes fictifs, rang 1). Rend son identifiant, sous-ressource
+/// `{ecriture}` des routes du dossier. Les chaînes réelles se testent dans `tests/validation.rs`.
+pub async fn doter_validee(
+    admin: &PgPool,
+    cabinet: IdCabinet,
+    dossier: IdDossier,
+    utilisateur: IdUtilisateur,
+) -> Uuid {
+    let id = Uuid::new_v4();
+    let c = comptes();
+    let code = journal_de_saisie();
+    let journal: Uuid =
+        sqlx::query_scalar("SELECT id FROM journal WHERE dossier_id = $1 AND code = $2")
+            .bind(dossier.uuid())
+            .bind(&code)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    let (exercice, annee): (Uuid, String) = sqlx::query_as(
+        "SELECT id, code FROM exercice WHERE dossier_id = $1 ORDER BY debut LIMIT 1",
+    )
+    .bind(dossier.uuid())
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    let numero = format!("{code}-{annee}-000001");
+    sqlx::query(
+        "INSERT INTO ecriture_validee (cabinet_id, dossier_id, id, journal_id, exercice_id, \
+         sequence, numero, date_comptable, libelle, format, contenu_canonique, empreinte, \
+         empreinte_precedente, rang, valide_par, date_validation, valide_le) \
+         VALUES ($1, $2, $3, $4, $5, 1, $6, $7, 'Écriture validée fixe', 1, 'fictif', $8, $9, 1, \
+                 $10, $7, now())",
+    )
+    .bind(cabinet.uuid())
+    .bind(dossier.uuid())
+    .bind(id)
+    .bind(journal)
+    .bind(exercice)
+    .bind(numero)
+    .bind(aujourd_hui())
+    .bind(vec![1u8; 32])
+    .bind(vec![0u8; 32])
+    .bind(utilisateur.uuid())
+    .execute(admin)
+    .await
+    .unwrap();
+    for (position, compte, sens) in [
+        (1i16, c.caisse.as_str(), "debit"),
+        (2, c.banque.as_str(), "credit"),
+    ] {
+        sqlx::query(
+            "INSERT INTO ecriture_validee_ligne (cabinet_id, dossier_id, ecriture_id, position, \
+             compte_numero, sens, montant) VALUES ($1, $2, $3, $4, $5, $6, 1000)",
+        )
+        .bind(cabinet.uuid())
+        .bind(dossier.uuid())
+        .bind(id)
+        .bind(position)
+        .bind(compte)
+        .bind(sens)
+        .execute(admin)
+        .await
+        .unwrap();
+    }
+    id
 }

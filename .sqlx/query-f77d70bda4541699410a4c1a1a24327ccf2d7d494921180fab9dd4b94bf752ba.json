@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT empreinte, ecartee_le IS NOT NULL AS \"ecartee!\" FROM piece WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3 FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "empreinte"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ecartee!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "f77d70bda4541699410a4c1a1a24327ccf2d7d494921180fab9dd4b94bf752ba"
+}

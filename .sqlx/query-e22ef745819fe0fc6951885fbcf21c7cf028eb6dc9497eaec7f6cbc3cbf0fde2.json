@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO ecriture_validee_ligne\n                (cabinet_id, dossier_id, ecriture_id, position, compte_numero, sens, montant,\n                 devise, montant_devise, cours, tiers_id,\n                 fiscal_nature, fiscal_sens, fiscal_regime, fiscal_taux, fiscal_exigibilite,\n                 fiscal_motif)\n            VALUES ($1, $2, $3, $4, $5, $6, $7::text::numeric,\n                    $8, $9::text::numeric, $10::text::numeric, $11,\n                    $12, $13, $14, $15::text::numeric, $16, $17)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int2",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e22ef745819fe0fc6951885fbcf21c7cf028eb6dc9497eaec7f6cbc3cbf0fde2"
+}

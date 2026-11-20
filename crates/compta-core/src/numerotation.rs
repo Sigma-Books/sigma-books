@@ -127,6 +127,26 @@ impl Compteur {
         }
     }
 
+    /// Compteur relu de la persistance : dernière séquence attribuée pour ce journal et cet
+    /// exercice (lue sous verrou, lot L2).
+    ///
+    /// # Errors
+    /// [`ErreurNumerotation::SequenceEpuisee`] si `dernier` dépasse [`SEQUENCE_MAX`].
+    pub fn reprendre(
+        journal: CodeJournal,
+        exercice: CodeExercice,
+        dernier: u32,
+    ) -> Result<Self, ErreurNumerotation> {
+        if dernier > SEQUENCE_MAX {
+            return Err(ErreurNumerotation::SequenceEpuisee(journal, exercice));
+        }
+        Ok(Self {
+            journal,
+            exercice,
+            dernier,
+        })
+    }
+
     /// Dernière séquence attribuée (0 si aucune).
     #[must_use]
     pub fn dernier(&self) -> u32 {

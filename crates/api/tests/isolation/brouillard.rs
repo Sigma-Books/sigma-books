@@ -94,6 +94,40 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
                 attendu(acteur, a.cabinet, a.dossier, ok()),
             ]
         }
+        // Validation (PR 13b) : le corps d'exemple porte la version 0, périmée : le valideur
+        // atteint le cas d'usage et y est refusé (409), sans rien valider. Le créateur du
+        // brouillon fixe (l'administrateur) est refusé par la séparation des tâches (403).
+        (Methode::Post, c) if c == sur("/validation") => vec![
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(a.administrateur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
+            attendu(m.valideur, a.cabinet, a.dossier, perime()),
+        ],
+        (Methode::Get, c) if c == "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures" => vec![
+            attendu(a.administrateur, a.cabinet, a.autre_dossier, ok()),
+            attendu(m.auditeur, a.cabinet, a.dossier, ok()),
+            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu(m.multi, b.cabinet, b.autre_dossier, absent()),
+        ],
+        (Methode::Get, c)
+            if c == "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures/{ecriture}" =>
+        {
+            vec![
+                attendu(a.administrateur, a.cabinet, a.dossier, ok()),
+                attendu(m.auditeur, a.cabinet, a.dossier, ok()),
+                attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+                attendu_croise(
+                    a.administrateur,
+                    a.cabinet,
+                    a.dossier,
+                    a.autre_dossier,
+                    absent(),
+                ),
+                attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
+            ]
+        }
         _ => return None,
     })
 }
@@ -144,6 +178,7 @@ pub(super) async fn quand_cedar_se_trompe(routeur: &Router, m: &Monde, reference
         ),
         ("suppression", r#"{"version":1}"#.to_owned()),
         ("a-revoir", "{}".to_owned()),
+        ("validation", r#"{"version":1}"#.to_owned()),
     ] {
         let r = super::envoyer(
             routeur,
@@ -157,6 +192,28 @@ pub(super) async fn quand_cedar_se_trompe(routeur: &Router, m: &Monde, reference
         )
         .await;
         assert_eq!(r.statut, StatusCode::FORBIDDEN, "{suffixe} : {}", r.texte());
+    }
+    // Validation, Cedar forcé : le créateur du brouillon fixe (l'administrateur) est refusé par la
+    // séparation des tâches relue dans le cas d'usage, et le collaborateur sans délégation par le
+    // rôle relu en base ; rien n'est validé.
+    for u in [a.administrateur, a.collaborateur] {
+        let r = super::envoyer(
+            routeur,
+            &format!(
+                "{}/{propre}/validation",
+                base(a.cabinet.uuid(), a.dossier.uuid())
+            ),
+            Some(u),
+            r#"{"version":1}"#,
+            None,
+        )
+        .await;
+        assert_eq!(
+            r.statut,
+            StatusCode::FORBIDDEN,
+            "validation Cedar forcé : {}",
+            r.texte()
+        );
     }
     // Modification et suppression du brouillon d'un autre dossier (de A non affecté, ou de B),
     // sous un dossier de A, au nom de l'administrateur de A : 404, rien n'est modifié.

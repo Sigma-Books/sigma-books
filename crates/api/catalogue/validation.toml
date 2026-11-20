@@ -1,0 +1,31 @@
+# Catalogue « écritures validées » (PR 13b ; migrations `0203_validation.sql` et
+# `0351_ecriture_validee_pieces.sql`) : exceptions et listes du test de catalogue (ADR 0011 ;
+# crates/api/tests/catalogue.rs).
+#
+# Un fichier par module (`crates/api/catalogue/<module>.toml`) : une voie de travail n'édite que le
+# sien. Chaque entrée est justifiée ; toute modification passe par la revue de l'équipe core.
+# Listes possibles : `security_definer`, `ajout_seul`, `instance`, `lecture_membre`,
+# `dossier_facultatif` ; une liste absente d'un fichier y est vide.
+#
+# Tables de dossier à la règle commune (RLS forcée, politique « cabinet ET dossier du contexte »).
+# `chaine_tete` et `compteur_ecriture` ne sont **pas** en ajout seul : états dérivés, recalculables
+# depuis la chaîne, mis à jour sous verrou (`UPDATE` sur leurs seules colonnes de tête et de
+# compteur, que PostgreSQL exige pour `SELECT … FOR UPDATE`).
+
+[[ajout_seul]]
+nom = "ecriture_validee"
+justification = """
+Écriture validée (spec §6.1, règle absolue 5) : définitive, ni UPDATE ni DELETE pour le rôle \
+applicatif, même sur une colonne. Une correction est une contre-passation. Aucun état modifiable."""
+
+[[ajout_seul]]
+nom = "ecriture_validee_ligne"
+justification = """
+Lignes d'une écriture validée, étiquette fiscale comprise : elles entrent dans le contenu haché, \
+donc figées avec l'écriture (ADR 0007)."""
+
+[[ajout_seul]]
+nom = "ecriture_validee_piece"
+justification = """
+Liens d'une écriture validée à ses pièces : verrouillés à la validation (ADR 0015). Une pièce liée \
+ne se retire ni ne s'écarte plus."""
