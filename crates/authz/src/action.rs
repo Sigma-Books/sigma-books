@@ -112,6 +112,9 @@ actions! {
     DeverrouillerPeriode => Dossier,
     /// Clôture informatique d'une période (ré-authentification).
     CloturerPeriode => Dossier,
+    /// Ouvrir l'exercice suivant (administrateur, valideur : décision du
+    /// 2026-11-19, #172 ; ré-authentification).
+    OuvrirExerciceSuivant => Dossier,
     /// Clôturer un exercice (§20 ; ré-authentification).
     CloturerExercice => Dossier,
     /// Consulter éditions et états (§20).

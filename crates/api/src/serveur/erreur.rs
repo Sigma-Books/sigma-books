@@ -24,6 +24,14 @@ pub enum ErreurApi {
     Introuvable,
     /// 405 : méthode non admise sur la ressource.
     MethodeNonAdmise,
+    /// 409 : action refusée par une règle métier, sur une ressource visible : motif stable, et,
+    /// pour certains motifs, un nombre (jamais une donnée d'autrui).
+    Conflit {
+        /// Motif, code du corps.
+        motif: MotifConflit,
+        /// Nombre cité par le motif (écritures du brouillard concernées).
+        nombre: Option<u32>,
+    },
     /// 413 : corps trop grand.
     CorpsTropGrand,
     /// 415 : type de fichier non admis (pièce justificative reconnue par sa signature,
@@ -77,6 +85,52 @@ impl MotifRefus {
     }
 }
 
+/// Motif d'un refus 409 (liste fermée, codes stables pour l'interface).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotifConflit {
+    /// La période est déjà clôturée.
+    PeriodeDejaCloturee,
+    /// Verrouillage d'une période qui n'est pas ouverte.
+    PeriodeNonOuverte,
+    /// Déverrouillage d'une période qui n'est pas verrouillée.
+    PeriodeNonVerrouillee,
+    /// Dernière période d'un exercice : elle se clôture avec lui.
+    DernierePeriode,
+    /// Une période antérieure n'est pas clôturée.
+    PeriodeAnterieureNonCloturee,
+    /// Écritures du brouillard datées dans la période (avec leur nombre).
+    BrouillardNonValide,
+    /// Deux exercices sont déjà non clôturés.
+    ExercicesNonCloturesMax,
+}
+
+impl MotifConflit {
+    /// Tous les motifs.
+    pub const TOUS: [Self; 7] = [
+        Self::PeriodeDejaCloturee,
+        Self::PeriodeNonOuverte,
+        Self::PeriodeNonVerrouillee,
+        Self::DernierePeriode,
+        Self::PeriodeAnterieureNonCloturee,
+        Self::BrouillardNonValide,
+        Self::ExercicesNonCloturesMax,
+    ];
+
+    /// Code du corps de la réponse.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::PeriodeDejaCloturee => "periode_deja_cloturee",
+            Self::PeriodeNonOuverte => "periode_non_ouverte",
+            Self::PeriodeNonVerrouillee => "periode_non_verrouillee",
+            Self::DernierePeriode => "derniere_periode",
+            Self::PeriodeAnterieureNonCloturee => "periode_anterieure_non_cloturee",
+            Self::BrouillardNonValide => "brouillard_non_valide",
+            Self::ExercicesNonCloturesMax => "exercices_non_clotures_max",
+        }
+    }
+}
+
 /// Catégorie d'une erreur interne, pour les journaux techniques (liste fermée : aucun message
 /// d'erreur de PostgreSQL n'y est recopié, car il peut contenir des valeurs, F2.11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +177,7 @@ impl ErreurApi {
             Self::Interdit => StatusCode::FORBIDDEN,
             Self::Introuvable => StatusCode::NOT_FOUND,
             Self::MethodeNonAdmise => StatusCode::METHOD_NOT_ALLOWED,
+            Self::Conflit { .. } => StatusCode::CONFLICT,
             Self::CorpsTropGrand => StatusCode::PAYLOAD_TOO_LARGE,
             Self::TypeNonAdmis => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Self::Refus(_) => StatusCode::UNPROCESSABLE_ENTITY,
@@ -141,6 +196,7 @@ impl ErreurApi {
             Self::Interdit => "interdit",
             Self::Introuvable => "introuvable",
             Self::MethodeNonAdmise => "methode_non_admise",
+            Self::Conflit { motif, .. } => motif.code(),
             Self::CorpsTropGrand => "corps_trop_grand",
             Self::TypeNonAdmis => "type_non_admis",
             Self::Refus(motif) => motif.code(),
@@ -191,6 +247,8 @@ pub(crate) fn pour_statut(statut: StatusCode) -> Response {
 #[derive(Serialize)]
 struct Corps {
     erreur: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nombre: Option<u32>,
 }
 
 impl IntoResponse for ErreurApi {
@@ -199,6 +257,10 @@ impl IntoResponse for ErreurApi {
             self.statut(),
             Json(Corps {
                 erreur: self.code(),
+                nombre: match self {
+                    Self::Conflit { nombre, .. } => nombre,
+                    _ => None,
+                },
             }),
         )
             .into_response();
@@ -221,7 +283,7 @@ mod tests {
 
     #[test]
     fn chaque_code_est_distinct_et_sans_detail() {
-        let toutes = [
+        let mut toutes = vec![
             ErreurApi::RequeteInvalide,
             ErreurApi::NonAuthentifie,
             ErreurApi::Interdit,
@@ -239,6 +301,10 @@ mod tests {
             ErreurApi::Interne(CategorieErreur::Base),
             ErreurApi::DelaiDepasse,
         ];
+        toutes.extend(MotifConflit::TOUS.map(|motif| ErreurApi::Conflit {
+            motif,
+            nombre: None,
+        }));
         let codes: std::collections::HashSet<_> = toutes.iter().map(|e| e.code()).collect();
         assert_eq!(codes.len(), toutes.len());
         assert!(
@@ -246,5 +312,32 @@ mod tests {
                 .iter()
                 .all(|c| c.bytes().all(|o| o.is_ascii_lowercase() || o == b'_'))
         );
+    }
+
+    #[tokio::test]
+    async fn un_conflit_rend_son_motif_et_son_nombre_seulement() {
+        for (erreur, attendu) in [
+            (
+                ErreurApi::Conflit {
+                    motif: MotifConflit::BrouillardNonValide,
+                    nombre: Some(3),
+                },
+                r#"{"erreur":"brouillard_non_valide","nombre":3}"#,
+            ),
+            (
+                ErreurApi::Conflit {
+                    motif: MotifConflit::DernierePeriode,
+                    nombre: None,
+                },
+                r#"{"erreur":"derniere_periode"}"#,
+            ),
+        ] {
+            let reponse = erreur.into_response();
+            assert_eq!(reponse.status(), StatusCode::CONFLICT);
+            let corps = axum::body::to_bytes(reponse.into_body(), 1024)
+                .await
+                .unwrap();
+            assert_eq!(corps, attendu.as_bytes());
+        }
     }
 }

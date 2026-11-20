@@ -65,6 +65,15 @@ when {
   [Sigma::Role::"administrateur", Sigma::Role::"valideur"].contains(principal.role)
 };
 
+// Ouvrir l'exercice suivant : administrateur, valideur, comme la clôture
+// d'un exercice (§20) ; décision du mainteneur du 2026-11-19 (#172). La
+// ré-authentification est un invariant (invariants.cedar).
+@id("decision-2026-11-19-ouvrir-exercice-suivant")
+permit (principal, action == Sigma::Action::"OuvrirExerciceSuivant", resource)
+when {
+  [Sigma::Role::"administrateur", Sigma::Role::"valideur"].contains(principal.role)
+};
+
 // §20 « Consulter éditions et états » : les quatre rôles du cabinet.
 @id("s20-consulter-editions")
 permit (principal, action == Sigma::Action::"ConsulterEditions", resource)

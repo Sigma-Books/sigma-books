@@ -1,5 +1,6 @@
 //! Routes du dossier et du référentiel (PR 11a de `docs/lots/L2.md`, L2-22) : plan de comptes,
-//! journaux, tiers minimal, exercices ; et le référentiel d'un nouveau dossier, inscrit par la
+//! journaux, tiers minimal, exercices ; transitions des périodes et exercice suivant (PR 11b,
+//! L2-23, sous-module `periodes`) ; et le référentiel d'un nouveau dossier, inscrit par la
 //! création du dossier ([`lire_creation`], [`instancier`], appelés par `organisation`).
 //!
 //! Persistance et règles : [`crate::base::referentiel`]. Toute mutation passe par
@@ -37,6 +38,8 @@ use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
 
+mod periodes;
+
 /// Cas d'usage du module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cas {
@@ -62,6 +65,14 @@ pub enum Cas {
     ModifierTiers,
     /// Exercices, périodes et échéances de clôture.
     ListerExercices,
+    /// Verrouiller une période (PR 11b).
+    VerrouillerPeriode,
+    /// Déverrouiller une période, avec un motif (PR 11b).
+    DeverrouillerPeriode,
+    /// Clôture informatique d'une période, irréversible (PR 11b).
+    CloturerPeriode,
+    /// Ouvrir l'exercice suivant (PR 11b).
+    OuvrirExerciceSuivant,
 }
 
 /// Tranche du module.
@@ -149,6 +160,32 @@ pub const ROUTES: &[Route] = &[
         "/api/cabinets/{cabinet}/dossiers/{dossier}/exercices",
         Action::AccederDossier,
         Cas::ListerExercices,
+    ),
+    // Périodes et exercice suivant (PR 11b), dans l'ordre d'un parcours : verrouiller,
+    // déverrouiller, clôturer, puis ouvrir l'exercice suivant.
+    route(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/periodes/{periode}/verrouillage",
+        Action::VerrouillerPeriode,
+        Cas::VerrouillerPeriode,
+    ),
+    route(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/periodes/{periode}/deverrouillage",
+        Action::DeverrouillerPeriode,
+        Cas::DeverrouillerPeriode,
+    ),
+    route(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/periodes/{periode}/cloture",
+        Action::CloturerPeriode,
+        Cas::CloturerPeriode,
+    ),
+    route(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/exercices/suivant",
+        Action::OuvrirExerciceSuivant,
+        Cas::OuvrirExerciceSuivant,
     ),
 ];
 
@@ -402,6 +439,28 @@ fn vue_tiers(id: Uuid, tiers: &Tiers) -> VueTiers {
     }
 }
 
+fn vue_periode(
+    id: Uuid,
+    exercice: &Exercice,
+    p: &compta_core::Periode,
+) -> Result<VuePeriode, ErreurApi> {
+    let echeance = match p.statut() {
+        compta_core::StatutPeriode::Cloturee => None,
+        _ => Some(
+            echeance_de_cloture(exercice, p)
+                .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?
+                .to_string(),
+        ),
+    };
+    Ok(VuePeriode {
+        id: id.to_string(),
+        debut: p.debut().to_string(),
+        fin: p.fin().to_string(),
+        statut: nom_statut_periode(p.statut()),
+        echeance_cloture: echeance,
+    })
+}
+
 fn vue_exercice(
     id: Uuid,
     exercice: &Exercice,
@@ -411,23 +470,7 @@ fn vue_exercice(
     let periodes = exercice
         .periodes()
         .iter()
-        .map(|p| {
-            let echeance = match p.statut() {
-                compta_core::StatutPeriode::Cloturee => None,
-                _ => Some(
-                    echeance_de_cloture(exercice, p)
-                        .map_err(|_| interne)?
-                        .to_string(),
-                ),
-            };
-            Ok(VuePeriode {
-                id: id_periode(p.debut()).ok_or(interne)?.to_string(),
-                debut: p.debut().to_string(),
-                fin: p.fin().to_string(),
-                statut: nom_statut_periode(p.statut()),
-                echeance_cloture: echeance,
-            })
-        })
+        .map(|p| vue_periode(id_periode(p.debut()).ok_or(interne)?, exercice, p))
         .collect::<Result<Vec<_>, ErreurApi>>()?;
     Ok(VueExercice {
         id: id.to_string(),
@@ -467,6 +510,12 @@ pub(crate) async fn executer(
         | Cas::ModifierTiers => {
             exiger_parametreur(tx).await?;
             parametrer(cas, tx, dossier.id(), requete).await
+        }
+        Cas::VerrouillerPeriode
+        | Cas::DeverrouillerPeriode
+        | Cas::CloturerPeriode
+        | Cas::OuvrirExerciceSuivant => {
+            periodes::executer(cas, tx, garde, dossier.id(), requete).await
         }
     }
 }
@@ -767,7 +816,14 @@ async fn parametrer(
             })
             .await
         }
-        Cas::ListerComptes | Cas::ListerJournaux | Cas::ListerTiers | Cas::ListerExercices => {
+        Cas::ListerComptes
+        | Cas::ListerJournaux
+        | Cas::ListerTiers
+        | Cas::ListerExercices
+        | Cas::VerrouillerPeriode
+        | Cas::DeverrouillerPeriode
+        | Cas::CloturerPeriode
+        | Cas::OuvrirExerciceSuivant => {
             return Err(ErreurApi::Interne(CategorieErreur::Donnee));
         }
     };

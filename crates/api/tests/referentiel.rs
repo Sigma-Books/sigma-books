@@ -45,13 +45,14 @@ fn n(texte: &str) -> NumeroCompte {
 #[tokio::test]
 async fn les_tables_du_referentiel_n_accordent_ni_delete_ni_update_de_table() {
     let env = env().await;
-    // Colonnes modifiables attendues, table par table (note d'étude, §2).
+    // Colonnes modifiables attendues, table par table (note d'étude, §2 et §6).
     let attendues: [(&str, &[&str]); 6] = [
         ("dossier_referentiel", &[]),
         ("compte", &["actif", "intitule"]),
         ("journal", &[]),
-        ("exercice", &[]),
-        ("periode", &[]),
+        // Transitions de statut (PR 11b, `0201_periodes.sql`).
+        ("exercice", &["statut"]),
+        ("periode", &["motif", "statut", "statut_le", "statut_par"]),
         ("tiers", &["actif", "nom"]),
     ];
     for (table, colonnes) in attendues {
