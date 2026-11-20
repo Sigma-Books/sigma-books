@@ -308,3 +308,30 @@ pub(super) async fn inserer_exercice(
     .await?;
     Ok((id, ids_periodes))
 }
+
+#[cfg(test)]
+mod tests {
+    use compta_core::{ErreurExercice, Exercices};
+    use time::{Date, Month};
+
+    use super::TABLES_BROUILLARD_LUES_A_LA_CLOTURE;
+
+    /// Clôture avec brouillard, au niveau pur : `changer_statut` passe les dates lues à
+    /// `cloturer_periode`, qui refuse et ne change rien. Aucune table de brouillard avant la
+    /// PR 13 : la liste lue est vide (fil-piège : `tests/catalogue.rs`).
+    #[test]
+    fn une_cloture_avec_brouillard_est_refusee_sans_effet() {
+        assert!(TABLES_BROUILLARD_LUES_A_LA_CLOTURE.is_empty());
+        let mut exercices = Exercices::new();
+        exercices.ouvrir_repris(2026).unwrap();
+        let avant = exercices.clone();
+        let debut = Date::from_calendar_date(2026, Month::January, 1).unwrap();
+        let date = Date::from_calendar_date(2026, Month::January, 15).unwrap();
+        assert!(matches!(
+            exercices.cloturer_periode(debut, [date, date]),
+            Err(ErreurExercice::BrouillardNonValide { nombre: 2, .. })
+        ));
+        assert_eq!(exercices, avant);
+        exercices.cloturer_periode(debut, []).unwrap();
+    }
+}
