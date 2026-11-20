@@ -14,7 +14,7 @@
 
 mod commun;
 
-use integrite::{Anomalie, Options, Version, verifier};
+use integrite::{Anomalie, ErreurCanonique, ErreurExport, Options, Version, verifier};
 
 const REFERENCE: &[u8] = include_bytes!("vecteurs/export-v4-reference.txt");
 const TETE: &str = "b1b215cdafa1c86839a791244b2f9ff702abb9154ae62e33027190aafe70cf6b";
@@ -71,35 +71,106 @@ fn anomalies(octets: &[u8]) -> Vec<Anomalie> {
     rapport.anomalies
 }
 
-/// Cas de rejet : (fichier, ligne du premier défaut).
-const REJETS: [(&str, u64); 12] = [
-    ("v3-sans-etiquette", 114),
-    ("taxe-avec-motif", 138),
-    ("taux-non-canonique", 132),
-    ("taux-nul", 132),
-    ("cles-en-desordre", 130),
-    ("nature-inconnue", 129),
-    ("etiquette-incomplete", 131),
-    ("motif-hors-regime", 129),
-    ("exigibilite-inconnue", 133),
-    ("regime-mal-forme", 131),
-    ("v3-dans-export-v3", 114),
-    ("cles-fiscales-en-v1", 129),
-];
+/// Cas de rejet : (fichier, ligne du fichier, cause précise attendue).
+fn rejets() -> Vec<(&'static str, u64, ErreurExport)> {
+    use ErreurCanonique::{Attendu, EtiquetteIncoherente, NonCanonique, ValeurInvalide};
+    let ecriture = ErreurExport::Ecriture;
+    vec![
+        ("v3-sans-etiquette", 114, ecriture(NonCanonique)),
+        (
+            "taxe-avec-motif",
+            138,
+            ecriture(EtiquetteIncoherente { ligne: 25 }),
+        ),
+        (
+            "taux-non-canonique",
+            132,
+            ecriture(ValeurInvalide {
+                ligne: 19,
+                cle: "fiscal-taux",
+            }),
+        ),
+        (
+            "taux-nul",
+            132,
+            ecriture(ValeurInvalide {
+                ligne: 19,
+                cle: "fiscal-taux",
+            }),
+        ),
+        (
+            "cles-en-desordre",
+            130,
+            ecriture(Attendu {
+                ligne: 17,
+                attendu: "fiscal-sens",
+            }),
+        ),
+        (
+            "nature-inconnue",
+            129,
+            ecriture(ValeurInvalide {
+                ligne: 16,
+                cle: "fiscal-nature",
+            }),
+        ),
+        (
+            "etiquette-incomplete",
+            131,
+            ecriture(Attendu {
+                ligne: 18,
+                attendu: "fiscal-regime",
+            }),
+        ),
+        (
+            "motif-hors-regime",
+            129,
+            ecriture(EtiquetteIncoherente { ligne: 16 }),
+        ),
+        (
+            "exigibilite-inconnue",
+            133,
+            ecriture(ValeurInvalide {
+                ligne: 20,
+                cle: "fiscal-exigibilite",
+            }),
+        ),
+        (
+            "regime-mal-forme",
+            131,
+            ecriture(ValeurInvalide {
+                ligne: 18,
+                cle: "fiscal-regime",
+            }),
+        ),
+        (
+            "v3-dans-export-v3",
+            114,
+            ErreurExport::Attendu("ecriture v1 », « ecriture v2 » ou « tete="),
+        ),
+        (
+            "cles-fiscales-en-v1",
+            129,
+            ecriture(Attendu {
+                ligne: 16,
+                attendu: "ligne",
+            }),
+        ),
+    ]
+}
 
 #[test]
-fn les_exports_defectueux_sont_refuses() {
-    for (nom, ligne) in REJETS {
+fn les_exports_defectueux_sont_refuses_pour_la_cause_attendue() {
+    let cas = rejets();
+    assert_eq!(cas.len(), 12);
+    for (nom, ligne, erreur) in cas {
         let chemin = format!(
             "{}/tests/vecteurs/v4-rejets/{nom}.txt",
             env!("CARGO_MANIFEST_DIR")
         );
         let octets = std::fs::read(&chemin).unwrap();
         let trouvees = anomalies(&octets);
-        assert!(
-            matches!(trouvees.as_slice(), [Anomalie::Illisible { ligne: l, .. }] if *l == ligne),
-            "{nom} : {trouvees:?}"
-        );
+        assert_eq!(trouvees, [Anomalie::Illisible { ligne, erreur }], "{nom}");
     }
 }
 
