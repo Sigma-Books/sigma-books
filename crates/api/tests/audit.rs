@@ -816,6 +816,8 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     // le lien porte sur une pièce réelle.
     let mut brouillon = uuid::Uuid::nil();
     let mut version = 1;
+    // Voie 13c : écriture validée par la route de validation, contre-passée plus loin.
+    let mut validee = uuid::Uuid::nil();
     let piece_liee =
         commun::pieces::doter(&env.admin, c.cabinet, c.dossier, c.administrateur).await;
     for route in ROUTES
@@ -838,6 +840,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "piece" if matches!(route.cas_usage, CasUsage::Brouillard(_)) => piece_liee,
                 "piece" => piece,
                 "brouillon" => brouillon,
+                "ecriture" => validee,
                 autre => fixtures.sous_ressource(autre),
             },
         );
@@ -895,12 +898,45 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                         r#"{"version":1}"#.to_owned(),
                     )
                 }
+                // Lot : un brouillon justifié, validé par un valideur (session fraîche).
+                Cas::ValiderParLot => {
+                    let second = commun::brouillard::doter(
+                        &env.admin,
+                        c.cabinet,
+                        c.dossier,
+                        c.administrateur,
+                    )
+                    .await;
+                    sqlx::query(
+                        "INSERT INTO brouillon_piece (cabinet_id, dossier_id, brouillon_id, \
+                         piece_id, role, lie_par) VALUES ($1, $2, $3, $4, 'principale', $5)",
+                    )
+                    .bind(c.cabinet.uuid())
+                    .bind(c.dossier.uuid())
+                    .bind(second)
+                    .bind(piece_liee)
+                    .bind(c.administrateur.uuid())
+                    .execute(&env.admin)
+                    .await
+                    .unwrap();
+                    (
+                        chemin,
+                        format!(r#"{{"ecritures":[{{"ecriture":"{second}","version":1}}]}}"#),
+                    )
+                }
+                Cas::ContrePasser => (
+                    chemin,
+                    format!(
+                        r#"{{"date":"{}","libelle":"Contre-passation","motif":"Erreur de saisie"}}"#,
+                        commun::brouillard::texte_date(commun::brouillard::aujourd_hui())
+                    ),
+                ),
                 _ => (chemin, commun::serveur::corps_de(route).to_owned()),
             };
             // Le drapeau se lève par un autre acteur que celui qui l'a posé.
             let acteur = if cas == Cas::LeverARevoir {
                 c.collaborateur
-            } else if cas == Cas::Valider {
+            } else if cas == Cas::Valider || cas == Cas::ValiderParLot {
                 commun::ajouter_affecte(&env.admin, &c, "valideur").await
             } else {
                 c.administrateur
@@ -923,6 +959,9 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 }
                 Cas::Modifier | Cas::LierPiece | Cas::RetirerPiece => {
                     version = i32::try_from(reponse.json()["version"].as_i64().unwrap()).unwrap();
+                }
+                Cas::Valider => {
+                    validee = reponse.json()["id"].as_str().unwrap().parse().unwrap();
                 }
                 _ => {}
             }

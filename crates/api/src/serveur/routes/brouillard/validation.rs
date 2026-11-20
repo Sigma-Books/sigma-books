@@ -72,14 +72,14 @@ const CHIFFRES_MAX: usize = 28;
 const PAGE_PAR_DEFAUT: u32 = 50;
 const PAGE_MAX: u32 = 100;
 
-fn refus(motif: MotifValidation, ligne: Option<usize>) -> ErreurApi {
+pub(super) fn refus(motif: MotifValidation, ligne: Option<usize>) -> ErreurApi {
     ErreurApi::Validation {
         motif,
         ligne: ligne.and_then(|l| u32::try_from(l + 1).ok()),
     }
 }
 
-fn donnee() -> ErreurApi {
+pub(super) fn donnee() -> ErreurApi {
     ErreurApi::Interne(CategorieErreur::Donnee)
 }
 
@@ -204,7 +204,13 @@ pub fn reconstituer(
     )?;
     let equilibree = brouillon.valider_equilibre().map_err(|_| incoherent())?;
     let numero = NumeroEcriture::parse(&e.numero).map_err(|_| incoherent())?;
-    EcritureValidee::reconstituer(equilibree, numero, e.date_validation, None)
+    let origine = e
+        .origine_numero
+        .as_deref()
+        .map(NumeroEcriture::parse)
+        .transpose()
+        .map_err(|_| incoherent())?;
+    EcritureValidee::reconstituer(equilibree, numero, e.date_validation, origine)
         .map_err(|_| incoherent())
 }
 
@@ -317,7 +323,7 @@ fn periode_cloturee(exercices: &Exercices, date: Date) -> bool {
 }
 
 /// Traduit un refus de `compta-core` en motif stable.
-fn motif_validation(
+pub(super) fn motif_validation(
     e: &compta_core::ErreurValidation,
     exercices: &Exercices,
 ) -> (MotifValidation, Option<usize>) {
@@ -386,6 +392,15 @@ pub fn decider(
             let (motif, ligne) = motif_validation(r.erreur(), contexte.exercices);
             refus(motif, ligne)
         })?;
+    finaliser(validation, tete)
+}
+
+/// Contenu canonique d'une [`Validation`] et sa place dans la chaîne, après la tête lue :
+/// commun à la validation, au lot et à la contre-passation.
+///
+/// # Errors
+/// 422 si le contenu ne se relit pas à l'identique ; 500 pour un format inattendu.
+pub(super) fn finaliser(validation: Validation, tete: &Tete) -> Result<Decision, ErreurApi> {
     let canonique = EcritureCanonique::depuis(validation.ecriture());
     let contenu_texte = canonique.serialiser();
     // Le contenu haché doit se relire à l'identique (format de `integrite`).
@@ -457,7 +472,10 @@ async fn exiger_valideur(
 }
 
 /// Contrôle les pièces liées : toutes présentes et non écartées, empreintes distinctes.
-fn controler_pieces(b: &BrouillonStocke, p: &[PieceVerrouillee]) -> Result<(), ErreurApi> {
+pub(super) fn controler_pieces(
+    b: &BrouillonStocke,
+    p: &[PieceVerrouillee],
+) -> Result<(), ErreurApi> {
     if p.len() != b.pieces.len() {
         return Err(donnee());
     }
@@ -472,14 +490,33 @@ fn controler_pieces(b: &BrouillonStocke, p: &[PieceVerrouillee]) -> Result<(), E
     Ok(())
 }
 
+/// Liens de pièces d'un brouillon avec leur rôle, dans l'ordre des pièces verrouillées.
+pub(super) fn roles_des_pieces(
+    b: &BrouillonStocke,
+    pieces: &[PieceVerrouillee],
+) -> Result<Vec<(Uuid, RolePiece)>, ErreurApi> {
+    pieces
+        .iter()
+        .map(|p| {
+            let role = b
+                .pieces
+                .iter()
+                .find(|l| l.piece == p.id)
+                .map(|l| l.role)
+                .ok_or_else(donnee)?;
+            Ok((p.id, role))
+        })
+        .collect()
+}
+
 #[derive(Debug, Serialize)]
-struct VueValidation {
-    id: String,
-    numero: String,
-    rang: i64,
-    empreinte: String,
-    format: i16,
-    date_validation: String,
+pub(super) struct VueValidation {
+    pub(super) id: String,
+    pub(super) numero: String,
+    pub(super) rang: i64,
+    pub(super) empreinte: String,
+    pub(super) format: i16,
+    pub(super) date_validation: String,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -559,18 +596,7 @@ pub(super) async fn valider(
     let decision = decider(preparee, &contexte, dernier, &tete, date_validation)?;
 
     // 3. Persistance : écriture, lignes, liens ; le brouillon disparaît ; tête et compteur.
-    let roles: Vec<(Uuid, RolePiece)> = pieces
-        .iter()
-        .map(|p| {
-            let role = b
-                .pieces
-                .iter()
-                .find(|l| l.piece == p.id)
-                .map(|l| l.role)
-                .ok_or_else(donnee)?;
-            Ok((p.id, role))
-        })
-        .collect::<Result<_, ErreurApi>>()?;
+    let roles = roles_des_pieces(&b, &pieces)?;
     let numero = decision.validation.ecriture().numero().clone();
     let inscription = Inscription::depuis(
         &decision.validation,
@@ -586,6 +612,7 @@ pub(super) async fn valider(
             valide_par: utilisateur,
             valide_le: instant,
             pieces: roles,
+            origine: None,
         },
     )?;
     base::inserer(tx, &inscription).await?;
@@ -649,6 +676,8 @@ struct VueEcriture {
     valide_le: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     origine: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    contre_passee_par: Option<String>,
     lignes: Vec<VueLigne>,
     pieces: Vec<VueLien>,
 }
@@ -670,6 +699,7 @@ fn vue_ecriture(e: &EcritureStockee) -> VueEcriture {
         date_validation: interne::date(e.date_validation),
         valide_le: interne::instant(e.valide_le),
         origine: e.origine.map(|o| o.to_string()),
+        contre_passee_par: e.contre_passee_par.clone(),
         lignes: e
             .lignes
             .iter()

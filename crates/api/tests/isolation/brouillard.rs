@@ -106,6 +106,44 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
             attendu(m.valideur, a.cabinet, a.dossier, perime()),
         ],
+        // Lot (PR 13c) : le corps d'exemple (lot vide) est refusé dès la lecture (400) par ceux
+        // que Cedar laisse passer ; l'auditeur et le collaborateur sont refusés (403).
+        (Methode::Post, c) if c == racine.to_owned() + "/validation-par-lot" => vec![
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu(m.multi, b.cabinet, b.autre_dossier, absent()),
+            attendu(
+                m.valideur,
+                a.cabinet,
+                a.dossier,
+                Statut(StatusCode::BAD_REQUEST),
+            ),
+        ],
+        // Contre-passation (PR 13c) : l'écriture d'un autre dossier ou cabinet est absente (404) ;
+        // le corps d'exemple (motif vide) est refusé dès la lecture (400).
+        (
+            Methode::Post,
+            "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures/{ecriture}/contre-passation",
+        ) => vec![
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu_croise(
+                a.administrateur,
+                a.cabinet,
+                a.dossier,
+                a.autre_dossier,
+                absent(),
+            ),
+            attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
+            attendu(
+                m.valideur,
+                a.cabinet,
+                a.dossier,
+                Statut(StatusCode::BAD_REQUEST),
+            ),
+        ],
         (Methode::Get, "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures") => vec![
             attendu(a.administrateur, a.cabinet, a.autre_dossier, ok()),
             attendu(m.auditeur, a.cabinet, a.dossier, ok()),

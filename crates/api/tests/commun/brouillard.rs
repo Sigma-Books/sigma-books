@@ -114,6 +114,10 @@ pub fn corps(cas: Cas) -> &'static str {
             r#"{"piece":"00000000-0000-4000-8000-0000000000aa","role":"principale","version":0}"#
         }
         Cas::Supprimer | Cas::RetirerPiece | Cas::Valider => r#"{"version":0}"#,
+        // Corps d'exemple refusés dès la lecture (400) : le harnais d'isolation atteint le cas
+        // d'usage sans valider ni contre-passer (les cas réels : `tests/lot.rs`).
+        Cas::ValiderParLot => r#"{"ecritures":[]}"#,
+        Cas::ContrePasser => r#"{"date":"2026-11-19","libelle":"Contre-passation","motif":""}"#,
         Cas::Lister | Cas::Lire | Cas::ListerEcritures | Cas::LireEcriture => "",
     }
 }

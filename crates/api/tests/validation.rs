@@ -1418,9 +1418,19 @@ fn aucune_route_de_modification_ni_de_suppression_des_ecritures() {
         .iter()
         .filter(|r| r.chemin.contains("/ecritures"))
         .collect();
-    assert_eq!(routes.len(), 2);
+    // Deux lectures, et la seule mutation : la contre-passation, qui ajoute une écriture miroir
+    // sans toucher à l'origine (ajout seul). Ni modification ni suppression.
+    assert_eq!(routes.len(), 3);
     for r in routes {
-        assert_eq!(r.methode, Methode::Get, "{}", r.chemin);
+        if r.methode == Methode::Post {
+            assert!(
+                r.chemin.ends_with("/{ecriture}/contre-passation"),
+                "{}",
+                r.chemin
+            );
+        } else {
+            assert_eq!(r.methode, Methode::Get, "{}", r.chemin);
+        }
     }
 }
 

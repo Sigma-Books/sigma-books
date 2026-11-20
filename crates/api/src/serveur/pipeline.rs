@@ -59,6 +59,7 @@ use crate::base::organisation::{
     AccesDossier, Appartenance, Cabinet, Dossier, DossierVisible, lire_acces_dossier,
     lire_appartenance, lire_cabinet, lire_dossier,
 };
+use crate::base::validation;
 use crate::base::{
     ContexteTenant, IdCabinet, IdDossier, IdSession, IdUtilisateur, TransactionTenant,
     ouvrir_transaction,
@@ -102,6 +103,41 @@ pub trait Decideur: Send + Sync + 'static {
         contexte: ContexteFacteur,
     ) -> Verdict;
 
+    /// Décide la validation par lot (§20) : **seul point d'entrée admis** pour valider plusieurs
+    /// brouillons à la fois ([`Autorisation::decider_lot`]). Le défaut applique la même règle à
+    /// travers [`Decideur::decider`] : `ValiderParLot` sur le dossier **et** `ValiderEcriture`
+    /// sur chaque brouillon (séparation des tâches, délégation), un lot vide étant refusé.
+    fn decider_lot(
+        &self,
+        principal: &authz::Appartenance,
+        dossier: authz::IdDossier,
+        brouillons: &[authz::IdEcriture],
+        entites: &Entites,
+        contexte: &Contexte,
+    ) -> Decision {
+        let lot = self.decider(
+            principal,
+            Action::ValiderParLot,
+            Ressource::Dossier(dossier),
+            entites,
+            contexte,
+        );
+        let tous = brouillons.iter().all(|b| {
+            self.decider(
+                principal,
+                Action::ValiderEcriture,
+                Ressource::EcritureBrouillon(*b),
+                entites,
+                contexte,
+            ) == Decision::Autorise
+        });
+        if !brouillons.is_empty() && lot == Decision::Autorise && tous {
+            Decision::Autorise
+        } else {
+            Decision::Refuse
+        }
+    }
+
     /// La décision seule.
     fn decider(
         &self,
@@ -139,6 +175,17 @@ impl Decideur for Autorisation {
 
     fn verdict_connexion(&self) -> Verdict {
         Autorisation::verdict_connexion(self)
+    }
+
+    fn decider_lot(
+        &self,
+        principal: &authz::Appartenance,
+        dossier: authz::IdDossier,
+        brouillons: &[authz::IdEcriture],
+        entites: &Entites,
+        contexte: &Contexte,
+    ) -> Decision {
+        Autorisation::decider_lot(self, principal, dossier, brouillons, entites, contexte)
     }
 
     fn verdict_facteur(
@@ -217,6 +264,8 @@ enum RessourceChemin {
     Dossier(IdDossier),
     /// Un brouillon du dossier (PR 13a) : décidé sur l'écriture, non sur le dossier.
     Brouillon(IdDossier, Uuid),
+    /// Une écriture validée du dossier (PR 13c) : décidée sur l'écriture, non sur le dossier.
+    EcritureValidee(IdDossier, Uuid),
 }
 
 /// Ressource du chemin selon la portée de la route. Une incohérence (portée de dossier sans
@@ -229,11 +278,11 @@ fn ressource_chemin(
         (Portee::Cabinet, None) => Ok(RessourceChemin::Cabinet),
         (Portee::DossiersDuCabinet, None) => Ok(RessourceChemin::DossiersDuCabinet),
         // Le brouillon du chemin est lu ensuite (étape 3) : il complète la ressource.
-        (Portee::Dossier | Portee::Brouillon, Some(dossier)) => {
+        (Portee::Dossier | Portee::Brouillon | Portee::EcritureValidee, Some(dossier)) => {
             Ok(RessourceChemin::Dossier(dossier))
         }
         (Portee::Cabinet | Portee::DossiersDuCabinet, Some(_))
-        | (Portee::Dossier | Portee::Brouillon, None)
+        | (Portee::Dossier | Portee::Brouillon | Portee::EcritureValidee, None)
         | (Portee::Utilisateur | Portee::Session | Portee::Facteurs | Portee::Anonyme, _) => {
             Err(ErreurApi::Interne(CategorieErreur::Donnee))
         }
@@ -276,14 +325,14 @@ impl Garde {
     /// [`ErreurApi::Introuvable`] si ce n'est pas le dossier décidé.
     pub fn dossier_du_chemin(&self, dossier: Dossier) -> Result<DossierAutorise, ErreurApi> {
         match self.decidee {
-            Some(RessourceChemin::Dossier(id) | RessourceChemin::Brouillon(id, _))
-                if id == dossier.id =>
-            {
-                Ok(DossierAutorise {
-                    id,
-                    nom: dossier.nom,
-                })
-            }
+            Some(
+                RessourceChemin::Dossier(id)
+                | RessourceChemin::Brouillon(id, _)
+                | RessourceChemin::EcritureValidee(id, _),
+            ) if id == dossier.id => Ok(DossierAutorise {
+                id,
+                nom: dossier.nom,
+            }),
             _ => Err(ErreurApi::Introuvable),
         }
     }
@@ -324,9 +373,11 @@ impl Garde {
     pub fn portee_audit(&self) -> Result<PorteeAudit, ErreurApi> {
         match self.decidee {
             Some(RessourceChemin::Cabinet) => Ok(PorteeAudit::Cabinet),
-            Some(RessourceChemin::Dossier(dossier) | RessourceChemin::Brouillon(dossier, _)) => {
-                Ok(PorteeAudit::Dossier(dossier))
-            }
+            Some(
+                RessourceChemin::Dossier(dossier)
+                | RessourceChemin::Brouillon(dossier, _)
+                | RessourceChemin::EcritureValidee(dossier, _),
+            ) => Ok(PorteeAudit::Dossier(dossier)),
             Some(RessourceChemin::DossiersDuCabinet) | None => Err(ErreurApi::Introuvable),
         }
     }
@@ -338,6 +389,66 @@ impl Garde {
         match self.decidee {
             Some(RessourceChemin::Brouillon(_, id)) => Some(id),
             _ => None,
+        }
+    }
+
+    /// L'écriture validée du chemin, sur laquelle l'action de la route a été autorisée (portée
+    /// [`Portee::EcritureValidee`]) ; `None` sinon.
+    #[must_use]
+    pub fn ecriture_validee_du_chemin(&self) -> Option<Uuid> {
+        match self.decidee {
+            Some(RessourceChemin::EcritureValidee(_, id)) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// Décide la validation par lot du dossier du chemin (§20) : `ValiderParLot` sur le dossier
+    /// **et** `ValiderEcriture` sur chaque brouillon, avec ses contributeurs lus en base
+    /// (séparation des tâches), par [`Decideur::decider_lot`]. Seule voie du cas d'usage vers
+    /// une validation de plusieurs écritures : décider `ValiderParLot` seul laisserait passer la
+    /// séparation des tâches. Un brouillon absent du dossier : 404, le même qu'un brouillon
+    /// d'autrui.
+    ///
+    /// # Errors
+    /// 404 (brouillon absent du dossier, dossier non décidé), 403 (refus), 500 (donnée
+    /// incohérente).
+    pub async fn decider_lot(
+        &self,
+        tx: &mut TransactionTenant,
+        dossier: IdDossier,
+        brouillons: &[Uuid],
+    ) -> Result<(), ErreurApi> {
+        if !matches!(self.decidee, Some(RessourceChemin::Dossier(d)) if d == dossier) {
+            return Err(ErreurApi::Introuvable);
+        }
+        let acces = lire_acces_dossier(tx, dossier).await?;
+        let (_, mut entites, contexte) = self.entites_dossier(dossier, acces.as_ref())?;
+        let id_dossier = id_authz(dossier.uuid(), authz::IdDossier::new)?;
+        let mut ids = Vec::with_capacity(brouillons.len());
+        for id in brouillons {
+            let Some((createur, autres)) = brouillard::contributeurs(tx, *id).await? else {
+                return Err(ErreurApi::Introuvable);
+            };
+            let id_ecriture = id_authz(*id, authz::IdEcriture::new)?;
+            entites.ajouter(authz::EcritureBrouillon {
+                id: id_ecriture,
+                dossier: id_dossier,
+                createur: id_authz(createur, authz::IdUtilisateur::new)?,
+                correcteurs: autres
+                    .into_iter()
+                    .map(|u| id_authz(u, authz::IdUtilisateur::new))
+                    .collect::<Result<Vec<_>, _>>()?,
+            });
+            ids.push(id_ecriture);
+        }
+        if self
+            .decideur
+            .decider_lot(&self.principal, id_dossier, &ids, &entites, &contexte)
+            == Decision::Autorise
+        {
+            Ok(())
+        } else {
+            Err(ErreurApi::Interdit)
         }
     }
 
@@ -468,6 +579,7 @@ pub(crate) async fn traiter(etat: Etat, route: &'static Route, requete: Request)
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn traiter_requete(
     etat: &Etat,
     route: &'static Route,
@@ -531,7 +643,7 @@ async fn traiter_requete(
         | Portee::Session
         | Portee::Facteurs
         | Portee::Anonyme => None,
-        Portee::Dossier | Portee::Brouillon => {
+        Portee::Dossier | Portee::Brouillon | Portee::EcritureValidee => {
             Some(IdDossier::depuis_uuid(id_chemin(&parametres, "dossier")?))
         }
     };
@@ -549,7 +661,7 @@ async fn traiter_requete(
     let mut garde = etablir(etat, action, &mut tx, &identite, utilisateur).await?;
 
     // 3. Décision Cedar sur la ressource du chemin.
-    let mut brouillon = None;
+    let mut sous_ressource = None;
     match ressource_chemin {
         RessourceChemin::Cabinet => {
             let entites = Entites::new().avec(garde.cabinet.clone());
@@ -560,17 +672,17 @@ async fn traiter_requete(
             }
         }
         RessourceChemin::Dossier(dossier) => {
-            brouillon = decider_dossier(&mut garde, &mut tx, route, &parametres, dossier).await?;
+            sous_ressource =
+                decider_dossier(&mut garde, &mut tx, route, &parametres, dossier).await?;
         }
         // Liste : chaque élément est décidé par [`Garde::filtrer`], seule voie vers une vue.
         RessourceChemin::DossiersDuCabinet => {}
-        // Le brouillon n'est lu qu'à l'étape 3, sous la ressource « dossier ».
-        RessourceChemin::Brouillon(..) => return Err(ErreurApi::Interne(CategorieErreur::Donnee)),
+        // Le brouillon ou l'écriture validée n'est lu qu'à l'étape 3, sous la ressource « dossier ».
+        RessourceChemin::Brouillon(..) | RessourceChemin::EcritureValidee(..) => {
+            return Err(ErreurApi::Interne(CategorieErreur::Donnee));
+        }
     }
-    garde.decidee = Some(match (ressource_chemin, brouillon) {
-        (RessourceChemin::Dossier(d), Some(id)) => RessourceChemin::Brouillon(d, id),
-        (autre, _) => autre,
-    });
+    garde.decidee = Some(sous_ressource.unwrap_or(ressource_chemin));
 
     // 4. Cas d'usage, dans la transaction.
     let requete = Requete {
@@ -584,6 +696,12 @@ async fn traiter_requete(
         pieces: etat.pieces(),
     };
     let resultat = executer(route.cas_usage, &mut tx, &garde, &requete).await?;
+    // Une réponse d'erreur du cas d'usage (409 d'un lot refusé, par exemple) n'écrit rien : la
+    // transaction est annulée, sans trace exigée ni inscrite (tout refus annule, ADR 0011).
+    if resultat.reponse.status().is_client_error() {
+        tx.annuler().await?;
+        return Ok(resultat.reponse);
+    }
 
     // 5. Audit, dans la même transaction : un échec annule l'action. Une mutation sans trace
     // est une erreur du cas d'usage.
@@ -598,14 +716,14 @@ async fn traiter_requete(
 /// Décision Cedar d'une route de dossier : visibilité du dossier (`AccederDossier`, 404 sinon),
 /// puis l'action de la route, sur le dossier ou, pour la portée [`Portee::Brouillon`], sur
 /// l'**écriture** du chemin (créateur et contributeurs lus en base sous RLS ; absente : 404).
-/// Rend l'identifiant du brouillon décidé, s'il y en a un.
+/// Rend la ressource affinée (brouillon ou écriture validée du chemin) quand la route en vise une.
 async fn decider_dossier(
     garde: &mut Garde,
     tx: &mut TransactionTenant,
     route: &Route,
     parametres: &RawPathParams,
     dossier: IdDossier,
-) -> Result<Option<Uuid>, ErreurApi> {
+) -> Result<Option<RessourceChemin>, ErreurApi> {
     // Dossier lu dans le contexte du cabinet du chemin : absent s'il est d'autrui.
     if lire_dossier(tx, dossier).await?.is_none() {
         return Err(ErreurApi::Introuvable);
@@ -615,6 +733,24 @@ async fn decider_dossier(
     // Visibilité d'abord : un dossier non visible est une ressource d'autrui (404).
     if !garde.decider(Action::AccederDossier, ressource, &entites, &contexte) {
         return Err(ErreurApi::Introuvable);
+    }
+    if route.portee == Portee::EcritureValidee {
+        // Écriture validée du chemin, lue sous RLS : absente si elle est d'un autre dossier (404).
+        let id = id_chemin(parametres, "ecriture")?;
+        if !validation::existe(tx, id).await? {
+            return Err(ErreurApi::Introuvable);
+        }
+        let id_ecriture = id_authz(id, authz::IdEcriture::new)?;
+        entites.ajouter(authz::EcritureValidee {
+            id: id_ecriture,
+            dossier: id_authz(dossier.uuid(), authz::IdDossier::new)?,
+        });
+        let ressource = Ressource::EcritureValidee(id_ecriture);
+        return if garde.decider_route(ressource, &entites, &contexte) {
+            Ok(Some(RessourceChemin::EcritureValidee(dossier, id)))
+        } else {
+            Err(ErreurApi::Interdit)
+        };
     }
     if route.portee != Portee::Brouillon {
         return if garde.decider_route(ressource, &entites, &contexte) {
@@ -640,7 +776,7 @@ async fn decider_dossier(
     });
     let ressource = Ressource::EcritureBrouillon(id_ecriture);
     if garde.decider_route(ressource, &entites, &contexte) {
-        Ok(Some(id))
+        Ok(Some(RessourceChemin::Brouillon(dossier, id)))
     } else {
         Err(ErreurApi::Interdit)
     }
@@ -859,7 +995,7 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 25);
+        assert_eq!(mutations.len(), 27);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

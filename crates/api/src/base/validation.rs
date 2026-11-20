@@ -274,6 +274,7 @@ pub struct Inscription {
     valide_par: Uuid,
     valide_le: OffsetDateTime,
     pieces: Vec<(Uuid, RolePiece)>,
+    origine: Option<Uuid>,
 }
 
 /// Éléments de la transaction qui accompagnent la validation.
@@ -301,6 +302,8 @@ pub struct Circonstances {
     pub valide_le: OffsetDateTime,
     /// Liens de pièces, dans l'ordre de la justification hachée.
     pub pieces: Vec<(Uuid, RolePiece)>,
+    /// Pour une contre-passation : écriture d'origine (PR 13c) ; `None` pour une validation.
+    pub origine: Option<Uuid>,
 }
 
 impl Inscription {
@@ -329,6 +332,7 @@ impl Inscription {
             valide_par: c.valide_par,
             valide_le: c.valide_le,
             pieces: c.pieces,
+            origine: c.origine,
         })
     }
 }
@@ -350,9 +354,9 @@ pub async fn inserer(tx: &mut TransactionTenant, i: &Inscription) -> Result<(), 
             (cabinet_id, dossier_id, id, journal_id, exercice_id, sequence, numero,
              date_comptable, date_valeur_comptable, libelle, version_parametres, format,
              contenu_canonique, empreinte, empreinte_precedente, rang, valide_par,
-             date_validation, valide_le)
+             date_validation, valide_le, origine_id)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                $18, $19)
+                $18, $19, $20)
         "#,
         cabinet.uuid(),
         dossier.uuid(),
@@ -374,6 +378,7 @@ pub async fn inserer(tx: &mut TransactionTenant, i: &Inscription) -> Result<(), 
         i.valide_par,
         e.date_validation(),
         i.valide_le,
+        i.origine,
     )
     .execute(tx.connexion())
     .await?;
@@ -548,6 +553,10 @@ pub struct EcritureStockee {
     pub valide_le: OffsetDateTime,
     /// Origine (contre-passation, PR 13c).
     pub origine: Option<Uuid>,
+    /// Numéro de l'écriture d'origine (contre-passation), cité par le contenu haché.
+    pub origine_numero: Option<String>,
+    /// Numéro de la contre-passation qui cite cette écriture, s'il y en a une.
+    pub contre_passee_par: Option<String>,
     /// Lignes.
     pub lignes: Vec<LigneStockee>,
     /// Pièces, dans l'ordre de la justification hachée.
@@ -588,8 +597,13 @@ pub async fn lire(
         SELECT e.numero, j.code AS journal, x.code AS exercice, e.date_comptable,
                e.date_valeur_comptable, e.libelle, e.version_parametres, e.format,
                e.contenu_canonique, e.empreinte, e.empreinte_precedente, e.rang, e.valide_par,
-               e.date_validation, e.valide_le, e.origine_id
+               e.date_validation, e.valide_le, e.origine_id, o.numero AS "origine_numero?",
+               (SELECT c.numero FROM ecriture_validee c
+                 WHERE c.cabinet_id = e.cabinet_id AND c.dossier_id = e.dossier_id
+                   AND c.origine_id = e.id) AS "contre_passee_par?"
         FROM ecriture_validee e
+        LEFT JOIN ecriture_validee o ON o.cabinet_id = e.cabinet_id AND o.dossier_id = e.dossier_id
+                                    AND o.id = e.origine_id
         JOIN journal j ON j.cabinet_id = e.cabinet_id AND j.dossier_id = e.dossier_id
                       AND j.id = e.journal_id
         JOIN exercice x ON x.cabinet_id = e.cabinet_id AND x.dossier_id = e.dossier_id
@@ -700,6 +714,8 @@ pub async fn lire(
         date_validation: e.date_validation,
         valide_le: e.valide_le,
         origine: e.origine_id,
+        origine_numero: e.origine_numero,
+        contre_passee_par: e.contre_passee_par,
         lignes: relues,
         pieces,
     }))
@@ -750,4 +766,74 @@ pub async fn lister(
             })
         })
         .collect()
+}
+
+// --- Contre-passation (PR 13c) -----------------------------------------------------------
+
+/// Vrai si l'écriture validée existe dans le dossier du contexte (sous RLS : celle d'un autre
+/// dossier ou d'un autre cabinet est absente).
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn existe(tx: &mut TransactionTenant, id: Uuid) -> Result<bool, ErreurBase> {
+    let (cabinet, dossier) = tenant(tx)?;
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM ecriture_validee
+                          WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3) AS "existe!""#,
+        cabinet.uuid(),
+        dossier.uuid(),
+        id,
+    )
+    .fetch_one(tx.connexion())
+    .await?)
+}
+
+/// Numéro de la contre-passation qui cite `origine`, s'il y en a une. À lire **après** le verrou
+/// de la tête de chaîne : deux contre-passations de la même origine sont alors sérialisées.
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn contre_passee_par(
+    tx: &mut TransactionTenant,
+    origine: Uuid,
+) -> Result<Option<String>, ErreurBase> {
+    let (cabinet, dossier) = tenant(tx)?;
+    Ok(sqlx::query_scalar!(
+        "SELECT numero FROM ecriture_validee \
+         WHERE cabinet_id = $1 AND dossier_id = $2 AND origine_id = $3",
+        cabinet.uuid(),
+        dossier.uuid(),
+        origine,
+    )
+    .fetch_optional(tx.connexion())
+    .await?)
+}
+
+/// Pièces liées à une écriture validée (identifiants), pour les verrouiller avant la tête de
+/// chaîne : les liens d'une écriture validée sont définitifs, leur lecture sans verrou est sûre.
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn pieces_de(tx: &mut TransactionTenant, id: Uuid) -> Result<Vec<Uuid>, ErreurBase> {
+    let (cabinet, dossier) = tenant(tx)?;
+    Ok(sqlx::query_scalar!(
+        "SELECT piece_id FROM ecriture_validee_piece \
+         WHERE cabinet_id = $1 AND dossier_id = $2 AND ecriture_id = $3",
+        cabinet.uuid(),
+        dossier.uuid(),
+        id,
+    )
+    .fetch_all(tx.connexion())
+    .await?)
+}
+
+/// Vrai si l'erreur est la violation de l'unicité de l'origine : l'origine est déjà contre-passée
+/// (filet de la sérialisation par la tête de chaîne, `0204_contre_passation.sql`).
+#[must_use]
+pub fn est_double_contre_passation(erreur: &ErreurBase) -> bool {
+    matches!(
+        erreur,
+        ErreurBase::Sqlx(sqlx::Error::Database(d))
+            if d.constraint() == Some("ecriture_validee_origine_unique")
+    )
 }

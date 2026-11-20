@@ -45,6 +45,8 @@ use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
 
+mod contre_passation;
+mod lot;
 mod saisie;
 pub mod validation;
 
@@ -77,6 +79,10 @@ pub enum Cas {
     ListerEcritures,
     /// Une écriture validée (PR 13b).
     LireEcriture,
+    /// Valider un lot de brouillons, tout ou rien, après ré-authentification (PR 13c).
+    ValiderParLot,
+    /// Contre-passer une écriture validée (PR 13c).
+    ContrePasser,
 }
 
 /// Tranche du module.
@@ -179,6 +185,13 @@ pub const ROUTES: &[Route] = &[
         Cas::Valider,
     ),
     route(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/brouillard/validation-par-lot",
+        Action::ValiderParLot,
+        Portee::Dossier,
+        Cas::ValiderParLot,
+    ),
+    route(
         Methode::Get,
         "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures",
         Action::AccederDossier,
@@ -191,6 +204,13 @@ pub const ROUTES: &[Route] = &[
         Action::AccederDossier,
         Portee::Dossier,
         Cas::LireEcriture,
+    ),
+    route(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures/{ecriture}/contre-passation",
+        Action::ContrePasser,
+        Portee::EcritureValidee,
+        Cas::ContrePasser,
     ),
 ];
 
@@ -211,6 +231,8 @@ pub(crate) async fn executer(
         Cas::ListerEcritures => validation::lister(tx, requete).await,
         Cas::LireEcriture => validation::lire(tx, requete).await,
         Cas::Valider => validation::valider(tx, garde, &dossier, requete).await,
+        Cas::ValiderParLot => lot::valider_par_lot(tx, garde, &dossier, requete).await,
+        Cas::ContrePasser => contre_passation::contre_passer(tx, garde, &dossier, requete).await,
         Cas::Creer => {
             exiger_saisisseur(tx).await?;
             creer(tx, &dossier, requete).await
