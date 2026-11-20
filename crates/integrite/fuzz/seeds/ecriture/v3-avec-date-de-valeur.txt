@@ -1,0 +1,30 @@
+ecriture v3
+numero=OD-2026-000003
+date=2026-02-01
+date-validation=2026-02-01
+date-valeur-comptable=2026-01-30
+libelle=Achat payé sur fonds publics
+piece=8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c
+ligne
+compte=605
+sens=D
+montant=1000
+fiscal-nature=base
+fiscal-sens=deductible
+fiscal-regime=IMP_ENC
+fiscal-taux=18
+fiscal-exigibilite=encaissement
+ligne
+compte=4452
+sens=D
+montant=180
+fiscal-nature=taxe
+fiscal-sens=deductible
+fiscal-regime=IMP_ENC
+fiscal-taux=18
+fiscal-exigibilite=encaissement
+ligne
+compte=521
+sens=C
+montant=1180
+fin

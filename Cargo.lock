@@ -1410,6 +1410,7 @@ dependencies = [
  "cms",
  "compta-core",
  "der",
+ "fiscal-sn",
  "proptest",
  "rsa",
  "rust_decimal",

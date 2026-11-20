@@ -7,10 +7,11 @@
 use std::collections::BTreeMap;
 
 use compta_core::{
-    CodeExercice, CodeJournal, CompteReference, Compteur, Contexte, Cours, Devise,
-    EcritureBrouillon, EcritureValidee, Exercices, FinPremierExercice, IdTiers, Journal, Journaux,
-    Justification, Ligne, Livre, Montant, NumeroCompte, NumeroEcriture, PlanComptes,
-    ReferencePiece, Sens, SensNormal, TexteCourt, TypeJournal, VersionParametres,
+    CodeExercice, CodeJournal, CodeMotif, CodeRegime, CompteReference, Compteur, Contexte, Cours,
+    Devise, EcritureBrouillon, EcritureValidee, EtiquetteFiscale, Exercices, Exigibilite,
+    FinPremierExercice, IdTiers, Journal, Journaux, Justification, Ligne, Livre, Montant,
+    NatureEtiquette, NumeroCompte, NumeroEcriture, PlanComptes, ReferencePiece, Sens, SensNormal,
+    SensTva, TauxTva, TexteCourt, TypeJournal, VersionParametres,
 };
 use integrite::IdDossier;
 use time::Date;
@@ -61,6 +62,11 @@ impl Dossier {
             ("605", SensNormal::Debiteur, false, false),
             ("70", SensNormal::Crediteur, false, false),
             ("701", SensNormal::Crediteur, false, false),
+            ("44", SensNormal::Crediteur, false, false),
+            ("443", SensNormal::Crediteur, false, false),
+            ("4431", SensNormal::Crediteur, false, false),
+            ("445", SensNormal::Debiteur, false, false),
+            ("4452", SensNormal::Debiteur, false, false),
         ];
         let plan = PlanComptes::depuis_referentiel(references.into_iter().map(
             |(num, sens, coll, tres)| {
@@ -311,6 +317,113 @@ pub fn dossier_de_reference() -> Dossier {
         piece("5f"),
     );
     d
+}
+
+/// Étiquette fiscale contrôlée par les données de `fiscal-sn` (régime, taux, exigibilité, motif).
+pub fn etiquette(
+    nature: NatureEtiquette,
+    sens: SensTva,
+    regime: &str,
+    taux: Option<&str>,
+    exigibilite: Option<Exigibilite>,
+    motif: Option<&str>,
+) -> EtiquetteFiscale {
+    EtiquetteFiscale::nouvelle(
+        nature,
+        sens,
+        CodeRegime::parse(regime).unwrap(),
+        taux.map(|t| TauxTva::parse(t).unwrap()),
+        exigibilite,
+        motif.map(|m| CodeMotif::parse(m).unwrap()),
+        &fiscal_sn::ReferentielTva::charger().unwrap(),
+    )
+    .unwrap()
+}
+
+/// Dossier de référence du vecteur v4 : le dossier de référence (6 écritures, inchangées), puis
+/// quatre écritures avec étiquette fiscale : vente taxée à 18 %, vente exonérée (art. 361-4),
+/// contre-passation de la vente taxée, achat à l'encaissement avec date de valeur comptable.
+pub fn dossier_de_reference_v4() -> Dossier {
+    use NatureEtiquette::{Base, Taxe};
+    let mut d = dossier_de_reference();
+    let vente = d.valider(
+        "VT",
+        date!(2026 - 02 - 10),
+        "Vente taxable à 18 %",
+        vec![
+            xof(Sens::Debit, "4111", "118000").avec_tiers(IdTiers::parse("C001").unwrap()),
+            xof(Sens::Credit, "701", "100000").avec_etiquette(etiquette(
+                Base,
+                SensTva::Collectee,
+                "IMP18",
+                Some("18"),
+                Some(Exigibilite::Debit),
+                None,
+            )),
+            xof(Sens::Credit, "4431", "18000").avec_etiquette(etiquette(
+                Taxe,
+                SensTva::Collectee,
+                "IMP18",
+                Some("18"),
+                Some(Exigibilite::Debit),
+                None,
+            )),
+        ],
+        piece("6a"),
+    );
+    d.valider(
+        "VT",
+        date!(2026 - 02 - 20),
+        "Frais de scolarité = exonération",
+        vec![
+            xof(Sens::Debit, "4111", "50000").avec_tiers(IdTiers::parse("C002").unwrap()),
+            xof(Sens::Credit, "701", "50000").avec_etiquette(etiquette(
+                Base,
+                SensTva::Collectee,
+                "EXO361",
+                None,
+                None,
+                Some("EXO361-4"),
+            )),
+        ],
+        piece("7b"),
+    );
+    d.contre_passer(&vente, date!(2026 - 04 - 02));
+    d.valider_tardive(
+        "OD",
+        date!(2026 - 02 - 01),
+        date!(2026 - 01 - 30),
+        "Achat payé sur fonds publics",
+        vec![
+            xof(Sens::Debit, "605", "1000").avec_etiquette(etiquette(
+                Base,
+                SensTva::Deductible,
+                "IMP_ENC",
+                Some("18"),
+                Some(Exigibilite::Encaissement),
+                None,
+            )),
+            xof(Sens::Debit, "4452", "180").avec_etiquette(etiquette(
+                Taxe,
+                SensTva::Deductible,
+                "IMP_ENC",
+                Some("18"),
+                Some(Exigibilite::Encaissement),
+                None,
+            )),
+            xof(Sens::Credit, "521", "1180"),
+        ],
+        piece("8c"),
+    );
+    d
+}
+
+/// Export (v4) du dossier de référence v4, sans jeton.
+pub fn export_de_reference_v4() -> Vec<u8> {
+    let d = dossier_de_reference_v4();
+    let mut sortie = Vec::new();
+    integrite::exporter(&dossier_id(), d.ecritures(), &[], &mut sortie).unwrap();
+    sortie
 }
 
 /// Export (v3) du dossier de référence, sans jeton.

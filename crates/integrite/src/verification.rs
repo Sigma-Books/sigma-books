@@ -453,6 +453,7 @@ impl fmt::Display for Rapport {
             Some(Version::V1) => "export v1",
             Some(Version::V2) => "export v2",
             Some(Version::V3) => "export v3",
+            Some(Version::V4) => "export v4",
             None => "export illisible",
         };
         writeln!(f, "Sigma Books — vérification d'intégrité ({version})")?;

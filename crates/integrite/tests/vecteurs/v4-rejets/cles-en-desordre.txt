@@ -1,0 +1,147 @@
+sigma-books export v4
+dossier=dossier-test
+ecriture v1
+numero=VT-2026-000001
+date=2026-01-15
+date-validation=2026-01-15
+libelle=Facture 2026-001 = client « Ndiaye & fils »
+piece=0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a
+piece=1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b
+ligne
+compte=4111
+sens=D
+montant=118000
+tiers=C001
+ligne
+compte=701
+sens=C
+montant=118000
+fin
+empreinte=7a3b32ded1d9ce29a05bfba39d6be58b213cc6399c0cfcd3d1c20931f8de86ec
+ecriture v1
+numero=BQ1-2026-000001
+date=2026-02-03
+date-validation=2026-02-03
+libelle=Règlement
+parametres=sn-2026.1
+piece=2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c
+ligne
+compte=521
+sens=D
+montant=149998
+devise=EUR
+montant-devise=228.67
+cours=655.957
+ligne
+compte=4111
+sens=C
+montant=149998
+devise=EUR
+montant-devise=228.67
+cours=655.957
+tiers=C001
+fin
+empreinte=1d67f85af100f55f945eee6f950e1526ad6b4e4be75df30a4a78f1bfac6b3a45
+ecriture v1
+numero=OD-2026-000001
+date=2026-03-31
+date-validation=2026-03-31
+libelle=Écriture d'ajustement
+piece=4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e
+ligne
+compte=605
+sens=D
+montant=2500
+ligne
+compte=521
+sens=C
+montant=2500
+fin
+empreinte=44c5d55be80588e6fe3616a3678ad23098dfb178a5ffe3dcaf94e5bdca0120e3
+ecriture v1
+numero=VT-2026-000002
+date=2026-04-01
+date-validation=2026-04-01
+libelle=Contre-passation
+origine=VT-2026-000001
+piece=0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a
+piece=1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b
+ligne
+compte=4111
+sens=C
+montant=118000
+tiers=C001
+ligne
+compte=701
+sens=D
+montant=118000
+fin
+empreinte=05f83827964089e144cfd8186925114ad9e806c3f43ec530f8175cdf257b480d
+ecriture v1
+numero=VT-2027-000001
+date=2027-01-10
+date-validation=2027-01-10
+libelle=Facture 2027-001
+piece=3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d
+ligne
+compte=4111
+sens=D
+montant=50000
+tiers=C002
+ligne
+compte=701
+sens=C
+montant=50000
+fin
+empreinte=116649fdda079968b86eb09e4e5f165e5f6215da22ab559dc00060c95e6a3c35
+ecriture v2
+numero=OD-2026-000002
+date=2026-02-01
+date-validation=2026-02-01
+date-valeur-comptable=2026-01-28
+libelle=Frais bancaires de janvier, relevé reçu tardivement
+piece=5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f
+ligne
+compte=605
+sens=D
+montant=1500
+ligne
+compte=521
+sens=C
+montant=1500
+fin
+empreinte=c55a13aabadadccb3b92249cc2241ddbc5f4c2040dc01cbbba542202844666f9
+ecriture v3
+numero=VT-2026-000003
+date=2026-02-10
+date-validation=2026-02-10
+libelle=Vente taxable à 18 %
+piece=6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a
+ligne
+compte=4111
+sens=D
+montant=118000
+tiers=C001
+ligne
+compte=701
+sens=C
+montant=100000
+fiscal-nature=base
+fiscal-regime=IMP18
+fiscal-sens=collectee
+fiscal-taux=18
+fiscal-exigibilite=debit
+ligne
+compte=4431
+sens=C
+montant=18000
+fiscal-nature=taxe
+fiscal-sens=collectee
+fiscal-regime=IMP18
+fiscal-taux=18
+fiscal-exigibilite=debit
+fin
+empreinte=4b160dd2e562f284333cef4a113747a2a843f6b6d97ff990c74c0884ef252d6a
+tete=4b160dd2e562f284333cef4a113747a2a843f6b6d97ff990c74c0884ef252d6a
+nombre=7
+fin-export

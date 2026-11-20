@@ -39,6 +39,31 @@ fn export_integre_code_0() {
     assert!(sortie.contains("RÉSULTAT : INTÈGRE"));
 }
 
+/// Export v4 (étiquettes fiscales) : intègre, ancré sur sa tête ; une étiquette retouchée est
+/// signalée (code 1).
+#[test]
+fn export_v4_integre_puis_etiquette_retouchee() {
+    let chemin =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vecteurs/export-v4-reference.txt");
+    let (code, sortie, _) = lancer(&[
+        "--tete",
+        "b1b215cdafa1c86839a791244b2f9ff702abb9154ae62e33027190aafe70cf6b",
+        chemin.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{sortie}");
+    assert!(sortie.contains("export v4"), "{sortie}");
+    let retouche = std::fs::read_to_string(&chemin).unwrap().replacen(
+        "fiscal-regime=IMP18",
+        "fiscal-regime=HORS_CHAMP",
+        1,
+    );
+    let copie = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("export-v4-retouche.txt");
+    std::fs::write(&copie, retouche).unwrap();
+    let (code, sortie, _) = lancer(&[copie.to_str().unwrap()]);
+    assert_eq!(code, 1, "{sortie}");
+    assert!(sortie.contains("VT-2026-000003"), "{sortie}");
+}
+
 #[test]
 fn export_altere_code_1() {
     let altere =

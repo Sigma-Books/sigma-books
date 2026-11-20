@@ -13,8 +13,9 @@
 use std::fmt::Write as _;
 
 use compta_core::{
-    Cours, Devise, EcritureValidee, IdTiers, Ligne, Montant, NumeroCompte, NumeroEcriture,
-    ReferencePiece, Sens, TexteCourt, VersionParametres,
+    CodeMotif, CodeRegime, Cours, Devise, EcritureValidee, EtiquetteFiscale, Exigibilite, IdTiers,
+    Ligne, Montant, NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva,
+    TauxTva, TexteCourt, VersionParametres,
 };
 use rust_decimal::Decimal;
 use time::{Date, Month};
@@ -24,6 +25,10 @@ pub const ENTETE_V1: &str = "ecriture v1";
 /// Première ligne d'une écriture au format v2 : v1 et une date de valeur comptable (AUDCIF
 /// art. 22 4°). Une écriture sans date de valeur comptable reste au format v1, à l'identique.
 pub const ENTETE_V2: &str = "ecriture v2";
+/// Première ligne d'une écriture au format v3 : v1 et, sur les lignes, une étiquette fiscale
+/// (ADR 0019) ; la date de valeur comptable y est facultative. Une écriture sans étiquette
+/// garde son format v1 ou v2, à l'identique.
+pub const ENTETE_V3: &str = "ecriture v3";
 /// Dernière ligne d'une écriture.
 pub const FIN: &str = "fin";
 /// Marqueur d'une ligne d'écriture.
@@ -52,6 +57,12 @@ pub enum ErreurCanonique {
     #[error("ligne {ligne} : contre-valeur XOF incohérente avec le montant en devise et le cours")]
     ContreValeurIncoherente {
         /// Ligne du montant XOF.
+        ligne: usize,
+    },
+    /// Étiquette fiscale d'une ligne incohérente (taxe avec motif, motif hors régime).
+    #[error("ligne {ligne} : étiquette fiscale incohérente")]
+    EtiquetteIncoherente {
+        /// Ligne de `fiscal-nature=`.
         ligne: usize,
     },
     /// Texte après la ligne `fin`.
@@ -140,14 +151,20 @@ impl EcritureCanonique {
         !self.lignes.is_empty() && debit == credit
     }
 
-    /// Date de valeur comptable (format v2 seulement).
+    /// Vrai si une ligne porte une étiquette fiscale (format v3).
+    #[must_use]
+    pub fn a_une_etiquette(&self) -> bool {
+        self.lignes.iter().any(|l| l.etiquette().is_some())
+    }
+
+    /// Date de valeur comptable (formats v2 et v3).
     #[must_use]
     pub fn date_valeur_comptable(&self) -> Option<Date> {
         self.date_valeur_comptable
     }
 
-    /// Sérialisation canonique : les octets hachés. Format v1, ou v2 si l'écriture porte une
-    /// date de valeur comptable.
+    /// Sérialisation canonique : les octets hachés. Format v3 si une ligne porte une étiquette
+    /// fiscale, sinon v2 si l'écriture porte une date de valeur comptable, sinon v1.
     #[must_use]
     pub fn serialiser(&self) -> String {
         let mut s = String::new();
@@ -200,8 +217,24 @@ impl EcritureCanonique {
             if let Some(tiers) = ligne.tiers() {
                 cle("tiers", tiers);
             }
+            if let Some(e) = ligne.etiquette() {
+                cle("fiscal-nature", &e.nature().code());
+                cle("fiscal-sens", &e.sens().code());
+                cle("fiscal-regime", e.regime());
+                if let Some(taux) = e.taux() {
+                    cle("fiscal-taux", &taux);
+                }
+                if let Some(exigibilite) = e.exigibilite() {
+                    cle("fiscal-exigibilite", &exigibilite.code());
+                }
+                if let Some(motif) = e.motif() {
+                    cle("fiscal-motif", motif);
+                }
+            }
         }
-        let entete = if self.date_valeur_comptable.is_some() {
+        let entete = if self.a_une_etiquette() {
+            ENTETE_V3
+        } else if self.date_valeur_comptable.is_some() {
             ENTETE_V2
         } else {
             ENTETE_V1
@@ -209,7 +242,7 @@ impl EcritureCanonique {
         format!("{entete}\n{s}{corps}{FIN}\n")
     }
 
-    /// Lit une écriture au format v1 ou v2 et vérifie que le texte est exactement sa forme
+    /// Lit une écriture au format v1, v2 ou v3 et vérifie que le texte est exactement sa forme
     /// canonique.
     ///
     /// # Errors
@@ -347,9 +380,10 @@ impl<'a> Lecteur<'a> {
     }
 
     fn ecriture(mut self) -> Result<EcritureCanonique, ErreurCanonique> {
-        let v2 = match self.suivante() {
-            Some((_, ENTETE_V1)) => false,
-            Some((_, ENTETE_V2)) => true,
+        let version = match self.suivante() {
+            Some((_, ENTETE_V1)) => 1,
+            Some((_, ENTETE_V2)) => 2,
+            Some((_, ENTETE_V3)) => 3,
             Some((ligne, _)) => {
                 return Err(ErreurCanonique::Attendu {
                     ligne,
@@ -366,18 +400,19 @@ impl<'a> Lecteur<'a> {
         let numero = self.valeur("numero", NumeroEcriture::parse)?;
         let date = self.valeur("date", |v| lire_date(v).ok_or(()))?;
         let date_validation = self.valeur("date-validation", |v| lire_date(v).ok_or(()))?;
-        let date_valeur_comptable = if v2 {
-            Some(self.valeur("date-valeur-comptable", |v| lire_date(v).ok_or(()))?)
-        } else {
-            None
+        let date_valeur_comptable = match version {
+            1 => None,
+            2 => Some(self.valeur("date-valeur-comptable", |v| lire_date(v).ok_or(()))?),
+            _ => self.valeur_optionnelle("date-valeur-comptable", |v| lire_date(v).ok_or(()))?,
         };
         let libelle = self.valeur("libelle", TexteCourt::parse)?;
         let origine = self.valeur_optionnelle("origine", NumeroEcriture::parse)?;
         let parametres = self.valeur_optionnelle("parametres", VersionParametres::parse)?;
         let rang_justification = self.rang_courant();
         let justification = self.justification()?;
-        // `sans-piece=` n'existe qu'en v1 (exports anciens) : le format v2 exige des pièces.
-        if v2 && matches!(justification, JustificationCanonique::SansPiece(_)) {
+        // `sans-piece=` n'existe qu'en v1 (exports anciens) : les formats v2 et v3 exigent des
+        // pièces.
+        if version >= 2 && matches!(justification, JustificationCanonique::SansPiece(_)) {
             return Err(ErreurCanonique::Attendu {
                 ligne: rang_justification,
                 attendu: "piece",
@@ -386,7 +421,7 @@ impl<'a> Lecteur<'a> {
         let mut lignes = Vec::new();
         loop {
             match self.suivante() {
-                Some((_, l)) if l == LIGNE => lignes.push(self.ligne()?),
+                Some((_, l)) if l == LIGNE => lignes.push(self.ligne(version >= 3)?),
                 Some((_, l)) if l == FIN => break,
                 Some((ligne, _)) => {
                     return Err(ErreurCanonique::Attendu {
@@ -452,7 +487,7 @@ impl<'a> Lecteur<'a> {
         Ok(JustificationCanonique::Pieces(pieces))
     }
 
-    fn ligne(&mut self) -> Result<Ligne, ErreurCanonique> {
+    fn ligne(&mut self, avec_etiquette: bool) -> Result<Ligne, ErreurCanonique> {
         let compte = self.valeur("compte", NumeroCompte::parse)?;
         let sens = self.valeur("sens", |v| match v {
             "D" => Ok(Sens::Debit),
@@ -495,10 +530,41 @@ impl<'a> Lecteur<'a> {
                 }
             })?,
         };
-        Ok(match self.valeur_optionnelle("tiers", IdTiers::parse)? {
+        let ligne = match self.valeur_optionnelle("tiers", IdTiers::parse)? {
             Some(tiers) => ligne.avec_tiers(tiers),
             None => ligne,
+        };
+        if !avec_etiquette {
+            return Ok(ligne);
+        }
+        Ok(match self.etiquette()? {
+            Some(etiquette) => ligne.avec_etiquette(etiquette),
+            None => ligne,
         })
+    }
+
+    /// Étiquette fiscale d'une ligne (format v3) : tout ou rien. `fiscal-nature`, `fiscal-sens`
+    /// et `fiscal-regime` vont ensemble ; `fiscal-taux`, `fiscal-exigibilite` et `fiscal-motif`
+    /// sont facultatifs, dans cet ordre.
+    fn etiquette(&mut self) -> Result<Option<EtiquetteFiscale>, ErreurCanonique> {
+        let Some(nature) = self.valeur_optionnelle("fiscal-nature", |v| {
+            NatureEtiquette::depuis_code(v).ok_or(())
+        })?
+        else {
+            return Ok(None);
+        };
+        // `rang_courant` pointait la ligne de `fiscal-sens` ; la nature est la précédente.
+        let rang = self.rang_courant().saturating_sub(1);
+        let sens = self.valeur("fiscal-sens", |v| SensTva::depuis_code(v).ok_or(()))?;
+        let regime = self.valeur("fiscal-regime", CodeRegime::parse)?;
+        let taux = self.valeur_optionnelle("fiscal-taux", TauxTva::parse)?;
+        let exigibilite = self.valeur_optionnelle("fiscal-exigibilite", |v| {
+            Exigibilite::depuis_code(v).ok_or(())
+        })?;
+        let motif = self.valeur_optionnelle("fiscal-motif", CodeMotif::parse)?;
+        EtiquetteFiscale::relire(nature, sens, regime, taux, exigibilite, motif)
+            .map(Some)
+            .map_err(|_| ErreurCanonique::EtiquetteIncoherente { ligne: rang })
     }
 }
 
@@ -581,13 +647,162 @@ mod tests {
             })
         );
         assert!(
-            EcritureCanonique::lire(&v1.replacen("ecriture v1\n", "ecriture v3\n", 1)).is_err()
+            EcritureCanonique::lire(&v1.replacen("ecriture v1\n", "ecriture v4\n", 1)).is_err()
         );
+    }
+
+    /// Exemple v3 : deux lignes étiquetées (une taxe, une base exonérée) et une sans étiquette.
+    fn exemple_v3() -> String {
+        format!(
+            "ecriture v3\nnumero=VT-2026-000007\ndate=2026-03-15\ndate-validation=2026-03-16\n\
+             libelle=Vente\nparametres=sn-2026.1\npiece={}\n\
+             ligne\ncompte=4111\nsens=D\nmontant=118000\ntiers=C001\n\
+             ligne\ncompte=7011\nsens=C\nmontant=100000\n\
+             fiscal-nature=base\nfiscal-sens=collectee\nfiscal-regime=IMP18\n\
+             fiscal-taux=18\nfiscal-exigibilite=debit\n\
+             ligne\ncompte=4431\nsens=C\nmontant=18000\n\
+             fiscal-nature=taxe\nfiscal-sens=collectee\nfiscal-regime=IMP18\n\
+             fiscal-taux=18\nfiscal-exigibilite=debit\nfin\n",
+            "ab".repeat(32)
+        )
+    }
+
+    #[test]
+    fn version_v3_et_etiquette_fiscale() {
+        let v3 = exemple_v3();
+        let e = EcritureCanonique::lire(&v3).unwrap();
+        assert_eq!(e.serialiser(), v3);
+        assert!(e.a_une_etiquette());
+        assert_eq!(e.date_valeur_comptable(), None);
+        let taxe = e.lignes()[2].etiquette().unwrap();
+        assert_eq!(taxe.nature(), NatureEtiquette::Taxe);
+        assert_eq!(taxe.regime().as_str(), "IMP18");
+        assert_eq!(e.lignes()[0].etiquette(), None);
+        // Date de valeur comptable facultative en v3.
+        let avec = v3.replacen(
+            "date-validation=2026-03-16\n",
+            "date-validation=2026-03-16\ndate-valeur-comptable=2026-02-27\n",
+            1,
+        );
+        assert!(EcritureCanonique::lire(&avec).is_ok());
+        // Base exonérée avec motif, sans taux ni exigibilité.
+        let exo = v3.replace(
+            "fiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+            "fiscal-regime=EXO361\nfiscal-motif=EXO361-7\nligne",
+        );
+        assert!(EcritureCanonique::lire(&exo).is_ok());
+    }
+
+    #[test]
+    fn refuse_les_etiquettes_invalides() {
+        let v3 = exemple_v3();
+        let cas = [
+            // Clés en désordre, manquantes, inconnues, en double.
+            (
+                "fiscal-sens=collectee\nfiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-regime=IMP18\nfiscal-sens=collectee\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+            ),
+            (
+                "fiscal-sens=collectee\nfiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+            ),
+            (
+                "fiscal-nature=base\n",
+                "fiscal-nature=base\nfiscal-nature=base\n",
+            ),
+            ("fiscal-nature=base", "fiscal-nature=Base"),
+            (
+                "fiscal-sens=collectee\nfiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-sens=percue\nfiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+            ),
+            (
+                "fiscal-exigibilite=debit\nligne",
+                "fiscal-exigibilite=credit\nligne",
+            ),
+            (
+                "fiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-regime=imp 18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+            ),
+            // Taux non canoniques.
+            (
+                "fiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-taux=18.0\nfiscal-exigibilite=debit\nligne",
+            ),
+            (
+                "fiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-taux=018\nfiscal-exigibilite=debit\nligne",
+            ),
+            (
+                "fiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-taux=0\nfiscal-exigibilite=debit\nligne",
+            ),
+            (
+                "fiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                "fiscal-taux=\nfiscal-exigibilite=debit\nligne",
+            ),
+            // Motif sur une ligne de taxe ; motif d'un autre régime.
+            (
+                "fiscal-exigibilite=debit\nfin",
+                "fiscal-exigibilite=debit\nfiscal-motif=IMP18-1\nfin",
+            ),
+            (
+                "fiscal-exigibilite=debit\nligne",
+                "fiscal-motif=EXO361-7\nligne",
+            ),
+        ];
+        for (avant, apres) in cas {
+            let texte = v3.replacen(avant, apres, 1);
+            assert_ne!(texte, v3, "{avant}");
+            assert!(
+                EcritureCanonique::lire(&texte).is_err(),
+                "{avant} → {apres}"
+            );
+        }
+        // v3 sans aucune étiquette : ce serait une v1, donc forme non canonique.
+        let mut sans = String::new();
+        for l in v3.lines().filter(|l| !l.starts_with("fiscal-")) {
+            sans.push_str(l);
+            sans.push('\n');
+        }
+        assert_eq!(
+            EcritureCanonique::lire(&sans),
+            Err(ErreurCanonique::NonCanonique)
+        );
+        assert!(EcritureCanonique::lire(&sans.replacen("ecriture v3", "ecriture v1", 1)).is_ok());
+        // Motif sur une taxe : étiquette incohérente, pas seulement non canonique.
+        let taxe_motif = v3.replacen(
+            "fiscal-exigibilite=debit\nfin",
+            "fiscal-motif=IMP18-1\nfin",
+            1,
+        );
+        assert!(matches!(
+            EcritureCanonique::lire(&taxe_motif),
+            Err(ErreurCanonique::EtiquetteIncoherente { .. })
+        ));
+        // Clés fiscales interdites en v1 et en v2.
+        let v1 = exemple().replacen(
+            "tiers=C001\n",
+            "tiers=C001\nfiscal-nature=base\nfiscal-sens=collectee\nfiscal-regime=HORS_CHAMP\n",
+            1,
+        );
+        assert!(EcritureCanonique::lire(&v1).is_err());
+        assert!(EcritureCanonique::lire(&v1.replacen("ecriture v1", "ecriture v2", 1)).is_err());
+        // v3 sans pièce.
+        let sans_piece = v3.replacen(&format!("piece={}\n", "ab".repeat(32)), "sans-piece=M\n", 1);
+        assert!(EcritureCanonique::lire(&sans_piece).is_err());
+    }
+
+    #[test]
+    fn une_ecriture_sans_etiquette_garde_son_format() {
+        let v1 = exemple();
+        assert_eq!(EcritureCanonique::lire(&v1).unwrap().serialiser(), v1);
+        assert!(!EcritureCanonique::lire(&v1).unwrap().a_une_etiquette());
     }
 
     #[test]
     fn refuse_les_structures_invalides() {
         let cas = [
+            ("ecriture v1\n", "ecriture v4\n"),
             ("ecriture v1\n", "ecriture v3\n"),
             ("sens=D", "sens=X"),
             ("montant-devise=228.67", "montant-devise=228.68"),
@@ -639,6 +854,45 @@ mod tests {
             })
         }
 
+        /// Étiquette syntaxiquement valide (la cohérence avec un référentiel n'importe pas ici).
+        fn etiquette() -> impl Strategy<Value = EtiquetteFiscale> {
+            (
+                prop_oneof![Just(NatureEtiquette::Base), Just(NatureEtiquette::Taxe)],
+                prop_oneof![Just(SensTva::Collectee), Just(SensTva::Deductible)],
+                prop_oneof![Just("IMP18"), Just("EXO361"), Just("EXO380"), Just("X_1")],
+                proptest::option::of(prop_oneof![
+                    Just("18"),
+                    Just("10"),
+                    Just("5.5"),
+                    Just("0.000001")
+                ]),
+                proptest::option::of(prop_oneof![
+                    Just(Exigibilite::Debit),
+                    Just(Exigibilite::Encaissement)
+                ]),
+                proptest::option::of("[0-9a-f]{1,2}"),
+            )
+                .prop_filter_map(
+                    "étiquette valide",
+                    |(nature, sens, regime, taux, exigibilite, suffixe)| {
+                        let regime = CodeRegime::parse(regime).ok()?;
+                        let motif = suffixe
+                            .map(|s| CodeMotif::parse(&format!("{regime}-{s}")))
+                            .transpose()
+                            .ok()?;
+                        EtiquetteFiscale::relire(
+                            nature,
+                            sens,
+                            regime,
+                            taux.map(|t| TauxTva::parse(t).unwrap()),
+                            exigibilite,
+                            motif,
+                        )
+                        .ok()
+                    },
+                )
+        }
+
         fn ligne() -> impl Strategy<Value = Ligne> {
             let compte = prop_oneof![Just("4111"), Just("521"), Just("605"), Just("4011-SENELEC")]
                 .prop_map(|c| NumeroCompte::parse(c).unwrap());
@@ -646,29 +900,45 @@ mod tests {
             let tiers =
                 proptest::option::of("[A-Z0-9]{1,8}".prop_map(|t| IdTiers::parse(&t).unwrap()));
             let devise = proptest::option::of((1i64..10_000_000, 1i64..10_000_000));
-            (compte, sens, 1i64..1_000_000_000_000, devise, tiers).prop_filter_map(
-                "ligne valide",
-                |(compte, sens, xof, devise, tiers)| {
-                    let ligne = match devise {
-                        None => Ligne::en_xof(
-                            compte,
-                            sens,
-                            Montant::nouveau(Decimal::new(xof, 0), Devise::XOF),
-                        ),
-                        Some((montant, cours)) => Ligne::en_devise(
-                            compte,
-                            sens,
-                            Montant::nouveau(Decimal::new(montant, 2), Devise::parse("EUR").ok()?),
-                            Cours::nouveau(Decimal::new(cours, 3)).ok()?,
-                        ),
-                    }
-                    .ok()?;
-                    Some(match tiers {
-                        Some(t) => ligne.avec_tiers(t),
-                        None => ligne,
-                    })
-                },
+            let etiquette = proptest::option::weighted(0.3, etiquette());
+            (
+                compte,
+                sens,
+                1i64..1_000_000_000_000,
+                devise,
+                tiers,
+                etiquette,
             )
+                .prop_filter_map(
+                    "ligne valide",
+                    |(compte, sens, xof, devise, tiers, etiquette)| {
+                        let ligne = match devise {
+                            None => Ligne::en_xof(
+                                compte,
+                                sens,
+                                Montant::nouveau(Decimal::new(xof, 0), Devise::XOF),
+                            ),
+                            Some((montant, cours)) => Ligne::en_devise(
+                                compte,
+                                sens,
+                                Montant::nouveau(
+                                    Decimal::new(montant, 2),
+                                    Devise::parse("EUR").ok()?,
+                                ),
+                                Cours::nouveau(Decimal::new(cours, 3)).ok()?,
+                            ),
+                        }
+                        .ok()?;
+                        let ligne = match tiers {
+                            Some(t) => ligne.avec_tiers(t),
+                            None => ligne,
+                        };
+                        Some(match etiquette {
+                            Some(e) => ligne.avec_etiquette(e),
+                            None => ligne,
+                        })
+                    },
+                )
         }
 
         prop_compose! {
@@ -695,7 +965,10 @@ mod tests {
                     parametres: parametres.map(|p| VersionParametres::parse(&p).unwrap()),
                     // « Sans pièce » n'existe qu'en v1 (exports anciens, lecture seule).
                     justification: match sans_piece {
-                        Some(motif) if date_valeur_comptable.is_none() => {
+                        Some(motif)
+                            if date_valeur_comptable.is_none()
+                                && lignes.iter().all(|l| l.etiquette().is_none()) =>
+                        {
                             JustificationCanonique::SansPiece(motif)
                         }
                         _ => JustificationCanonique::Pieces(
@@ -711,13 +984,23 @@ mod tests {
             #![proptest_config(ProptestConfig::with_cases(512))]
 
             /// Menace F7.3 : la sérialisation est injective. Toute écriture se relit exactement
-            /// depuis sa forme canonique (v1, ou v2 avec date de valeur comptable) ; deux
+            /// depuis sa forme canonique (v1, v2 avec date de valeur comptable, v3 avec étiquette) ; deux
             /// écritures distinctes ont donc des formes canoniques distinctes.
             #[test]
             fn serialisation_injective(a in ecriture(), b in ecriture()) {
                 let (ta, tb) = (a.serialiser(), b.serialiser());
                 prop_assert_eq!(EcritureCanonique::lire(&ta), Ok(a.clone()));
-                prop_assert_eq!(ta.starts_with(ENTETE_V2), a.date_valeur_comptable.is_some());
+                // Version choisie par le contenu : v3 si une étiquette, sinon v2 si une date de
+                // valeur comptable, sinon v1.
+                let attendu = if a.a_une_etiquette() {
+                    ENTETE_V3
+                } else if a.date_valeur_comptable.is_some() {
+                    ENTETE_V2
+                } else {
+                    ENTETE_V1
+                };
+                let entete = format!("{attendu}\n");
+                prop_assert!(ta.starts_with(&entete));
                 prop_assert_eq!(a == b, ta == tb);
             }
         }
