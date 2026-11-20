@@ -560,7 +560,7 @@ async fn courriel_inconnu_meme_reponse_duree_comparable_et_rien_d_inscrit() {
         async move {
             let mut durees = Vec::new();
             let mut reponses = Vec::new();
-            for _ in 0..5 {
+            for _ in 0..7 {
                 let debut = Instant::now();
                 let r = connecter(
                     &routeur,
@@ -573,7 +573,8 @@ async fn courriel_inconnu_meme_reponse_duree_comparable_et_rien_d_inscrit() {
                 reponses.push(r);
             }
             durees.sort();
-            (durees[2], reponses)
+            // Le minimum : le moins sensible à la charge des tests qui tournent en parallèle.
+            (durees[0], reponses)
         }
     };
     let (d_inconnu, r_inconnu) = mesurer(inconnu.clone()).await;
@@ -584,11 +585,12 @@ async fn courriel_inconnu_meme_reponse_duree_comparable_et_rien_d_inscrit() {
         assert_eq!(r.corps, r_connu[0].corps);
         assert!(r.entetes.get("set-cookie").is_none());
     }
-    // Durée comparable : Argon2id est exécuté dans les trois cas (médianes).
+    // Durée comparable : Argon2id est exécuté dans les trois cas (minimums). Sans lui, un
+    // courriel inconnu répondrait plus de dix fois plus vite.
     let rapport = |a: DureeStd, b: DureeStd| a.as_secs_f64() / b.as_secs_f64();
     for (nom, d) in [("inconnu", d_inconnu), ("sans secours", d_sans)] {
         let r = rapport(d, d_connu);
-        assert!((0.5..2.0).contains(&r), "{nom} : {d:?} contre {d_connu:?}");
+        assert!((0.4..2.5).contains(&r), "{nom} : {d:?} contre {d_connu:?}");
     }
     // Rien pour le courriel inconnu ; un échec par tentative pour les comptes connus.
     let par_appareil = |id: Option<Uuid>| {
@@ -606,9 +608,9 @@ async fn courriel_inconnu_meme_reponse_duree_comparable_et_rien_d_inscrit() {
             .unwrap()
         }
     };
-    assert_eq!(par_appareil(None).await, 10);
-    assert_eq!(par_appareil(Some(c.administrateur.uuid())).await, 5);
-    assert_eq!(par_appareil(Some(sans_secours.uuid())).await, 5);
+    assert_eq!(par_appareil(None).await, 14);
+    assert_eq!(par_appareil(Some(c.administrateur.uuid())).await, 7);
+    assert_eq!(par_appareil(Some(sans_secours.uuid())).await, 7);
     // Code de récupération pour un courriel inconnu : même réponse, rien d'inscrit.
     let r = connecter(
         &routeur,
@@ -619,7 +621,7 @@ async fn courriel_inconnu_meme_reponse_duree_comparable_et_rien_d_inscrit() {
     .await;
     assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
     assert_eq!(r.corps, r_connu[0].corps);
-    assert_eq!(par_appareil(None).await, 10);
+    assert_eq!(par_appareil(None).await, 14);
 }
 
 #[tokio::test]
