@@ -868,11 +868,40 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                     ),
                 ),
                 Cas::RetirerPiece => (chemin, format!(r#"{{"version":{version}}}"#)),
+                // Un brouillon à part, justifié par la pièce, validé par un valideur (le
+                // créateur ne valide pas : séparation des tâches).
+                Cas::Valider => {
+                    let second = commun::brouillard::doter(
+                        &env.admin,
+                        c.cabinet,
+                        c.dossier,
+                        c.administrateur,
+                    )
+                    .await;
+                    sqlx::query(
+                        "INSERT INTO brouillon_piece (cabinet_id, dossier_id, brouillon_id, \
+                         piece_id, role, lie_par) VALUES ($1, $2, $3, $4, 'principale', $5)",
+                    )
+                    .bind(c.cabinet.uuid())
+                    .bind(c.dossier.uuid())
+                    .bind(second)
+                    .bind(piece_liee)
+                    .bind(c.administrateur.uuid())
+                    .execute(&env.admin)
+                    .await
+                    .unwrap();
+                    (
+                        chemin.replace(&brouillon.to_string(), &second.to_string()),
+                        r#"{"version":1}"#.to_owned(),
+                    )
+                }
                 _ => (chemin, commun::serveur::corps_de(route).to_owned()),
             };
             // Le drapeau se lève par un autre acteur que celui qui l'a posé.
             let acteur = if cas == Cas::LeverARevoir {
                 c.collaborateur
+            } else if cas == Cas::Valider {
+                commun::ajouter_affecte(&env.admin, &c, "valideur").await
             } else {
                 c.administrateur
             };

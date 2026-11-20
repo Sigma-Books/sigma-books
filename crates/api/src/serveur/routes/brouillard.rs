@@ -46,6 +46,7 @@ use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
 
 mod saisie;
+pub mod validation;
 
 pub use saisie::referentiel_tva;
 
@@ -70,6 +71,12 @@ pub enum Cas {
     LierPiece,
     /// Retirer le lien d'une pièce.
     RetirerPiece,
+    /// Valider un brouillon (PR 13b) : numéro, chaîne, audit.
+    Valider,
+    /// Écritures validées du dossier, paginées (PR 13b).
+    ListerEcritures,
+    /// Une écriture validée (PR 13b).
+    LireEcriture,
 }
 
 /// Tranche du module.
@@ -164,6 +171,27 @@ pub const ROUTES: &[Route] = &[
         Portee::Brouillon,
         Cas::RetirerPiece,
     ),
+    route(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/brouillard/{brouillon}/validation",
+        Action::ValiderEcriture,
+        Portee::Brouillon,
+        Cas::Valider,
+    ),
+    route(
+        Methode::Get,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures",
+        Action::AccederDossier,
+        Portee::Dossier,
+        Cas::ListerEcritures,
+    ),
+    route(
+        Methode::Get,
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures/{ecriture}",
+        Action::AccederDossier,
+        Portee::Dossier,
+        Cas::LireEcriture,
+    ),
 ];
 
 const PAGE_PAR_DEFAUT: u32 = 50;
@@ -180,6 +208,9 @@ pub(crate) async fn executer(
     match cas {
         Cas::Lister => lister(tx, requete).await,
         Cas::Lire => lire(tx, requete).await,
+        Cas::ListerEcritures => validation::lister(tx, requete).await,
+        Cas::LireEcriture => validation::lire(tx, requete).await,
+        Cas::Valider => validation::valider(tx, garde, &dossier, requete).await,
         Cas::Creer => {
             exiger_saisisseur(tx).await?;
             creer(tx, &dossier, requete).await
@@ -345,28 +376,32 @@ fn vue(b: &BrouillonStocke) -> VueBrouillon {
             .lignes
             .iter()
             .enumerate()
-            .map(|(i, l)| VueLigne {
-                position: i + 1,
-                compte: l.compte.clone(),
-                sens: l.sens,
-                montant: l.montant.clone(),
-                devise: l.devise.as_ref().map(|d| VueDevise {
-                    code: d.code.clone(),
-                    montant: d.montant.clone(),
-                    cours: d.cours.clone(),
-                }),
-                tiers: l.tiers.map(|t| t.to_string()),
-                etiquette: l.etiquette.as_ref().map(|e| VueEtiquette {
-                    nature: e.nature.clone(),
-                    sens: e.sens.clone(),
-                    regime: e.regime.clone(),
-                    taux: e.taux.clone(),
-                    exigibilite: e.exigibilite.clone(),
-                    motif: e.motif.clone(),
-                }),
-            })
+            .map(|(i, l)| vue_ligne(i + 1, l))
             .collect(),
         pieces: b.pieces.iter().map(vue_lien).collect(),
+    }
+}
+
+fn vue_ligne(position: usize, l: &LigneStockee) -> VueLigne {
+    VueLigne {
+        position,
+        compte: l.compte.clone(),
+        sens: l.sens,
+        montant: l.montant.clone(),
+        devise: l.devise.as_ref().map(|d| VueDevise {
+            code: d.code.clone(),
+            montant: d.montant.clone(),
+            cours: d.cours.clone(),
+        }),
+        tiers: l.tiers.map(|t| t.to_string()),
+        etiquette: l.etiquette.as_ref().map(|e| VueEtiquette {
+            nature: e.nature.clone(),
+            sens: e.sens.clone(),
+            regime: e.regime.clone(),
+            taux: e.taux.clone(),
+            exigibilite: e.exigibilite.clone(),
+            motif: e.motif.clone(),
+        }),
     }
 }
 

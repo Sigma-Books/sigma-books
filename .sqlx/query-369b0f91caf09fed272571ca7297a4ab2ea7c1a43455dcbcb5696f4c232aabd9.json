@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE compteur_ecriture SET dernier = $5 WHERE cabinet_id = $1 AND dossier_id = $2 AND journal_id = $3 AND exercice_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "369b0f91caf09fed272571ca7297a4ab2ea7c1a43455dcbcb5696f4c232aabd9"
+}

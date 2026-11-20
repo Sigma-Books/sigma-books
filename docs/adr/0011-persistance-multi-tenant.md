@@ -59,6 +59,8 @@ Une validation (ou un lot borné, borne fixée par la PR 13) = **une transaction
 3. compteur du journal et de l'exercice (`FOR UPDATE`) ;
 4. tête d'audit du dossier (ADR 0014).
 
+*Complété par l'ADR 0020 (PR 13b), sans changer l'ordre relatif ci-dessus : exercices avec la période, puis le brouillon, les comptes et tiers cités et les pièces liées s'intercalent avant la tête de chaîne.*
+
 Puis : contrôle par `compta-core` à partir des faits lus, numéro, contenu canonique, empreinte, insertion de l'écriture validée, suppression du brouillon, mise à jour de la tête et du compteur, entrée d'audit. Tout échec annule tout : aucun numéro consommé, aucun trou (F2.3).
 
 ### Tests (exigés en CI à chaque build)

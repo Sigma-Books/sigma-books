@@ -1,0 +1,210 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT e.numero, j.code AS journal, x.code AS exercice, e.date_comptable,\n               e.date_valeur_comptable, e.libelle, e.version_parametres, e.format,\n               e.contenu_canonique, e.empreinte, e.empreinte_precedente, e.rang, e.valide_par,\n               e.date_validation, e.valide_le, e.origine_id\n        FROM ecriture_validee e\n        JOIN journal j ON j.cabinet_id = e.cabinet_id AND j.dossier_id = e.dossier_id\n                      AND j.id = e.journal_id\n        JOIN exercice x ON x.cabinet_id = e.cabinet_id AND x.dossier_id = e.dossier_id\n                       AND x.id = e.exercice_id\n        WHERE e.cabinet_id = $1 AND e.dossier_id = $2 AND e.id = $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "journal",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "exercice",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "exercice",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_comptable",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "date_comptable"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "date_valeur_comptable",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "date_valeur_comptable"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "version_parametres",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "version_parametres"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "format",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "format"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "contenu_canonique",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "contenu_canonique"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "empreinte"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "empreinte_precedente",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "empreinte_precedente"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "valide_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "valide_par"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "date_validation",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "date_validation"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "valide_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "valide_le"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "origine_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "origine_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "b4a7eed69381cfebba60dd8eee59017b26b2b060778c694ce8b6af27578212d4"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE chaine_tete SET rang = $3, empreinte = $4 WHERE cabinet_id = $1 AND dossier_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b8721fbdb39abefd353666a2ffba94ca0ad032f66e120b62a22fc9a02887afa"
+}
