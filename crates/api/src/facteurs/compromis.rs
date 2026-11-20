@@ -12,8 +12,9 @@
 //! passe en clair. Recherche dichotomique, correspondance **exacte** après normalisation (et non
 //! la recherche de sous-chaîne de Tryton, `res/user.py`).
 //!
-//! Normalisation, identique à celle du script : lettres ASCII A à Z en minuscules, rien
-//! d'autre. Un faux positif (deux empreintes tronquées égales) refuse à tort un mot de passe :
+//! Normalisation ([`normaliser`]), identique à celle du script : blancs ASCII retirés en tête
+//! et en fin, suites de blancs internes réduites à une espace, lettres ASCII A à Z en
+//! minuscules. Un faux positif (deux empreintes tronquées égales) refuse à tort un mot de passe :
 //! sens sûr, de probabilité négligeable (72 540 entrées sur 2^64).
 
 use sha2::{Digest, Sha256};
@@ -24,11 +25,24 @@ static LISTE: &[u8] = include_bytes!("../../donnees/mots-de-passe-compromis.bin"
 /// Préfixe de l'empreinte (version 1).
 const PREFIXE: &[u8] = b"sigma-books mots-de-passe-compromis v1\0";
 
+/// Forme normalisée d'un mot de passe : blancs ASCII (espace, tabulation, sauts de ligne,
+/// saut de page) retirés en tête et en fin, suites internes réduites à une espace, lettres
+/// ASCII en minuscules. La longueur minimale se compte sur cette forme
+/// ([`super::mot_de_passe::valider`]).
+#[must_use]
+pub fn normaliser(mot_de_passe: &str) -> String {
+    mot_de_passe
+        .split_ascii_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
 /// Empreinte tronquée d'un mot de passe, après normalisation.
 fn empreinte(mot_de_passe: &str) -> u64 {
     let mut h = Sha256::new();
     h.update(PREFIXE);
-    h.update(mot_de_passe.to_ascii_lowercase().as_bytes());
+    h.update(normaliser(mot_de_passe).as_bytes());
     let complete = h.finalize();
     let mut octets = [0u8; 8];
     octets.copy_from_slice(&complete[..8]);
@@ -80,6 +94,13 @@ mod tests {
     fn recherche_exacte_apres_normalisation() {
         assert!(est_compromis("1q2w3e4r5t6y"));
         assert!(est_compromis("1Q2W3E4R5T6Y"));
+        // Blancs de tête, de fin, et suites internes : normalisés.
+        assert!(est_compromis(" q1w2e3r4t5y6"));
+        assert!(est_compromis("q1w2e3r4t5y6 \t\n"));
+        assert_eq!(
+            normaliser("  Une\t phrase \n de  passe "),
+            "une phrase de passe"
+        );
         // Correspondance exacte : ni préfixe, ni suffixe, ni sous-chaîne.
         assert!(!est_compromis("1q2w3e4r5t6y-sigma"));
         assert!(!est_compromis("x1q2w3e4r5t6y"));
