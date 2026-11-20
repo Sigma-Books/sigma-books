@@ -805,6 +805,8 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let routeur = routeur_de(&env);
+    // Voie pièces (PR 12) : `{piece}` désigne la dernière pièce créée par une route précédente.
+    let mut piece = String::new();
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -820,7 +822,8 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
         let chemin = route
             .chemin
             .replace("{cabinet}", &c.cabinet.to_string())
-            .replace("{dossier}", &c.dossier.to_string());
+            .replace("{dossier}", &c.dossier.to_string())
+            .replace("{piece}", &piece);
         let reponse = appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await;
         assert!(
             reponse.statut.is_success(),
@@ -828,6 +831,9 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             route.chemin,
             reponse.texte()
         );
+        if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
+            piece = reponse.json()["id"].as_str().unwrap().to_owned();
+        }
         let (cabinet_apres, dossier_apres) = (
             verification(&routeur, &c, None).await["nombre"]
                 .as_u64()

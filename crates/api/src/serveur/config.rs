@@ -14,6 +14,7 @@
 //! | horodatage | [`crate::horodatage::config`] | `SIGMA_AUTORITES_HORODATAGE` |
 //! | sessions | [`super::session::configurer`] | `SIGMA_CONSERVATION_SESSIONS_JOURS` |
 //! | facteurs | [`super::facteurs::configurer`] | `SIGMA_FICHIER_CLE_INSTANCE` |
+//! | pièces | [`crate::pieces::config`] | `SIGMA_PIECES_*` |
 //!
 //! Variables du serveur :
 //!
@@ -91,7 +92,8 @@ pub struct Configuration {
     // Voie comptabilité (PR 11, 13, 14) : configuration de ses modules.
     //
     // Voie pièces (PR 12) : configuration de ses modules.
-    //
+    /// Pièces justificatives : stockage objet et réglages ([`crate::pieces::config`]).
+    pub pieces: crate::pieces::config::ConfigurationPieces,
     // Voie intégrité et horodatage (PR 15) : configuration de ses modules.
 }
 
@@ -122,13 +124,14 @@ impl Configuration {
         // Voie comptabilité (PR 11, 13, 14).
         //
         // Voie pièces (PR 12).
-        //
+        let pieces = crate::pieces::config::configuration(&env)?;
         // Voie intégrité et horodatage (PR 15).
         Ok(Self {
             adresse_ecoute,
             base,
             reglages,
             autorites_horodatage,
+            pieces,
         })
     }
 }
@@ -222,6 +225,12 @@ mod tests {
             ),
             ("SIGMA_ORIGINE", "https://Compta.Exemple.invalid"),
             ("SIGMA_FICHIER_CLE_INSTANCE", fichiers_de_cle().0.as_str()),
+            // Voie pièces (PR 12) : stockage objet obligatoire.
+            ("SIGMA_PIECES_S3_POINT_ACCES", "http://127.0.0.1:9100"),
+            ("SIGMA_PIECES_S3_COMPARTIMENT", "sigma-pieces"),
+            ("SIGMA_PIECES_S3_CLE", "cle-exemple"),
+            ("SIGMA_PIECES_S3_SECRET", "valeur-exemple"),
+            ("SIGMA_PIECES_S3_HTTP_ASSUME", "1"),
         ]
     }
 

@@ -13,6 +13,7 @@
 #![allow(dead_code, clippy::expect_used)]
 
 pub mod facteurs;
+pub mod pieces;
 pub mod serveur;
 
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};

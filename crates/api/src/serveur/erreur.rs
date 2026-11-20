@@ -26,6 +26,9 @@ pub enum ErreurApi {
     MethodeNonAdmise,
     /// 413 : corps trop grand.
     CorpsTropGrand,
+    /// 415 : type de fichier non admis (pièce justificative reconnue par sa signature,
+    /// ADR 0015).
+    TypeNonAdmis,
     /// 422 : facteur ou mot de passe refusé à l'enrôlement ou à la ré-authentification
     /// (méthode de secours, PR 8b) ; le motif appartient à une liste fermée.
     Refus(MotifRefus),
@@ -90,6 +93,8 @@ pub enum CategorieErreur {
     Couche,
     /// Inscription au journal d'audit impossible, ou mutation sans trace : l'action est annulée.
     Audit,
+    /// Stockage objet des pièces indisponible, non configuré, ou objet altéré (ADR 0015).
+    Stockage,
 }
 
 impl CategorieErreur {
@@ -103,6 +108,7 @@ impl CategorieErreur {
             Self::Panique => "panique",
             Self::Couche => "couche",
             Self::Audit => "audit",
+            Self::Stockage => "stockage",
         }
     }
 }
@@ -118,6 +124,7 @@ impl ErreurApi {
             Self::Introuvable => StatusCode::NOT_FOUND,
             Self::MethodeNonAdmise => StatusCode::METHOD_NOT_ALLOWED,
             Self::CorpsTropGrand => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::TypeNonAdmis => StatusCode::UNSUPPORTED_MEDIA_TYPE,
             Self::Refus(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::TropDeRequetes { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Interne(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -135,6 +142,7 @@ impl ErreurApi {
             Self::Introuvable => "introuvable",
             Self::MethodeNonAdmise => "methode_non_admise",
             Self::CorpsTropGrand => "corps_trop_grand",
+            Self::TypeNonAdmis => "type_non_admis",
             Self::Refus(motif) => motif.code(),
             Self::TropDeRequetes { .. } => "trop_de_requetes",
             Self::Interne(_) => "erreur_interne",
@@ -170,6 +178,7 @@ pub(crate) fn pour_statut(statut: StatusCode) -> Response {
         StatusCode::NOT_FOUND => ErreurApi::Introuvable,
         StatusCode::METHOD_NOT_ALLOWED => ErreurApi::MethodeNonAdmise,
         StatusCode::PAYLOAD_TOO_LARGE => ErreurApi::CorpsTropGrand,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE => ErreurApi::TypeNonAdmis,
         StatusCode::SERVICE_UNAVAILABLE => ErreurApi::DelaiDepasse,
         s if s.is_server_error() => ErreurApi::Interne(CategorieErreur::Couche),
         _ => ErreurApi::RequeteInvalide,
@@ -219,6 +228,7 @@ mod tests {
             ErreurApi::Introuvable,
             ErreurApi::MethodeNonAdmise,
             ErreurApi::CorpsTropGrand,
+            ErreurApi::TypeNonAdmis,
             ErreurApi::Refus(MotifRefus::MotDePasseTropCourt),
             ErreurApi::Refus(MotifRefus::MotDePasseTropLong),
             ErreurApi::Refus(MotifRefus::MotDePasseCompromis),

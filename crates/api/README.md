@@ -144,6 +144,9 @@ Chaque module lit ses variables et les documente dans une table de sa documentat
 | `SIGMA_AUTORITES_HORODATAGE` | non | horodatage (`src/horodatage/config.rs`) |
 | `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | sessions (`src/serveur/session.rs`) |
 | `SIGMA_FICHIER_CLE_INSTANCE` | oui | facteurs : fichier de la clé de l'instance (`src/serveur/facteurs.rs`) |
+| `SIGMA_PIECES_S3_POINT_ACCES`, `SIGMA_PIECES_S3_COMPARTIMENT`, `SIGMA_PIECES_S3_CLE`, `SIGMA_PIECES_S3_SECRET` | oui | pièces (`src/pieces/config.rs`) |
+| `SIGMA_PIECES_S3_HTTP_ASSUME` | oui (point d'accès `http://`) | pièces (`src/pieces/config.rs`) |
+| `SIGMA_PIECES_S3_REGION`, `SIGMA_PIECES_S3_STYLE`, `SIGMA_PIECES_TAILLE_MAX`, `SIGMA_PIECES_RETENTION_ANS`, `SIGMA_PIECES_DELAI_DEPOT` | non | pièces (`src/pieces/config.rs`) |
 
 Un module qui ajoute des variables crée sa structure et sa lecture, documente leur table dans
 son module, ajoute une ligne à cet index et branche sa lecture dans `Configuration`, à
@@ -339,6 +342,99 @@ de la tête du même instantané : une action concurrente ne produit pas de faus
   sera à reprendre si les chaînes grossissent ;
 - l'alerte à l'administrateur lors d'un export (spec §21, ADR 0014) n'est pas encore émise :
   elle arrive avec la file de tâches et les courriels (PR 9).
+
+## Pièces justificatives
+
+ADR 0015 ; code : `src/pieces/` (signature, stockage, client S3, forme canonique de la pièce
+interne, accès à la table), `src/serveur/routes/pieces.rs` (routes), migration `0300_pieces.sql`,
+format `docs/integrite/piece-interne-v1.md`.
+
+| Route | Cedar | Contenu |
+|---|---|---|
+| `POST …/dossiers/{dossier}/pieces?nom=&empreinte=&doublon=confirme` | `DeposerPiece` | Corps : le fichier, brut. Type par signature (PDF, JPEG, PNG ; sinon 415), 20 Mio au plus pendant la réception (413), empreinte annoncée différente : 400. Doublon dans le dossier : 200 `{"doublon":true,"pieces":[…]}`, rien de stocké ; `doublon=confirme` l'ajoute (201, journalisé) |
+| `POST …/pieces/internes` | `DeposerPiece` | `{"date","motif","lignes"}` : note d'OD canonique, stockée comme un fichier |
+| `GET …/pieces?apres=&limite=` | `ConsulterEditions` | Pièces non écartées, plus récentes d'abord, 100 au plus |
+| `GET …/pieces/{piece}/contenu` | `ConsulterEditions` | Pièce jointe (RFC 6266), `nosniff`, CSP `sandbox; default-src 'none'` ; empreinte recalculée, écart : 500, alerte `alerte=piece_alteree|piece_absente` et entrée d'audit |
+| `POST …/pieces/{piece}/ecart` | `DeposerPiece` | `{"motif"}` : hors des listes, définitif, journalisé |
+
+Consultation : action Cedar `ConsulterEditions` (les quatre rôles du cabinet, §20), retenue
+faute d'une ligne « consulter les pièces » au §20 ; aucune action dédiée en L2.
+
+Doublons concurrents : le dépôt verrouille la ligne de son dossier (`FOR NO KEY UPDATE`) avant
+de chercher l'empreinte, donc avant d'écrire l'objet. De deux dépôts simultanés du même fichier,
+un seul passe sans avertissement, et aucun objet WORM n'est écrit pour l'autre. Un index unique
+partiel ne détecterait le doublon qu'à l'insertion de la ligne, après l'écriture de l'objet,
+gardé dix ans ; un verrou consultatif partagerait un espace de clés entre tenants (F3.5).
+
+Mutations : rôle relu en base (administrateur, valideur, collaborateur), dossier visible relu
+(affectation) ; Cedar n'est pas la seule barrière. La limite de 64 Kio des autres routes reste ;
+le dépôt a la sienne (`SIGMA_PIECES_TAILLE_MAX`) et son délai (`SIGMA_PIECES_DELAI_DEPOT`),
+appliqués par les intergiciels d'après la route reconnue (`Application::limites`).
+
+**Stockage** : compatible S3, **obligatoire** : sans ses quatre variables, ou sans versionnement
+et verrouillage d'objet du compartiment, le serveur refuse de démarrer. Le binaire ne connaît que
+ce stockage ; celui en mémoire n'existe que dans `tests/` (test de structure). HTTP seul en L2 :
+le TLS vers le stockage est reporté à L9 (relais TLS de l'hébergement ou client TLS) ; le
+serveur refuse un point d'accès `http://` sans `SIGMA_PIECES_S3_HTTP_ASSUME=1`, qui assume
+explicitement le transport en clair (« L9 : TLS ou relais local »). Chaque dépôt relit la
+version écrite (`HEAD`) : sans mode `GOVERNANCE` ni fin de rétention au moins égale à celle
+demandée, erreur, et rien n'est inscrit en base.
+
+**Identifiants du stockage** : le rôle applicatif ne doit **jamais** avoir
+`s3:BypassGovernanceRetention`, `s3:DeleteObjectVersion`, ni être l'identité racine du service.
+Le démarrage le vérifie : il dépose une sentinelle (`sentinelle/<UUID>`, rétention d'un jour) et
+tente de la supprimer en contournant le mode gouvernance ; si le service accepte, le serveur
+refuse de démarrer. Chaque démarrage laisse donc une sentinelle, effaçable après un jour.
+
+**Limites acceptées en L2** :
+- le corps d'un dépôt (20 Mio au plus) est lu **avant** la décision Cedar, après
+  l'authentification : le pipeline le lit avant d'ouvrir la transaction, pour qu'un client lent
+  ne retienne pas de connexion à la base ; le lire après la décision imposerait de garder la
+  transaction ouverte pendant la réception ;
+- l'écriture de l'objet (`PUT`, puis `HEAD`) se fait dans la transaction de la requête, verrou
+  du dossier tenu : une connexion à la base et le verrou restent pris pendant l'échange avec le
+  stockage. Les relâcher imposerait de scinder la transaction du pipeline (audit compris),
+  partagée par toutes les voies ; à reprendre si les dépôts d'un dossier se gênent ;
+- **objets orphelins** : un objet écrit dont la ligne n'est pas inscrite (échec de la base, de
+  l'audit ou du contrôle de rétention après le `PUT`) reste stocké sous verrou jusqu'au terme de
+  sa rétention et n'est jamais servi. Aucune tâche ne les signale encore (file de tâches, issue
+  à venir). Chaque objet : clé
+`<cabinet>/<dossier>/<UUID v4>`, rétention de gouvernance d'au moins dix ans,
+`If-None-Match: *`, `x-amz-checksum-sha256` ; lecture de la version écrite (`versionId`). Le rôle
+applicatif du stockage n'a ni `s3:DeleteObjectVersion` ni `s3:BypassGovernanceRetention`.
+
+**Service de développement et de test** (`MinIO`, conteneur à soi, port local seulement ;
+identifiants tirés au hasard, jamais versionnés) :
+
+```sh
+docker run -d --name sigma-pieces-s3 -p 127.0.0.1:9100:9000 \
+  -e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD minio/minio server /data
+# Rôle applicatif : lecture et écriture des objets, rétention, configuration du compartiment.
+cat > politique.json <<'FIN'
+{"Version":"2012-10-17","Statement":[
+ {"Effect":"Allow","Action":["s3:GetBucketVersioning","s3:GetBucketObjectLockConfiguration"],
+  "Resource":["arn:aws:s3:::sigma-*"]},
+ {"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject",
+  "s3:GetObjectVersion","s3:GetObjectRetention"],"Resource":["arn:aws:s3:::sigma-*/*"]}]}
+FIN
+docker cp politique.json sigma-pieces-s3:/tmp/politique.json
+docker exec -e MC_HOST_local="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0.0.1:9000" \
+  -e U="$SIGMA_TEST_S3_CLE" -e S="$SIGMA_TEST_S3_SECRET" sigma-pieces-s3 sh -c \
+  'mc admin user add local "$U" "$S" && mc admin policy create local sigma-pieces /tmp/politique.json \
+   && mc admin policy attach local sigma-pieces --user "$U" && mc mb --with-lock local/sigma-pieces'
+```
+
+**Tests** :
+- sans service S3 : `tests/pieces.rs` (`tests-postgres`, stockage en mémoire de même contrat) et
+  `tests/piece_interne.rs` (vecteurs) ;
+- contre le service : `tests/pieces_s3.rs`, fonctionnalité `tests-s3`. Ses tests sont marqués
+  `#[ignore]` : `--all-features` les compile et les compte « ignorés » sans les exécuter, parce
+  que la CI n'a pas encore de service S3. Les lancer :
+  `cargo test -p api --features tests-s3 --test pieces_s3 -- --include-ignored`. Sans service ni
+  variables (`SIGMA_TEST_S3_*`, `.env.example`), ils **échouent**. Ils créent leurs propres
+  compartiments `sigma-test-…` avec l'identité d'administrateur.
+- **À trancher** : ajouter un service `MinIO` à la CI (`.github/workflows/rust.yml`, hors de cette
+  voie) et y lancer `-- --include-ignored` sur `pieces_s3`.
 
 ## Travailler en voies parallèles
 

@@ -64,6 +64,11 @@ aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "al
 # l'arbre (`sqlx`), comme `sha1` déclaré plus haut.
 hkdf = { version = "0.13.0", default-features = false }
 hmac = { version = "0.13.0", default-features = false }
+# Pièces justificatives (ADR 0015 ; L2 PR 12) : signature AWS v4 des requêtes au stockage objet
+# compatible S3, sans E/S (le transport est le client `hyper` déjà présent). Sans `full` : ni XML,
+# ni serde, ni MD5. BSD-2-Clause. `url` (déjà dans l'arbre) : point d'accès du compartiment.
+rusty-s3 = { version = "0.12.0", default-features = false, features = ["rustcrypto"] }
+url = { version = "2.5.8", default-features = false, features = ["std"] }
 
 # Argon2 compilé optimisé même en développement : les tests vérifient de vrais mots de passe
 # (19 Mio, 2 passes), sans quoi chaque vérification prendrait plusieurs secondes.

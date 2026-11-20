@@ -480,8 +480,9 @@ async fn traiter_requete(
         .verifier(identite.utilisateur, Instant::now())
         .map_err(|reessayer_dans| ErreurApi::TropDeRequetes { reessayer_dans })?;
     let utilisateur = id_authz(identite.utilisateur.uuid(), authz::IdUtilisateur::new)?;
-    // Corps lu avant d'ouvrir la transaction, borné (413 au-delà).
-    let corps = axum::body::to_bytes(corps, etat.reglages.taille_corps_max)
+    // Corps lu avant d'ouvrir la transaction, borné à la limite de la route (413 au-delà).
+    let (taille_corps_max, _) = etat.limites(route);
+    let corps = axum::body::to_bytes(corps, taille_corps_max)
         .await
         .map_err(|_| ErreurApi::CorpsTropGrand)?;
 
@@ -558,6 +559,8 @@ async fn traiter_requete(
         parametres: parts.uri.query(),
         corps: &corps,
         lecture_audit: &etat.pool_lecture_audit,
+        chemin: &parametres,
+        pieces: etat.pieces(),
     };
     let resultat = executer(route.cas_usage, &mut tx, &garde, &requete).await?;
 
@@ -784,7 +787,7 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 3);
+        assert_eq!(mutations.len(), 6);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

@@ -44,9 +44,10 @@ mod pieces;
 mod referentiel;
 mod session;
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use api::base::session::NatureSession;
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
@@ -76,6 +77,22 @@ struct Monde {
     auditeur: IdUtilisateur,
 }
 
+/// Sous-ressources réelles des dossiers de tous les mondes, par (dossier, nom) : `{piece}`
+/// (PR 12). Chaque monde a ses propres dossiers : les tests parallèles ne se gênent pas.
+///
+/// Même mécanisme que celui de la PR 11 (`{compte}`, `{tiers}`, sur sa branche) : un chemin
+/// concret prend les sous-ressources d'un dossier « source », par défaut celui du chemin ;
+/// absentes, un UUID neuf, donc inexistant. À la fusion, ses `Fixtures` s'inscrivent ici.
+static SOUS_RESSOURCES: Mutex<BTreeMap<(Uuid, &'static str), Uuid>> = Mutex::new(BTreeMap::new());
+
+/// Inscrit la sous-ressource `{nom}` du dossier `dossier`.
+fn inscrire_sous_ressource(dossier: IdDossier, nom: &'static str, id: Uuid) {
+    SOUS_RESSOURCES
+        .lock()
+        .unwrap()
+        .insert((dossier.uuid(), nom), id);
+}
+
 async fn monde(admin: &PgPool) -> Monde {
     let a = creer_cabinet(admin, "Cabinet A").await;
     let b = creer_cabinet(admin, "Cabinet B").await;
@@ -88,6 +105,13 @@ async fn monde(admin: &PgPool) -> Monde {
     tx.commit().await.unwrap();
     let valideur = ajouter_affecte(admin, &a, "valideur").await;
     let auditeur = ajouter_affecte(admin, &a, "auditeur").await;
+    // Une pièce réelle dans chaque dossier (PR 12).
+    for c in [&a, &b] {
+        for dossier in [c.dossier, c.autre_dossier] {
+            let piece = commun::pieces::doter(admin, c.cabinet, dossier, c.administrateur).await;
+            inscrire_sous_ressource(dossier, "piece", piece);
+        }
+    }
     Monde {
         a,
         b,
@@ -97,12 +121,55 @@ async fn monde(admin: &PgPool) -> Monde {
     }
 }
 
-/// Chemin concret d'une route.
+/// Chemin concret d'une route ; ses sous-ressources (`{piece}`…) sont celles du dossier du
+/// chemin.
 fn chemin(route: &Route, cabinet: Uuid, dossier: Uuid) -> String {
+    chemin_de(route, cabinet, dossier, dossier)
+}
+
+/// Chemin concret d'une route dont les sous-ressources sont celles du dossier `source` (un
+/// UUID neuf, donc inexistant, si `source` n'en a pas).
+fn chemin_de(route: &Route, cabinet: Uuid, dossier: Uuid, source: Uuid) -> String {
+    let inscrites = SOUS_RESSOURCES.lock().unwrap().clone();
+    chemin_concret(route.chemin, cabinet, dossier, |nom| {
+        inscrites
+            .iter()
+            .find_map(|((d, n), id)| (*d == source && *n == nom).then_some(*id))
+            .unwrap_or_else(Uuid::new_v4)
+    })
+}
+
+/// Remplace chaque `{nom}` du modèle : cabinet, dossier, puis sous-ressources.
+fn chemin_concret(
+    modele: &str,
+    cabinet: Uuid,
+    dossier: Uuid,
+    sous_ressource: impl Fn(&str) -> Uuid,
+) -> String {
+    let mut chemin = String::new();
+    let mut reste = modele;
+    while let Some(debut) = reste.find('{') {
+        let fin = reste[debut..].find('}').unwrap() + debut;
+        chemin.push_str(&reste[..debut]);
+        let valeur = match &reste[debut + 1..fin] {
+            "cabinet" => cabinet,
+            "dossier" => dossier,
+            autre => sous_ressource(autre),
+        };
+        chemin.push_str(&valeur.to_string());
+        reste = &reste[fin + 1..];
+    }
+    chemin.push_str(reste);
+    chemin
+}
+
+/// Vrai si le chemin désigne une sous-ressource du dossier (`{piece}`…).
+fn a_une_sous_ressource(route: &Route) -> bool {
     route
         .chemin
-        .replace("{cabinet}", &cabinet.to_string())
-        .replace("{dossier}", &dossier.to_string())
+        .replace("{cabinet}", "")
+        .replace("{dossier}", "")
+        .contains('{')
 }
 
 fn a_un_dossier(route: &Route) -> bool {
@@ -142,6 +209,23 @@ struct Attendu {
     cabinet: IdCabinet,
     dossier: IdDossier,
     resultat: Resultat,
+    /// Dossier dont les sous-ressources sont placées dans le chemin (par défaut, `dossier`).
+    sous_ressources_de: Option<IdDossier>,
+}
+
+/// Attente d'un appel dont les sous-ressources du chemin sont celles du dossier `de` : celle
+/// d'un autre dossier, placée sous `dossier`, est absente (404 identique).
+fn attendu_croise(
+    utilisateur: IdUtilisateur,
+    cabinet: IdCabinet,
+    dossier: IdDossier,
+    de: IdDossier,
+    resultat: Resultat,
+) -> Attendu {
+    Attendu {
+        sous_ressources_de: Some(de),
+        ..attendu(utilisateur, cabinet, dossier, resultat)
+    }
 }
 
 fn attendu(
@@ -155,6 +239,7 @@ fn attendu(
         cabinet,
         dossier,
         resultat,
+        sous_ressources_de: None,
     }
 }
 
@@ -220,7 +305,13 @@ fn ids(reponse: &Reponse) -> Vec<String> {
 }
 
 async fn verifier_attendu(routeur: &Router, route: &Route, attendu: &Attendu, reference: &Reponse) {
-    let chemin = chemin(route, attendu.cabinet.uuid(), attendu.dossier.uuid());
+    let source = attendu.sous_ressources_de.unwrap_or(attendu.dossier);
+    let chemin = chemin_de(
+        route,
+        attendu.cabinet.uuid(),
+        attendu.dossier.uuid(),
+        source.uuid(),
+    );
     let reponse = appel(routeur, route, &chemin, Some(attendu.utilisateur)).await;
     let contexte = format!("{} {} {chemin}", route.methode.nom(), route.chemin);
     match &attendu.resultat {
@@ -361,6 +452,30 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
                 &reponse,
                 &reference,
                 &format!("{} : dossier d'autrui", route.chemin),
+            );
+            reponses.push(reponse);
+        }
+    }
+    if a_une_sous_ressource(route) {
+        // Sous-ressource d'un autre dossier (de B, ou non affecté de A), ou inexistante, placée
+        // dans le chemin d'un dossier de A visible : 404 identique, rien n'est modifié.
+        for source in [
+            b.dossier.uuid(),
+            b.autre_dossier.uuid(),
+            a.autre_dossier.uuid(),
+            Uuid::new_v4(),
+        ] {
+            let reponse = appel(
+                routeur,
+                route,
+                &chemin_de(route, a.cabinet.uuid(), a.dossier.uuid(), source),
+                Some(a.administrateur),
+            )
+            .await;
+            verifier_absent(
+                &reponse,
+                &reference,
+                &format!("{} : sous-ressource d'autrui", route.chemin),
             );
             reponses.push(reponse);
         }
@@ -827,7 +942,13 @@ async fn les_journaux_d_un_scenario_complet_restent_en_liste_blanche() {
     for route in ROUTES.iter().filter(|r| r.portee.du_cabinet()) {
         reponses.extend(verifier_generique(&routeur, route, &m).await);
         for attendu in attentes(route, &m).unwrap() {
-            let chemin = chemin(route, attendu.cabinet.uuid(), attendu.dossier.uuid());
+            let source = attendu.sous_ressources_de.unwrap_or(attendu.dossier);
+            let chemin = chemin_de(
+                route,
+                attendu.cabinet.uuid(),
+                attendu.dossier.uuid(),
+                source.uuid(),
+            );
             reponses.push(appel(&routeur, route, &chemin, Some(attendu.utilisateur)).await);
         }
     }
