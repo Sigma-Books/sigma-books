@@ -144,7 +144,7 @@ Chaque module lit ses variables et les documente dans une table de sa documentat
 | `SIGMA_AUTORITES_HORODATAGE` | non | horodatage (`src/horodatage/config.rs`) |
 | `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | sessions (`src/serveur/session.rs`) |
 | `SIGMA_FICHIER_CLE_INSTANCE` | oui | facteurs : fichier de la clé de l'instance (`src/serveur/facteurs.rs`) |
-| `SIGMA_PIECES_S3_POINT_ACCES`, `SIGMA_PIECES_S3_COMPARTIMENT`, `SIGMA_PIECES_S3_CLE`, `SIGMA_PIECES_S3_SECRET` | non (les quatre ensemble) | pièces (`src/pieces/config.rs`) |
+| `SIGMA_PIECES_S3_POINT_ACCES`, `SIGMA_PIECES_S3_COMPARTIMENT`, `SIGMA_PIECES_S3_CLE`, `SIGMA_PIECES_S3_SECRET` | oui | pièces (`src/pieces/config.rs`) |
 | `SIGMA_PIECES_S3_REGION`, `SIGMA_PIECES_S3_STYLE`, `SIGMA_PIECES_TAILLE_MAX`, `SIGMA_PIECES_RETENTION_ANS`, `SIGMA_PIECES_DELAI_DEPOT` | non | pièces (`src/pieces/config.rs`) |
 
 Un module qui ajoute des variables crée sa structure et sa lecture, documente leur table dans
@@ -356,13 +356,24 @@ format `docs/integrite/piece-interne-v1.md`.
 | `GET …/pieces/{piece}/contenu` | `ConsulterEditions` | Pièce jointe (RFC 6266), `nosniff`, CSP `sandbox; default-src 'none'` ; empreinte recalculée, écart : 500, alerte `alerte=piece_alteree|piece_absente` et entrée d'audit |
 | `POST …/pieces/{piece}/ecart` | `DeposerPiece` | `{"motif"}` : hors des listes, définitif, journalisé |
 
+Consultation : action Cedar `ConsulterEditions` (les quatre rôles du cabinet, §20), retenue
+faute d'une ligne « consulter les pièces » au §20 ; aucune action dédiée en L2.
+
+Doublons concurrents : le dépôt verrouille la ligne de son dossier (`FOR NO KEY UPDATE`) avant
+de chercher l'empreinte, donc avant d'écrire l'objet. De deux dépôts simultanés du même fichier,
+un seul passe sans avertissement, et aucun objet WORM n'est écrit pour l'autre. Un index unique
+partiel ne détecterait le doublon qu'à l'insertion de la ligne, après l'écriture de l'objet,
+gardé dix ans ; un verrou consultatif partagerait un espace de clés entre tenants (F3.5).
+
 Mutations : rôle relu en base (administrateur, valideur, collaborateur), dossier visible relu
 (affectation) ; Cedar n'est pas la seule barrière. La limite de 64 Kio des autres routes reste ;
 le dépôt a la sienne (`SIGMA_PIECES_TAILLE_MAX`) et son délai (`SIGMA_PIECES_DELAI_DEPOT`),
 appliqués par les intergiciels d'après la route reconnue (`Application::limites`).
 
-**Stockage** : compatible S3, HTTP seul en L2 (relais TLS de l'hébergement, L9). Au démarrage,
-versionnement et verrouillage d'objet exigés, sinon refus de démarrer. Chaque objet : clé
+**Stockage** : compatible S3, **obligatoire** : sans ses quatre variables, ou sans versionnement
+et verrouillage d'objet du compartiment, le serveur refuse de démarrer. Le binaire ne connaît que
+ce stockage ; celui en mémoire n'existe que dans `tests/` (test de structure). HTTP seul en L2 :
+le TLS vers le stockage est reporté à L9 (relais TLS de l'hébergement ou client TLS). Chaque objet : clé
 `<cabinet>/<dossier>/<UUID v4>`, rétention de gouvernance d'au moins dix ans,
 `If-None-Match: *`, `x-amz-checksum-sha256` ; lecture de la version écrite (`versionId`). Le rôle
 applicatif du stockage n'a ni `s3:DeleteObjectVersion` ni `s3:BypassGovernanceRetention`.
