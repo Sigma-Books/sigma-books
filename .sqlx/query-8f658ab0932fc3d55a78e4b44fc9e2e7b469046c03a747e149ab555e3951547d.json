@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT debut FROM periode WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "debut",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "periode",
+            "name": "debut"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8f658ab0932fc3d55a78e4b44fc9e2e7b469046c03a747e149ab555e3951547d"
+}

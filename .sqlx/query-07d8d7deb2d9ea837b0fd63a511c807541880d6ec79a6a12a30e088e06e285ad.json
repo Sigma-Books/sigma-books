@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE periode SET statut = $5, statut_par = $6, statut_le = $7, motif = $8 WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3 AND statut = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07d8d7deb2d9ea837b0fd63a511c807541880d6ec79a6a12a30e088e06e285ad"
+}
