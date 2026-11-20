@@ -1,0 +1,316 @@
+# Motifs d'exonération de TVA : liste FERMÉE des codes portés par l'étiquette d'une ligne de base
+# d'une opération exonérée (L2, question 7.2 ; ADR 0019). Codes STABLES : ajout seul.
+#
+# Source : CGI du Sénégal consolidé, DGID, janvier 2025 ; page = page PDF = folio imprimé.
+# - art. 361, alinéas 1 à 28 : exonérations sans droit à déduction (p. 176 à 181) ;
+# - art. 380, a à f : exonérations ouvrant droit à déduction (p. 189).
+#
+# Chevauchement : les alinéas 361-14 (exportations), 361-15 (transport international de biens) et
+# 361-26 (matériel agricole, jusqu'au 31 décembre 2026) sont aussi aux a, d et e de l'art. 380, qui
+# ouvre droit à déduction. Choix retenu : le code de l'art. 380 ; 361-14, 361-15 et 361-26 ne sont
+# PAS des codes distincts (tables [[chevauchement]]). À FAIRE VALIDER par l'expert-comptable et le
+# fiscaliste (spec §26).
+#
+# Champs de [[motif]] : code (`<régime>-<suffixe>`), regime (EXO361 ou EXO380), article, alinea,
+# pages, libelle (intitulé court rédigé pour Sigma Books), deduction (`non` ou `oui`).
+# Champs de [[chevauchement]] : article, alinea, pages, motif (code retenu), note.
+
+[[motif]]
+code = "EXO361-1"
+regime = "EXO361"
+article = "361"
+alinea = "1"
+pages = [176]
+libelle = "Hospitalisation, soins à la personne"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-2"
+regime = "EXO361"
+article = "361"
+alinea = "2"
+pages = [176]
+libelle = "Médicaments et produits pharmaceutiques, matériels médicaux listés"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-3"
+regime = "EXO361"
+article = "361"
+alinea = "3"
+pages = [176]
+libelle = "Produits alimentaires non transformés de première nécessité"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-4"
+regime = "EXO361"
+article = "361"
+alinea = "4"
+pages = [177]
+libelle = "Enseignement scolaire ou universitaire"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-5"
+regime = "EXO361"
+article = "361"
+alinea = "5"
+pages = [177]
+libelle = "Eau et électricité, tranche sociale"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-6"
+regime = "EXO361"
+article = "361"
+alinea = "6"
+pages = [177]
+libelle = "Opérations financières, assurance et réassurance"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-7"
+regime = "EXO361"
+article = "361"
+alinea = "7"
+pages = [177]
+libelle = "Mutations d'immeubles et de fonds de commerce"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-8"
+regime = "EXO361"
+article = "361"
+alinea = "8"
+pages = [177]
+libelle = "Timbres-poste, timbres fiscaux et valeurs similaires"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-9"
+regime = "EXO361"
+article = "361"
+alinea = "9"
+pages = [178]
+libelle = "Livres, journaux et publications périodiques"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-10"
+regime = "EXO361"
+article = "361"
+alinea = "10"
+pages = [178]
+libelle = "Œuvres d'art originales vendues par leur auteur"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-11"
+regime = "EXO361"
+article = "361"
+alinea = "11"
+pages = [178]
+libelle = "Location d'immeubles nus à usage d'habitation"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-12"
+regime = "EXO361"
+article = "361"
+alinea = "12"
+pages = [178]
+libelle = "Importation de biens dont la livraison est exonérée"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-13"
+regime = "EXO361"
+article = "361"
+alinea = "13"
+pages = [178]
+libelle = "Importation sous régime douanier suspensif, transit"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-16"
+regime = "EXO361"
+article = "361"
+alinea = "16"
+pages = [178]
+libelle = "Transport international de voyageurs"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-17"
+regime = "EXO361"
+article = "361"
+alinea = "17"
+pages = [178]
+libelle = "Bateaux de pêche ou de haute mer"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-18"
+regime = "EXO361"
+article = "361"
+alinea = "18"
+pages = [179]
+libelle = "Aéronefs de compagnies de navigation aérienne internationale"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-19"
+regime = "EXO361"
+article = "361"
+alinea = "19"
+pages = [179]
+libelle = "Ventes et prestations des services administratifs"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-20"
+regime = "EXO361"
+article = "361"
+alinea = "20"
+pages = [179]
+libelle = "Transport public de voyageurs à tarifs homologués"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-21"
+regime = "EXO361"
+article = "361"
+alinea = "21"
+pages = [179]
+libelle = "Produits livrés à l'État, aux communes et aux établissements publics"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-22"
+regime = "EXO361"
+article = "361"
+alinea = "22"
+pages = [179]
+libelle = "Semences, engrais et intrants agricoles"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-23"
+regime = "EXO361"
+article = "361"
+alinea = "23"
+pages = [179]
+libelle = "Crédit-bail et finance islamique sur biens exonérés"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-24"
+regime = "EXO361"
+article = "361"
+alinea = "24"
+pages = [179]
+libelle = "Gaz butane à usage domestique"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-25"
+regime = "EXO361"
+article = "361"
+alinea = "25"
+pages = [180]
+libelle = "Hydrocarbures et substances minérales (prospection, exploration)"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-27"
+regime = "EXO361"
+article = "361"
+alinea = "27"
+pages = [180]
+libelle = "Matériels de production d'énergies renouvelables"
+deduction = "non"
+
+[[motif]]
+code = "EXO361-28"
+regime = "EXO361"
+article = "361"
+alinea = "28"
+pages = [181]
+libelle = "Intérêts et commissions sur prêts et avances à l'État"
+deduction = "non"
+
+[[motif]]
+code = "EXO380-a"
+regime = "EXO380"
+article = "380"
+alinea = "a"
+pages = [189]
+libelle = "Exportations et opérations assimilées, services directement liés"
+deduction = "oui"
+
+[[motif]]
+code = "EXO380-b"
+regime = "EXO380"
+article = "380"
+alinea = "b"
+pages = [189]
+libelle = "Services rendus à l'étranger par un assujetti identifié, non imposables au Sénégal"
+deduction = "oui"
+
+[[motif]]
+code = "EXO380-c"
+regime = "EXO380"
+article = "380"
+alinea = "c"
+pages = [189]
+libelle = "Livraisons et prestations à des entreprises en régime franc ou à exonération visée"
+deduction = "oui"
+
+[[motif]]
+code = "EXO380-d"
+regime = "EXO380"
+article = "380"
+alinea = "d"
+pages = [189]
+libelle = "Transport international de biens à destination de l'étranger"
+deduction = "oui"
+
+[[motif]]
+code = "EXO380-e"
+regime = "EXO380"
+article = "380"
+alinea = "e"
+pages = [189]
+libelle = "Matériels et services agricoles visés à l'art. 361-26"
+deduction = "oui"
+
+[[motif]]
+code = "EXO380-f"
+regime = "EXO380"
+article = "380"
+alinea = "f"
+pages = [189]
+libelle = "Livraisons de lait pasteurisé"
+deduction = "oui"
+
+[[chevauchement]]
+article = "361"
+alinea = "14"
+pages = [178, 189]
+motif = "EXO380-a"
+note = "Exportations directes et opérations assimilées, services directement liés."
+
+[[chevauchement]]
+article = "361"
+alinea = "15"
+pages = [178, 189]
+motif = "EXO380-d"
+note = "Transport international de biens à destination de l'étranger."
+
+[[chevauchement]]
+article = "361"
+alinea = "26"
+pages = [180, 189]
+motif = "EXO380-e"
+note = "Matériels agricoles, aménagements et services agricoles, jusqu'au 31 décembre 2026 (l'art. 380 e renvoie au 26 de l'art. 361)."
