@@ -24,6 +24,7 @@ use rust_decimal::Decimal;
 use time::Date;
 
 use crate::compte::NumeroCompte;
+use crate::etiquette::EtiquetteFiscale;
 use crate::journal::CodeJournal;
 use crate::montant::{Cours, Devise, ErreurMontant, Montant};
 use crate::texte::{ErreurTexte, TexteCourt};
@@ -277,6 +278,7 @@ pub struct Ligne {
     montant: Montant,
     devise: Option<MontantDevise>,
     tiers: Option<IdTiers>,
+    etiquette: Option<EtiquetteFiscale>,
 }
 
 impl Ligne {
@@ -301,6 +303,7 @@ impl Ligne {
             montant,
             devise: None,
             tiers: None,
+            etiquette: None,
         })
     }
 
@@ -331,6 +334,7 @@ impl Ligne {
             montant: contre_valeur,
             devise: Some(MontantDevise { montant, cours }),
             tiers: None,
+            etiquette: None,
         })
     }
 
@@ -338,6 +342,21 @@ impl Ligne {
     #[must_use]
     pub fn avec_tiers(mut self, tiers: IdTiers) -> Self {
         self.tiers = Some(tiers);
+        self
+    }
+
+    /// Attache une étiquette fiscale (base ou taxe de TVA) à la ligne.
+    #[must_use]
+    pub fn avec_etiquette(mut self, etiquette: EtiquetteFiscale) -> Self {
+        self.etiquette = Some(etiquette);
+        self
+    }
+
+    /// La même ligne sans étiquette fiscale (sérialisation canonique, où l'étiquette est portée
+    /// à part par un type « relu »).
+    #[must_use]
+    pub fn sans_etiquette(mut self) -> Self {
+        self.etiquette = None;
         self
     }
 
@@ -389,7 +408,15 @@ impl Ligne {
         self.tiers.as_ref()
     }
 
-    /// Ligne miroir : même compte, même montant, même devise et même tiers, sens inversé.
+    /// Étiquette fiscale.
+    #[must_use]
+    pub fn etiquette(&self) -> Option<&EtiquetteFiscale> {
+        self.etiquette.as_ref()
+    }
+
+    /// Ligne miroir : même compte, même montant, même devise, même tiers et **même étiquette
+    /// fiscale**, sens D/C inversé. L'étiquette ne change pas : la déclaration somme débit −
+    /// crédit par étiquette, la contre-passation s'annule donc d'elle-même.
     #[must_use]
     pub(crate) fn miroir(&self) -> Self {
         Self {

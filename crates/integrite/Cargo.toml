@@ -30,6 +30,7 @@ x509-cert.workspace = true
 x509-tsp.workspace = true
 
 [dev-dependencies]
+fiscal-sn = { path = "../fiscal-sn" }
 proptest.workspace = true
 syscohada = { path = "../syscohada" }
 time = { workspace = true, features = ["macros"] }

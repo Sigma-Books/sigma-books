@@ -1,0 +1,20 @@
+ecriture v3
+numero=VT-2026-000004
+date=2026-02-20
+date-validation=2026-02-20
+libelle=Frais de scolarité = exonération
+piece=7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b
+ligne
+compte=4111
+sens=D
+montant=50000
+tiers=C002
+ligne
+compte=701
+sens=C
+montant=50000
+fiscal-nature=base
+fiscal-sens=collectee
+fiscal-regime=EXO361
+fiscal-motif=EXO361-4
+fin

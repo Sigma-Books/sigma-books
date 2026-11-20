@@ -10,6 +10,7 @@ pub mod centralisateur;
 pub mod compte;
 pub mod ecriture;
 pub mod editions;
+pub mod etiquette;
 pub mod exercice;
 pub mod journal;
 pub mod livre;
@@ -32,6 +33,11 @@ pub use ecriture::{
 pub use editions::{
     Balance, CompteGrandLivre, EcritureJournal, EditionJournal, ErreurEdition, Filtre,
     FormatBalance, LigneBalance, LigneGrandLivre, Mode, Regroupement, grand_livre, journaux,
+};
+pub use etiquette::{
+    CodeMotif, CodeRegime, EcartTaxe, ErreurEtiquette, EtiquetteFiscale, EtiquetteRelue,
+    Exigibilite, NatureEtiquette, ProfilRegime, ReferentielFiscal, SensTva, TauxTva, TotauxTaxe,
+    controler_taxes_et_comptes, totaux_taxe,
 };
 pub use exercice::{
     CodeExercice, Deverrouillage, EcheanceCloture, ErreurExercice, ErreurReconstitutionExercices,

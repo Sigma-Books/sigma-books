@@ -1,0 +1,30 @@
+ecriture v3
+numero=VT-2026-000003
+date=2026-02-10
+date-validation=2026-02-10
+libelle=Vente taxable à 18 %
+piece=6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a6a
+ligne
+compte=4111
+sens=D
+montant=118000
+tiers=C001
+ligne
+compte=701
+sens=C
+montant=100000
+fiscal-nature=base
+fiscal-sens=collectee
+fiscal-regime=IMP18
+fiscal-taux=18
+fiscal-exigibilite=debit
+ligne
+compte=4431
+sens=C
+montant=18000
+fiscal-nature=taxe
+fiscal-sens=collectee
+fiscal-regime=IMP18
+fiscal-taux=18
+fiscal-exigibilite=debit
+fin
