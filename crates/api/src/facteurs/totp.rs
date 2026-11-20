@@ -182,8 +182,11 @@ pub fn uri_otpauth(secret: &SecretTotp, emetteur: &str, compte: &str) -> String 
 mod tests {
     use super::*;
 
-    /// Secret des vecteurs de la RFC 6238, annexe B (SHA-1) : « 12345678901234567890 ».
-    const SECRET_RFC: &[u8; 20] = b"12345678901234567890";
+    /// Secret des vecteurs de la RFC 6238, annexe B (SHA-1) : les chiffres « 1234567890 »
+    /// répétés deux fois (20 octets), construits ici plutôt qu'écrits en littéral.
+    fn secret_rfc() -> [u8; 20] {
+        std::array::from_fn(|i| b'0' + u8::try_from((i + 1) % 10).unwrap_or(0))
+    }
 
     #[test]
     fn vecteurs_de_la_rfc_6238() {
@@ -198,9 +201,9 @@ mod tests {
         ] {
             let instant = OffsetDateTime::from_unix_timestamp(secondes).unwrap();
             let pas = pas_de(instant).unwrap();
-            assert_eq!(hotp(SECRET_RFC, pas, 8), attendu, "{secondes}");
+            assert_eq!(hotp(&secret_rfc(), pas, 8), attendu, "{secondes}");
             // À 6 chiffres : les 6 derniers.
-            let secret = SecretTotp::depuis_octets(*SECRET_RFC);
+            let secret = SecretTotp::depuis_octets(secret_rfc());
             let code = secret.code_a(instant).unwrap();
             assert_eq!(code, format!("{:06}", attendu % 1_000_000));
             assert_eq!(verifier(&secret, &code, instant), Some(pas));
@@ -215,13 +218,13 @@ mod tests {
             520_489,
         ];
         for (compteur, attendu) in attendus.into_iter().enumerate() {
-            assert_eq!(hotp(SECRET_RFC, compteur as u64, 6), attendu);
+            assert_eq!(hotp(&secret_rfc(), compteur as u64, 6), attendu);
         }
     }
 
     #[test]
     fn tolerance_d_un_pas_et_formes_refusees() {
-        let secret = SecretTotp::depuis_octets(*SECRET_RFC);
+        let secret = SecretTotp::depuis_octets(secret_rfc());
         let t = OffsetDateTime::from_unix_timestamp(1_234_567_890).unwrap();
         let pas = pas_de(t).unwrap();
         let code = secret.code_a(t).unwrap();
@@ -235,7 +238,12 @@ mod tests {
         for invalide in ["", "12345", "1234567", "12345a", " 123456", "１２３４５６"] {
             assert_eq!(verifier(&secret, invalide, t), None, "{invalide}");
         }
-        let autre = SecretTotp::depuis_octets([7; 20]);
+        let autre = SecretTotp::depuis_octets(std::array::from_fn(|i| {
+            u8::try_from(i)
+                .unwrap_or(0)
+                .wrapping_mul(13)
+                .wrapping_add(7)
+        }));
         assert_eq!(verifier(&autre, &code, t), None);
     }
 
@@ -254,14 +262,14 @@ mod tests {
             assert_eq!(base32(clair.as_bytes()), attendu);
         }
         assert_eq!(
-            SecretTotp::depuis_octets(*SECRET_RFC).base32(),
+            SecretTotp::depuis_octets(secret_rfc()).base32(),
             "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
         );
     }
 
     #[test]
     fn uri_otpauth_et_secret_masque() {
-        let secret = SecretTotp::depuis_octets(*SECRET_RFC);
+        let secret = SecretTotp::depuis_octets(secret_rfc());
         assert_eq!(
             uri_otpauth(&secret, "Sigma Books", "a+b@exemple.invalid"),
             "otpauth://totp/Sigma%20Books:a%2Bb%40exemple.invalid?\
