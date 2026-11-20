@@ -107,8 +107,7 @@ fn sous_cle(maitre: &[u8; OCTETS_CLE], info: &[u8]) -> [u8; OCTETS_CLE] {
     h.update(b"sigma-books sous-cle de repli v1\0");
     h.update(maitre);
     h.update(info);
-    let mut cle = [0u8; OCTETS_CLE];
-    cle.copy_from_slice(&h.finalize());
+    let mut cle: [u8; OCTETS_CLE] = h.finalize().into();
     let repli = cle;
     if hkdf.expand(info, &mut cle).is_err() {
         cle = repli;
