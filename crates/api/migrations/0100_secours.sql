@@ -117,8 +117,56 @@ CREATE POLICY code_recuperation_connexion_usage ON code_recuperation
         WHERE lower(u.courriel) = lower(NULLIF(current_setting('sigma.courriel_connexion', true), ''))
     ));
 
--- Événements : lus par leur seul titulaire ; inscrits par lui, ou, à la connexion, pour le
--- compte du courriel saisi (connexion refusée ou réussie).
+-- Ce que la connexion peut modifier, colonne par colonne : une politique ne compare pas l'avant
+-- et l'après d'une ligne, un déclencheur `BEFORE UPDATE` le fait. Sans utilisateur authentifié
+-- (`sigma.utilisateur` vide), seules passent la consommation d'un pas TOTP (`totp_dernier_pas`
+-- en hausse stricte, rien d'autre) et l'usage d'un code (`utilise_le` de NULL à une date, rien
+-- d'autre) ; toute autre mise à jour est refusée (SQLSTATE 42501). Avec un utilisateur
+-- authentifié, ses propres lignes restent modifiables (enrôlement, re-hachage). Fonctions sans
+-- `SECURITY DEFINER` (droits de l'appelant), `EXECUTE` retiré à PUBLIC, `search_path` figé.
+CREATE FUNCTION facteur_secours_garde_connexion() RETURNS trigger
+    LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF NULLIF(current_setting('sigma.utilisateur', true), '') IS NULL
+       AND (ROW(NEW.utilisateur_id, NEW.mot_de_passe, NEW.totp_chiffre, NEW.totp_cle_id,
+                NEW.cree_le, NEW.modifie_le)
+                IS DISTINCT FROM
+            ROW(OLD.utilisateur_id, OLD.mot_de_passe, OLD.totp_chiffre, OLD.totp_cle_id,
+                OLD.cree_le, OLD.modifie_le)
+            OR NEW.totp_dernier_pas <= OLD.totp_dernier_pas) THEN
+        RAISE EXCEPTION 'connexion : seule la consommation d''un pas TOTP est admise'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN NEW;
+END
+$$;
+REVOKE EXECUTE ON FUNCTION facteur_secours_garde_connexion() FROM PUBLIC;
+CREATE TRIGGER facteur_secours_garde_connexion
+    BEFORE UPDATE ON facteur_secours
+    FOR EACH ROW EXECUTE FUNCTION facteur_secours_garde_connexion();
+
+CREATE FUNCTION code_recuperation_garde_connexion() RETURNS trigger
+    LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF NULLIF(current_setting('sigma.utilisateur', true), '') IS NULL
+       AND (ROW(NEW.id, NEW.utilisateur_id, NEW.empreinte, NEW.cree_le)
+                IS DISTINCT FROM ROW(OLD.id, OLD.utilisateur_id, OLD.empreinte, OLD.cree_le)
+            OR OLD.utilise_le IS NOT NULL OR NEW.utilise_le IS NULL) THEN
+        RAISE EXCEPTION 'connexion : seul l''usage d''un code inutilisé est admis'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN NEW;
+END
+$$;
+REVOKE EXECUTE ON FUNCTION code_recuperation_garde_connexion() FROM PUBLIC;
+CREATE TRIGGER code_recuperation_garde_connexion
+    BEFORE UPDATE ON code_recuperation
+    FOR EACH ROW EXECUTE FUNCTION code_recuperation_garde_connexion();
+
+-- Événements : lus par leur seul titulaire ; inscrits par lui. À la connexion, pour le compte
+-- du courriel saisi, seulement l'**échec** d'une connexion, sans session (la réussite est
+-- inscrite après la vérification du facteur, par l'utilisateur authentifié), et la lecture de
+-- ces seuls échecs (plafond d'échecs par compte).
 ALTER TABLE evenement_authentification ENABLE ROW LEVEL SECURITY;
 ALTER TABLE evenement_authentification FORCE ROW LEVEL SECURITY;
 CREATE POLICY evenement_titulaire ON evenement_authentification
@@ -127,10 +175,22 @@ CREATE POLICY evenement_titulaire ON evenement_authentification
     WITH CHECK (utilisateur_id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid);
 CREATE POLICY evenement_connexion ON evenement_authentification
     FOR INSERT
-    WITH CHECK (utilisateur_id IN (
-        SELECT u.id FROM utilisateur u
-        WHERE lower(u.courriel) = lower(NULLIF(current_setting('sigma.courriel_connexion', true), ''))
-    ));
+    WITH CHECK (
+        nature = 'connexion' AND issue = 'echec' AND session_id IS NULL
+        AND utilisateur_id IN (
+            SELECT u.id FROM utilisateur u
+            WHERE lower(u.courriel) = lower(NULLIF(current_setting('sigma.courriel_connexion', true), ''))
+        )
+    );
+CREATE POLICY evenement_connexion_echecs ON evenement_authentification
+    FOR SELECT
+    USING (
+        nature = 'connexion' AND issue = 'echec'
+        AND utilisateur_id IN (
+            SELECT u.id FROM utilisateur u
+            WHERE lower(u.courriel) = lower(NULLIF(current_setting('sigma.courriel_connexion', true), ''))
+        )
+    );
 
 -- Droits du rôle applicatif seul ; rien pour le rôle de lecture d'audit.
 -- Secours : création et remplacement (enrôlement), consommation du pas TOTP, re-hachage.

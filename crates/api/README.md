@@ -230,7 +230,8 @@ HTTP), `src/base/facteurs.rs` et `src/base/evenement.rs` (tables), `src/serveur/
 (cas d'usage), `src/serveur/routes/facteurs.rs` (routes) ; migration `0100_secours.sql`,
 catalogue `catalogue/facteurs.toml`.
 
-- **Mot de passe** : 12 caractères au moins, 128 au plus, aucune règle de composition ; refusé
+- **Mot de passe** : 12 caractères au moins (blancs de tête et de fin retirés, suites internes
+  réduites, comme pour la liste), 128 au plus, aucune règle de composition ; refusé
   s'il figure dans la liste embarquée des mots de passe compromis (`donnees/`, tirée de SecLists
   par `scripts/generer-mots-de-passe-compromis.py`, attribution `docs/provenance/seclists.md`).
   Argon2id, 19 Mio, 2 passes ; re-haché à la connexion si les paramètres changent. Le hachage
@@ -238,7 +239,7 @@ catalogue `catalogue/facteurs.toml`.
 - **TOTP** : RFC 6238, 6 chiffres, pas de 30 s, tolérance d'un pas. **Anti-rejeu** : le dernier
   pas accepté est en base ; un pas n'est admis que par une mise à jour conditionnelle
   (`totp_dernier_pas < $pas`, mot de passe inchangé) : de deux connexions concurrentes avec le
-  même code, une seule passe.
+  même code, une seule passe. Un réenrôlement ne fait jamais reculer ce pas (`GREATEST`).
 - **Clé de l'instance** (`SIGMA_FICHIER_CLE_INSTANCE`) : fichier de 32 octets en base64, droits
   0600 (ou 0400), refusé sinon ; sans clé, le serveur refuse de démarrer. Sous-clés HKDF-SHA256
   (TOTP, jeton d'enrôlement, débit par courriel). Secret TOTP chiffré en AES-256-GCM, utilisateur
@@ -252,22 +253,37 @@ catalogue `catalogue/facteurs.toml`.
   révoque les autres sessions de l'utilisateur (changement de facteur, ADR 0012).
 - **Codes de récupération** : 120 bits, base32 de Crockford, hachés (SHA-256), à usage unique
   (`utilise_le IS NULL`, atomique). Un code n'ouvre qu'une **session restreinte** : sa propre
-  session et l'enrôlement du secours, rien d'autre (F1.12 ; passkeys en PR 8c).
+  session et l'enrôlement du secours, rien d'autre (F1.12).
+- **Écart assumé avec l'ADR 0012** : l'ADR réserve la session restreinte à l'enrôlement d'une
+  nouvelle **passkey**. Les passkeys arrivent en PR 8c ; d'ici là, le secours est le seul
+  facteur enrôlable, et la session restreinte permet donc d'enrôler (ou de remplacer) le
+  secours. La PR 8c ajoutera l'enrôlement d'une passkey à cette session.
 - **Connexion sans contexte** : la transaction de connexion ne pose **jamais**
   `sigma.utilisateur`, mais `sigma.courriel_connexion` (politiques `*_connexion` de la migration
   `0100`) : elle ne voit que la ligne `utilisateur` du courriel saisi, son secours et ses codes, et
-  ne peut qu'y consommer un pas ou un code et inscrire un événement. Type distinct
+  ne peut qu'y consommer un pas ou un code et inscrire un échec de connexion. Les politiques ne
+  comparant pas l'avant et l'après d'une ligne, deux déclencheurs `BEFORE UPDATE`
+  (`facteur_secours_garde_connexion`, `code_recuperation_garde_connexion`, sans
+  `SECURITY DEFINER`, `EXECUTE` retiré à PUBLIC) refusent, sans utilisateur authentifié, toute
+  mise à jour autre que `totp_dernier_pas` en hausse stricte et `utilise_le` de NULL à une
+  date ; l'insertion d'un événement y est bornée à un échec de connexion sans session. Type distinct
   (`TransactionConnexion`) ; elle ne devient la transaction de l'utilisateur que sur
   présentation d'un `FacteurVerifie`, fabriqué par la seule consommation d'un facteur. La
   consommation, la session, l'événement et l'audit sont validés ensemble. Aucune fonction
   `SECURITY DEFINER`.
-- **Anti-énumération** : courriel inconnu, compte sans secours, facteur faux ou rejoué : même
-  réponse (401) et durée comparable (Argon2id exécuté sur une chaîne factice). Rien n'est
-  inscrit pour un courriel inconnu.
+- **Anti-énumération** : courriel inconnu, compte sans facteur, facteur faux ou rejoué, compte
+  plafonné : même réponse (401) et même durée. Toute réponse d'échec d'une connexion, sur les
+  deux routes, part au plus tôt après une **durée plancher** constante (500 ms, à garder
+  au-dessus du pire cas mesuré) ; Argon2id s'exécute aussi dans tous les cas (chaîne factice
+  sans secours, et pour la connexion par un code). Rien n'est inscrit pour un courriel inconnu.
 - **Débit** : par adresse (20 tentatives de connexion par quart d'heure), par courriel saisi
   (10, que le compte existe ou non ; clé HMAC, le courriel n'est pas gardé en mémoire), par
-  utilisateur pour la ré-authentification et l'enrôlement (10). Pas de verrouillage du compte :
-  un tiers ne peut pas bloquer un utilisateur.
+  utilisateur pour la ré-authentification et l'enrôlement (10). Ces limites en mémoire se
+  contournent par éviction (100 000 clés) ; s'y ajoute un **plafond persistant par compte** :
+  10 échecs inscrits aux événements sur 15 minutes, au-delà desquels le facteur n'est plus
+  vérifié, avec la même réponse 401 et la même durée (jamais un 429, qui révélerait le
+  compte). Les tentatives restent inscrites : un tiers qui connaît le courriel peut retarder
+  la connexion par secours du titulaire tant qu'il insiste.
 - **Événements d'authentification** (ADR 0017) : table d'instance `evenement_authentification`,
   en ajout seul, non chaînée, sous RLS par utilisateur ; connexion (réussie ou refusée),
   ré-authentification, enrôlement, nouvelle série de codes, déconnexion, révocation. Ni mot de

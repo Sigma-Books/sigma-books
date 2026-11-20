@@ -27,10 +27,19 @@
 //!   Cedar se trompait.
 //!
 //! # Anti-énumération (OWASP, aide-mémoire « Authentication »)
-//! Courriel inconnu, compte sans secours, mot de passe faux, code faux ou rejoué : même
-//! réponse, 401 `non_authentifie`, et durée comparable : Argon2id est toujours exécuté, sur une
-//! chaîne factice si le compte n'a pas de secours. Rien n'est inscrit pour un courriel inconnu
+//! Courriel inconnu, compte sans secours ni code, facteur faux ou rejoué, compte plafonné :
+//! même réponse, 401 `non_authentifie`, et **même durée** : toute réponse d'échec d'une
+//! connexion part au plus tôt après une durée plancher constante
+//! ([`ReglagesFacteurs::duree_plancher_connexion`], 500 ms), supérieure au chemin le plus
+//! long ; Argon2id est en outre toujours exécuté, sur une chaîne factice si le compte n'a pas
+//! de secours, et pour la connexion par un code. Rien n'est inscrit pour un courriel inconnu
 //! (ADR 0017) ; un échec sur un compte connu est inscrit à ses événements.
+//!
+//! # Plafond par compte
+//! Outre le débit en mémoire (par adresse, par courriel), un plafond **persistant** :
+//! au-delà de [`ReglagesFacteurs::echecs_max_par_compte`] échecs inscrits sur la fenêtre, le
+//! facteur n'est plus vérifié (ni pas TOTP, ni code consommé), avec la même réponse 401 et la
+//! même durée, jamais un 429 qui révélerait le compte. Les tentatives restent inscrites.
 //!
 //! # Hachage
 //! Argon2id (19 Mio, 2 passes) s'exécute hors de la boucle asynchrone (`spawn_blocking`), au
@@ -116,6 +125,18 @@ pub struct ReglagesFacteurs {
     pub debit_verification: ReglageDebit,
     /// Hachages Argon2id simultanés (4) : borne la mémoire (19 Mio chacun) et le calcul.
     pub hachages_simultanes: usize,
+    /// Durée plancher de toute réponse d'échec d'une connexion (500 ms) : la réponse part au
+    /// plus tôt à ce terme depuis l'arrivée de la requête, quel que soit le chemin suivi
+    /// (courriel inconnu, compte sans facteur, facteur faux, compte plafonné). Elle doit
+    /// dépasser le pire cas mesuré du chemin le plus long.
+    pub duree_plancher_connexion: std::time::Duration,
+    /// Plafond persistant d'échecs de connexion par compte (10), sur [`Self::fenetre_echecs`] :
+    /// au-delà, le facteur n'est plus vérifié, avec la même réponse 401 (jamais un 429, qui
+    /// dirait que le compte existe). Tiré des échecs inscrits aux événements : une éviction de
+    /// la table de débit en mémoire ne le contourne pas.
+    pub echecs_max_par_compte: i64,
+    /// Fenêtre du plafond d'échecs par compte (15 minutes).
+    pub fenetre_echecs: time::Duration,
 }
 
 impl Default for ReglagesFacteurs {
@@ -139,6 +160,9 @@ impl Default for ReglagesFacteurs {
                 cles_max: 100_000,
             },
             hachages_simultanes: 4,
+            duree_plancher_connexion: std::time::Duration::from_millis(500),
+            echecs_max_par_compte: 10,
+            fenetre_echecs: time::Duration::minutes(15),
         }
     }
 }
@@ -444,6 +468,22 @@ pub(crate) async fn connecter(
     parts: &Parts,
     corps: &[u8],
 ) -> Result<Response, ErreurApi> {
+    // Durée plancher de tout échec : la durée ne dit rien du chemin suivi (anti-énumération).
+    let fin_au_plus_tot =
+        tokio::time::Instant::now() + etat.reglages.facteurs.duree_plancher_connexion;
+    let resultat = connecter_sans_plancher(etat, route, parts, corps).await;
+    if resultat.is_err() {
+        tokio::time::sleep_until(fin_au_plus_tot).await;
+    }
+    resultat
+}
+
+async fn connecter_sans_plancher(
+    etat: &Etat,
+    route: &Route,
+    parts: &Parts,
+    corps: &[u8],
+) -> Result<Response, ErreurApi> {
     if route.action != ActionRoute::Connexion {
         return Err(ErreurApi::Interne(CategorieErreur::Donnee));
     }
@@ -457,6 +497,23 @@ pub(crate) async fn connecter(
         CasUsage::Facteurs(Cas::ConnexionCode) => connecter_code(etat, &client, corps).await,
         _ => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }
+}
+
+/// Vrai si le compte a atteint le plafond persistant d'échecs de connexion.
+async fn plafonne(
+    etat: &Etat,
+    tx: &mut TransactionConnexion,
+    utilisateur: Option<IdUtilisateur>,
+    maintenant: OffsetDateTime,
+) -> Result<bool, ErreurApi> {
+    let Some(utilisateur) = utilisateur else {
+        return Ok(false);
+    };
+    let reglages = &etat.reglages.facteurs;
+    let echecs = tx
+        .compter_echecs(utilisateur, maintenant - reglages.fenetre_echecs)
+        .await?;
+    Ok(echecs >= reglages.echecs_max_par_compte)
 }
 
 #[derive(Deserialize)]
@@ -504,9 +561,11 @@ async fn connecter_secours(
         Some(s) => Some(s.utilisateur),
         None => tx.lire_utilisateur().await?,
     };
+    let plafonne = plafonne(etat, &mut tx, utilisateur, maintenant).await?;
     tx.confirmer().await?;
 
-    // 2. Vérifications, hors transaction : Argon2id toujours (chaîne factice sans secours).
+    // 2. Vérifications, hors transaction : Argon2id toujours (chaîne factice sans secours), même
+    // pour un compte plafonné, dont le facteur n'est pourtant pas admis.
     let verification = verifier_mot_de_passe(
         etat,
         secours.as_ref().map(|s| s.mot_de_passe.clone()),
@@ -530,7 +589,7 @@ async fn connecter_secours(
     // 3. Consommation du pas TOTP (anti-rejeu), session, événement et audit : une transaction.
     let mut tx = ouvrir_transaction_connexion(&etat.pool, &courriel).await?;
     let preuve = match (&secours, verification, pas) {
-        (Some(s), Verification::Admis { .. }, Some(pas)) => {
+        (Some(s), Verification::Admis { .. }, Some(pas)) if !plafonne => {
             tx.consommer_pas_totp(utilisateur, &s.mot_de_passe, pas)
                 .await?
         }
@@ -564,17 +623,26 @@ async fn connecter_code(etat: &Etat, client: &Client, corps: &[u8]) -> Result<Re
     let maintenant = etat.horloge.maintenant();
     let empreinte = codes::empreinte_saisie(&code);
 
+    // 1. Lecture, dans une courte transaction au contexte du seul courriel.
     let mut tx = ouvrir_transaction_connexion(&etat.pool, &courriel).await?;
+    let utilisateur = tx.lire_utilisateur().await?;
+    let plafonne = plafonne(etat, &mut tx, utilisateur, maintenant).await?;
+    tx.confirmer().await?;
+    // 2. Argon2id sur une chaîne factice, dans tous les cas : même coût et même durée que la
+    // connexion par le secours, quel que soit le compte (la durée plancher s'y ajoute).
+    verifier_mot_de_passe(etat, None, code.clone()).await?;
     // Courriel inconnu : rien n'est inscrit (ADR 0017).
-    let Some(utilisateur) = tx.lire_utilisateur().await? else {
+    let Some(utilisateur) = utilisateur else {
         return Err(ErreurApi::NonAuthentifie);
     };
+    // 3. Usage du code (atomique), session, événement et audit : une transaction.
+    let mut tx = ouvrir_transaction_connexion(&etat.pool, &courriel).await?;
     let preuve = match empreinte {
-        Some(empreinte) => {
+        Some(empreinte) if !plafonne => {
             tx.consommer_code(utilisateur, &empreinte, maintenant)
                 .await?
         }
-        None => None,
+        Some(_) | None => None,
     };
     let Some(preuve) = preuve else {
         return refuser_connexion(
