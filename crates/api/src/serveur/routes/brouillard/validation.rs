@@ -260,6 +260,18 @@ pub fn preparer(
     tva: &ReferentielTva,
     exercices: &Exercices,
 ) -> Result<Preparee, ErreurApi> {
+    // Échelle des montants, avant de les relire en décimaux (le format canonique n'en relit
+    // pas plus de 28 chiffres).
+    for (i, l) in b.contenu.lignes.iter().enumerate() {
+        let mut valeurs = vec![l.montant.as_str()];
+        if let Some(d) = &l.devise {
+            valeurs.push(d.montant.as_str());
+            valeurs.push(d.cours.as_str());
+        }
+        if valeurs.into_iter().any(echelle_excessive) {
+            return Err(refus(MotifValidation::MontantEchelleExcessive, Some(i)));
+        }
+    }
     let brouillon = brouillon_de(
         &b.contenu.journal,
         b.contenu.date,
@@ -274,16 +286,6 @@ pub fn preparer(
     let ecriture = brouillon
         .valider_equilibre()
         .map_err(|r| refus(motif_ecriture(r.erreur()), None))?;
-    for (i, l) in ecriture.lignes().iter().enumerate() {
-        let mut valeurs = vec![l.montant().valeur().to_string()];
-        if let Some(d) = l.devise() {
-            valeurs.push(d.montant().valeur().to_string());
-            valeurs.push(d.cours().valeur().to_string());
-        }
-        if valeurs.iter().any(|v| echelle_excessive(v)) {
-            return Err(refus(MotifValidation::MontantEchelleExcessive, Some(i)));
-        }
-    }
     let exercice = exercices
         .exercice_contenant(ecriture.date())
         .map(|e| e.code().clone());
@@ -808,6 +810,307 @@ mod tests {
             "limite=1&limite=2",
         ] {
             assert!(filtre_liste(Some(refuse)).is_err(), "{refuse}");
+        }
+    }
+
+    // --- Parité avec `Livre` (propriété) -----------------------------------------------------
+
+    use std::collections::BTreeMap;
+
+    use compta_core::{Livre, Refus};
+    use proptest::prelude::*;
+    use time::macros::date;
+
+    use crate::base::brouillard::ContenuStocke;
+    use crate::base::referentiel::{Instanciation, Modele, Ouverture};
+
+    struct Decor {
+        inst: Instanciation,
+        journaux: Vec<String>,
+        caisse: String,
+        banque: String,
+    }
+
+    fn decor() -> Decor {
+        let modele = Modele::officiel().unwrap();
+        let inst = Instanciation::preparer(
+            modele,
+            Ouverture::Reprise { annee: 2026 },
+            date!(2026 - 11 - 20),
+        )
+        .unwrap();
+        let etat = inst.etat();
+        let caisse = etat
+            .journaux
+            .journaux()
+            .find_map(|j| j.compte_tresorerie().cloned())
+            .unwrap();
+        let banque = etat
+            .plan
+            .comptes()
+            .filter(|c| etat.plan.compte_de_mouvement_actif(c.numero()).is_ok())
+            .find(|c| c.est_admis_en_journal_de_tresorerie() && *c.numero() != caisse)
+            .unwrap()
+            .numero()
+            .clone();
+        let journaux = etat
+            .journaux
+            .journaux()
+            .map(|j| j.code().as_str().to_owned())
+            .collect();
+        Decor {
+            inst,
+            journaux,
+            caisse: caisse.as_str().to_owned(),
+            banque: banque.as_str().to_owned(),
+        }
+    }
+
+    fn stockee(sens: &'static str, compte: &str, montant: &str) -> LigneStockee {
+        LigneStockee {
+            compte: compte.to_owned(),
+            sens,
+            montant: montant.to_owned(),
+            devise: None,
+            tiers: None,
+            etiquette: None,
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct Operation {
+        journal: usize,
+        date: usize,
+        validation: usize,
+        ecart: u32,
+        lignes: usize,
+        piece: bool,
+    }
+
+    const DATES: [Date; 4] = [
+        date!(2025 - 12 - 31),
+        date!(2026 - 01 - 10),
+        date!(2026 - 03 - 15),
+        date!(2026 - 11 - 20),
+    ];
+    const VALIDATIONS: [Date; 3] = [
+        date!(2026 - 01 - 20),
+        date!(2026 - 06 - 15),
+        date!(2026 - 11 - 20),
+    ];
+
+    fn operations() -> impl Strategy<Value = Vec<Operation>> {
+        proptest::collection::vec(
+            (
+                0usize..12,
+                0usize..4,
+                0usize..3,
+                0u32..3,
+                1usize..4,
+                any::<bool>(),
+            )
+                .prop_map(|(journal, date, validation, ecart, lignes, piece)| {
+                    Operation {
+                        journal,
+                        date,
+                        validation,
+                        ecart,
+                        lignes,
+                        piece,
+                    }
+                }),
+            1..25,
+        )
+    }
+
+    #[test]
+    fn un_cas_nominal_se_valide_et_chaine() {
+        let d = decor();
+        let etat = d.inst.etat();
+        let contexte = Contexte {
+            plan: &etat.plan,
+            journaux: &etat.journaux,
+            exercices: d.inst.exercices(),
+        };
+        let journal = etat
+            .journaux
+            .journaux()
+            .find(|j| j.genre().accepte_la_saisie() && j.compte_tresorerie().is_none())
+            .unwrap()
+            .code()
+            .as_str()
+            .to_owned();
+        let b = BrouillonStocke {
+            id: Uuid::nil(),
+            contenu: ContenuStocke {
+                journal_id: Uuid::nil(),
+                journal,
+                date: date!(2026 - 03 - 15),
+                date_valeur_comptable: None,
+                libelle: "Nominal".to_owned(),
+                lignes: vec![
+                    stockee("debit", &d.caisse, "1000.5"),
+                    stockee("credit", &d.banque, "1000.50"),
+                ],
+            },
+            a_revoir: false,
+            a_revoir_par: None,
+            version: 1,
+            cree_par: Uuid::nil(),
+            cree_le: time::OffsetDateTime::UNIX_EPOCH,
+            modifie_par: Uuid::nil(),
+            modifie_le: time::OffsetDateTime::UNIX_EPOCH,
+            pieces: vec![],
+            contributeurs: vec![],
+        };
+        let tete = Tete {
+            rang: 4,
+            empreinte: Empreinte::calculer(b"tete"),
+        };
+        let r = appliquer(
+            &b,
+            &["b".repeat(64)],
+            referentiel_tva().unwrap(),
+            &contexte,
+            |_, _| 230,
+            &tete,
+            date!(2026 - 03 - 20),
+        )
+        .unwrap();
+        assert!(
+            r.validation
+                .ecriture()
+                .numero()
+                .to_string()
+                .ends_with("-2026-000231")
+        );
+        assert_eq!(r.rang, 5);
+        assert_eq!(r.format, 1);
+        assert_eq!(
+            r.empreinte,
+            chainer(&tete.empreinte, r.canonique.as_bytes())
+        );
+        assert!(r.canonique.contains("montant=1000.5\n"));
+    }
+
+    proptest! {
+        /// Pour toute suite de validations, la fonction d'application rend les mêmes numéros,
+        /// contenus canoniques et refus que `Livre` de `compta-core`, et chaîne comme
+        /// `integrite::Chaine`.
+        #[test]
+        fn l_application_est_celle_du_livre(ops in operations()) {
+            let d = decor();
+            let tva = referentiel_tva().unwrap();
+            let etat = d.inst.etat();
+            let contexte = Contexte {
+                plan: &etat.plan,
+                journaux: &etat.journaux,
+                exercices: d.inst.exercices(),
+            };
+            let mut livre = Livre::new();
+            let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
+            let mut derniers: BTreeMap<(CodeJournal, CodeExercice), u32> = BTreeMap::new();
+            let mut tete = Tete { rang: 0, empreinte: *chaine.tete() };
+            let empreinte_piece = "a".repeat(64);
+            for op in ops {
+                let journal = d.journaux[op.journal % d.journaux.len()].clone();
+                let date = DATES[op.date];
+                let mut lignes = vec![
+                    stockee("debit", &d.caisse, "1000"),
+                    stockee("credit", &d.banque, "1000"),
+                ];
+                match op.lignes {
+                    1 => { lignes.truncate(1); }
+                    3 => { lignes.push(stockee("credit", &d.banque, &(1000 + op.ecart).to_string())); }
+                    _ => {
+                        if op.ecart > 0 {
+                            lignes[1].montant = format!("{}", 1000 + op.ecart);
+                        }
+                    }
+                }
+                let b = BrouillonStocke {
+                    id: Uuid::nil(),
+                    contenu: ContenuStocke {
+                        journal_id: Uuid::nil(),
+                        journal,
+                        date,
+                        date_valeur_comptable: None,
+                        libelle: "Parité".to_owned(),
+                        lignes,
+                    },
+                    a_revoir: false,
+                    a_revoir_par: None,
+                    version: 1,
+                    cree_par: Uuid::nil(),
+                    cree_le: time::OffsetDateTime::UNIX_EPOCH,
+                    modifie_par: Uuid::nil(),
+                    modifie_le: time::OffsetDateTime::UNIX_EPOCH,
+                    pieces: vec![],
+                    contributeurs: vec![],
+                };
+                let empreintes: Vec<String> =
+                    if op.piece { vec![empreinte_piece.clone()] } else { vec![] };
+                let date_validation = VALIDATIONS[op.validation];
+
+                let resultat = appliquer(
+                    &b,
+                    &empreintes,
+                    tva,
+                    &contexte,
+                    |j, e| derniers.get(&(j.clone(), e.clone())).copied().unwrap_or(0),
+                    &tete,
+                    date_validation,
+                );
+
+                // Côté `Livre`.
+                let brouillon = brouillon_de(
+                    &b.contenu.journal, date, None, &b.contenu.libelle, None,
+                    &b.contenu.lignes, &empreintes, tva,
+                ).unwrap();
+                let attendu: Result<(NumeroEcriture, String), ErreurApi> = match brouillon.valider_equilibre() {
+                    Err(r) => Err(refus(motif_ecriture(r.erreur()), None)),
+                    Ok(eq) => {
+                        let exercice = contexte.exercices.exercice_contenant(date).map(|e| e.code().clone());
+                        let (cj, ce) = (
+                            eq.journal().clone(),
+                            exercice.clone().unwrap_or_else(|| CodeExercice::parse("0000").unwrap()),
+                        );
+                        let dernier = exercice
+                            .as_ref()
+                            .and_then(|e| derniers.get(&(cj.clone(), e.clone())).copied())
+                            .unwrap_or(0);
+                        let compteur = Compteur::reprendre(cj, ce, dernier).unwrap();
+                        match livre.valider(eq, &contexte, &compteur, date_validation) {
+                            Ok((numero, _)) => {
+                                let v = livre.ecriture(&numero).unwrap();
+                                Ok((numero, EcritureCanonique::depuis(v).serialiser()))
+                            }
+                            Err(r) => {
+                                let (_, e): (EcritureEquilibree, _) = Refus::decomposer(r);
+                                let (motif, ligne) = motif_validation(&e, contexte.exercices);
+                                Err(refus(motif, ligne))
+                            }
+                        }
+                    }
+                };
+                match (resultat, attendu) {
+                    (Ok(d), Ok((numero, canonique))) => {
+                        prop_assert_eq!(d.validation.ecriture().numero(), &numero);
+                        prop_assert_eq!(&d.canonique, &canonique);
+                        let e = livre.ecriture(&numero).unwrap();
+                        let suivante = chaine.ajouter(e);
+                        prop_assert_eq!(d.empreinte, suivante);
+                        prop_assert_eq!(d.rang, i64::try_from(chaine.longueur()).unwrap());
+                        derniers.insert(
+                            (numero.journal().clone(), numero.exercice().clone()),
+                            numero.sequence(),
+                        );
+                        tete = Tete { rang: d.rang, empreinte: d.empreinte };
+                    }
+                    (Err(a), Err(b)) => prop_assert_eq!(a, b),
+                    (a, b) => prop_assert!(false, "divergence : {:?} contre {:?}", a.map(|d| d.canonique), b),
+                }
+            }
         }
     }
 }

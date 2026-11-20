@@ -204,6 +204,17 @@ mod tests {
     }
 
     #[test]
+    fn un_compteur_se_reprend_de_la_persistance() {
+        let j = CodeJournal::parse("AC").unwrap();
+        let e = CodeExercice::parse("2026").unwrap();
+        let c = Compteur::reprendre(j.clone(), e.clone(), 230).unwrap();
+        assert_eq!(c.suivant().unwrap().0.to_string(), "AC-2026-000231");
+        let plein = Compteur::reprendre(j.clone(), e.clone(), SEQUENCE_MAX).unwrap();
+        assert!(plein.suivant().is_err());
+        assert!(Compteur::reprendre(j, e, SEQUENCE_MAX + 1).is_err());
+    }
+
+    #[test]
     fn format_de_la_spec() {
         let mut c = compteur();
         let mut dernier = None;
