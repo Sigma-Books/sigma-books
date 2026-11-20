@@ -321,7 +321,7 @@ mod tests {
     /// PR 13 : la liste lue est vide (fil-piège : `tests/catalogue.rs`).
     #[test]
     fn une_cloture_avec_brouillard_est_refusee_sans_effet() {
-        assert!(TABLES_BROUILLARD_LUES_A_LA_CLOTURE.is_empty());
+        assert_eq!(TABLES_BROUILLARD_LUES_A_LA_CLOTURE, &[] as &[&str]);
         let mut exercices = Exercices::new();
         exercices.ouvrir_repris(2026).unwrap();
         let avant = exercices.clone();

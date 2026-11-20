@@ -565,16 +565,34 @@ fn compacter(expression: &str) -> String {
     expression.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Politique lue au catalogue : schéma, table, nom, commande, permissive, `USING`, `WITH CHECK`.
+/// Politique lue au catalogue : schéma, table, nom, commande, `USING`, `WITH CHECK`.
 type Politique = (
     String,
     String,
     String,
     String,
-    bool,
     Option<String>,
     Option<String>,
 );
+
+/// Politique restrictive admise : l'irréversibilité déclarée (liste `irreversible`), `FOR UPDATE`,
+/// de `USING` exact et `WITH CHECK (true)`.
+fn restrictive_admise(
+    regles: &Regles,
+    schema: &str,
+    table: &str,
+    commande: &str,
+    using: Option<&str>,
+    check: Option<&str>,
+) -> bool {
+    schema == "public"
+        && commande == "w"
+        && check == Some("true")
+        && regles
+            .irreversible
+            .iter()
+            .any(|(t, u)| t == table && using == Some(u.as_str()))
+}
 
 /// Écarts de forme des politiques, et tables de tenant sans clé de cabinet.
 async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
@@ -594,9 +612,10 @@ async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec
     .unwrap();
     let politiques: Vec<Politique> = sqlx::query_as(concat!(
         "SELECT n.nspname::text, c.relname::text, p.polname::text, p.polcmd::text, \
-                    p.polpermissive, pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) \
+                    pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) \
              FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid \
-             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE ",
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE p.polpermissive AND ",
         schemas!(),
         " ORDER BY 1, 2, 3"
     ))
@@ -622,30 +641,12 @@ async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec
         formes.insert((schema, table), admises);
     }
 
-    let mut irreversibles_vues = BTreeSet::new();
-    for (schema, table, nom, commande, permissive, using, check) in politiques {
+    // Politiques permissives seulement : les restrictives relèvent de `ecarts_restrictives`.
+    for (schema, table, nom, commande, using, check) in politiques {
         if dans(&regles.instances_sans_rls, &schema, &table) {
             continue;
         }
         let prefixe = format!("{schema}.{table} : politique {nom}");
-        if !permissive {
-            // Restrictive : seulement l'irréversibilité déclarée, de forme exacte.
-            let admise = schema == "public"
-                && commande == "w"
-                && check.as_deref() == Some("true")
-                && regles
-                    .irreversible
-                    .iter()
-                    .any(|(t, u)| *t == table && using.as_deref() == Some(u.as_str()));
-            if admise {
-                irreversibles_vues.insert(table);
-            } else {
-                ecarts.push(format!(
-                    "{prefixe} : politique restrictive hors liste (« {using:?} », « {check:?} »)"
-                ));
-            }
-            continue;
-        }
         if matches!(commande.as_str(), "*" | "r" | "w" | "d") && using.is_none() {
             ecarts.push(format!("{prefixe} sans USING"));
         }
@@ -674,13 +675,49 @@ async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec
             }
         }
     }
-    for (table, _) in &regles.irreversible {
-        if !irreversibles_vues.contains(table) {
+    ecarts
+}
+
+/// Politiques restrictives : seulement l'irréversibilité déclarée ([`restrictive_admise`]), et
+/// chacune de la liste existe.
+async fn ecarts_restrictives(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
+    let politiques: Vec<Politique> = sqlx::query_as(concat!(
+        "SELECT n.nspname::text, c.relname::text, p.polname::text, p.polcmd::text, \
+                    pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) \
+             FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE NOT p.polpermissive AND ",
+        schemas!(),
+        " ORDER BY 1, 2, 3"
+    ))
+    .fetch_all(&mut *connexion)
+    .await
+    .unwrap();
+    let mut ecarts = Vec::new();
+    let mut vues = BTreeSet::new();
+    for (schema, table, nom, commande, using, check) in politiques {
+        if restrictive_admise(
+            regles,
+            &schema,
+            &table,
+            &commande,
+            using.as_deref(),
+            check.as_deref(),
+        ) {
+            vues.insert(table);
+        } else {
             ecarts.push(format!(
-                "public.{table} : politique d'irréversibilité déclarée absente"
+                "{schema}.{table} : politique {nom} : politique restrictive hors liste \
+                 (« {using:?} », « {check:?} »)"
             ));
         }
     }
+    ecarts.extend(
+        regles
+            .irreversible
+            .iter()
+            .filter(|(t, _)| !vues.contains(t))
+            .map(|(t, _)| format!("public.{t} : politique d'irréversibilité déclarée absente")),
+    );
     ecarts
 }
 
@@ -741,6 +778,7 @@ async fn ecarts(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
         ecarts.extend(lignes);
     }
     ecarts.extend(ecarts_politiques(connexion, regles).await);
+    ecarts.extend(ecarts_restrictives(connexion, regles).await);
     ecarts.extend(
         ecarts_brouillard(
             connexion,

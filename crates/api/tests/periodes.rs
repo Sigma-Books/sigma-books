@@ -363,7 +363,7 @@ async fn une_periode_cloturee_ne_se_modifie_pas_en_base() {
             .fetch_all(tx.connexion())
             .await
             .unwrap();
-    assert!(verrouillees.is_empty());
+    assert_eq!(verrouillees, Vec::<Uuid>::new());
     // Une période ouverte se modifie (le droit par colonne existe).
     let ecrites = sqlx::query("UPDATE periode SET statut = statut WHERE id = $1")
         .bind(b.periodes[1])
