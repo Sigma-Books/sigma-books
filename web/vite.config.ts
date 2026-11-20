@@ -14,6 +14,10 @@ export default defineConfig({
 			// Fichiers statiques servis par le backend Rust : aucun serveur Node en production (ADR 0002).
 			adapter: adapter({ strict: true }),
 
+			// Chemins absolus (`/_app/…`) : une page servie avec ou sans barre finale charge les mêmes
+			// fichiers (le backend sert `x/index.html` pour `/x` comme pour `/x/`, sans redirection).
+			paths: { relative: false },
+
 			// CSP stricte : aucun script ni style inline non haché, aucune ressource externe.
 			// Les scripts d'amorçage de SvelteKit sont autorisés par leur empreinte (mode « hash »),
 			// injectée dans une balise <meta> des pages prérendues. Les en-têtes non exprimables en
@@ -38,9 +42,11 @@ export default defineConfig({
 					'base-uri': ['none'],
 					'form-action': ['self'],
 					'object-src': ['none'],
-					// Trusted Types : seules les politiques de Svelte et SvelteKit sont autorisées.
+					// Trusted Types : seule la politique de Svelte (`svelte-trusted-html`) est autorisée.
+					// `sveltekit-trusted-url` ne sert qu'à l'enregistrement d'un service worker, absent
+					// pour l'instant : à rajouter avec lui (SvelteKit refuse alors de compiler sans).
 					'require-trusted-types-for': ['script'],
-					'trusted-types': ['svelte-trusted-html', 'sveltekit-trusted-url']
+					'trusted-types': ['svelte-trusted-html']
 				}
 			}
 		})

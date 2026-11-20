@@ -6,7 +6,11 @@
 		<meta name="referrer" content="no-referrer" />
 		%sveltekit.head%
 	</head>
-	<body data-sveltekit-preload-data="hover">
+	<!--
+		Préchargement du code seulement : charger les données au survol appellerait l'API (et, pour
+		un autre cabinet, ferait tourner la session) sans action de l'utilisateur.
+	-->
+	<body data-sveltekit-preload-code="hover">
 		<div id="app">%sveltekit.body%</div>
 	</body>
 </html>

@@ -34,8 +34,10 @@ export default defineConfig(
 		}
 	},
 	{
-		// Override or add rule settings here, such as:
-		// 'svelte/button-has-type': 'error'
-		rules: {}
+		rules: {
+			// Rien n'est écrit dans la console : aucun jeton ni donnée ne doit y fuir (web/CLAUDE.md).
+			'no-console': 'error',
+			'svelte/button-has-type': 'error'
+		}
 	}
 );
