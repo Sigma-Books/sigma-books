@@ -271,6 +271,9 @@ pub struct Requete<'a> {
     pub parametres: Option<&'a str>,
     /// Corps, déjà borné.
     pub corps: &'a [u8],
+    /// Sous-ressource du dossier désignée par le chemin (`{compte}`, `{tiers}`…), UUID déjà
+    /// validé par le pipeline : au plus une par route.
+    pub sous_ressource: Option<uuid::Uuid>,
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
 }
@@ -286,7 +289,7 @@ pub struct Resultat {
 }
 
 impl Resultat {
-    fn lecture(reponse: Response) -> Self {
+    pub(crate) fn lecture(reponse: Response) -> Self {
         Self {
             reponse,
             traces: Vec::new(),
@@ -312,7 +315,7 @@ pub(crate) async fn executer(
         CasUsage::Passkeys(cas) => match cas {},
         CasUsage::Administration(cas) => match cas {},
         // Voie comptabilité (PR 11, 13, 14).
-        CasUsage::Referentiel(cas) => match cas {},
+        CasUsage::Referentiel(cas) => referentiel::executer(cas, tx, garde, requete).await,
         CasUsage::Brouillard(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
         // Voie pièces (PR 12).

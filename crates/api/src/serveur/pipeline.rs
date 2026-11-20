@@ -461,6 +461,16 @@ async fn traiter_requete(
         Portee::Cabinet | Portee::DossiersDuCabinet | Portee::Utilisateur | Portee::Session => None,
         Portee::Dossier => Some(IdDossier::depuis_uuid(id_chemin(&parametres, "dossier")?)),
     };
+    // Sous-ressource du dossier (`{compte}`, `{tiers}`…) : au plus une, UUID validé comme le
+    // cabinet et le dossier (400, ou 404 pour l'UUID nul ou maximal).
+    let mut autres = parametres
+        .iter()
+        .filter(|(cle, _)| *cle != "cabinet" && *cle != "dossier")
+        .map(|(cle, _)| id_chemin(&parametres, cle));
+    let sous_ressource = autres.next().transpose()?;
+    if autres.next().is_some() {
+        return Err(ErreurApi::Interne(CategorieErreur::Donnee));
+    }
     let ressource_chemin = ressource_chemin(route.portee, dossier)?;
     let ActionRoute::Cabinet(action) = route.action else {
         return Err(ErreurApi::Interne(CategorieErreur::Donnee));
@@ -508,6 +518,7 @@ async fn traiter_requete(
     let requete = Requete {
         parametres: parts.uri.query(),
         corps: &corps,
+        sous_ressource,
         lecture_audit: &etat.pool_lecture_audit,
     };
     let resultat = executer(route.cas_usage, &mut tx, &garde, &requete).await?;
@@ -715,7 +726,7 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 3);
+        assert_eq!(mutations.len(), 10);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

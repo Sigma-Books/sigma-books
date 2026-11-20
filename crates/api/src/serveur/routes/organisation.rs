@@ -6,9 +6,11 @@ use authz::Action;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
+use super::{
+    ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route, referentiel,
+};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
@@ -75,25 +77,17 @@ pub const ROUTES: &[Route] = &[
     },
 ];
 
-/// Corps de la création d'un dossier.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NouveauDossier {
-    nom: String,
-}
-
 /// Longueur maximale du nom d'un dossier (contrainte de la table `dossier`).
 const NOM_DOSSIER_MAX: usize = 200;
 
-/// Nom de dossier admis : 1 à 200 caractères, non blanc, sans caractère de contrôle.
-fn nom_dossier(corps: &[u8]) -> Result<String, ErreurApi> {
-    let Json(NouveauDossier { nom }) =
-        Json::<NouveauDossier>::from_bytes(corps).map_err(|_| ErreurApi::RequeteInvalide)?;
+/// Nom de dossier admis : 1 à 200 caractères, non blanc, sans caractère de contrôle. Le corps
+/// de la création (nom, ouverture du premier exercice) est lu par le module `referentiel`.
+fn nom_dossier(nom: &str) -> Result<String, ErreurApi> {
     let valide = !nom.trim().is_empty()
         && nom.chars().count() <= NOM_DOSSIER_MAX
         && !nom.chars().any(char::is_control);
     if valide {
-        Ok(nom)
+        Ok(nom.to_owned())
     } else {
         Err(ErreurApi::RequeteInvalide)
     }
@@ -192,9 +186,13 @@ async fn creer(
 ) -> Result<Resultat, ErreurApi> {
     garde.exiger_cabinet()?;
     exiger_createur(tx).await?;
-    let nom = nom_dossier(requete.corps)?;
+    // Tout le référentiel du dossier (plan, journaux, premier exercice) est calculé en pur
+    // avant la première écriture (module `referentiel`, PR 11).
+    let demande = referentiel::lire_creation(requete.corps, referentiel::date_du_jour())?;
+    let nom = nom_dossier(demande.nom())?;
     let dossier = creer_dossier(tx, &nom).await?;
     affecter_utilisateur_du_contexte(tx, dossier.id).await?;
+    let donnees = referentiel::instancier(tx, dossier.id, &demande).await?;
     let id = dossier.id.uuid();
 
     let mut au_cabinet = Trace::new(PorteeAudit::Cabinet, "dossier", id);
@@ -204,6 +202,7 @@ async fn creer(
         .push(("affectation", None, Some(garde.utilisateur().to_string())));
     let mut au_dossier = Trace::new(PorteeAudit::Dossier(dossier.id), "dossier", id);
     au_dossier.champs.push(("nom", None, Some(nom.clone())));
+    au_dossier.donnees = donnees;
 
     let vue = VueDossier {
         id: dossier.id.to_string(),
@@ -221,23 +220,16 @@ mod tests {
 
     #[test]
     fn noms_de_dossier() {
-        assert_eq!(
-            nom_dossier(br#"{"nom":"SARL Exemple"}"#),
-            Ok("SARL Exemple".to_owned())
-        );
-        let long = format!(r#"{{"nom":"{}"}}"#, "é".repeat(200));
-        assert!(nom_dossier(long.as_bytes()).is_ok());
+        assert_eq!(nom_dossier("SARL Exemple"), Ok("SARL Exemple".to_owned()));
+        assert!(nom_dossier(&"é".repeat(200)).is_ok());
         for invalide in [
-            r#"{"nom":""}"#.to_owned(),
-            r#"{"nom":"   "}"#.to_owned(),
-            r#"{"nom":"a\u0007b"}"#.to_owned(),
-            r#"{"nom":"a","autre":1}"#.to_owned(),
-            r#"{"nom":1}"#.to_owned(),
-            "pas du json".to_owned(),
-            format!(r#"{{"nom":"{}"}}"#, "a".repeat(201)),
+            String::new(),
+            "   ".to_owned(),
+            "a\u{7}b".to_owned(),
+            "a".repeat(201),
         ] {
             assert_eq!(
-                nom_dossier(invalide.as_bytes()),
+                nom_dossier(&invalide),
                 Err(ErreurApi::RequeteInvalide),
                 "{invalide}"
             );

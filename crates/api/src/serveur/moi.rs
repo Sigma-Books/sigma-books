@@ -97,7 +97,8 @@ pub(crate) async fn executer(
         CasUsage::Passkeys(cas) => match cas {},
         CasUsage::Administration(cas) => match cas {},
         // Voie comptabilité (PR 11, 13, 14).
-        CasUsage::Referentiel(cas) => match cas {},
+        // Cas d'usage de dossier : pipeline complet, jamais ici.
+        CasUsage::Referentiel(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
         CasUsage::Brouillard(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
         // Voie pièces (PR 12).
