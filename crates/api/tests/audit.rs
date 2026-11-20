@@ -62,7 +62,7 @@ async fn creer_dossier(
         routeur,
         &format!("/api/cabinets/{}/dossiers", c.cabinet),
         Some(par),
-        &serde_json::json!({ "nom": nom }).to_string(),
+        &serde_json::json!({ "nom": nom, "nature": "reprise", "annee": 2026 }).to_string(),
         None,
     )
     .await;
@@ -568,7 +568,7 @@ async fn un_echec_d_ecriture_de_l_audit_annule_l_action() {
         &routeur,
         &format!("/api/cabinets/{}/dossiers", c.cabinet),
         Some(c.administrateur),
-        r#"{"nom":"Jamais créé"}"#,
+        r#"{"nom":"Jamais créé","nature":"reprise","annee":2026}"#,
         None,
     )
     .await;
@@ -610,7 +610,7 @@ async fn des_actions_concurrentes_donnent_des_rangs_continus() {
                     &routeur,
                     &chemin,
                     Some(admin),
-                    &format!(r#"{{"nom":"D{i}"}}"#),
+                    &format!(r#"{{"nom":"D{i}","nature":"reprise","annee":2026}}"#),
                     None,
                 )
                 .await
@@ -688,7 +688,7 @@ async fn aucune_fausse_alerte_de_verification_pendant_des_actions_concurrentes()
                         &routeur,
                         &format!("/api/cabinets/{cabinet}/dossiers"),
                         Some(admin),
-                        &format!(r#"{{"nom":"C{t}-{i}"}}"#),
+                        &format!(r#"{{"nom":"C{t}-{i}","nature":"reprise","annee":2026}}"#),
                         None,
                     )
                     .await;
@@ -804,6 +804,9 @@ async fn deux_entrees_reordonnees_par_le_proprietaire_sont_detectees() {
 async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
+    // Référentiel du dossier et ses sous-ressources (sous-compte, tiers) : PR 11.
+    let fixtures =
+        commun::referentiel::doter(&env.application, c.cabinet, c.dossier, c.administrateur).await;
     let routeur = routeur_de(&env);
     for route in ROUTES
         .iter()
@@ -817,10 +820,12 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 .as_u64()
                 .unwrap(),
         );
-        let chemin = route
-            .chemin
-            .replace("{cabinet}", &c.cabinet.to_string())
-            .replace("{dossier}", &c.dossier.to_string());
+        let chemin = commun::referentiel::chemin_concret(
+            route.chemin,
+            c.cabinet.uuid(),
+            c.dossier.uuid(),
+            |nom| fixtures.sous_ressource(nom),
+        );
         let reponse = appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await;
         assert!(
             reponse.statut.is_success(),

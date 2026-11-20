@@ -44,9 +44,10 @@ mod pieces;
 mod referentiel;
 mod session;
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use api::base::session::NatureSession;
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
@@ -56,6 +57,7 @@ use api::serveur::{Application, Reglages, routeur};
 use authz::Autorisation;
 use axum::Router;
 use axum::http::StatusCode;
+use commun::referentiel::{Fixtures, chemin_concret, doter};
 use commun::serveur::{
     AuthentificationTest, HorlogeTest, ORIGINE, Reponse, ToujoursAutorise, appeler_route,
     appeler_session, application_base, application_sessions, capture_globale, cookie_de,
@@ -74,7 +76,13 @@ struct Monde {
     /// Valideur et auditeur de A, affectés au premier dossier de A.
     valideur: IdUtilisateur,
     auditeur: IdUtilisateur,
+    /// Sous-ressources du référentiel de chaque dossier (PR 11).
+    fixtures: BTreeMap<IdDossier, Fixtures>,
 }
+
+/// Sous-ressources des dossiers de tous les mondes, pour [`chemin`] : chaque monde a ses
+/// propres dossiers, les tests parallèles ne se gênent pas.
+static SOUS_RESSOURCES: Mutex<BTreeMap<Uuid, Fixtures>> = Mutex::new(BTreeMap::new());
 
 async fn monde(admin: &PgPool) -> Monde {
     let a = creer_cabinet(admin, "Cabinet A").await;
@@ -88,25 +96,51 @@ async fn monde(admin: &PgPool) -> Monde {
     tx.commit().await.unwrap();
     let valideur = ajouter_affecte(admin, &a, "valideur").await;
     let auditeur = ajouter_affecte(admin, &a, "auditeur").await;
+    // Référentiel de chaque dossier, avec un sous-compte et un tiers (PR 11).
+    let mut fixtures = BTreeMap::new();
+    for c in [&a, &b] {
+        for dossier in [c.dossier, c.autre_dossier] {
+            let f = doter(admin, c.cabinet, dossier, c.administrateur).await;
+            SOUS_RESSOURCES.lock().unwrap().insert(dossier.uuid(), f);
+            fixtures.insert(dossier, f);
+        }
+    }
     Monde {
         a,
         b,
         multi,
         valideur,
         auditeur,
+        fixtures,
     }
 }
 
-/// Chemin concret d'une route.
+/// Chemin concret d'une route ; ses sous-ressources (`{compte}`, `{tiers}`) sont celles du
+/// dossier du chemin.
 fn chemin(route: &Route, cabinet: Uuid, dossier: Uuid) -> String {
-    route
-        .chemin
-        .replace("{cabinet}", &cabinet.to_string())
-        .replace("{dossier}", &dossier.to_string())
+    chemin_de(route, cabinet, dossier, dossier)
+}
+
+/// Chemin concret d'une route dont les sous-ressources sont celles du dossier `source` (un
+/// UUID neuf, donc inexistant, si `source` n'a pas de référentiel de test).
+fn chemin_de(route: &Route, cabinet: Uuid, dossier: Uuid, source: Uuid) -> String {
+    let fixtures = SOUS_RESSOURCES.lock().unwrap().get(&source).copied();
+    chemin_concret(route.chemin, cabinet, dossier, |nom| {
+        fixtures.map_or_else(Uuid::new_v4, |f| f.sous_ressource(nom))
+    })
 }
 
 fn a_un_dossier(route: &Route) -> bool {
     route.chemin.contains("{dossier}")
+}
+
+/// Vrai si le chemin désigne une sous-ressource du dossier (`{compte}`, `{tiers}`…).
+fn a_une_sous_ressource(route: &Route) -> bool {
+    route
+        .chemin
+        .replace("{cabinet}", "")
+        .replace("{dossier}", "")
+        .contains('{')
 }
 
 /// Appelle une route avec sa méthode (et, pour une mutation, les en-têtes anti-CSRF).
@@ -133,6 +167,13 @@ enum Resultat {
     Verification,
     /// 200, export d'audit.
     ExportAudit,
+    /// 200, objet dont la liste `cle` contient l'élément d'identifiant `present`, et aucun de
+    /// `absents` (référentiel d'un autre dossier).
+    ListeContient {
+        cle: &'static str,
+        present: Uuid,
+        absents: Vec<Uuid>,
+    },
     /// Refus (403) ou ressource d'autrui (404).
     Statut(StatusCode),
 }
@@ -142,6 +183,23 @@ struct Attendu {
     cabinet: IdCabinet,
     dossier: IdDossier,
     resultat: Resultat,
+    /// Dossier dont les sous-ressources sont placées dans le chemin (par défaut, `dossier`).
+    sous_ressources_de: Option<IdDossier>,
+}
+
+/// Attente d'un appel dont les sous-ressources du chemin sont celles du dossier `de` : celle
+/// d'un autre dossier, placée sous `dossier`, est absente (404 identique).
+fn attendu_croise(
+    utilisateur: IdUtilisateur,
+    cabinet: IdCabinet,
+    dossier: IdDossier,
+    de: IdDossier,
+    resultat: Resultat,
+) -> Attendu {
+    Attendu {
+        sous_ressources_de: Some(de),
+        ..attendu(utilisateur, cabinet, dossier, resultat)
+    }
 }
 
 fn attendu(
@@ -155,6 +213,7 @@ fn attendu(
         cabinet,
         dossier,
         resultat,
+        sous_ressources_de: None,
     }
 }
 
@@ -220,7 +279,13 @@ fn ids(reponse: &Reponse) -> Vec<String> {
 }
 
 async fn verifier_attendu(routeur: &Router, route: &Route, attendu: &Attendu, reference: &Reponse) {
-    let chemin = chemin(route, attendu.cabinet.uuid(), attendu.dossier.uuid());
+    let source = attendu.sous_ressources_de.unwrap_or(attendu.dossier);
+    let chemin = chemin_de(
+        route,
+        attendu.cabinet.uuid(),
+        attendu.dossier.uuid(),
+        source.uuid(),
+    );
     let reponse = appel(routeur, route, &chemin, Some(attendu.utilisateur)).await;
     let contexte = format!("{} {} {chemin}", route.methode.nom(), route.chemin);
     match &attendu.resultat {
@@ -284,12 +349,37 @@ async fn verifier_attendu(routeur: &Router, route: &Route, attendu: &Attendu, re
                 "{contexte}"
             );
         }
+        Resultat::ListeContient {
+            cle,
+            present,
+            absents,
+        } => verifier_liste(&reponse, cle, *present, absents, &contexte),
         Resultat::Statut(statut) => {
             assert_eq!(reponse.statut, *statut, "{contexte} : {}", reponse.texte());
             if *statut == StatusCode::NOT_FOUND {
                 assert_eq!(reponse.corps, reference.corps, "{contexte}");
             }
         }
+    }
+}
+
+/// 200, et la liste `cle` contient `present` et aucun de `absents`.
+fn verifier_liste(reponse: &Reponse, cle: &str, present: Uuid, absents: &[Uuid], contexte: &str) {
+    assert_eq!(
+        reponse.statut,
+        StatusCode::OK,
+        "{contexte} : {}",
+        reponse.texte()
+    );
+    let ids: Vec<String> = reponse.json()[cle]
+        .as_array()
+        .expect("liste")
+        .iter()
+        .map(|e| e["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(ids.contains(&present.to_string()), "{contexte}");
+    for absent in absents {
+        assert!(!ids.contains(&absent.to_string()), "{contexte}");
     }
 }
 
@@ -361,6 +451,30 @@ async fn verifier_generique(routeur: &Router, route: &Route, m: &Monde) -> Vec<R
                 &reponse,
                 &reference,
                 &format!("{} : dossier d'autrui", route.chemin),
+            );
+            reponses.push(reponse);
+        }
+    }
+    if a_une_sous_ressource(route) {
+        // Sous-ressource d'un autre dossier (de B, ou non affecté de A), ou inexistante, placée
+        // dans le chemin d'un dossier de A visible : 404 identique, rien n'est modifié.
+        for source in [
+            b.dossier.uuid(),
+            b.autre_dossier.uuid(),
+            a.autre_dossier.uuid(),
+            Uuid::new_v4(),
+        ] {
+            let reponse = appel(
+                routeur,
+                route,
+                &chemin_de(route, a.cabinet.uuid(), a.dossier.uuid(), source),
+                Some(a.administrateur),
+            )
+            .await;
+            verifier_absent(
+                &reponse,
+                &reference,
+                &format!("{} : sous-ressource d'autrui", route.chemin),
             );
             reponses.push(reponse);
         }
@@ -567,6 +681,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     assert_eq!(ids(&reponse), vec![b.dossier.to_string()]);
 
     creation_refusee_quand_cedar_se_trompe(&env, &routeur, &m).await;
+    referentiel::quand_cedar_se_trompe(&env, &routeur, &m, &reference).await;
     audit_refuse_quand_cedar_se_trompe(&routeur, &m, &reference).await;
     sessions_bornees_quand_cedar_se_trompe(&env, &m).await;
     cabinets_bornes_quand_cedar_se_trompe(&env, &m).await;

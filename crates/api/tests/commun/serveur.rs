@@ -392,8 +392,10 @@ pub async fn envoyer(
 pub fn corps_de(route: &Route) -> &'static str {
     match route.cas_usage {
         CasUsage::Organisation(organisation::Cas::CreerDossier) => {
-            r#"{"nom":"Dossier créé par le test"}"#
+            r#"{"nom":"Dossier créé par le test","nature":"reprise","annee":2026}"#
         }
+        // Voie comptabilité (PR 11, 13, 14).
+        CasUsage::Referentiel(cas) => super::referentiel::corps(cas),
         _ => "",
     }
 }
