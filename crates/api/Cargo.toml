@@ -15,6 +15,11 @@ workspace = true
 # Tests d'isolation contre un PostgreSQL réel (ADR 0011). Activée en CI par `--all-features` ;
 # sans base configurée, ces tests échouent avec un message clair (README du crate).
 tests-postgres = []
+# Tests des pièces contre un vrai stockage objet compatible S3 avec verrouillage d'objet
+# (ADR 0015). Ils sont marqués `#[ignore]` : `--all-features` (CI, sans service S3) les compile
+# et les compte « ignorés », sans les exécuter. On les lance par `-- --include-ignored` ; sans
+# service S3 configuré, ils échouent alors (README du crate, « Pièces »).
+tests-s3 = ["tests-postgres"]
 
 [dependencies]
 authz = { path = "../authz" }
@@ -31,6 +36,7 @@ http-body-util.workspace = true
 # Client HTTP/1.1 de l'horodatage (ADR 0010) : connexion unique par requête, sans redirection.
 hyper = { workspace = true, features = ["client"] }
 hyper-util.workspace = true
+rusty-s3.workspace = true
 serde.workspace = true
 sha1.workspace = true
 sha2.workspace = true
@@ -42,6 +48,7 @@ tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+url.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 
