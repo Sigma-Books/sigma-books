@@ -36,6 +36,7 @@
 pub mod audit;
 pub mod config;
 pub mod organisation;
+pub mod referentiel;
 pub mod session;
 
 use std::time::Duration;

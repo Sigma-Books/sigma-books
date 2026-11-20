@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, numero, intitule, genre, sens, collectif, tresorerie, actif FROM compte WHERE cabinet_id = $1 AND dossier_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "intitule",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "intitule"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "genre",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "genre"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sens",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "sens"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "collectif",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "collectif"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "tresorerie",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "tresorerie"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "actif",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "actif"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3d78cf7e4c1a2de4cbd9d41a3e06a833a37d5af3b7ce9179d83ed58bab5efa9c"
+}

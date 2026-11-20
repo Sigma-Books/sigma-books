@@ -1,0 +1,14 @@
+# Catalogue « dossier et référentiel » (PR 11 ; migration `0200_referentiel.sql`) : exceptions
+# et listes du test de catalogue (ADR 0011 ; crates/api/tests/catalogue.rs).
+#
+# Un fichier par module (`crates/api/catalogue/<module>.toml`) : une voie de travail n'édite que le
+# sien. Le test les lit tous et refuse une table (ou fonction) déclarée deux fois, même dans deux
+# fichiers. Chaque entrée est justifiée ; toute modification passe par la revue de l'équipe core.
+# Listes possibles : `security_definer`, `ajout_seul`, `instance`, `lecture_membre`,
+# `dossier_facultatif` ; une liste absente d'un fichier y est vide.
+#
+# Aucune exception pour les tables du référentiel (`dossier_referentiel`, `compte`, `journal`,
+# `exercice`, `periode`, `tiers`) : toutes sont des tables de dossier à la règle commune (RLS
+# forcée, politique `dossier_id = sigma.dossier`, le dossier doit être en contexte). Aucune n'est
+# en ajout seul, car toutes ont un état modifiable ; aucune n'accorde DELETE, et leurs UPDATE sont
+# accordés colonne par colonne (vérifié par `tests/referentiel.rs`).
