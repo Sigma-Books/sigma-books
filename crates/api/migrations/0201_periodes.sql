@@ -11,25 +11,50 @@ GRANT UPDATE (statut, statut_par, statut_le, motif) ON periode TO sigma_applicat
 
 -- Irréversibilité, en seconde barrière après `compta-core` : une période clôturée (AUDCIF
 -- art. 22 3°) ou un exercice clôturé ne se modifie plus, même par une requête erronée du rôle
--- applicatif. Politiques **restrictives** (ajoutées aux politiques de tenant par un ET), de forme
--- exacte déclarée au catalogue (`catalogue/referentiel.toml`, liste `irreversible`).
+-- applicatif. Déclencheurs `BEFORE UPDATE` (déclarés au catalogue, `catalogue/referentiel.toml`,
+-- liste `irreversible`) : toute modification d'une ligne clôturée lève l'erreur `SB001`, explicite.
 --
--- `WITH CHECK (true)` : sans lui, PostgreSQL reprendrait `USING` pour la nouvelle ligne, et la
--- transition vers le statut clôturé serait elle-même refusée.
+-- Pourquoi pas une politique restrictive : `SELECT … FOR UPDATE` et `FOR SHARE` appliquent aussi
+-- les politiques `UPDATE`, si bien qu'une ligne clôturée deviendrait **invisible** aux verrous de
+-- ligne (une validation qui prend sa période `FOR SHARE` ne la verrait plus). Un déclencheur ne
+-- change ni la visibilité ni les verrous.
 --
--- Effet sur les verrous de ligne : `SELECT … FOR UPDATE` ou `FOR SHARE` applique aussi les
--- politiques `UPDATE`. Une ligne clôturée n'est donc **ni verrouillée ni rendue** par une telle
--- requête : un appelant ne déduit rien de l'absence d'une ligne dans un résultat verrouillé, il
--- relit l'état par une lecture simple (ce que font les transitions). Une ligne clôturée n'a pas
--- besoin de verrou : elle ne change plus.
-CREATE POLICY exercice_irreversible ON exercice
-    AS RESTRICTIVE
-    FOR UPDATE
-    USING (statut <> 'cloture')
-    WITH CHECK (true);
+-- Fonctions sans `SECURITY DEFINER`, `EXECUTE` retiré à `PUBLIC` : un déclencheur s'exécute
+-- sans que le rôle qui modifie la table ait ce droit.
+--
+-- Exercice : aucune route ne clôture encore un exercice (L6). Le test d'effet du déclencheur
+-- (modification d'un exercice clôturé refusée par `SB001`) viendra avec la route de clôture
+-- d'exercice ; sa présence et sa forme sont vérifiées dès maintenant par le test de catalogue.
+CREATE FUNCTION exercice_irreversible() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path = pg_catalog
+AS $$
+BEGIN
+    IF OLD.statut = 'cloture' THEN
+        RAISE EXCEPTION 'exercice clôturé : aucune modification' USING ERRCODE = 'SB001';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION exercice_irreversible() FROM PUBLIC;
 
-CREATE POLICY periode_irreversible ON periode
-    AS RESTRICTIVE
-    FOR UPDATE
-    USING (statut <> 'cloturee')
-    WITH CHECK (true);
+CREATE TRIGGER exercice_irreversible
+    BEFORE UPDATE ON exercice
+    FOR EACH ROW EXECUTE FUNCTION exercice_irreversible();
+
+CREATE FUNCTION periode_irreversible() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path = pg_catalog
+AS $$
+BEGIN
+    IF OLD.statut = 'cloturee' THEN
+        RAISE EXCEPTION 'période clôturée : aucune modification' USING ERRCODE = 'SB001';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION periode_irreversible() FROM PUBLIC;
+
+CREATE TRIGGER periode_irreversible
+    BEFORE UPDATE ON periode
+    FOR EACH ROW EXECUTE FUNCTION periode_irreversible();

@@ -349,21 +349,35 @@ async fn une_periode_cloturee_ne_se_modifie_pas_en_base() {
     let mut tx = ouvrir_transaction(&b.env.application, b.contexte())
         .await
         .unwrap();
-    let ecrites = sqlx::query("UPDATE periode SET statut = 'ouverte' WHERE id = $1")
-        .bind(b.periodes[0])
-        .execute(tx.connexion())
-        .await
-        .unwrap()
-        .rows_affected();
-    assert_eq!(ecrites, 0);
-    // Une ligne clôturée n'est pas rendue par un verrou de ligne : elle ne change plus.
+    // Une ligne clôturée reste visible aux verrous de ligne (une validation la voit et relit son
+    // statut).
     let verrouillees: Vec<Uuid> =
-        sqlx::query_scalar("SELECT id FROM periode WHERE id = $1 FOR UPDATE")
+        sqlx::query_scalar("SELECT id FROM periode WHERE id = $1 FOR SHARE")
             .bind(b.periodes[0])
             .fetch_all(tx.connexion())
             .await
             .unwrap();
-    assert_eq!(verrouillees, Vec::<Uuid>::new());
+    assert_eq!(verrouillees, vec![b.periodes[0]]);
+    // Toute modification en est refusée par le déclencheur, avec son code.
+    for requete in [
+        "UPDATE periode SET statut = 'ouverte' WHERE id = $1",
+        "UPDATE periode SET motif = 'Réouverture' WHERE id = $1",
+    ] {
+        sqlx::query("SAVEPOINT essai")
+            .execute(tx.connexion())
+            .await
+            .unwrap();
+        let erreur = sqlx::query(requete)
+            .bind(b.periodes[0])
+            .execute(tx.connexion())
+            .await
+            .unwrap_err();
+        assert_eq!(code_sql(&erreur).as_deref(), Some("SB001"), "{erreur}");
+        sqlx::query("ROLLBACK TO SAVEPOINT essai")
+            .execute(tx.connexion())
+            .await
+            .unwrap();
+    }
     // Une période ouverte se modifie (le droit par colonne existe).
     let ecrites = sqlx::query("UPDATE periode SET statut = statut WHERE id = $1")
         .bind(b.periodes[1])

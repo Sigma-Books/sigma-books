@@ -17,9 +17,9 @@
 //!    l'interblocage ;
 //! 3. têtes d'audit, prises ensuite par le pipeline.
 //!
-//! Une ligne clôturée n'est ni rendue ni verrouillée par un `FOR SHARE` ou un `FOR UPDATE`
-//! (politique restrictive d'irréversibilité, `0201`) : elle ne change plus, et l'état est relu
-//! par une lecture simple après les verrous.
+//! Une ligne clôturée reste visible et verrouillable ; toute modification en est refusée par
+//! un déclencheur (`SB001`, migration `0201`), seconde barrière après `compta-core`. L'état est
+//! relu par une lecture simple après les verrous.
 //!
 //! # Brouillard
 //! La clôture d'une période est refusée tant qu'une écriture du brouillard y est datée (#135).

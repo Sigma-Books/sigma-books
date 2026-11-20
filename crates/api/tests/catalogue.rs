@@ -28,9 +28,12 @@
 //!   `NOLOGIN`, a `BYPASSRLS` ;
 //! - aucune colonne `real`, `double precision` (règle absolue 2), `money`, ni `timestamp` sans
 //!   fuseau (instants en `timestamptz`) ;
-//! - **politiques restrictives** : seulement celles de la liste `irreversible`, `FOR UPDATE`, de
-//!   `USING` exact et `WITH CHECK (true)` ; chacune de la liste existe ;
-//! - **brouillard** (fil-piège, PR 11b) : les tables `brouillon%`, la liste `brouillard` et
+//! - aucune **politique restrictive** (elle masquerait des lignes aux verrous `FOR SHARE`) ;
+//! - **irréversibilité** : chaque déclencheur de la liste `irreversible` existe, actif, de forme
+//!   exacte (`BEFORE UPDATE … FOR EACH ROW`, fonction du même nom sans `SECURITY DEFINER`, qui
+//!   lève `SB001` sur le statut clôturé) ;
+//! - **brouillard** (fil-piège, PR 11b) : les tables dont le nom contient `brouill` (hors liste
+//!   `brouillard_exempte`), la liste `brouillard` et
 //!   `api::base::referentiel::TABLES_BROUILLARD_LUES_A_LA_CLOTURE` sont le même ensemble : une
 //!   table de brouillard ne s'ajoute pas sans être lue à la clôture d'une période.
 //!
@@ -67,6 +70,7 @@ struct FichierCatalogue {
     lecture_membre: Vec<Entree>,
     irreversible: Vec<Irreversible>,
     brouillard: Vec<Entree>,
+    brouillard_exempte: Vec<Entree>,
 }
 
 impl FichierCatalogue {
@@ -96,6 +100,7 @@ impl FichierCatalogue {
         self.lecture_membre.extend(autre.lecture_membre);
         self.irreversible.extend(autre.irreversible);
         self.brouillard.extend(autre.brouillard);
+        self.brouillard_exempte.extend(autre.brouillard_exempte);
     }
 }
 
@@ -139,12 +144,13 @@ struct Entree {
     justification: String,
 }
 
-/// Politique restrictive d'irréversibilité admise : table et `USING` exact (`pg_get_expr`).
+/// Déclencheur d'irréversibilité : table, fonction (et déclencheur) du même nom, statut clos.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Irreversible {
     nom: String,
-    using: String,
+    fonction: String,
+    statut_clos: String,
     justification: String,
 }
 
@@ -166,10 +172,12 @@ struct Regles {
     lecture_membre: Vec<String>,
     ajout_seul: Vec<String>,
     security_definer: Vec<String>,
-    /// Table et `USING` exact de chaque politique restrictive admise.
-    irreversible: Vec<(String, String)>,
+    /// Table, fonction et statut clos de chaque déclencheur d'irréversibilité.
+    irreversible: Vec<(String, String, String)>,
     /// Tables du brouillard déclarées.
     brouillard: Vec<String>,
+    /// Tables dont le nom contient `brouill` sans être du brouillard.
+    brouillard_exempte: Vec<String>,
 }
 
 fn regles() -> Regles {
@@ -208,6 +216,11 @@ fn regles() -> Regles {
             f.brouillard
                 .iter()
                 .map(|e| ("brouillard", &e.nom, &e.justification)),
+        )
+        .chain(
+            f.brouillard_exempte
+                .iter()
+                .map(|e| ("brouillard_exempte", &e.nom, &e.justification)),
         );
     for (liste, nom, justification) in declarees {
         assert!(!justification.trim().is_empty(), "{nom} sans justification");
@@ -238,9 +251,10 @@ fn regles() -> Regles {
         irreversible: f
             .irreversible
             .iter()
-            .map(|e| (e.nom.clone(), e.using.clone()))
+            .map(|e| (e.nom.clone(), e.fonction.clone(), e.statut_clos.clone()))
             .collect(),
         brouillard: noms_de(&f.brouillard),
+        brouillard_exempte: noms_de(&f.brouillard_exempte),
     }
 }
 
@@ -575,25 +589,6 @@ type Politique = (
     Option<String>,
 );
 
-/// Politique restrictive admise : l'irréversibilité déclarée (liste `irreversible`), `FOR UPDATE`,
-/// de `USING` exact et `WITH CHECK (true)`.
-fn restrictive_admise(
-    regles: &Regles,
-    schema: &str,
-    table: &str,
-    commande: &str,
-    using: Option<&str>,
-    check: Option<&str>,
-) -> bool {
-    schema == "public"
-        && commande == "w"
-        && check == Some("true")
-        && regles
-            .irreversible
-            .iter()
-            .any(|(t, u)| t == table && using == Some(u.as_str()))
-}
-
 /// Écarts de forme des politiques, et tables de tenant sans clé de cabinet.
 async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
     // Tables des schémas de l'application, avec leurs clés de tenant.
@@ -678,51 +673,73 @@ async fn ecarts_politiques(connexion: &mut PgConnection, regles: &Regles) -> Vec
     ecarts
 }
 
-/// Politiques restrictives : seulement l'irréversibilité déclarée ([`restrictive_admise`]), et
-/// chacune de la liste existe.
-async fn ecarts_restrictives(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
+/// Politiques restrictives : aucune n'est admise. Elle s'appliquerait aussi aux verrous de ligne
+/// (`FOR UPDATE`, `FOR SHARE`) et y rendrait des lignes invisibles ; l'irréversibilité passe par
+/// des déclencheurs ([`ecarts_irreversibilite`]).
+async fn ecarts_restrictives(connexion: &mut PgConnection) -> Vec<String> {
     let politiques: Vec<Politique> = sqlx::query_as(concat!(
         "SELECT n.nspname::text, c.relname::text, p.polname::text, p.polcmd::text, \
-                    pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) \
-             FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid \
-             JOIN pg_namespace n ON n.oid = c.relnamespace WHERE NOT p.polpermissive AND ",
+                pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid) \
+         FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid \
+         JOIN pg_namespace n ON n.oid = c.relnamespace WHERE NOT p.polpermissive AND ",
         schemas!(),
         " ORDER BY 1, 2, 3"
     ))
     .fetch_all(&mut *connexion)
     .await
     .unwrap();
-    let mut ecarts = Vec::new();
-    let mut vues = BTreeSet::new();
-    for (schema, table, nom, commande, using, check) in politiques {
-        if restrictive_admise(
-            regles,
-            &schema,
-            &table,
-            &commande,
-            using.as_deref(),
-            check.as_deref(),
-        ) {
-            vues.insert(table);
-        } else {
-            ecarts.push(format!(
-                "{schema}.{table} : politique {nom} : politique restrictive hors liste \
+    politiques
+        .into_iter()
+        .map(|(schema, table, nom, _, using, check)| {
+            format!(
+                "{schema}.{table} : politique {nom} : politique restrictive non admise \
                  (« {using:?} », « {check:?} »)"
+            )
+        })
+        .collect()
+}
+
+/// Déclencheurs d'irréversibilité de la liste `irreversible` : présents, actifs, de forme exacte.
+async fn ecarts_irreversibilite(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
+    let mut ecarts = Vec::new();
+    for (table, fonction, statut) in &regles.irreversible {
+        let lu: Option<(String, String, bool, String)> = sqlx::query_as(
+            "SELECT pg_get_triggerdef(t.oid), t.tgenabled::text, p.prosecdef, p.prosrc \
+             FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid \
+             JOIN pg_proc p ON p.oid = t.tgfoid \
+             WHERE c.relnamespace = 'public'::regnamespace AND c.relname = $1 \
+               AND t.tgname = $2 AND NOT t.tgisinternal \
+               AND p.pronamespace = 'public'::regnamespace AND p.proname = $2",
+        )
+        .bind(table)
+        .bind(fonction)
+        .fetch_optional(&mut *connexion)
+        .await
+        .unwrap();
+        let attendu = format!(
+            "CREATE TRIGGER {fonction} BEFORE UPDATE ON public.{table} \
+             FOR EACH ROW EXECUTE FUNCTION {fonction}()"
+        );
+        let conforme = lu.is_some_and(|(definition, actif, definer, source)| {
+            definition == attendu
+                && actif == "O"
+                && !definer
+                && source.contains(&format!("IF OLD.statut = '{statut}' THEN"))
+                && source.contains("USING ERRCODE = 'SB001'")
+        });
+        if !conforme {
+            ecarts.push(format!(
+                "public.{table} : déclencheur d'irréversibilité {fonction} absent, inactif ou \
+                 hors forme"
             ));
         }
     }
-    ecarts.extend(
-        regles
-            .irreversible
-            .iter()
-            .filter(|(t, _)| !vues.contains(t))
-            .map(|(t, _)| format!("public.{t} : politique d'irréversibilité déclarée absente")),
-    );
     ecarts
 }
 
-/// Fil-piège du brouillard : tables `brouillon%` du schéma `public`, liste `brouillard` du
-/// catalogue et tables lues à la clôture d'une période sont le même ensemble.
+/// Fil-piège du brouillard : tables du schéma `public` dont le nom contient `brouill` (hors
+/// exemptions justifiées), liste `brouillard` du catalogue et tables lues à la clôture d'une
+/// période sont le même ensemble.
 async fn ecarts_brouillard(
     connexion: &mut PgConnection,
     regles: &Regles,
@@ -731,12 +748,13 @@ async fn ecarts_brouillard(
     let en_base: BTreeSet<String> = sqlx::query_scalar(
         "SELECT c.relname::text FROM pg_class c \
          WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p') \
-           AND c.relname LIKE 'brouillon%'",
+           AND c.relname LIKE '%brouill%'",
     )
     .fetch_all(&mut *connexion)
     .await
     .unwrap()
     .into_iter()
+    .filter(|t| !regles.brouillard_exempte.contains(t))
     .collect();
     let declarees: BTreeSet<String> = regles.brouillard.iter().cloned().collect();
     let lues: BTreeSet<String> = lues.iter().map(|t| (*t).to_owned()).collect();
@@ -778,7 +796,8 @@ async fn ecarts(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
         ecarts.extend(lignes);
     }
     ecarts.extend(ecarts_politiques(connexion, regles).await);
-    ecarts.extend(ecarts_restrictives(connexion, regles).await);
+    ecarts.extend(ecarts_restrictives(connexion).await);
+    ecarts.extend(ecarts_irreversibilite(connexion, regles).await);
     ecarts.extend(
         ecarts_brouillard(
             connexion,
@@ -832,8 +851,10 @@ const ECARTS_PROPRIETAIRE: &str = "CREATE TABLE table_oubliee (id uuid PRIMARY K
                  USING (actif) WITH CHECK (true); \
              CREATE POLICY irreversible_laxiste ON periode AS RESTRICTIVE FOR ALL \
                  USING (statut <> 'cloturee') WITH CHECK (true); \
-             DROP POLICY exercice_irreversible ON exercice; \
+             ALTER TABLE exercice DISABLE TRIGGER exercice_irreversible; \
              CREATE TABLE brouillon_oublie (cabinet_id uuid NOT NULL); \
+             CREATE TABLE ecriture_brouillard (cabinet_id uuid NOT NULL); \
+             CREATE TABLE ligne_brouillon (cabinet_id uuid NOT NULL); \
              ALTER TABLE utilisateur ADD COLUMN solde double precision; \
              ALTER TABLE utilisateur ADD COLUMN cabinet_id uuid; \
              ALTER TABLE dossier ADD COLUMN ouvert_le timestamp; \
@@ -886,10 +907,12 @@ const ECARTS_ATTENDUS: &[&str] = &[
     "sigma_application a USAGE sur la séquence public.seq_test",
     "droits par défaut de sigma_migration (public)",
     "rôle sigma_test_contournement : BYPASSRLS sans être super-utilisateur",
-    "public.tiers : politique restrictive_hors_liste : politique restrictive hors liste",
-    "public.periode : politique irreversible_laxiste : politique restrictive hors liste",
-    "public.exercice : politique d'irréversibilité déclarée absente",
+    "public.tiers : politique restrictive_hors_liste : politique restrictive non admise",
+    "public.periode : politique irreversible_laxiste : politique restrictive non admise",
+    "public.exercice : déclencheur d'irréversibilité exercice_irreversible absent, inactif",
     "table de brouillard brouillon_oublie : en base true, au catalogue false",
+    "table de brouillard ecriture_brouillard : en base true, au catalogue false",
+    "table de brouillard ligne_brouillon : en base true, au catalogue false",
 ];
 
 #[tokio::test]
@@ -984,7 +1007,7 @@ async fn une_table_oubliee_fait_echouer_le_controle() {
         "public.piece_stricte",
         "public.appartenance : politique appartenance_membre",
         "public.cabinet : politique cabinet_membre",
-        "public.periode : politique periode_irreversible",
+        "public.periode : déclencheur",
         "fonction public.f_definer : EXECUTE",
     ] {
         assert!(

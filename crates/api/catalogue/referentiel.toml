@@ -13,22 +13,26 @@
 # en ajout seul, car toutes ont un état modifiable ; aucune n'accorde DELETE, et leurs UPDATE sont
 # accordés colonne par colonne (vérifié par `tests/referentiel.rs`).
 #
-# Irréversibilité (PR 11b, migration `0201_periodes.sql`) : politiques **restrictives** `FOR UPDATE`
-# admises, de forme exacte (`USING` tel qu'affiché par PostgreSQL, `WITH CHECK (true)`). Toute autre
-# politique restrictive est un écart.
+# Irréversibilité (PR 11b, migration `0201_periodes.sql`) : déclencheurs `BEFORE UPDATE … FOR EACH
+# ROW`, actifs, qui appellent une fonction du même nom, sans `SECURITY DEFINER`, levant `SB001`
+# sur une ligne de statut clôturé. Le test de catalogue vérifie leur forme exacte ; aucune
+# politique restrictive n'est admise.
 
 [[irreversible]]
 nom = "exercice"
-using = "(statut <> 'cloture'::text)"
+fonction = "exercice_irreversible"
+statut_clos = "cloture"
 justification = "Un exercice clôturé ne se modifie plus (spec §4.2) : seconde barrière après compta-core."
 
 [[irreversible]]
 nom = "periode"
-using = "(statut <> 'cloturee'::text)"
+fonction = "periode_irreversible"
+statut_clos = "cloturee"
 justification = "Une période clôturée ne se rouvre jamais (AUDCIF art. 22 3°) : seconde barrière après compta-core."
 
-# Brouillard (fil-piège de la PR 11b, note d'étude de la PR 11, §6) : chaque table nommée
-# `brouillon%` est déclarée dans une liste `[[brouillard]]` (dans le fichier du module qui la crée,
+# Brouillard (fil-piège de la PR 11b, note d'étude de la PR 11, §6) : chaque table dont le nom
+# contient `brouill` (brouillon, brouillard), hors exemptions justifiées (`[[brouillard_exempte]]`,
+# aucune à ce jour), est déclarée dans une liste `[[brouillard]]` (dans le fichier du module qui la crée,
 # `catalogue/brouillard.toml` pour la PR 13) **et** lue à la clôture d'une période
 # (`api::base::referentiel::TABLES_BROUILLARD_LUES_A_LA_CLOTURE`). Le test de catalogue exige
 # l'égalité des trois ensembles : aucune table de brouillard n'existe encore, tous sont vides.
