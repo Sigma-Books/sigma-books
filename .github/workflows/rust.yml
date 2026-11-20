@@ -72,6 +72,13 @@ jobs:
           --health-retries 12
     env:
       SQLX_CLI_VERSION: "0.9.1"
+      # Service S3 des tests des pièces (Silo, voir plus bas) : conteneur et port locaux du runner.
+      SIGMA_S3_CONTENEUR: sigma-ci-s3
+      SIGMA_S3_PORT: "9000"
+      # Silo : fork de MinIO (AGPL-3.0, même API et même format disque), MinIO étant archivé depuis
+      # avril 2026 (plus d'images ni de binaires publiés). Images épinglées par empreinte.
+      SIGMA_S3_IMAGE: pgsty/silo:RELEASE.2026-11-12T00-00-00Z@sha256:c20d112390b9a9ce8c11b8af95ad35bcaa62f4759663c09c936cd8d2b511f329
+      SIGMA_S3_CLIENT_IMAGE: pgsty/mc:RELEASE.2026-11-12T00-00-00Z@sha256:b532278b7a3747dbab6fe45eebb40a653efa704e6758e24e9d9ec54fc96c1800
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -102,6 +109,66 @@ jobs:
         run: |
           export SIGMA_TEST_APPLICATION_URL="postgres://sigma_application:${SIGMA_MDP_APPLICATION}@localhost:5432/sigma_books"
           cargo test --all --all-features --locked
+        env:
+          SQLX_OFFLINE: "true"
+          SIGMA_TEST_ADMIN_URL: postgres://postgres@localhost:5432/sigma_books
+      # Tests des pièces contre un vrai stockage S3 avec verrouillage d'objet (ADR 0015). Silo est
+      # lancé par `docker run` et non comme service du job : `server /data` est une commande de
+      # démarrage, que `services:` ne permet pas de fournir (seules `options` du conteneur le
+      # peuvent, pas ses arguments). Même conteneur éphémère que PostgreSQL, joignable du seul
+      # runner (127.0.0.1).
+      - name: Tirer les identifiants du stockage S3 (masqués dans les journaux)
+        run: |
+          for nom in CLE_ADMIN SECRET_ADMIN CLE SECRET; do
+            valeur="$(openssl rand -hex 20)"
+            echo "::add-mask::$valeur"
+            echo "SIGMA_TEST_S3_${nom}=$valeur" >> "$GITHUB_ENV"
+          done
+      - name: Démarrer Silo (S3 compatible, versionnement et verrouillage d'objet)
+        run: |
+          docker run -d --name "$SIGMA_S3_CONTENEUR" -p "127.0.0.1:${SIGMA_S3_PORT}:9000" \
+            -e MINIO_ROOT_USER="$SIGMA_TEST_S3_CLE_ADMIN" \
+            -e MINIO_ROOT_PASSWORD="$SIGMA_TEST_S3_SECRET_ADMIN" \
+            "$SIGMA_S3_IMAGE" server /data
+          for _ in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${SIGMA_S3_PORT}/minio/health/ready" > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$SIGMA_S3_CONTENEUR"
+          exit 1
+      # Comme crates/api/README.md : rôle applicatif sans `s3:DeleteObjectVersion` ni
+      # `s3:BypassGovernanceRetention`, compartiment créé avec verrouillage d'objet (qui active le
+      # versionnement). Les tests créent leurs propres compartiments `sigma-test-…` avec
+      # l'identité d'administrateur. Les identifiants, masqués, passent en arguments de `mc` :
+      # conteneur éphémère, runner à usage unique.
+      - name: Préparer le rôle applicatif et le compartiment S3
+        run: |
+          cat > "$RUNNER_TEMP/politique.json" <<'FIN'
+          {"Version":"2012-10-17","Statement":[
+           {"Effect":"Allow","Action":["s3:GetBucketVersioning","s3:GetBucketObjectLockConfiguration"],
+            "Resource":["arn:aws:s3:::sigma-*"]},
+           {"Effect":"Allow","Action":["s3:PutObject","s3:PutObjectRetention","s3:GetObject",
+            "s3:GetObjectVersion","s3:GetObjectRetention"],"Resource":["arn:aws:s3:::sigma-*/*"]}]}
+          FIN
+          export MC_HOST_local="http://${SIGMA_TEST_S3_CLE_ADMIN}:${SIGMA_TEST_S3_SECRET_ADMIN}@127.0.0.1:${SIGMA_S3_PORT}"
+          mc() {
+            docker run --rm --network host -e MC_HOST_local \
+              -v "$RUNNER_TEMP/politique.json:/politique.json:ro" "$SIGMA_S3_CLIENT_IMAGE" "$@"
+          }
+          mc admin user add local "$SIGMA_TEST_S3_CLE" "$SIGMA_TEST_S3_SECRET"
+          mc admin policy create local sigma-pieces /politique.json
+          mc admin policy attach local sigma-pieces --user "$SIGMA_TEST_S3_CLE"
+          mc mb --with-lock local/sigma-pieces
+          rm -f "$RUNNER_TEMP/politique.json"
+      # `tests-s3` est activée par `--all-features` : l'étape précédente les compte « ignorés ».
+      # Ici ils s'exécutent contre Silo.
+      - name: Tests des pièces contre le stockage S3 (verrouillage d'objet)
+        run: |
+          export SIGMA_TEST_APPLICATION_URL="postgres://sigma_application:${SIGMA_MDP_APPLICATION}@localhost:5432/sigma_books"
+          export SIGMA_TEST_S3_POINT_ACCES="http://127.0.0.1:${SIGMA_S3_PORT}"
+          cargo test -p api --all-features --locked --test pieces_s3 -- --include-ignored
         env:
           SQLX_OFFLINE: "true"
           SIGMA_TEST_ADMIN_URL: postgres://postgres@localhost:5432/sigma_books
