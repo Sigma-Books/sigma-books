@@ -27,7 +27,7 @@ use crate::base::referentiel::{
 use crate::base::{IdDossier, TransactionTenant};
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
-use crate::serveur::pipeline::Garde;
+use crate::serveur::pipeline::{Garde, id_chemin};
 use authz::Role;
 use axum::Json;
 use axum::http::StatusCode;
@@ -121,7 +121,7 @@ pub(super) async fn executer(
         corps::<CorpsVide>(requete.corps)?;
         return ouvrir(tx, dossier).await;
     }
-    let periode = requete.sous_ressource.ok_or(ErreurApi::Introuvable)?;
+    let periode = id_chemin(requete.chemin, "periode")?;
     let transition = match cas {
         Cas::VerrouillerPeriode => {
             corps::<CorpsVide>(requete.corps)?;

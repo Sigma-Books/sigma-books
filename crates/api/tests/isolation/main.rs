@@ -118,6 +118,7 @@ async fn monde(admin: &PgPool) -> Monde {
             let f = doter(admin, c.cabinet, dossier, c.administrateur).await;
             inscrire_sous_ressource(dossier, "compte", f.compte);
             inscrire_sous_ressource(dossier, "tiers", f.tiers);
+            inscrire_sous_ressource(dossier, "periode", f.periode);
             fixtures.insert(dossier, f);
         }
     }
