@@ -9,11 +9,12 @@
 //! # Ordre des verrous (ADR 0011, note d'étude de la PR 13 §3)
 //! 1. exercices puis périodes du dossier, `FOR SHARE`, chronologiques ([`verrouiller_calendrier`]) ;
 //! 2. brouillon `FOR UPDATE` ([`super::brouillard::verrouiller`]) ;
-//! 3. pièces liées `FOR SHARE`, par identifiant ([`verrouiller_pieces`]) ;
-//! 4. tête de chaîne `FOR UPDATE` ([`verrouiller_tete`]) : elle sérialise les validations d'un
+//! 3. comptes et tiers cités `FOR SHARE` ([`verrouiller_comptes_et_tiers`]) ;
+//! 4. pièces liées `FOR SHARE`, par identifiant ([`verrouiller_pieces`]) ;
+//! 5. tête de chaîne `FOR UPDATE` ([`verrouiller_tete`]) : elle sérialise les validations d'un
 //!    dossier ;
-//! 5. compteur `FOR UPDATE` ([`verrouiller_compteur`]) ;
-//! 6. tête d'audit du dossier (prise par le pipeline à l'inscription des traces).
+//! 6. compteur `FOR UPDATE` ([`verrouiller_compteur`]) ;
+//! 7. tête d'audit du dossier (prise par le pipeline à l'inscription des traces).
 //!
 //! Aucun verrou de ligne n'est possible sur les écritures validées (ajout seul : le rôle
 //! applicatif n'a pas `UPDATE`) : la tête de chaîne en tient lieu.
@@ -75,6 +76,50 @@ pub async fn verrouiller_calendrier(tx: &mut TransactionTenant) -> Result<(), Er
     )
     .fetch_all(tx.connexion())
     .await?;
+    Ok(())
+}
+
+/// Verrouille `FOR SHARE` les comptes et les tiers cités par les lignes (par ordre croissant,
+/// sans doublon), après le brouillon et avant les pièces : une désactivation concurrente
+/// (`UPDATE`) attend la fin de la validation. Ce verrou est possible parce que le rôle
+/// applicatif a `UPDATE` sur `compte (intitule, actif)` et `tiers (nom, actif)`.
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn verrouiller_comptes_et_tiers(
+    tx: &mut TransactionTenant,
+    comptes: &[String],
+    tiers: &[Uuid],
+) -> Result<(), ErreurBase> {
+    let (cabinet, dossier) = tenant(tx)?;
+    let mut comptes = comptes.to_vec();
+    comptes.sort_unstable();
+    comptes.dedup();
+    for numero in comptes {
+        sqlx::query_scalar!(
+            "SELECT numero FROM compte WHERE cabinet_id = $1 AND dossier_id = $2 \
+             AND numero = $3 FOR SHARE",
+            cabinet.uuid(),
+            dossier.uuid(),
+            numero,
+        )
+        .fetch_optional(tx.connexion())
+        .await?;
+    }
+    let mut tiers = tiers.to_vec();
+    tiers.sort_unstable();
+    tiers.dedup();
+    for id in tiers {
+        sqlx::query_scalar!(
+            "SELECT id FROM tiers WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3 \
+             FOR SHARE",
+            cabinet.uuid(),
+            dossier.uuid(),
+            id,
+        )
+        .fetch_optional(tx.connexion())
+        .await?;
+    }
     Ok(())
 }
 

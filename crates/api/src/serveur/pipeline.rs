@@ -577,6 +577,7 @@ async fn traiter_requete(
         parametres: parts.uri.query(),
         corps: &corps,
         maintenant: etat.horloge.maintenant(),
+        horloge: etat.horloge.as_ref(),
         lecture_audit: &etat.pool_lecture_audit,
         pool: &etat.pool,
         chemin: &parametres,

@@ -305,6 +305,9 @@ pub struct Requete<'a> {
     /// Instant de la requête, lu sur l'horloge de l'application (injectable en test) : date du
     /// jour des règles d'ouverture d'un dossier.
     pub maintenant: time::OffsetDateTime,
+    /// Horloge de l'application : un cas d'usage qui a attendu un verrou relit l'instant
+    /// (validation d'une écriture, PR 13b) au lieu de se fier à `maintenant`.
+    pub horloge: &'a dyn super::session::Horloge,
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
     /// Pool du rôle applicatif : lectures à instantané unique d'un cas d'usage

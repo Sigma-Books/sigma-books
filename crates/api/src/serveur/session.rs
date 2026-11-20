@@ -76,7 +76,7 @@ const LONGUEUR_TEXTE: usize = 43;
 
 /// Source de l'instant courant. Le binaire lit l'horloge du système ([`HorlogeSysteme`]) ; les
 /// tests en injectent une autre (expiration par inactivité, au-delà de 12 heures).
-pub trait Horloge: Send + Sync + 'static {
+pub trait Horloge: std::fmt::Debug + Send + Sync + 'static {
     /// L'instant courant.
     fn maintenant(&self) -> OffsetDateTime;
 }

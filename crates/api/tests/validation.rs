@@ -580,54 +580,241 @@ async fn exercice_cloture_ou_en_cloture_refuse() {
     refuse(&b, id, v, StatusCode::CONFLICT, "exercice_cloture").await;
 }
 
+/// Instant fixe : le 15 juin de l'exercice du dossier, à midi UTC.
+fn midi(annee: &str, mois: time::Month, jour: u8) -> time::OffsetDateTime {
+    time::Date::from_calendar_date(annee.parse().unwrap(), mois, jour)
+        .unwrap()
+        .with_hms(12, 0, 0)
+        .unwrap()
+        .assume_utc()
+}
+
+/// Opération tardive (AUDCIF art. 22 4°), **déterministe** : horloge fixée au 15 juin, janvier à
+/// avril clôturés, date de valeur au 15 janvier. La période d'accueil est mai : l'écriture doit
+/// être datée du 1er mai.
 #[tokio::test]
-async fn operation_tardive_mal_datee() {
+async fn operation_tardive() {
+    let horloge = HorlogeTest::default();
+    let b = banc_avec(Some(&horloge)).await;
+    let annee = b.annee().await;
+    horloge.fixer(midi(&annee, time::Month::June, 15));
+    let j = journal_de_saisie();
+    let extra = format!(r#","date_valeur_comptable":"{annee}-01-15""#);
+    let mal = b
+        .pret_avec(&contenu(
+            &j,
+            &format!("{annee}-05-10"),
+            &equilibre("1000"),
+            &extra,
+        ))
+        .await;
+    let bien = b
+        .pret_avec(&contenu(
+            &j,
+            &format!("{annee}-05-01"),
+            &equilibre("1000"),
+            &extra,
+        ))
+        .await;
+    sqlx::query(
+        "UPDATE periode SET statut = 'cloturee', statut_par = $2, statut_le = now() \
+         WHERE dossier_id = $1 AND debut < $3",
+    )
+    .bind(b.c.dossier.uuid())
+    .bind(b.c.administrateur.uuid())
+    .bind(time::Date::from_calendar_date(annee.parse().unwrap(), time::Month::May, 1).unwrap())
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    let r = b.valider(mal.0, mal.1).await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "operation_tardive_mal_datee");
+    assert_eq!(b.compter("ecriture_validee").await, 0);
+    let r = b.valider(bien.0, bien.1).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert!(r.json()["numero"].as_str().unwrap().ends_with("-000001"));
+    assert_eq!(
+        r.json()["format"],
+        2,
+        "date de valeur sans étiquette : format v2"
+    );
+    assert_eq!(r.json()["date_validation"], format!("{annee}-06-15"));
+}
+
+/// Délégation retirée **pendant l'attente du verrou** du brouillon : le rôle est relu après le
+/// verrou (ADR 0020, 5), la validation est refusée.
+#[tokio::test]
+async fn delegation_retiree_pendant_l_attente_du_verrou() {
     let b = banc().await;
-    let periodes: Vec<(time::Date,)> =
-        sqlx::query_as("SELECT debut FROM periode WHERE dossier_id = $1 ORDER BY debut")
-            .bind(b.c.dossier.uuid())
-            .fetch_all(&b.env.admin)
+    let (id, v, _) = b.pret("Délégation").await;
+    let delegue = ajouter_affecte(&b.env.admin, &b.c, "collaborateur").await;
+    sqlx::query("UPDATE acces_dossier SET validation_deleguee = true WHERE utilisateur_id = $1")
+        .bind(delegue.uuid())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    // Le brouillon est tenu `FOR UPDATE` par une autre transaction.
+    let mut verrou = b.env.admin.begin().await.unwrap();
+    sqlx::query("SELECT id FROM brouillon WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_all(&mut *verrou)
+        .await
+        .unwrap();
+    let routeur = b.routeur.clone();
+    let chemin = format!("{}/{id}/validation", b.base());
+    let tache = tokio::spawn(async move {
+        envoyer(
+            &routeur,
+            &chemin,
+            Some(delegue),
+            &format!(r#"{{"version":{v}}}"#),
+            None,
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    assert!(!tache.is_finished(), "la validation attend le verrou");
+    sqlx::query("UPDATE acces_dossier SET validation_deleguee = false WHERE utilisateur_id = $1")
+        .bind(delegue.uuid())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    verrou.commit().await.unwrap();
+    let r = tache.await.unwrap();
+    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    assert_eq!(b.compter("ecriture_validee").await, 0);
+    assert_eq!(b.compter("brouillon").await, 1);
+}
+
+/// L'instant de validation est relu après la tête de chaîne : il croît avec le rang.
+#[tokio::test]
+async fn les_instants_croissent_avec_le_rang() {
+    let horloge = HorlogeTest::default();
+    let b = banc_avec(Some(&horloge)).await;
+    let annee = b.annee().await;
+    horloge.fixer(midi(&annee, time::Month::June, 15));
+    for n in 1..=3 {
+        let (id, v, _) = b.pret(&format!("Instant {n}")).await;
+        let r = b.valider(id, v).await;
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+        horloge.avancer(time::Duration::hours(13));
+        assert_eq!(r.json()["rang"], n);
+    }
+    let lignes: Vec<(i64, time::OffsetDateTime, time::Date)> = sqlx::query_as(
+        "SELECT rang, valide_le, date_validation FROM ecriture_validee \
+         WHERE dossier_id = $1 ORDER BY rang",
+    )
+    .bind(b.c.dossier.uuid())
+    .fetch_all(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(lignes.len(), 3);
+    for w in lignes.windows(2) {
+        assert!(w[0].1 < w[1].1, "instants croissants avec le rang");
+        assert!(w[0].2 <= w[1].2);
+    }
+    // Midi + 13 h : le deuxième instant franchit minuit, la date de validation le suit.
+    assert_eq!(
+        lignes[0].2,
+        time::Date::from_calendar_date(annee.parse().unwrap(), time::Month::June, 15).unwrap()
+    );
+    assert_eq!(
+        lignes[1].2,
+        time::Date::from_calendar_date(annee.parse().unwrap(), time::Month::June, 16).unwrap()
+    );
+}
+
+/// Un compte utilisé par la validation est verrouillé `FOR SHARE` : sa désactivation concurrente
+/// attend la fin de la validation.
+#[tokio::test]
+async fn comptes_et_tiers_verrouilles_pendant_la_validation() {
+    let b = banc().await;
+    let (id, v, _) = b.pret("Verrou des comptes").await;
+    // Une transaction crée la tête de chaîne sans la valider : la validation, après avoir
+    // verrouillé ses comptes, attend sur `INSERT … ON CONFLICT`.
+    let mut tenue = b.env.admin.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO chaine_tete (cabinet_id, dossier_id, rang, empreinte) VALUES ($1, $2, 0, $3)",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .bind(b.genese().octets().to_vec())
+    .execute(&mut *tenue)
+    .await
+    .unwrap();
+    let routeur = b.routeur.clone();
+    let chemin = format!("{}/{id}/validation", b.base());
+    let u = b.valideur;
+    let validation = tokio::spawn(async move {
+        envoyer(
+            &routeur,
+            &chemin,
+            Some(u),
+            &format!(r#"{{"version":{v}}}"#),
+            None,
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    assert!(!validation.is_finished());
+    let admin = b.env.admin.clone();
+    let dossier = b.c.dossier.uuid();
+    let desactivation = tokio::spawn(async move {
+        sqlx::query("UPDATE compte SET actif = false WHERE dossier_id = $1 AND numero = $2")
+            .bind(dossier)
+            .bind(caisse())
+            .execute(&admin)
             .await
             .unwrap();
-    let aujourd_hui = aujourd_hui();
-    let Some(indice) = periodes.iter().rposition(|(d,)| *d <= aujourd_hui) else {
-        return;
-    };
-    if indice == 0 {
-        // Janvier : aucune période antérieure à clôturer.
-        return;
-    }
-    let valeur = texte_date(periodes[0].0);
-    let (id, v) = b
-        .pret_avec(&contenu(
-            &journal_de_saisie(),
-            &aujourd(),
-            &equilibre("1000"),
-            &format!(r#","date_valeur_comptable":"{valeur}""#),
-        ))
-        .await;
-    for (debut,) in &periodes[..indice] {
-        b.sql(&format!(
-            "UPDATE periode SET statut = 'cloturee', statut_par = '{}', statut_le = now() \
-             WHERE dossier_id = $1 AND debut = '{}'",
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+    assert!(
+        !desactivation.is_finished(),
+        "la désactivation attend le verrou du compte"
+    );
+    tenue.commit().await.unwrap();
+    let r = validation.await.unwrap();
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    desactivation.await.unwrap();
+    assert_eq!(b.compter("ecriture_validee").await, 1);
+}
+
+/// Seconde barrière : une pièce liée ne s'écarte pas, même par `UPDATE` direct du propriétaire.
+#[tokio::test]
+async fn piece_liee_non_ecartee_par_sql_direct() {
+    let b = banc().await;
+    let (id, v, piece) = b.pret("Pièce liée").await;
+    let ecarter = |piece: Uuid| {
+        let admin = b.env.admin.clone();
+        let (cabinet, dossier, auteur) = (
+            b.c.cabinet.uuid(),
+            b.c.dossier.uuid(),
             b.c.administrateur.uuid(),
-            texte_date(*debut)
-        ))
-        .await;
-    }
-    if periodes[indice].0 == aujourd_hui {
-        // Premier jour de la période d'accueil : l'opération tardive est bien datée.
-        assert_eq!(b.valider(id, v).await.statut, StatusCode::OK);
-    } else {
-        refuse(
-            &b,
-            id,
-            v,
-            StatusCode::CONFLICT,
-            "operation_tardive_mal_datee",
-        )
-        .await;
-    }
+        );
+        async move {
+            sqlx::query(
+                "UPDATE piece SET ecartee_le = now(), ecartee_par = $4, motif_ecart = 'Test' \
+                 WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+            )
+            .bind(cabinet)
+            .bind(dossier)
+            .bind(piece)
+            .bind(auteur)
+            .execute(&admin)
+            .await
+        }
+    };
+    // Liée à un brouillon.
+    let e = ecarter(piece).await.unwrap_err();
+    assert_eq!(commun::code_sql(&e).as_deref(), Some("23514"), "{e}");
+    // Liée à une écriture validée.
+    assert_eq!(b.valider(id, v).await.statut, StatusCode::OK);
+    let e = ecarter(piece).await.unwrap_err();
+    assert_eq!(commun::code_sql(&e).as_deref(), Some("23514"), "{e}");
+    // Une pièce non liée s'écarte.
+    let libre =
+        commun::pieces::doter(&b.env.admin, b.c.cabinet, b.c.dossier, b.c.administrateur).await;
+    ecarter(libre).await.unwrap();
 }
 
 #[tokio::test]

@@ -496,16 +496,19 @@ pub(super) async fn valider(
         return Err(ErreurApi::Introuvable);
     }
     let CorpsVersion { version } = corps(requete.corps)?;
-    exiger_valideur(tx, dossier).await?;
     let tva = referentiel_tva()?;
     let utilisateur = tx.contexte().id_utilisateur().uuid();
 
-    // 1. Verrous, dans l'ordre de l'ADR 0011 : calendrier, brouillon, pièces, tête, compteur ;
-    //    puis la tête d'audit, prise par le pipeline à l'inscription des traces.
+    // 1. Verrous, dans l'ordre de l'ADR 0011 et de l'ADR 0020 : calendrier, brouillon, comptes et
+    //    tiers, pièces, tête, compteur ; puis la tête d'audit, prise par le pipeline à
+    //    l'inscription des traces.
     base::verrouiller_calendrier(tx).await?;
     let courante = brouillard::verrouiller(tx, id)
         .await?
         .ok_or(ErreurApi::Introuvable)?;
+    // Rôle et délégation relus **après** le verrou du brouillon : une délégation retirée pendant
+    // l'attente du verrou est vue (ADR 0020, 5).
+    exiger_valideur(tx, dossier).await?;
     if courante != version {
         return Err(conflit(MotifConflit::BrouillonPerime));
     }
@@ -513,6 +516,11 @@ pub(super) async fn valider(
     let b = brouillard::lire(tx, id)
         .await?
         .ok_or(ErreurApi::Introuvable)?;
+    // Comptes et tiers utilisés `FOR SHARE`, puis référentiel relu : un compte désactivé
+    // concurremment attend la fin de la validation, ou est vu désactivé.
+    let comptes: Vec<String> = b.contenu.lignes.iter().map(|l| l.compte.clone()).collect();
+    let tiers: Vec<Uuid> = b.contenu.lignes.iter().filter_map(|l| l.tiers).collect();
+    base::verrouiller_comptes_et_tiers(tx, &comptes, &tiers).await?;
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
     let cabinet = lire_cabinet(tx).await?.ok_or(ErreurApi::Introuvable)?;
     // Séparation des tâches : même si Cedar se trompait (créateur et correcteurs).
@@ -539,13 +547,15 @@ pub(super) async fn valider(
         &integrite::IdDossier::parse(&dossier.id().uuid().to_string()).map_err(|_| donnee())?,
     );
     let tete = base::verrouiller_tete(tx, &genese).await?;
+    // Instant relu **après** la tête : la validation a pu attendre, ou franchir minuit.
+    let instant = requete.horloge.maintenant();
     let dernier = base::verrouiller_compteur(tx, journal_id, exercice_id).await?;
     let contexte = Contexte {
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
     };
-    let date_validation = requete.maintenant.date();
+    let date_validation = instant.date();
     let decision = decider(preparee, &contexte, dernier, &tete, date_validation)?;
 
     // 3. Persistance : écriture, lignes, liens ; le brouillon disparaît ; tête et compteur.
@@ -574,7 +584,7 @@ pub(super) async fn valider(
             precedente: tete.empreinte,
             rang: decision.rang,
             valide_par: utilisateur,
-            valide_le: requete.maintenant,
+            valide_le: instant,
             pieces: roles,
         },
     )?;
@@ -828,6 +838,8 @@ mod tests {
 
     struct Decor {
         inst: Instanciation,
+        /// Calendrier de `inst`, janvier à avril clôturés (opérations tardives).
+        clos: Exercices,
         journaux: Vec<String>,
         caisse: String,
         banque: String,
@@ -860,8 +872,18 @@ mod tests {
             .journaux()
             .map(|j| j.code().as_str().to_owned())
             .collect();
+        let mut clos = inst.exercices().clone();
+        for mois in [
+            date!(2026 - 01 - 15),
+            date!(2026 - 02 - 15),
+            date!(2026 - 03 - 15),
+            date!(2026 - 04 - 15),
+        ] {
+            clos.cloturer_periode(mois, []).unwrap();
+        }
         Decor {
             inst,
+            clos,
             journaux,
             caisse: caisse.as_str().to_owned(),
             banque: banque.as_str().to_owned(),
@@ -887,6 +909,9 @@ mod tests {
         ecart: u32,
         lignes: usize,
         piece: bool,
+        /// 0 : aucune date de valeur ; 1 : opération tardive mal datée (10 mai) ; 2 : bien datée
+        /// (1er mai), les périodes de janvier à avril étant clôturées.
+        tardive: usize,
     }
 
     const DATES: [Date; 4] = [
@@ -910,17 +935,19 @@ mod tests {
                 0u32..3,
                 1usize..4,
                 any::<bool>(),
+                0usize..3,
             )
-                .prop_map(|(journal, date, validation, ecart, lignes, piece)| {
-                    Operation {
+                .prop_map(
+                    |(journal, date, validation, ecart, lignes, piece, tardive)| Operation {
                         journal,
                         date,
                         validation,
                         ecart,
                         lignes,
                         piece,
-                    }
-                }),
+                        tardive,
+                    },
+                ),
             1..25,
         )
     }
@@ -995,6 +1022,69 @@ mod tests {
         assert!(r.canonique.contains("montant=1000.5\n"));
     }
 
+    #[test]
+    fn operation_tardive_bien_ou_mal_datee() {
+        let d = decor();
+        let etat = d.inst.etat();
+        let contexte = Contexte {
+            plan: &etat.plan,
+            journaux: &etat.journaux,
+            exercices: &d.clos,
+        };
+        let journal = etat
+            .journaux
+            .journaux()
+            .find(|j| j.genre().accepte_la_saisie() && j.compte_tresorerie().is_none())
+            .unwrap()
+            .code()
+            .as_str()
+            .to_owned();
+        let tete = Tete {
+            rang: 0,
+            empreinte: Empreinte::calculer(b"tete"),
+        };
+        let essai = |date: Date| {
+            let b = BrouillonStocke {
+                id: Uuid::nil(),
+                contenu: ContenuStocke {
+                    journal_id: Uuid::nil(),
+                    journal: journal.clone(),
+                    date,
+                    date_valeur_comptable: Some(date!(2026 - 01 - 15)),
+                    libelle: "Tardive".to_owned(),
+                    lignes: vec![
+                        stockee("debit", &d.caisse, "1000"),
+                        stockee("credit", &d.banque, "1000"),
+                    ],
+                },
+                a_revoir: false,
+                a_revoir_par: None,
+                version: 1,
+                cree_par: Uuid::nil(),
+                cree_le: time::OffsetDateTime::UNIX_EPOCH,
+                modifie_par: Uuid::nil(),
+                modifie_le: time::OffsetDateTime::UNIX_EPOCH,
+                pieces: vec![],
+                contributeurs: vec![],
+            };
+            appliquer(
+                &b,
+                &["c".repeat(64)],
+                referentiel_tva().unwrap(),
+                &contexte,
+                |_, _| 0,
+                &tete,
+                date!(2026 - 06 - 15),
+            )
+        };
+        assert_eq!(
+            essai(date!(2026 - 05 - 10)).unwrap_err(),
+            refus(MotifValidation::OperationTardiveMalDatee, None)
+        );
+        let ok = essai(date!(2026 - 05 - 01)).unwrap();
+        assert_eq!(ok.format, 2);
+    }
+
     proptest! {
         /// Pour toute suite de validations, la fonction d'application rend les mêmes numéros,
         /// contenus canoniques et refus que `Livre` de `compta-core`, et chaîne comme
@@ -1007,7 +1097,7 @@ mod tests {
             let contexte = Contexte {
                 plan: &etat.plan,
                 journaux: &etat.journaux,
-                exercices: d.inst.exercices(),
+                exercices: &d.clos,
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
@@ -1016,7 +1106,11 @@ mod tests {
             let empreinte_piece = "a".repeat(64);
             for op in ops {
                 let journal = d.journaux[op.journal % d.journaux.len()].clone();
-                let date = DATES[op.date];
+                let (date, date_valeur) = match op.tardive {
+                    1 => (date!(2026 - 05 - 10), Some(date!(2026 - 01 - 15))),
+                    2 => (date!(2026 - 05 - 01), Some(date!(2026 - 01 - 15))),
+                    _ => (DATES[op.date], None),
+                };
                 let mut lignes = vec![
                     stockee("debit", &d.caisse, "1000"),
                     stockee("credit", &d.banque, "1000"),
@@ -1036,7 +1130,7 @@ mod tests {
                         journal_id: Uuid::nil(),
                         journal,
                         date,
-                        date_valeur_comptable: None,
+                        date_valeur_comptable: date_valeur,
                         libelle: "Parité".to_owned(),
                         lignes,
                     },
@@ -1066,7 +1160,7 @@ mod tests {
 
                 // Côté `Livre`.
                 let brouillon = brouillon_de(
-                    &b.contenu.journal, date, None, &b.contenu.libelle, None,
+                    &b.contenu.journal, date, date_valeur, &b.contenu.libelle, None,
                     &b.contenu.lignes, &empreintes, tva,
                 ).unwrap();
                 let attendu: Result<(NumeroEcriture, String), ErreurApi> = match brouillon.valider_equilibre() {
