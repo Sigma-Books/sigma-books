@@ -11,7 +11,8 @@
 use std::sync::OnceLock;
 
 use api::base::referentiel::{
-    EtatReferentiel, Instanciation, Modele, Ouverture, Tiers, TypeTiers, charger, instancier, muter,
+    EtatReferentiel, Instanciation, Modele, Ouverture, Tiers, TypeTiers, charger, instancier,
+    muter, types_de_tiers_admis,
 };
 use api::base::{ContexteTenant, IdCabinet, IdDossier, IdUtilisateur, ouvrir_transaction};
 use compta_core::{Compte, NumeroCompte, TexteCourt};
@@ -24,8 +25,10 @@ pub struct Comptes {
     pub base: NumeroCompte,
     /// Compte de mouvement admis en trésorerie, autre que celui du journal de caisse.
     pub banque: NumeroCompte,
-    /// Compte de mouvement collectif : compte des tiers de test.
+    /// Compte de mouvement collectif qui admet un client (fiche 41) : compte des tiers de test.
     pub collectif: NumeroCompte,
+    /// Compte de mouvement collectif qui admet un fournisseur (fiche 40).
+    pub fournisseur: NumeroCompte,
     /// Compte du journal de caisse (données de `syscohada`).
     pub caisse: NumeroCompte,
 }
@@ -35,6 +38,10 @@ pub fn comptes() -> &'static Comptes {
     static COMPTES: OnceLock<Comptes> = OnceLock::new();
     COMPTES.get_or_init(|| {
         let etat = Modele::officiel().unwrap().etat();
+        let admet = |c: &Compte, genre: TypeTiers| {
+            c.est_collectif()
+                && types_de_tiers_admis(etat, c.numero()).is_some_and(|t| t.contains(&genre))
+        };
         let plan = &etat.plan;
         let caisse = etat
             .journaux
@@ -53,7 +60,8 @@ pub fn comptes() -> &'static Comptes {
         Comptes {
             base: premier(&|c| !c.est_collectif() && !c.est_admis_en_journal_de_tresorerie()),
             banque: premier(&|c| c.est_admis_en_journal_de_tresorerie() && *c.numero() != caisse),
-            collectif: premier(&Compte::est_collectif),
+            collectif: premier(&|c| admet(c, TypeTiers::Client)),
+            fournisseur: premier(&|c| admet(c, TypeTiers::Fournisseur)),
             caisse,
         }
     })
@@ -172,6 +180,15 @@ pub fn chemin_concret(
     }
     chemin.push_str(reste);
     chemin
+}
+
+/// Corps de la création d'un dossier repris sur l'année en cours (horloge du système, celle
+/// de l'application des tests).
+pub fn corps_creation(nom: &str) -> String {
+    format!(
+        r#"{{"nom":"{nom}","nature":"reprise","annee":{}}}"#,
+        time::OffsetDateTime::now_utc().year()
+    )
 }
 
 /// Corps d'exemple des mutations du module `referentiel` (`commun::serveur::corps_de`).

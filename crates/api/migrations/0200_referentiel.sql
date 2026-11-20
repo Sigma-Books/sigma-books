@@ -72,9 +72,15 @@ CREATE TABLE compte (
     -- Admis comme compte d'un journal de trésorerie (marque du référentiel, ou héritée).
     tresorerie boolean NOT NULL,
     actif boolean NOT NULL,
+    -- Types de tiers admis sur ce compte officiel et ses sous-comptes (marque `tiers` du
+    -- référentiel copié, fiches de fonctionnement des comptes 40, 41, 42 et 46).
+    types_tiers text CHECK (
+        types_tiers ~ '^(client|fournisseur|salarie|associe|autre)(,(client|fournisseur|salarie|associe|autre))*$'
+    ),
     cree_le timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (cabinet_id, dossier_id, id),
     UNIQUE (cabinet_id, dossier_id, numero),
+    CHECK (types_tiers IS NULL OR genre = 'officiel'),
     FOREIGN KEY (cabinet_id, dossier_id) REFERENCES dossier (cabinet_id, id),
     FOREIGN KEY (cabinet_id, dossier_id, parent_numero)
         REFERENCES compte (cabinet_id, dossier_id, numero),
@@ -101,10 +107,10 @@ CREATE POLICY compte_tenant ON compte
         AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid
     );
 
--- Le numéro, le parent, le genre, le sens et les caractères collectif et de trésorerie sont
--- immuables : seuls l'intitulé et l'état actif changent. L'immuabilité de l'intitulé d'un
--- compte officiel relève de `compta-core` (`CompteOfficielImmuable`) : une politique ne voit
--- pas quelle colonne change.
+-- Le numéro, le parent, le genre, le sens, les types de tiers et les caractères collectif et de
+-- trésorerie sont immuables : seuls l'intitulé et l'état actif changent. L'immuabilité de
+-- l'intitulé d'un compte officiel relève de `compta-core` (`CompteOfficielImmuable`) et de
+-- `api` (seconde barrière à l'enregistrement) : une politique ne voit pas quelle colonne change.
 GRANT SELECT, INSERT ON compte TO sigma_application;
 GRANT UPDATE (intitule, actif) ON compte TO sigma_application;
 
@@ -180,9 +186,9 @@ CREATE POLICY exercice_tenant ON exercice
         AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid
     );
 
--- Statut seulement (transitions de la PR 11b) ; `SELECT … FOR UPDATE` l'exige aussi.
+-- Aucune colonne modifiable en PR 11a : la PR 11b accordera `UPDATE (statut)` (transitions,
+-- et `SELECT … FOR UPDATE` qui l'exige) dans sa propre migration.
 GRANT SELECT, INSERT ON exercice TO sigma_application;
-GRANT UPDATE (statut) ON exercice TO sigma_application;
 
 -- Période : un mois civil, réduit aux bornes de son exercice (spec §4.3).
 CREATE TABLE periode (
@@ -221,8 +227,9 @@ CREATE POLICY periode_tenant ON periode
         AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid
     );
 
+-- Aucune colonne modifiable en PR 11a : la PR 11b accordera
+-- `UPDATE (statut, statut_par, statut_le, motif)` dans sa propre migration.
 GRANT SELECT, INSERT ON periode TO sigma_application;
-GRANT UPDATE (statut, statut_par, statut_le, motif) ON periode TO sigma_application;
 
 -- Tiers minimal (L2, question 6 a) : un rôle et un compte collectif. Un client et un
 -- fournisseur sont deux tiers, chacun sur son compte collectif (fiches 40 et 41, AUDCIF

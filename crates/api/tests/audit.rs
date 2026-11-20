@@ -62,7 +62,7 @@ async fn creer_dossier(
         routeur,
         &format!("/api/cabinets/{}/dossiers", c.cabinet),
         Some(par),
-        &serde_json::json!({ "nom": nom, "nature": "reprise", "annee": 2026 }).to_string(),
+        &commun::referentiel::corps_creation(nom),
         None,
     )
     .await;
@@ -568,7 +568,7 @@ async fn un_echec_d_ecriture_de_l_audit_annule_l_action() {
         &routeur,
         &format!("/api/cabinets/{}/dossiers", c.cabinet),
         Some(c.administrateur),
-        r#"{"nom":"Jamais créé","nature":"reprise","annee":2026}"#,
+        &commun::referentiel::corps_creation("Jamais créé"),
         None,
     )
     .await;
@@ -610,7 +610,7 @@ async fn des_actions_concurrentes_donnent_des_rangs_continus() {
                     &routeur,
                     &chemin,
                     Some(admin),
-                    &format!(r#"{{"nom":"D{i}","nature":"reprise","annee":2026}}"#),
+                    &commun::referentiel::corps_creation(&format!("D{i}")),
                     None,
                 )
                 .await
@@ -688,7 +688,7 @@ async fn aucune_fausse_alerte_de_verification_pendant_des_actions_concurrentes()
                         &routeur,
                         &format!("/api/cabinets/{cabinet}/dossiers"),
                         Some(admin),
-                        &format!(r#"{{"nom":"C{t}-{i}","nature":"reprise","annee":2026}}"#),
+                        &commun::referentiel::corps_creation(&format!("C{t}-{i}")),
                         None,
                     )
                     .await;

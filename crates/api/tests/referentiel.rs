@@ -11,8 +11,8 @@ mod commun;
 
 use api::base::organisation::creer_dossier;
 use api::base::referentiel::{
-    EtatReferentiel, Instanciation, Modele, Ouverture, RefusReferentiel, Tiers, TypeTiers, charger,
-    instancier, muter, verrouiller,
+    ErreurMutation, EtatReferentiel, Instanciation, Modele, Ouverture, RefusReferentiel, Tiers,
+    TypeTiers, aplatir_plan, charger, instancier, muter, reconstituer_plan, verrouiller,
 };
 use api::base::{ContexteTenant, IdDossier, ouvrir_transaction};
 use api::serveur::{Reglages, routeur};
@@ -50,8 +50,8 @@ async fn les_tables_du_referentiel_n_accordent_ni_delete_ni_update_de_table() {
         ("dossier_referentiel", &[]),
         ("compte", &["actif", "intitule"]),
         ("journal", &[]),
-        ("exercice", &["statut"]),
-        ("periode", &["motif", "statut", "statut_le", "statut_par"]),
+        ("exercice", &[]),
+        ("periode", &[]),
         ("tiers", &["actif", "nom"]),
     ];
     for (table, colonnes) in attendues {
@@ -341,7 +341,11 @@ async fn aller_retour_du_plan_officiel_complet_enrichi() {
         )?)?;
         etat.tiers.insert(
             tiers,
-            Tiers::nouveau(t("Fournisseur"), TypeTiers::Fournisseur, auxiliaire),
+            Tiers::nouveau(
+                t("Fournisseur"),
+                TypeTiers::Fournisseur,
+                k.fournisseur.clone(),
+            ),
         );
         Ok(())
     };
@@ -618,6 +622,36 @@ async fn controle_des_tiers(b: &Banc) {
         REFUS,
     )
     .await;
+    // Type contraire à la marque du compte (fiches 40 et 41), type « autre », compte
+    // auxiliaire (individuel) : refusés. Un fournisseur sur un compte de la fiche 40 : admis.
+    for (genre, compte) in [
+        ("fournisseur", k.collectif.to_string()),
+        ("client", k.fournisseur.to_string()),
+        ("autre", k.collectif.to_string()),
+        ("client", format!("{}-AUX", k.collectif)),
+    ] {
+        muter_par_route(
+            env,
+            routeur,
+            c,
+            "tiers",
+            &format!(r#"{{"nom":"T","type":"{genre}","compte_collectif":"{compte}"}}"#),
+            REFUS,
+        )
+        .await;
+    }
+    muter_par_route(
+        env,
+        routeur,
+        c,
+        "tiers",
+        &format!(
+            r#"{{"nom":"F","type":"fournisseur","compte_collectif":"{}"}}"#,
+            k.fournisseur
+        ),
+        CREE,
+    )
+    .await;
     let collectif = id_compte(b, &k.collectif).await;
     muter_par_route(
         env,
@@ -710,7 +744,17 @@ async fn controle_du_sous_compte(b: &Banc) {
         Some(c.administrateur),
     )
     .await;
+    // Deux tiers (le tiers fixe et le fournisseur créé) : deux pages d'un tiers.
     assert_eq!(r.json()["tiers"].as_array().unwrap().len(), 1);
+    let suite = r.json()["suite"].as_str().unwrap().to_owned();
+    let r = lire(
+        routeur,
+        &format!("{}/tiers?limite=1&apres={suite}", base(c, c.dossier)),
+        Some(c.administrateur),
+    )
+    .await;
+    assert_eq!(r.json()["tiers"].as_array().unwrap().len(), 1);
+    assert_ne!(r.json()["tiers"][0]["id"], suite.as_str());
     assert!(r.json()["suite"].is_null());
 }
 
@@ -733,9 +777,18 @@ async fn le_verrou_du_referentiel_serialise_les_mutations_sans_bloquer_les_inser
         .execute(tx2.connexion())
         .await
         .unwrap();
-    let erreur = verrouiller(&mut tx2).await.unwrap_err();
+    // Par `muter` lui-même : sans son verrou, cette mutation passerait (son insertion ne prend
+    // que `FOR KEY SHARE` sur le dossier) et le test échouerait.
+    let erreur = muter(&mut tx2, |_, etat| {
+        etat.plan
+            .ajouter_sous_compte(n(&format!("{}-VERROU", comptes().base)), t("Verrou"))?;
+        Ok(())
+    })
+    .await
+    .unwrap_err();
     assert!(
-        matches!(erreur, api::base::ErreurBase::Sqlx(ref e) if code_sql(e).as_deref() == Some("55P03"))
+        matches!(erreur, ErreurMutation::Base(api::base::ErreurBase::Sqlx(ref e)) if code_sql(e).as_deref() == Some("55P03")),
+        "{erreur:?}"
     );
     drop(tx2);
 
@@ -760,4 +813,49 @@ async fn le_verrou_du_referentiel_serialise_les_mutations_sans_bloquer_les_inser
     .unwrap();
     drop(tx3);
     drop(tx1);
+}
+
+#[tokio::test]
+async fn l_intitule_d_un_compte_officiel_ne_s_enregistre_jamais() {
+    // Seconde barrière, après `compta-core` : un plan rebâti avec un intitulé officiel changé
+    // (impossible par `renommer`) est refusé à l'enregistrement, et rien n'est écrit.
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    doter(&env.application, c.cabinet, c.dossier, c.administrateur).await;
+    let contexte = ContexteTenant::dossier(c.cabinet, c.dossier, c.administrateur);
+    let mut tx = ouvrir_transaction(&env.application, contexte)
+        .await
+        .unwrap();
+    let base = comptes().base.clone();
+    let erreur = muter(&mut tx, |_, etat| {
+        let mut lignes = aplatir_plan(&etat.plan);
+        let ligne = lignes.iter_mut().find(|l| l.numero == base).unwrap();
+        ligne.intitule = t("Intitulé officiel altéré");
+        etat.plan = reconstituer_plan(lignes).unwrap();
+        Ok(())
+    })
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(
+            erreur,
+            ErreurMutation::Base(api::base::ErreurBase::Donnee(_))
+        ),
+        "{erreur:?}"
+    );
+    drop(tx);
+    let mut tx = ouvrir_transaction(&env.application, contexte)
+        .await
+        .unwrap();
+    let relu = charger(&mut tx).await.unwrap().unwrap();
+    assert_eq!(
+        relu.etat().plan.compte(&base).unwrap().intitule(),
+        Modele::officiel()
+            .unwrap()
+            .etat()
+            .plan
+            .compte(&base)
+            .unwrap()
+            .intitule()
+    );
 }

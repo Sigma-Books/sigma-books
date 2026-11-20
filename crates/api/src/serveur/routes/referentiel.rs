@@ -21,7 +21,7 @@ use compta_core::{
     TypeJournal, echeance_de_cloture,
 };
 use serde::{Deserialize, Serialize};
-use time::{Date, Month, OffsetDateTime};
+use time::{Date, Month};
 use uuid::Uuid;
 
 use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
@@ -199,11 +199,6 @@ fn date_lue(texte: &str) -> Option<Date> {
     let mois = Month::try_from(texte.get(5..7)?.parse::<u8>().ok()?).ok()?;
     let jour = texte.get(8..10)?.parse().ok()?;
     Date::from_calendar_date(annee, mois, jour).ok()
-}
-
-/// Date du jour de l'API (UTC), pour refuser un dossier repris dans une année future.
-pub(crate) fn date_du_jour() -> Date {
-    OffsetDateTime::now_utc().date()
 }
 
 /// Lit le corps de la création d'un dossier et prépare **en pur** tout son référentiel (plan,

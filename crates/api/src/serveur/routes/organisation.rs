@@ -188,7 +188,7 @@ async fn creer(
     exiger_createur(tx).await?;
     // Tout le référentiel du dossier (plan, journaux, premier exercice) est calculé en pur
     // avant la première écriture (module `referentiel`, PR 11).
-    let demande = referentiel::lire_creation(requete.corps, referentiel::date_du_jour())?;
+    let demande = referentiel::lire_creation(requete.corps, requete.maintenant.date())?;
     let nom = nom_dossier(demande.nom())?;
     let dossier = creer_dossier(tx, &nom).await?;
     affecter_utilisateur_du_contexte(tx, dossier.id).await?;

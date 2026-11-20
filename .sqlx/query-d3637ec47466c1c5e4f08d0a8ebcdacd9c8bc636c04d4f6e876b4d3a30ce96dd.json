@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, numero, intitule, genre, sens, collectif, tresorerie, actif FROM compte WHERE cabinet_id = $1 AND dossier_id = $2",
+  "query": "SELECT id, numero, intitule, genre, sens, collectif, tresorerie, actif, types_tiers FROM compte WHERE cabinet_id = $1 AND dossier_id = $2",
   "describe": {
     "columns": [
       {
@@ -90,6 +90,17 @@
             "name": "actif"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "types_tiers",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "types_tiers"
+          }
+        }
       }
     ],
     "parameters": {
@@ -106,8 +117,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "3d78cf7e4c1a2de4cbd9d41a3e06a833a37d5af3b7ce9179d83ed58bab5efa9c"
+  "hash": "d3637ec47466c1c5e4f08d0a8ebcdacd9c8bc636c04d4f6e876b4d3a30ce96dd"
 }

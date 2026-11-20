@@ -118,7 +118,16 @@ fn le_controle_croise_refuse_ce_qui_rendrait_le_journal_de_caisse_illisible() {
     ));
 
     // Tiers : compte collectif actif exigé tant que le tiers est actif.
-    let collectif = comptes(&etat.plan, Compte::est_collectif)[0].clone();
+    // Comptes collectifs de mouvement qui admettent un client, un fournisseur (données).
+    let admet = |etat: &EtatReferentiel, genre: TypeTiers| {
+        comptes(&etat.plan, |c| {
+            c.est_collectif()
+                && !etat.plan.a_des_enfants(c.numero())
+                && types_de_tiers_admis(etat, c.numero()).is_some_and(|t| t.contains(&genre))
+        })[0]
+            .clone()
+    };
+    let collectif = admet(&etat, TypeTiers::Client);
     let non_collectif = comptes(&etat.plan, |c| !c.est_collectif())[0].clone();
     etat.tiers.insert(
         Uuid::new_v4(),
@@ -147,6 +156,77 @@ fn le_controle_croise_refuse_ce_qui_rendrait_le_journal_de_caisse_illisible() {
 }
 
 #[test]
+fn le_type_du_tiers_doit_etre_admis_sur_son_compte_collectif() {
+    let etat = modele().etat().clone();
+    // Comptes collectifs de mouvement qui admettent un client, un fournisseur (données).
+    let admet = |etat: &EtatReferentiel, genre: TypeTiers| {
+        comptes(&etat.plan, |c| {
+            c.est_collectif()
+                && !etat.plan.a_des_enfants(c.numero())
+                && types_de_tiers_admis(etat, c.numero()).is_some_and(|t| t.contains(&genre))
+        })[0]
+            .clone()
+    };
+    let collectif = admet(&etat, TypeTiers::Client);
+    let fournisseurs = admet(&etat, TypeTiers::Fournisseur);
+    // Type du tiers contraire à la marque de son compte : refusé. « Autre » : nulle part.
+    for (genre, compte) in [
+        (TypeTiers::Fournisseur, collectif.clone()),
+        (TypeTiers::Client, fournisseurs.clone()),
+        (TypeTiers::Autre, collectif.clone()),
+        (TypeTiers::Salarie, collectif.clone()),
+    ] {
+        let mut candidat = etat.clone();
+        candidat.tiers.insert(
+            Uuid::new_v4(),
+            Tiers::nouveau(t("T"), genre, compte.clone()),
+        );
+        assert_eq!(
+            verifier(&candidat),
+            Err(RefusReferentiel::TypeDeTiersRefuse(genre, compte))
+        );
+    }
+    let collectif_sans_marque = comptes(&etat.plan, |c| {
+        c.est_collectif() && types_de_tiers_admis(&etat, c.numero()).is_none()
+    })[0]
+        .clone();
+    for genre in TypeTiers::TOUS {
+        let mut candidat = etat.clone();
+        candidat.tiers.insert(
+            Uuid::new_v4(),
+            Tiers::nouveau(t("T"), genre, collectif_sans_marque.clone()),
+        );
+        assert!(verifier(&candidat).is_err(), "{genre:?}");
+    }
+    // Un sous-compte collectif hérite de la marque ; un compte auxiliaire est refusé.
+    let mut candidat = etat.clone();
+    let sous = NumeroCompte::parse(&format!("{collectif}-DAKAR")).unwrap();
+    let auxiliaire = NumeroCompte::parse(&format!("{collectif}-SENELEC")).unwrap();
+    candidat
+        .plan
+        .ajouter_sous_compte(sous.clone(), t("Dakar"))
+        .unwrap();
+    candidat
+        .plan
+        .ajouter_auxiliaire(auxiliaire.clone(), t("Senelec"))
+        .unwrap();
+    candidat.tiers.clear();
+    candidat.tiers.insert(
+        Uuid::new_v4(),
+        Tiers::nouveau(t("A"), TypeTiers::Client, sous),
+    );
+    assert_eq!(verifier(&candidat), Ok(()));
+    candidat.tiers.insert(
+        Uuid::new_v4(),
+        Tiers::nouveau(t("B"), TypeTiers::Client, auxiliaire.clone()),
+    );
+    assert_eq!(
+        verifier(&candidat),
+        Err(RefusReferentiel::CompteDeTiers(auxiliaire))
+    );
+}
+
+#[test]
 fn preparation_d_un_nouveau_dossier() {
     let m = modele();
     let aujourd_hui = date(2026, Month::November, 19);
@@ -162,11 +242,15 @@ fn preparation_d_un_nouveau_dossier() {
         )
     );
     assert_eq!(e.periodes().len(), 12);
+    // Reprise : N ou N-1 (exercice précédent pas encore arrêté, AUDCIF art. 23).
     assert!(Instanciation::preparer(m, Ouverture::Reprise { annee: 2025 }, aujourd_hui).is_ok());
-    assert_eq!(
-        Instanciation::preparer(m, Ouverture::Reprise { annee: 2027 }, aujourd_hui),
-        Err(RefusReferentiel::DateRefusee)
-    );
+    for annee in [2027, 2024, 2000] {
+        assert_eq!(
+            Instanciation::preparer(m, Ouverture::Reprise { annee }, aujourd_hui),
+            Err(RefusReferentiel::DateRefusee),
+            "{annee}"
+        );
+    }
     // Entité nouvelle : AUDCIF art. 7, second semestre seulement pour la prolongation.
     let creation = |debut, fin| Ouverture::Creation {
         debut_activite: debut,
@@ -206,17 +290,34 @@ fn preparation_d_un_nouveau_dossier() {
         )
         .is_ok()
     );
-    assert_eq!(
+    assert!(
         Instanciation::preparer(
             m,
             creation(
-                date(2028, Month::January, 1),
+                date(2025, Month::January, 1),
                 FinPremierExercice::AnneeDeDebut
             ),
             aujourd_hui
-        ),
-        Err(RefusReferentiel::DateRefusee)
+        )
+        .is_ok()
     );
+    // Création : du 1er janvier N-1 au 31 décembre N+1 ; une entité plus ancienne n'obtient
+    // pas l'option « second semestre ».
+    for debut in [
+        date(2028, Month::January, 1),
+        date(2024, Month::December, 31),
+        date(2024, Month::September, 1),
+    ] {
+        assert_eq!(
+            Instanciation::preparer(
+                m,
+                creation(debut, FinPremierExercice::AnneeSuivante),
+                aujourd_hui
+            ),
+            Err(RefusReferentiel::DateRefusee),
+            "{debut}"
+        );
+    }
     assert_eq!(i.etat(), m.etat());
     assert_eq!((i.version(), i.empreinte()), (m.version(), m.empreinte()));
 }

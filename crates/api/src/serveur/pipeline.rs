@@ -519,6 +519,7 @@ async fn traiter_requete(
         parametres: parts.uri.query(),
         corps: &corps,
         sous_ressource,
+        maintenant: etat.horloge.maintenant(),
         lecture_audit: &etat.pool_lecture_audit,
     };
     let resultat = executer(route.cas_usage, &mut tx, &garde, &requete).await?;

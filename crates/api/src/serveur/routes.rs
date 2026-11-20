@@ -274,6 +274,9 @@ pub struct Requete<'a> {
     /// Sous-ressource du dossier désignée par le chemin (`{compte}`, `{tiers}`…), UUID déjà
     /// validé par le pipeline : au plus une par route.
     pub sous_ressource: Option<uuid::Uuid>,
+    /// Instant de la requête, lu sur l'horloge de l'application (injectable en test) : date du
+    /// jour des règles d'ouverture d'un dossier.
+    pub maintenant: time::OffsetDateTime,
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
 }

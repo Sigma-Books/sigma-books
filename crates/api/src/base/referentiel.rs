@@ -32,7 +32,7 @@
 //! Niveau « requête » de l'isolation (ADR 0011) : chaque requête filtre par le cabinet et le
 //! dossier du contexte, en plus de la RLS.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use compta_core::{
@@ -169,9 +169,15 @@ pub enum RefusReferentiel {
     /// Deux journaux de trésorerie sur le même compte (spec §5.2 : un journal par compte).
     #[error("le compte {0} est déjà le compte du journal {1}")]
     CompteTresorerieDejaUtilise(NumeroCompte, CodeJournal),
-    /// Le compte collectif d'un tiers actif doit exister, être collectif et actif.
+    /// Le compte collectif d'un tiers actif doit exister, être collectif, actif, et ne pas
+    /// être un compte auxiliaire (compte individuel d'un tiers).
     #[error("le compte {0} ne peut pas être le compte collectif d'un tiers actif")]
     CompteDeTiers(NumeroCompte),
+    /// Le type du tiers n'est pas admis sur son compte collectif (marque `tiers` des données
+    /// de `syscohada`, d'après les fiches de fonctionnement des comptes 40, 41, 42 et 46). Le
+    /// type `autre` n'est admis sur aucun compte en L2.
+    #[error("un tiers de type {} n'est pas admis sur le compte {}", .0.nom(), .1)]
+    TypeDeTiersRefuse(TypeTiers, NumeroCompte),
     /// Ressource inconnue dans le dossier.
     #[error("ressource inconnue")]
     Inconnu,
@@ -196,6 +202,20 @@ pub struct EtatReferentiel {
     pub journaux: Journaux,
     /// Tiers, par identifiant.
     pub tiers: BTreeMap<Uuid, Tiers>,
+    /// Types de tiers admis, par compte officiel marqué dans le référentiel copié ; un compte
+    /// hérite de la marque la plus proche ([`types_de_tiers_admis`]). Immuable.
+    pub types_tiers: BTreeMap<NumeroCompte, BTreeSet<TypeTiers>>,
+}
+
+/// Types de tiers admis sur un compte : ceux de la marque la plus proche, sur lui-même ou un
+/// ascendant. Aucun si aucune marque ne s'applique.
+#[must_use]
+pub fn types_de_tiers_admis<'a>(
+    etat: &'a EtatReferentiel,
+    numero: &NumeroCompte,
+) -> Option<&'a BTreeSet<TypeTiers>> {
+    std::iter::successors(Some(numero.clone()), NumeroCompte::parent)
+        .find_map(|n| etat.types_tiers.get(&n))
 }
 
 /// Contrôle croisé du référentiel (note d'étude §5), qu'aucun type seul ne garantit :
@@ -203,7 +223,9 @@ pub struct EtatReferentiel {
 ///   (`Journaux::verifier_plan` : un sous-compte sous le compte du journal CA, ou sa
 ///   désactivation, le rendrait illisible) ;
 /// - deux journaux de trésorerie n'ont pas le même compte (spec §5.2, « un par compte ») ;
-/// - le compte collectif de chaque tiers actif existe, est collectif et actif.
+/// - le compte collectif de chaque tiers actif existe, est collectif, actif, n'est pas un
+///   compte auxiliaire, et admet le type du tiers ([`types_de_tiers_admis`] : un client sur un
+///   compte de la fiche 41, un fournisseur sur un compte de la fiche 40…).
 ///
 /// Que le compte collectif d'un tiers puisse être un compte de regroupement dépend de la
 /// question 4 de la note d'étude (PR 13) : il n'est pas contrôlé ici.
@@ -224,12 +246,19 @@ pub fn verifier(etat: &EtatReferentiel) -> Result<(), RefusReferentiel> {
         }
     }
     for tiers in etat.tiers.values().filter(|t| t.actif) {
-        let utilisable = etat
-            .plan
-            .compte(&tiers.compte_collectif)
-            .is_some_and(|c| c.est_collectif() && c.est_actif());
+        let utilisable = etat.plan.compte(&tiers.compte_collectif).is_some_and(|c| {
+            c.est_collectif() && c.est_actif() && c.genre() != GenreCompte::Auxiliaire
+        });
         if !utilisable {
             return Err(RefusReferentiel::CompteDeTiers(
+                tiers.compte_collectif.clone(),
+            ));
+        }
+        if !types_de_tiers_admis(etat, &tiers.compte_collectif)
+            .is_some_and(|types| types.contains(&tiers.genre))
+        {
+            return Err(RefusReferentiel::TypeDeTiersRefuse(
+                tiers.genre,
                 tiers.compte_collectif.clone(),
             ));
         }
@@ -538,10 +567,21 @@ impl Modele {
         let journaux = referentiel
             .journaux_par_defaut(&plan)
             .map_err(|e| e.to_string())?;
+        let mut types_tiers = BTreeMap::new();
+        for compte in referentiel.comptes() {
+            if let Some((types, _)) = compte.marque_tiers() {
+                let types = types
+                    .iter()
+                    .map(|t| TypeTiers::parse(t).ok_or_else(|| format!("type de tiers {t}")))
+                    .collect::<Result<BTreeSet<_>, String>>()?;
+                types_tiers.insert(compte.numero().clone(), types);
+            }
+        }
         let etat = EtatReferentiel {
             plan,
             journaux,
             tiers: BTreeMap::new(),
+            types_tiers,
         };
         verifier(&etat).map_err(|e| e.to_string())?;
         let version = referentiel.version().to_owned();
@@ -577,7 +617,7 @@ impl Modele {
 /// `version=<version>\n`, puis une ligne par compte
 /// (`compte=<numéro>;<origine>;<sens>;<collectif 0|1>;<trésorerie 0|1>;<actif 0|1>;<intitulé>`)
 /// et une par journal (`journal=<code>;<type>;<clôture 0|1>;<compte ou vide>;<intitulé>`), dans
-/// l'ordre des numéros et des codes. L'intitulé, seul champ libre, vient en dernier et ne
+/// l'ordre des numéros et des codes, puis une par marque de tiers (`tiers=<numéro>;<types>`). L'intitulé, seul champ libre, vient en dernier et ne
 /// contient aucun caractère de contrôle : la forme est sans ambiguïté.
 #[must_use]
 pub fn empreinte(version: &str, etat: &EtatReferentiel) -> Empreinte {
@@ -607,7 +647,15 @@ pub fn empreinte(version: &str, etat: &EtatReferentiel) -> Empreinte {
             l.intitule
         ));
     }
+    for (numero, types) in &etat.types_tiers {
+        lignes.push(format!("tiers={numero};{}\n", texte_types(types)));
+    }
     Empreinte::calculer(lignes.concat().as_bytes())
+}
+
+/// Types de tiers en texte stocké : noms séparés par des virgules, dans l'ordre de [`TypeTiers`].
+fn texte_types(types: &BTreeSet<TypeTiers>) -> String {
+    types.iter().map(|t| t.nom()).collect::<Vec<_>>().join(",")
 }
 
 /// Ouverture du premier exercice d'un nouveau dossier.
@@ -652,10 +700,15 @@ pub struct Instanciation {
 impl Instanciation {
     /// Prépare le référentiel d'un nouveau dossier : copie du modèle, premier exercice.
     ///
-    /// Un dossier repris ne s'ouvre pas sur une année future. Le début d'activité d'une entité
-    /// nouvelle peut précéder sa date réelle (dossier préparé à l'avance), au plus jusqu'à la
-    /// fin de l'année suivante : au-delà, c'est une erreur de saisie, et un exercice ne se
-    /// supprime pas.
+    /// Bornes, l'année en cours étant N :
+    /// - **dossier repris** : exercice N, ou N-1. N-1 couvre la reprise en début d'année d'une
+    ///   entité dont l'exercice précédent n'est pas encore arrêté (AUDCIF art. 23 : arrêté des
+    ///   comptes dans les quatre mois de la clôture). Jamais une année future, ni plus ancienne :
+    ///   ce serait reprendre un exercice déjà arrêté (**à confirmer par le mainteneur**) ;
+    /// - **entité nouvelle** : début d'activité du 1er janvier N-1 au 31 décembre N+1. Plus tôt,
+    ///   l'entité n'est plus nouvelle (elle obtiendrait à tort l'option « second semestre » de
+    ///   l'art. 7, réservée au premier exercice) ; plus tard, c'est une erreur de saisie, et un
+    ///   exercice ne se supprime pas.
     ///
     /// # Errors
     /// [`RefusReferentiel::DateRefusee`], refus de `Exercices` (prolongation au premier
@@ -669,7 +722,7 @@ impl Instanciation {
         let mut exercices = Exercices::new();
         match ouverture {
             Ouverture::Reprise { annee: choisie } => {
-                if choisie > annee {
+                if choisie > annee || choisie < annee.saturating_sub(1) {
                     return Err(RefusReferentiel::DateRefusee);
                 }
                 exercices.ouvrir_repris(choisie)?;
@@ -678,7 +731,8 @@ impl Instanciation {
                 debut_activite,
                 fin,
             } => {
-                if debut_activite.year() > annee.saturating_add(1) {
+                let an = debut_activite.year();
+                if an > annee.saturating_add(1) || an < annee.saturating_sub(1) {
                     return Err(RefusReferentiel::DateRefusee);
                 }
                 exercices.ouvrir_premier(debut_activite, fin)?;
@@ -895,7 +949,7 @@ pub async fn instancier(
         .into_iter()
         .map(|l| (Uuid::new_v4(), l))
         .collect();
-    inserer_comptes(tx, &comptes).await?;
+    inserer_comptes(tx, &comptes, &instanciation.etat.types_tiers).await?;
     for (id, ligne) in aplatir_journaux(&instanciation.etat.journaux)
         .into_iter()
         .map(|l| (Uuid::new_v4(), l))
@@ -908,6 +962,7 @@ pub async fn instancier(
 async fn inserer_comptes(
     tx: &mut TransactionTenant,
     comptes: &[(Uuid, LigneCompte)],
+    types_tiers: &BTreeMap<NumeroCompte, BTreeSet<TypeTiers>>,
 ) -> Result<(), ErreurBase> {
     let (cabinet, dossier) = contexte(tx)?;
     let ids: Vec<Uuid> = comptes.iter().map(|(id, _)| *id).collect();
@@ -931,15 +986,20 @@ async fn inserer_comptes(
     let collectifs: Vec<bool> = comptes.iter().map(|(_, l)| l.collectif).collect();
     let tresoreries: Vec<bool> = comptes.iter().map(|(_, l)| l.tresorerie).collect();
     let actifs: Vec<bool> = comptes.iter().map(|(_, l)| l.actif).collect();
+    let types: Vec<Option<String>> = comptes
+        .iter()
+        .map(|(_, l)| types_tiers.get(&l.numero).map(texte_types))
+        .collect();
     sqlx::query!(
         "INSERT INTO compte \
              (cabinet_id, dossier_id, id, numero, parent_numero, intitule, genre, sens, \
-              collectif, tresorerie, actif) \
+              collectif, tresorerie, actif, types_tiers) \
          SELECT $1, $2, l.id, l.numero, l.parent, l.intitule, l.genre, l.sens, l.collectif, \
-                l.tresorerie, l.actif \
+                l.tresorerie, l.actif, l.types \
          FROM UNNEST($3::uuid[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], \
-                     $9::bool[], $10::bool[], $11::bool[]) \
-              AS l (id, numero, parent, intitule, genre, sens, collectif, tresorerie, actif)",
+                     $9::bool[], $10::bool[], $11::bool[], $12::text[]) \
+              AS l (id, numero, parent, intitule, genre, sens, collectif, tresorerie, actif, \
+                    types)",
         cabinet,
         dossier,
         &ids,
@@ -951,6 +1011,7 @@ async fn inserer_comptes(
         &collectifs,
         &tresoreries,
         &actifs,
+        &types as &[Option<String>],
     )
     .execute(tx.connexion())
     .await?;
@@ -1059,7 +1120,7 @@ pub async fn charger(tx: &mut TransactionTenant) -> Result<Option<ReferentielDos
         return Ok(None);
     }
 
-    let (plan, journaux, ids_comptes, ids_journaux) =
+    let (plan, journaux, ids_comptes, ids_journaux, types_tiers) =
         charger_plan_et_journaux(tx, cabinet, dossier).await?;
     let tiers = charger_tiers(tx, cabinet, dossier).await?;
     let (exercices, ids_exercices, ids_periodes) = charger_exercices(tx, cabinet, dossier).await?;
@@ -1068,6 +1129,7 @@ pub async fn charger(tx: &mut TransactionTenant) -> Result<Option<ReferentielDos
         plan,
         journaux,
         tiers,
+        types_tiers,
     };
     Ok(Some(ReferentielDossier {
         etat,
@@ -1085,6 +1147,7 @@ type PlanEtJournauxRelus = (
     Journaux,
     BTreeMap<NumeroCompte, Uuid>,
     BTreeMap<CodeJournal, Uuid>,
+    BTreeMap<NumeroCompte, BTreeSet<TypeTiers>>,
 );
 
 async fn charger_plan_et_journaux(
@@ -1093,7 +1156,8 @@ async fn charger_plan_et_journaux(
     dossier: Uuid,
 ) -> Result<PlanEtJournauxRelus, ErreurBase> {
     let comptes = sqlx::query!(
-        "SELECT id, numero, intitule, genre, sens, collectif, tresorerie, actif FROM compte \
+        "SELECT id, numero, intitule, genre, sens, collectif, tresorerie, actif, types_tiers \
+         FROM compte \
          WHERE cabinet_id = $1 AND dossier_id = $2",
         cabinet,
         dossier,
@@ -1101,10 +1165,18 @@ async fn charger_plan_et_journaux(
     .fetch_all(tx.connexion())
     .await?;
     let mut ids_comptes = BTreeMap::new();
+    let mut types_tiers = BTreeMap::new();
     let mut lignes = Vec::with_capacity(comptes.len());
     for c in comptes {
         let numero = NumeroCompte::parse(&c.numero).map_err(donnee)?;
         ids_comptes.insert(numero.clone(), c.id);
+        if let Some(texte) = &c.types_tiers {
+            let types = texte
+                .split(',')
+                .map(|t| TypeTiers::parse(t).ok_or(ErreurBase::Donnee("type de tiers")))
+                .collect::<Result<BTreeSet<_>, _>>()?;
+            types_tiers.insert(numero.clone(), types);
+        }
         lignes.push(LigneCompte {
             numero,
             intitule: TexteCourt::parse(&c.intitule).map_err(donnee)?,
@@ -1144,7 +1216,7 @@ async fn charger_plan_et_journaux(
         });
     }
     let journaux = reconstituer_journaux(lignes, &plan).map_err(donnee)?;
-    Ok((plan, journaux, ids_comptes, ids_journaux))
+    Ok((plan, journaux, ids_comptes, ids_journaux, types_tiers))
 }
 
 async fn charger_tiers(
@@ -1302,7 +1374,10 @@ async fn enregistrer_comptes(
 ) -> Result<Vec<Changement>, ErreurBase> {
     let (cabinet, dossier) = contexte(tx)?;
     let mut changements = Vec::new();
-    // Comptes.
+    // Marques de tiers copiées du référentiel : immuables.
+    if relu.etat.types_tiers != apres.types_tiers {
+        return Err(immuable());
+    }
     if relu
         .etat
         .plan
@@ -1342,6 +1417,11 @@ async fn enregistrer_comptes(
             }
             Some(avant) if avant == c => {}
             Some(avant) => {
+                // Seconde barrière, après `compta-core` (`CompteOfficielImmuable`) : l'intitulé
+                // d'un compte officiel ne change jamais.
+                if avant.genre() == GenreCompte::Officiel && avant.intitule() != c.intitule() {
+                    return Err(immuable());
+                }
                 let identiques = (
                     avant.genre(),
                     avant.sens(),
@@ -1385,7 +1465,7 @@ async fn enregistrer_comptes(
         }
     }
     if !nouveaux.is_empty() {
-        inserer_comptes(tx, &nouveaux).await?;
+        inserer_comptes(tx, &nouveaux, &apres.types_tiers).await?;
     }
 
     Ok(changements)
