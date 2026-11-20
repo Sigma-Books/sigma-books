@@ -870,7 +870,13 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 Cas::RetirerPiece => (chemin, format!(r#"{{"version":{version}}}"#)),
                 _ => (chemin, commun::serveur::corps_de(route).to_owned()),
             };
-            commun::serveur::envoyer(&routeur, &chemin, Some(c.administrateur), &corps, None).await
+            // Le drapeau se lève par un autre acteur que celui qui l'a posé.
+            let acteur = if cas == Cas::LeverARevoir {
+                c.collaborateur
+            } else {
+                c.administrateur
+            };
+            commun::serveur::envoyer(&routeur, &chemin, Some(acteur), &corps, None).await
         } else {
             appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await
         };

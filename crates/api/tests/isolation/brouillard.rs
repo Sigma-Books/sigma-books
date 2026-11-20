@@ -68,7 +68,11 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
             attendu(a.collaborateur, a.cabinet, a.dossier, ok()),
         ],
-        (Methode::Post, c) if c == sur("/suppression") || c == sur("/pieces/{piece}/retrait") => {
+        (Methode::Post, c)
+            if c == sur("/suppression")
+                || c == sur("/pieces/{piece}/retrait")
+                || c == sur("/pieces") =>
+        {
             vec![
                 attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
                 attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
@@ -76,25 +80,27 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
                 attendu(a.administrateur, a.cabinet, a.dossier, perime()),
             ]
         }
-        (Methode::Post, c) if c == sur("/a-revoir") || c == sur("/revue-faite") => vec![
-            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
-            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
-            attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
-            attendu(m.valideur, a.cabinet, a.dossier, ok()),
-        ],
-        (Methode::Post, c) if c == sur("/pieces") => vec![
-            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
-            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
-            attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
-            // Pièce d'exemple inexistante : 404 du cas d'usage.
-            attendu(a.administrateur, a.cabinet, a.dossier, absent()),
-        ],
+        (Methode::Post, c) if c == sur("/a-revoir") || c == sur("/revue-faite") => {
+            // Le valideur pose le drapeau ; l'administrateur le lève (pas le poseur).
+            let acteur = if c == sur("/a-revoir") {
+                m.valideur
+            } else {
+                a.administrateur
+            };
+            vec![
+                attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+                attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+                attendu_croise(m.multi, b.cabinet, b.dossier, a.dossier, absent()),
+                attendu(acteur, a.cabinet, a.dossier, ok()),
+            ]
+        }
         _ => return None,
     })
 }
 
 /// « Cedar se trompe » (décision forcée à « autorisé ») : la requête et la RLS refusent encore
 /// le brouillon d'un autre dossier ou cabinet, et le rôle relu en base refuse l'auditeur.
+#[allow(clippy::too_many_lines)]
 pub(super) async fn quand_cedar_se_trompe(routeur: &Router, m: &Monde, reference: &super::Reponse) {
     let (a, b) = (&m.a, &m.b);
     let brouillon_de = |dossier: api::base::IdDossier| {
@@ -151,6 +157,46 @@ pub(super) async fn quand_cedar_se_trompe(routeur: &Router, m: &Monde, reference
         )
         .await;
         assert_eq!(r.statut, StatusCode::FORBIDDEN, "{suffixe} : {}", r.texte());
+    }
+    // Modification et suppression du brouillon d'un autre dossier (de A non affecté, ou de B),
+    // sous un dossier de A, au nom de l'administrateur de A : 404, rien n'est modifié.
+    let racine = base(a.cabinet.uuid(), a.dossier.uuid());
+    for cible in [autre_dossier, de_b] {
+        for (suffixe, corps) in [
+            (
+                "modification",
+                crate::commun::brouillard::saisie("Pirate", Some(1)),
+            ),
+            ("suppression", r#"{"version":1}"#.to_owned()),
+        ] {
+            let r = super::envoyer(
+                routeur,
+                &format!("{racine}/{cible}/{suffixe}"),
+                Some(a.administrateur),
+                &corps,
+                None,
+            )
+            .await;
+            super::verifier_absent(&r, reference, &format!("{suffixe} d'autrui, Cedar forcé"));
+        }
+    }
+    for (dossier, cabinet, id) in [
+        (a.autre_dossier, a.cabinet, autre_dossier),
+        (b.dossier, b.cabinet, de_b),
+    ] {
+        let r = lire(
+            routeur,
+            &format!("{}/{id}", base(cabinet.uuid(), dossier.uuid())),
+            Some(if cabinet == a.cabinet {
+                a.administrateur
+            } else {
+                m.multi
+            }),
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+        assert_eq!(r.json()["version"], 1);
+        assert_eq!(r.json()["libelle"], "Brouillon fixe");
     }
     let r = super::envoyer(
         routeur,

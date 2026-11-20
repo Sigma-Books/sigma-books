@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,\n               b.libelle, b.a_revoir, b.version, b.cree_par, b.cree_le, b.modifie_par,\n               b.modifie_le\n        FROM brouillon b\n        JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id\n                      AND j.id = b.journal_id\n        WHERE b.cabinet_id = $1 AND b.dossier_id = $2 AND b.id = $3\n        ",
+  "query": "\n        SELECT b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,\n               b.libelle, b.a_revoir, b.a_revoir_par, b.version, b.cree_par, b.cree_le,\n               b.modifie_par, b.modifie_le\n        FROM brouillon b\n        JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id\n                      AND j.id = b.journal_id\n        WHERE b.cabinet_id = $1 AND b.dossier_id = $2 AND b.id = $3\n        ",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,17 @@
       },
       {
         "ordinal": 6,
+        "name": "a_revoir_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "brouillon",
+            "name": "a_revoir_par"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "version",
         "type_info": "Int4",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "cree_par",
         "type_info": "Uuid",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "cree_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "modifie_par",
         "type_info": "Uuid",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "modifie_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -139,6 +150,7 @@
       true,
       false,
       false,
+      true,
       false,
       false,
       false,
@@ -146,5 +158,5 @@
       false
     ]
   },
-  "hash": "f4e326282d145516a66c0d9a08b7130f083ddde88c77cd7c6551477493a21ca2"
+  "hash": "331529a64ad70b9c840cd3727f4814f25b8c0312ae8b89c6b667291dfe55e9da"
 }

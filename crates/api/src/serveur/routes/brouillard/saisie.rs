@@ -167,6 +167,16 @@ fn etiquette(
         .map_err(|e| sur(&e))
 }
 
+/// Borne de la base (`CHECK` de la migration `0202` : strictement moins de 1e20) : une valeur de
+/// plus de 20 chiffres entiers est refusée en saisie (422), non par une erreur de la base (500).
+fn hors_borne(valeur: &str) -> bool {
+    valeur
+        .trim_start_matches('-')
+        .split('.')
+        .next()
+        .is_some_and(|entier| entier.trim_start_matches('0').len() > 20)
+}
+
 fn ligne(
     c: &CorpsLigne,
     position: usize,
@@ -195,14 +205,26 @@ fn ligne(
     let mut ligne = match (&c.montant, &c.devise) {
         (Some(m), None) => {
             let montant = Montant::parse(m, Devise::XOF).map_err(|_| montant_invalide())?;
+            if hors_borne(&montant.valeur().to_string()) {
+                return Err(montant_invalide());
+            }
             Ligne::en_xof(numero.clone(), sens, montant).map_err(|_| montant_invalide())?
         }
         (None, Some(d)) => {
             let devise = Devise::parse(&d.code).map_err(|_| montant_invalide())?;
             let montant = Montant::parse(&d.montant, devise).map_err(|_| montant_invalide())?;
             let cours = Cours::parse(&d.cours).map_err(|_| montant_invalide())?;
-            Ligne::en_devise(numero.clone(), sens, montant, cours)
-                .map_err(|_| montant_invalide())?
+            if hors_borne(&montant.valeur().to_string()) || hors_borne(&cours.valeur().to_string())
+            {
+                return Err(montant_invalide());
+            }
+            let ligne = Ligne::en_devise(numero.clone(), sens, montant, cours)
+                .map_err(|_| montant_invalide())?;
+            // Contre-valeur XOF calculée par le moteur.
+            if hors_borne(&ligne.montant().valeur().to_string()) {
+                return Err(montant_invalide());
+            }
+            ligne
         }
         _ => return Err(ErreurApi::RequeteInvalide),
     };
@@ -299,6 +321,16 @@ mod tests {
         ] {
             assert!(date_lue(refuse).is_none(), "{refuse}");
         }
+    }
+
+    #[test]
+    fn la_borne_de_la_base_est_connue() {
+        assert!(!hors_borne("99999999999999999999"));
+        assert!(!hors_borne("99999999999999999999.99"));
+        assert!(hors_borne("100000000000000000000"));
+        assert!(hors_borne("100000000000000000000.5"));
+        assert!(hors_borne("-100000000000000000000"));
+        assert!(!hors_borne("0.5"));
     }
 
     #[test]

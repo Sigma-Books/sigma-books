@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT piece_id, role, lie_par, lie_le FROM brouillon_piece WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 ORDER BY lie_le, piece_id",
+  "query": "SELECT piece_id, role, lie_par FROM brouillon_piece WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 ORDER BY piece_id",
   "describe": {
     "columns": [
       {
@@ -35,17 +35,6 @@
             "name": "lie_par"
           }
         }
-      },
-      {
-        "ordinal": 3,
-        "name": "lie_le",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "brouillon_piece",
-            "name": "lie_le"
-          }
-        }
       }
     ],
     "parameters": {
@@ -58,9 +47,8 @@
     "nullable": [
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "65e855b6eb924784d4e78f2f2bde47ce3fc8e1d6ba4488a39c2b7707cba1c85e"
+  "hash": "b1d00a779830f8ba79f5388f3fa9bbfb0005c42d18048ddf03b5271f6226c0fe"
 }

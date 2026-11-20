@@ -35,6 +35,10 @@ use super::{ErreurBase, IdCabinet, IdDossier, TransactionTenant};
 /// Nombre maximal de lignes d'un brouillon (migration `0202`).
 pub const LIGNES_MAX: usize = 200;
 
+/// Nombre maximal de pièces liées à un brouillon (audit d'une suppression : au plus 200
+/// identifiants cités).
+pub const PIECES_MAX: usize = 200;
+
 /// Rôle d'une pièce liée à un brouillon (spec §6.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RolePiece {
@@ -354,8 +358,6 @@ pub struct LienPiece {
     pub role: RolePiece,
     /// Utilisateur qui l'a liée.
     pub lie_par: Uuid,
-    /// Instant du lien.
-    pub lie_le: OffsetDateTime,
 }
 
 /// Un brouillon relu, avec ses lignes, ses pièces et ses contributeurs.
@@ -367,6 +369,8 @@ pub struct BrouillonStocke {
     pub contenu: ContenuStocke,
     /// Drapeau « à revoir ».
     pub a_revoir: bool,
+    /// Qui a posé le drapeau (présent si et seulement s'il est posé).
+    pub a_revoir_par: Option<Uuid>,
     /// Version (verrou optimiste).
     pub version: i32,
     /// Créateur.
@@ -423,8 +427,10 @@ pub struct FiltreBrouillard {
     pub journal: Option<String>,
     /// Période (identifiant) : les brouillons datés dans ses bornes.
     pub periode: Option<Uuid>,
-    /// Curseur : identifiant du dernier brouillon de la page précédente.
-    pub apres: Option<Uuid>,
+    /// Curseur : (date comptable, identifiant) du dernier brouillon de la page précédente. Il
+    /// porte la clé de tri, non une ligne à relire : le brouillon supprimé ou redaté ne vide
+    /// pas la page suivante.
+    pub apres: Option<(Date, Uuid)>,
 }
 
 fn tenant(tx: &TransactionTenant) -> Result<(IdCabinet, IdDossier), ErreurBase> {
@@ -561,18 +567,16 @@ pub async fn ajouter_contributeur(
     tx: &mut TransactionTenant,
     brouillon: Uuid,
     utilisateur: Uuid,
-    instant: OffsetDateTime,
 ) -> Result<(), ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     sqlx::query!(
         "INSERT INTO brouillon_contributeur \
-             (cabinet_id, dossier_id, brouillon_id, utilisateur_id, premiere_contribution_le) \
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+             (cabinet_id, dossier_id, brouillon_id, utilisateur_id) \
+         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         cabinet.uuid(),
         dossier.uuid(),
         brouillon,
         utilisateur,
-        instant,
     )
     .execute(tx.connexion())
     .await?;
@@ -612,7 +616,7 @@ pub async fn creer(
     .execute(tx.connexion())
     .await?;
     inserer_lignes(tx, id, &contenu.lignes).await?;
-    ajouter_contributeur(tx, id, auteur, instant).await
+    ajouter_contributeur(tx, id, auteur).await
 }
 
 /// Verrou d'un brouillon (`FOR UPDATE`) : sa version, ou `None` s'il est absent du dossier.
@@ -677,7 +681,7 @@ pub async fn remplacer(
     .execute(tx.connexion())
     .await?;
     inserer_lignes(tx, id, &contenu.lignes).await?;
-    ajouter_contributeur(tx, id, auteur, instant).await?;
+    ajouter_contributeur(tx, id, auteur).await?;
     Ok(version)
 }
 
@@ -725,7 +729,8 @@ pub async fn supprimer(tx: &mut TransactionTenant, id: Uuid) -> Result<(), Erreu
     Ok(())
 }
 
-/// Pose ou lève le drapeau « à revoir » d'un brouillon **verrouillé**. Ni la version ni les
+/// Pose ou lève le drapeau « à revoir » d'un brouillon **verrouillé**, au nom de l'utilisateur
+/// du contexte (enregistré comme poseur). Ni la version ni les
 /// contributeurs ne changent : le drapeau n'est pas un contenu, et son auteur doit pouvoir
 /// valider ensuite.
 ///
@@ -737,13 +742,16 @@ pub async fn poser_drapeau(
     a_revoir: bool,
 ) -> Result<(), ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
+    // Le poseur est l'utilisateur du contexte ; levé, le drapeau n'a plus de poseur.
+    let par = a_revoir.then(|| tx.contexte().id_utilisateur().uuid());
     sqlx::query!(
-        "UPDATE brouillon SET a_revoir = $4 \
+        "UPDATE brouillon SET a_revoir = $4, a_revoir_par = $5 \
          WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
         cabinet.uuid(),
         dossier.uuid(),
         id,
         a_revoir,
+        par,
     )
     .execute(tx.connexion())
     .await?;
@@ -799,9 +807,9 @@ pub async fn liens_du_brouillon(
 ) -> Result<Vec<LienPiece>, ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     let lignes = sqlx::query!(
-        "SELECT piece_id, role, lie_par, lie_le FROM brouillon_piece \
+        "SELECT piece_id, role, lie_par FROM brouillon_piece \
          WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 \
-         ORDER BY lie_le, piece_id",
+         ORDER BY piece_id",
         cabinet.uuid(),
         dossier.uuid(),
         id,
@@ -816,7 +824,6 @@ pub async fn liens_du_brouillon(
                 role: RolePiece::depuis_nom(&l.role)
                     .ok_or(ErreurBase::Donnee("rôle d'une pièce liée"))?,
                 lie_par: l.lie_par,
-                lie_le: l.lie_le,
             })
         })
         .collect()
@@ -839,15 +846,14 @@ pub async fn lier_piece(
     let auteur = tx.contexte().id_utilisateur().uuid();
     sqlx::query!(
         "INSERT INTO brouillon_piece \
-             (cabinet_id, dossier_id, brouillon_id, piece_id, role, lie_par, lie_le) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             (cabinet_id, dossier_id, brouillon_id, piece_id, role, lie_par) \
+         VALUES ($1, $2, $3, $4, $5, $6)",
         cabinet.uuid(),
         dossier.uuid(),
         id,
         piece,
         role.nom(),
         auteur,
-        instant,
     )
     .execute(tx.connexion())
     .await?;
@@ -905,7 +911,7 @@ async fn toucher(
     .fetch_optional(tx.connexion())
     .await?
     .ok_or(ErreurBase::Donnee("brouillon à modifier absent"))?;
-    ajouter_contributeur(tx, id, auteur, instant).await?;
+    ajouter_contributeur(tx, id, auteur).await?;
     Ok(version)
 }
 
@@ -955,7 +961,7 @@ pub async fn contributeurs(
     let autres = sqlx::query_scalar!(
         "SELECT utilisateur_id FROM brouillon_contributeur \
          WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 \
-         ORDER BY premiere_contribution_le, utilisateur_id",
+         ORDER BY utilisateur_id",
         cabinet.uuid(),
         dossier.uuid(),
         id,
@@ -978,8 +984,8 @@ pub async fn lire(
     let Some(b) = sqlx::query!(
         r#"
         SELECT b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,
-               b.libelle, b.a_revoir, b.version, b.cree_par, b.cree_le, b.modifie_par,
-               b.modifie_le
+               b.libelle, b.a_revoir, b.a_revoir_par, b.version, b.cree_par, b.cree_le,
+               b.modifie_par, b.modifie_le
         FROM brouillon b
         JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id
                       AND j.id = b.journal_id
@@ -1060,6 +1066,7 @@ pub async fn lire(
             lignes: relues,
         },
         a_revoir: b.a_revoir,
+        a_revoir_par: b.a_revoir_par,
         version: b.version,
         cree_par: b.cree_par,
         cree_le: b.cree_le,
@@ -1071,7 +1078,7 @@ pub async fn lire(
 }
 
 /// Brouillons du dossier du contexte, dans l'ordre (date comptable, identifiant), après le
-/// curseur, au plus `limite`.
+/// curseur, au plus `limite` (l'appelant demande `limite + 1` pour savoir s'il en reste).
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
@@ -1104,17 +1111,16 @@ pub async fn lister(
                   WHERE p.cabinet_id = $1 AND p.dossier_id = $2 AND p.id = $4)
                 AND (SELECT p.fin FROM periode p
                   WHERE p.cabinet_id = $1 AND p.dossier_id = $2 AND p.id = $4))
-          AND ($5::uuid IS NULL OR (b.date_comptable, b.id) > (
-                SELECT c.date_comptable, c.id FROM brouillon c
-                 WHERE c.cabinet_id = $1 AND c.dossier_id = $2 AND c.id = $5))
+          AND ($5::date IS NULL OR (b.date_comptable, b.id) > ($5, $6))
         ORDER BY b.date_comptable, b.id
-        LIMIT $6
+        LIMIT $7
         "#,
         cabinet.uuid(),
         dossier.uuid(),
         filtre.journal,
         filtre.periode,
-        filtre.apres,
+        filtre.apres.map(|(d, _)| d),
+        filtre.apres.map(|(_, i)| i),
         i64::from(limite),
     )
     .fetch_all(tx.connexion())

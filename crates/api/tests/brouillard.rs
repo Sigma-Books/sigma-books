@@ -317,6 +317,56 @@ async fn chaque_refus_de_saisie() {
             "montant_invalide",
         ),
         (
+            "montant de 1e20",
+            corps(
+                &j,
+                &d,
+                &[ligne(caisse, "debit", "100000000000000000000")],
+                "",
+            ),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "montant_invalide",
+        ),
+        (
+            "montant en devise de 1e20",
+            corps(
+                &j,
+                &d,
+                &[format!(
+                    r#"{{"compte":"{caisse}","sens":"debit","devise":{{"code":"EUR","montant":"100000000000000000000","cours":"1"}}}}"#
+                )],
+                "",
+            ),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "montant_invalide",
+        ),
+        (
+            "cours de 1e20",
+            corps(
+                &j,
+                &d,
+                &[format!(
+                    r#"{{"compte":"{caisse}","sens":"debit","devise":{{"code":"EUR","montant":"1","cours":"100000000000000000000"}}}}"#
+                )],
+                "",
+            ),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "montant_invalide",
+        ),
+        (
+            "contre-valeur de 1e20",
+            corps(
+                &j,
+                &d,
+                &[format!(
+                    r#"{{"compte":"{caisse}","sens":"debit","devise":{{"code":"EUR","montant":"50000000000","cours":"10000000000"}}}}"#
+                )],
+                "",
+            ),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "montant_invalide",
+        ),
+        (
             "montant nul",
             corps(&j, &d, &[ligne(caisse, "debit", "0")], ""),
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -737,6 +787,10 @@ async fn suppression_et_son_audit() {
     let nouvelles = &b.entrees_audit().await[avant..];
     assert_eq!(nouvelles.len(), 1 + 2);
     assert!(nouvelles[0].contains("suppression") && nouvelles[0].contains("À supprimer"));
+    assert!(
+        nouvelles[0].contains(&b.c.collaborateur.to_string()),
+        "contributeurs cités"
+    );
     assert!(nouvelles[1..].iter().all(|e| e.contains("avant=")));
     assert!(b.chaine_integre().await);
     // Deuxième suppression : le brouillon n'existe plus.
@@ -779,16 +833,41 @@ async fn drapeau_a_revoir() {
         )
         .await;
     assert_eq!(m.json()["a_revoir"], true);
-    let r = b
-        .poster(&b.chemin(id, "/revue-faite"), b.valideur, "")
-        .await;
-    assert_eq!(r.json()["a_revoir"], false);
+    assert_eq!(m.json()["a_revoir_par"], b.valideur.to_string());
+    // Celui qui l'a posé ne le lève pas ; un autre acteur le peut (corps vide admis).
     attendre(
         &b.poster(&b.chemin(id, "/revue-faite"), b.valideur, "{}")
             .await,
         StatusCode::CONFLICT,
+        "revue_par_le_poseur",
+    );
+    let r = b
+        .poster(&b.chemin(id, "/revue-faite"), b.c.collaborateur, "")
+        .await;
+    assert_eq!(r.json()["a_revoir"], false);
+    assert!(r.json().get("a_revoir_par").is_none());
+    let colonnes: (bool, Option<Uuid>) =
+        sqlx::query_as("SELECT a_revoir, a_revoir_par FROM brouillon WHERE id = $1")
+            .bind(id)
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+    assert_eq!(colonnes, (false, None));
+    attendre(
+        &b.poster(&b.chemin(id, "/revue-faite"), b.c.collaborateur, "{}")
+            .await,
+        StatusCode::CONFLICT,
         "drapeau_inchange",
     );
+    // Posé par le collaborateur, levé par le valideur : la règle ne dépend pas des rôles.
+    let r = b
+        .poster(&b.chemin(id, "/a-revoir"), b.c.collaborateur, "{}")
+        .await;
+    assert_eq!(r.json()["a_revoir_par"], b.c.collaborateur.to_string());
+    let r = b
+        .poster(&b.chemin(id, "/revue-faite"), b.valideur, "{}")
+        .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
     let audit = b.entrees_audit().await;
     assert!(
         audit
@@ -1124,3 +1203,82 @@ async fn l_auditeur_lit_sans_rien_modifier() {
 
 #[allow(dead_code)]
 fn _valeur(_: Value) {}
+
+// --- Montants à la borne ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn un_montant_juste_sous_la_borne_est_accepte() {
+    let b = banc().await;
+    let c = comptes();
+    let grand = "99999999999999999999.99";
+    let lignes = [
+        ligne(c.caisse.as_str(), "debit", grand),
+        ligne(c.banque.as_str(), "credit", grand),
+    ];
+    let r = b
+        .creer(
+            b.c.collaborateur,
+            &corps(&journal_de_saisie(), &aujourd_hui(), &lignes, ""),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    assert_eq!(r.json()["lignes"][0]["montant"], grand);
+}
+
+// --- Pagination par curseur (date, id) ---------------------------------------------------------------
+
+#[tokio::test]
+async fn le_curseur_porte_la_cle_de_tri_et_survit_a_la_suppression() {
+    let b = banc().await;
+    let ids = [
+        b.nouveau("Un").await,
+        b.nouveau("Deux").await,
+        b.nouveau("Trois").await,
+    ];
+    let page = |q: String| {
+        let b = &b;
+        async move { b.liste(q).await.json() }
+    };
+    let p1 = page("limite=2".to_owned()).await;
+    let vus: Vec<String> = p1["brouillons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(vus.len(), 2);
+    let suivant = p1["suivant"].as_str().unwrap().to_owned();
+    assert_eq!(suivant, format!("{}_{}", aujourd_hui(), vus[1]));
+    // Le dernier brouillon de la page est supprimé : la page suivante reste complète.
+    let dernier: Uuid = vus[1].parse().unwrap();
+    let r = b
+        .poster(
+            &b.chemin(dernier, "/suppression"),
+            b.c.collaborateur,
+            r#"{"version":1}"#,
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let p2 = page(format!("limite=2&apres={suivant}")).await;
+    let restant: Vec<&Uuid> = ids
+        .iter()
+        .filter(|i| !vus.contains(&i.to_string()))
+        .collect();
+    assert_eq!(p2["brouillons"].as_array().unwrap().len(), restant.len());
+    assert!(p2["suivant"].is_null(), "plus rien après : pas de curseur");
+    // Pile `limite` lignes restantes : aucun curseur superflu.
+    let tout = page("limite=3".to_owned()).await;
+    assert_eq!(tout["brouillons"].as_array().unwrap().len(), 2);
+    assert!(tout["suivant"].is_null());
+    // Formes strictes.
+    for faux in [
+        "apres=2026-03-01",
+        "apres=2026-03-01_pas-un-uuid",
+        "apres=2026-13-01_00000000-0000-4000-8000-000000000000",
+        &format!("apres={}", Uuid::new_v4()),
+        "apres=2026-03-01_00000000000040008000000000000000",
+    ] {
+        let r = b.liste(faux.to_owned()).await;
+        assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{faux}");
+    }
+}

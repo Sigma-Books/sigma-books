@@ -111,9 +111,9 @@ pub fn corps(cas: Cas) -> &'static str {
         Cas::Modifier => MODIFICATION.get_or_init(|| saisie("Libellé modifié", Some(1))),
         Cas::PoserARevoir | Cas::LeverARevoir => "{}",
         Cas::LierPiece => {
-            r#"{"piece":"00000000-0000-4000-8000-0000000000aa","role":"principale","version":2}"#
+            r#"{"piece":"00000000-0000-4000-8000-0000000000aa","role":"principale","version":0}"#
         }
-        Cas::Supprimer | Cas::RetirerPiece => r#"{"version":1}"#,
+        Cas::Supprimer | Cas::RetirerPiece => r#"{"version":0}"#,
         Cas::Lister | Cas::Lire => "",
     }
 }

@@ -6,6 +6,9 @@
 -- elle dépend. Sur une base neuve, `0350` s'applique donc après `0300` ; elle dépend aussi de
 -- `0202_brouillard.sql`.
 --
+-- Aucune colonne d'instant (fil-piège des tables exemptées) : l'instant du lien est dans le
+-- journal d'audit chaîné.
+--
 -- Le lien est supprimable (retrait d'une pièce d'un brouillon, suppression du brouillon). À la
 -- validation (PR 13b), il est copié dans les liens de l'écriture validée, qui eux sont en ajout
 -- seul. Une pièce écartée ne se lie pas ; une pièce liée à un brouillon ne s'écarte pas
@@ -18,7 +21,6 @@ CREATE TABLE brouillon_piece (
     piece_id uuid NOT NULL,
     role text NOT NULL CHECK (role IN ('principale', 'complementaire')),
     lie_par uuid NOT NULL REFERENCES utilisateur (id),
-    lie_le timestamptz NOT NULL,
     PRIMARY KEY (cabinet_id, dossier_id, brouillon_id, piece_id),
     CONSTRAINT brouillon_piece_brouillon_fk FOREIGN KEY (cabinet_id, dossier_id, brouillon_id)
         REFERENCES brouillon (cabinet_id, dossier_id, id),

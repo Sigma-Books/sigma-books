@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT utilisateur_id FROM brouillon_contributeur WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 ORDER BY premiere_contribution_le, utilisateur_id",
+  "query": "SELECT utilisateur_id FROM brouillon_contributeur WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 ORDER BY utilisateur_id",
   "describe": {
     "columns": [
       {
@@ -26,5 +26,5 @@
       false
     ]
   },
-  "hash": "cdaba14f08363ca23fbc5b9dbbbaaf14ba54968efd99d3e0b265806c41932219"
+  "hash": "6d01af0135e494a51e3776623be70f33412d56d00a52c0d46b39fac87461632a"
 }

@@ -36,8 +36,8 @@
 //!   `brouillard_exempte`), la liste `brouillard` et
 //!   `api::base::referentiel::TABLES_BROUILLARD_LUES_A_LA_CLOTURE` sont le même ensemble : une
 //!   table de brouillard ne s'ajoute pas sans être lue à la clôture d'une période. Une table
-//!   **exemptée** (tables dépendantes de `brouillon`, PR 13a) existe, n'a aucune colonne de type
-//!   `date` et dépend par clé étrangère d'une table déclarée.
+//!   **exemptée** (tables dépendantes de `brouillon`, PR 13a) existe, n'a aucune colonne
+//!   temporelle (`date`, `timestamp*`, intervalle, ou nom contenant `date`, `jour`, `annee`) et dépend par clé étrangère d'une table déclarée.
 //!
 //! Le second test introduit des écarts dans une base jetable et vérifie que chacun est détecté.
 #![cfg(feature = "tests-postgres")]
@@ -777,7 +777,8 @@ async fn ecarts_brouillard(
 }
 
 /// Exemptions du fil-piège (`brouillard_exempte`) : une table exemptée existe, n'a aucune colonne
-/// de type `date` (elle n'a donc pas de date comptable propre à lire à la clôture) et dépend,
+/// temporelle (type `date`, `timestamp*` ou intervalle, ou nom contenant `date`, `jour` ou
+/// `annee` : elle n'a donc pas de date comptable propre à lire à la clôture) et dépend,
 /// par clé étrangère, d'une table déclarée dans `brouillard` (dont la date est lue).
 async fn ecarts_exemptions_brouillard(
     connexion: &mut PgConnection,
@@ -801,7 +802,10 @@ async fn ecarts_exemptions_brouillard(
         }
         let dates: Vec<String> = sqlx::query_scalar(
             "SELECT column_name::text FROM information_schema.columns \
-             WHERE table_schema = 'public' AND table_name = $1 AND data_type = 'date'",
+             WHERE table_schema = 'public' AND table_name = $1 \
+               AND (udt_name = 'date' OR udt_name LIKE 'timestamp%' OR udt_name LIKE '%range' \
+                    OR column_name ~ '(date|jour|annee)') \
+             ORDER BY column_name",
         )
         .bind(table)
         .fetch_all(&mut *connexion)
@@ -809,7 +813,7 @@ async fn ecarts_exemptions_brouillard(
         .unwrap();
         for colonne in dates {
             ecarts.push(format!(
-                "table de brouillard exemptée {table} : colonne de date {colonne}"
+                "table de brouillard exemptée {table} : colonne temporelle {colonne}"
             ));
         }
         let parents: Vec<String> = sqlx::query_scalar(
@@ -911,6 +915,10 @@ const ECARTS_PROPRIETAIRE: &str = "CREATE TABLE table_oubliee (id uuid PRIMARY K
              ALTER TABLE exercice DISABLE TRIGGER exercice_irreversible; \
              ALTER TABLE brouillon_ligne DROP CONSTRAINT brouillon_ligne_brouillon_fk; \
              ALTER TABLE brouillon_piece ADD COLUMN date_piece date; \
+             ALTER TABLE brouillon_contributeur ADD COLUMN horodatage timestamptz; \
+             ALTER TABLE brouillon_contributeur ADD COLUMN plage daterange; \
+             ALTER TABLE brouillon_ligne ADD COLUMN jour_valeur integer; \
+             ALTER TABLE brouillon_ligne ADD COLUMN exercice_annee integer; \
              CREATE TABLE brouillon_oublie (cabinet_id uuid NOT NULL); \
              CREATE TABLE ecriture_brouillard (cabinet_id uuid NOT NULL); \
              CREATE TABLE ligne_brouillon (cabinet_id uuid NOT NULL); \
@@ -970,7 +978,11 @@ const ECARTS_ATTENDUS: &[&str] = &[
     "public.periode : politique irreversible_laxiste : politique restrictive non admise",
     "public.exercice : déclencheur d'irréversibilité exercice_irreversible absent, inactif",
     "table de brouillard exemptée brouillon_ligne : aucune clé étrangère vers une table du brouillard",
-    "table de brouillard exemptée brouillon_piece : colonne de date date_piece",
+    "table de brouillard exemptée brouillon_piece : colonne temporelle date_piece",
+    "table de brouillard exemptée brouillon_contributeur : colonne temporelle horodatage",
+    "table de brouillard exemptée brouillon_contributeur : colonne temporelle plage",
+    "table de brouillard exemptée brouillon_ligne : colonne temporelle jour_valeur",
+    "table de brouillard exemptée brouillon_ligne : colonne temporelle exercice_annee",
     "table de brouillard brouillon_oublie : en base true, au catalogue false",
     "table de brouillard ecriture_brouillard : en base true, au catalogue false",
     "table de brouillard ligne_brouillon : en base true, au catalogue false",

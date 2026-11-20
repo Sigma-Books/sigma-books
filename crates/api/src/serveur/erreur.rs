@@ -130,11 +130,15 @@ pub enum MotifConflit {
     PrincipaleExistante,
     /// Pièce liée à un brouillon : elle ne s'écarte pas.
     PieceLiee,
+    /// Le drapeau « à revoir » ne se lève pas par celui qui l'a posé.
+    RevueParLePoseur,
+    /// Trop de pièces liées au brouillon.
+    TropDePieces,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 16] = [
+    pub const TOUS: [Self; 18] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -151,6 +155,8 @@ impl MotifConflit {
         Self::PieceDejaLiee,
         Self::PrincipaleExistante,
         Self::PieceLiee,
+        Self::RevueParLePoseur,
+        Self::TropDePieces,
     ];
 
     /// Code du corps de la réponse.
@@ -173,6 +179,8 @@ impl MotifConflit {
             Self::PieceDejaLiee => "piece_deja_liee",
             Self::PrincipaleExistante => "piece_principale_existante",
             Self::PieceLiee => "piece_liee",
+            Self::RevueParLePoseur => "revue_par_le_poseur",
+            Self::TropDePieces => "trop_de_pieces",
         }
     }
 }

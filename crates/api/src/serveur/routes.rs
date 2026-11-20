@@ -307,6 +307,9 @@ pub struct Requete<'a> {
     pub maintenant: time::OffsetDateTime,
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
+    /// Pool du rôle applicatif : lectures à instantané unique d'un cas d'usage
+    /// ([`crate::base::ouvrir_transaction_lecture`]), en plus de la transaction du pipeline.
+    pub pool: &'a PgPool,
     /// Paramètres du chemin, dont les sous-ressources (`{compte}`, `{tiers}`, `{piece}`…), à
     /// lire par `id_chemin`.
     pub chemin: &'a RawPathParams,

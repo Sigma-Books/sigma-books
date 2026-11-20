@@ -440,6 +440,29 @@ docker exec -e MC_HOST_local="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@127.0
 - **À trancher** : ajouter un service `MinIO` à la CI (`.github/workflows/rust.yml`, hors de cette
   voie) et y lancer `-- --include-ignored` sur `pieces_s3`.
 
+## Brouillard
+
+Brouillard persistant et journalisé (PR 13a ; `src/base/brouillard.rs`, `src/serveur/routes/brouillard.rs`).
+Un seul état « brouillon », un drapeau facultatif « à revoir », un verrou optimiste (`version`).
+
+- **Drapeau « à revoir »** : on enregistre qui l'a posé (`a_revoir_par`) ; **celui qui l'a posé ne
+  le lève pas** (409 `revue_par_le_poseur`). Un drapeau posé par l'IA (lot ultérieur) aura un
+  acteur distinct de l'humain, qui le lèvera. Il n'empêche jamais la validation unitaire (13b) ;
+  **13c exclura de la validation par lot les écritures marquées** « à revoir ».
+- **Période verrouillée** : la date d'un brouillon y est acceptée (seule une période ou un
+  exercice clôturé refuse). La validation (13b) la refusera ; la clôture reste bloquée tant que le
+  brouillon existe.
+- **Montant XOF avec décimales** : accepté en saisie (jusqu'à 20 chiffres entiers, au-delà 422).
+  La validation (13b) tranchera l'échelle d'après la devise de tenue : question ouverte.
+- **Référentiel chargé sans verrou** : la saisie relit plan, journaux, tiers et exercices sans
+  les verrouiller (limite assumée). Un compte ou un tiers peut être désactivé entre la saisie et
+  la validation : la validation (13b) relit et recontrôle tout.
+- **Lecture** : `GET /brouillard/{id}` s'exécute dans une transaction `REPEATABLE READ` en lecture
+  seule (instantané unique). La liste est paginée par le curseur `apres=AAAA-MM-JJ_<uuid>` (clé
+  de tri), `suivant` n'est émis que s'il reste une ligne.
+- **Tables dépendantes** (`brouillon_ligne`, `_contributeur`, `_piece`) : exemptées du fil-piège
+  sous condition (aucune colonne temporelle, clé étrangère vers `brouillon`), voir le catalogue.
+
 ## Travailler en voies parallèles
 
 Trois voies avancent en parallèle sur le lot L2 : **authentification** (PR 8b, 8c, 9),

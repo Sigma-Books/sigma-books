@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT b.id, j.code AS journal, b.date_comptable, b.date_valeur_comptable, b.libelle,\n               b.a_revoir, b.version, b.cree_par, b.cree_le, b.modifie_par, b.modifie_le,\n               (SELECT count(*) FROM brouillon_ligne l\n                 WHERE l.cabinet_id = b.cabinet_id AND l.dossier_id = b.dossier_id\n                   AND l.brouillon_id = b.id) AS \"lignes!\",\n               (SELECT COALESCE(sum(l.montant), 0)::text FROM brouillon_ligne l\n                 WHERE l.cabinet_id = b.cabinet_id AND l.dossier_id = b.dossier_id\n                   AND l.brouillon_id = b.id AND l.sens = 'debit') AS \"debit!\",\n               (SELECT COALESCE(sum(l.montant), 0)::text FROM brouillon_ligne l\n                 WHERE l.cabinet_id = b.cabinet_id AND l.dossier_id = b.dossier_id\n                   AND l.brouillon_id = b.id AND l.sens = 'credit') AS \"credit!\"\n        FROM brouillon b\n        JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id\n                      AND j.id = b.journal_id\n        WHERE b.cabinet_id = $1 AND b.dossier_id = $2\n          AND ($3::text IS NULL OR j.code = $3)\n          AND ($4::uuid IS NULL OR b.date_comptable BETWEEN\n                (SELECT p.debut FROM periode p\n                  WHERE p.cabinet_id = $1 AND p.dossier_id = $2 AND p.id = $4)\n                AND (SELECT p.fin FROM periode p\n                  WHERE p.cabinet_id = $1 AND p.dossier_id = $2 AND p.id = $4))\n          AND ($5::uuid IS NULL OR (b.date_comptable, b.id) > (\n                SELECT c.date_comptable, c.id FROM brouillon c\n                 WHERE c.cabinet_id = $1 AND c.dossier_id = $2 AND c.id = $5))\n        ORDER BY b.date_comptable, b.id\n        LIMIT $6\n        ",
+  "query": "\n        SELECT b.id, j.code AS journal, b.date_comptable, b.date_valeur_comptable, b.libelle,\n               b.a_revoir, b.version, b.cree_par, b.cree_le, b.modifie_par, b.modifie_le,\n               (SELECT count(*) FROM brouillon_ligne l\n                 WHERE l.cabinet_id = b.cabinet_id AND l.dossier_id = b.dossier_id\n                   AND l.brouillon_id = b.id) AS \"lignes!\",\n               (SELECT COALESCE(sum(l.montant), 0)::text FROM brouillon_ligne l\n                 WHERE l.cabinet_id = b.cabinet_id AND l.dossier_id = b.dossier_id\n                   AND l.brouillon_id = b.id AND l.sens = 'debit') AS \"debit!\",\n               (SELECT COALESCE(sum(l.montant), 0)::text FROM brouillon_ligne l\n                 WHERE l.cabinet_id = b.cabinet_id AND l.dossier_id = b.dossier_id\n                   AND l.brouillon_id = b.id AND l.sens = 'credit') AS \"credit!\"\n        FROM brouillon b\n        JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id\n                      AND j.id = b.journal_id\n        WHERE b.cabinet_id = $1 AND b.dossier_id = $2\n          AND ($3::text IS NULL OR j.code = $3)\n          AND ($4::uuid IS NULL OR b.date_comptable BETWEEN\n                (SELECT p.debut FROM periode p\n                  WHERE p.cabinet_id = $1 AND p.dossier_id = $2 AND p.id = $4)\n                AND (SELECT p.fin FROM periode p\n                  WHERE p.cabinet_id = $1 AND p.dossier_id = $2 AND p.id = $4))\n          AND ($5::date IS NULL OR (b.date_comptable, b.id) > ($5, $6))\n        ORDER BY b.date_comptable, b.id\n        LIMIT $7\n        ",
   "describe": {
     "columns": [
       {
@@ -149,6 +149,7 @@
         "Uuid",
         "Text",
         "Uuid",
+        "Date",
         "Uuid",
         "Int8"
       ]
@@ -170,5 +171,5 @@
       null
     ]
   },
-  "hash": "3b1f71b7beda28d937ff9aaed0bc6c82c7e342f4f32adc476184cdc033cc25cb"
+  "hash": "28e6ec7bae70a6a5e2f0abf62466a84b13c0056d91702870cf10fb92bb21374b"
 }

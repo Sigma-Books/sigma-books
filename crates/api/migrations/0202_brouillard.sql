@@ -30,6 +30,9 @@ CREATE TABLE brouillon (
         length(libelle) <= 200 AND length(btrim(libelle)) >= 1 AND libelle !~ '[[:cntrl:]]'
     ),
     a_revoir boolean NOT NULL DEFAULT false,
+    -- Qui a posé le drapeau (l'humain, ou l'IA d'un lot ultérieur, acteur distinct) : il ne peut
+    -- pas le lever lui-même (contrôle de `api`).
+    a_revoir_par uuid REFERENCES utilisateur (id),
     -- Verrou optimiste : une modification porte la version qu'elle a lue.
     version integer NOT NULL DEFAULT 1 CHECK (version >= 1),
     cree_par uuid NOT NULL REFERENCES utilisateur (id),
@@ -40,7 +43,8 @@ CREATE TABLE brouillon (
     FOREIGN KEY (cabinet_id, dossier_id) REFERENCES dossier (cabinet_id, id),
     FOREIGN KEY (cabinet_id, dossier_id, journal_id)
         REFERENCES journal (cabinet_id, dossier_id, id),
-    CHECK (date_valeur_comptable IS NULL OR date_valeur_comptable < date_comptable)
+    CHECK (date_valeur_comptable IS NULL OR date_valeur_comptable < date_comptable),
+    CHECK (a_revoir = (a_revoir_par IS NOT NULL))
 );
 -- Liste paginée et lecture à la clôture d'une période (dates comptables du dossier).
 CREATE INDEX brouillon_date ON brouillon (cabinet_id, dossier_id, date_comptable, id);
@@ -62,8 +66,8 @@ CREATE POLICY brouillon_tenant ON brouillon
 -- Ni le créateur ni les instants de création ne changent jamais. `SELECT … FOR UPDATE` (verrou de
 -- la modification) exige un droit `UPDATE`.
 GRANT SELECT, INSERT, DELETE ON brouillon TO sigma_application;
-GRANT UPDATE (journal_id, date_comptable, date_valeur_comptable, libelle, a_revoir, version,
-              modifie_par, modifie_le)
+GRANT UPDATE (journal_id, date_comptable, date_valeur_comptable, libelle, a_revoir,
+              a_revoir_par, version, modifie_par, modifie_le)
     ON brouillon TO sigma_application;
 
 -- Ligne de brouillon. Le compte est cité par son numéro (clé composite : la base refuse le
@@ -118,6 +122,8 @@ CREATE POLICY brouillon_ligne_tenant ON brouillon_ligne
 -- Les lignes se remplacent à la modification (suppression puis insertion) : aucun UPDATE.
 GRANT SELECT, INSERT, DELETE ON brouillon_ligne TO sigma_application;
 
+-- Aucune colonne d'instant ni de date : le fil-piège des tables exemptées (catalogue) l'interdit,
+-- et l'instant d'une contribution est dans le journal d'audit chaîné.
 -- Contributeurs (séparation des tâches, spec §20, Q5.3) : le créateur et chaque utilisateur qui
 -- modifie le contenu du brouillon. Cedar les reçoit pour décider la validation (PR 13b). Jamais
 -- retirés tant que le brouillon existe, même si leur ligne est retirée ensuite ; supprimés avec
@@ -128,7 +134,6 @@ CREATE TABLE brouillon_contributeur (
     dossier_id uuid NOT NULL,
     brouillon_id uuid NOT NULL,
     utilisateur_id uuid NOT NULL REFERENCES utilisateur (id),
-    premiere_contribution_le timestamptz NOT NULL,
     PRIMARY KEY (cabinet_id, dossier_id, brouillon_id, utilisateur_id),
     CONSTRAINT brouillon_contributeur_brouillon_fk
         FOREIGN KEY (cabinet_id, dossier_id, brouillon_id)

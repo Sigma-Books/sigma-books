@@ -32,7 +32,6 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
-use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::brouillard::{
     self, BrouillonStocke, ContenuStocke, FiltreBrouillard, LienPiece, LigneStockee, PieceALier,
@@ -40,6 +39,7 @@ use crate::base::brouillard::{
 };
 use crate::base::organisation::{lire_appartenance, lire_dossier_visible};
 use crate::base::referentiel::charger;
+use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
 use crate::pieces::interne;
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
@@ -302,7 +302,6 @@ struct VuePieceLiee {
     piece: String,
     role: &'static str,
     lie_par: String,
-    lie_le: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -314,6 +313,8 @@ struct VueBrouillon {
     date_valeur_comptable: Option<String>,
     libelle: String,
     a_revoir: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    a_revoir_par: Option<String>,
     version: i32,
     cree_par: String,
     cree_le: String,
@@ -332,6 +333,7 @@ fn vue(b: &BrouillonStocke) -> VueBrouillon {
         date_valeur_comptable: b.contenu.date_valeur_comptable.map(interne::date),
         libelle: b.contenu.libelle.clone(),
         a_revoir: b.a_revoir,
+        a_revoir_par: b.a_revoir_par.map(|u| u.to_string()),
         version: b.version,
         cree_par: b.cree_par.to_string(),
         cree_le: interne::instant(b.cree_le),
@@ -373,7 +375,6 @@ fn vue_lien(l: &LienPiece) -> VuePieceLiee {
         piece: l.piece.to_string(),
         role: l.role.nom(),
         lie_par: l.lie_par.to_string(),
-        lie_le: interne::instant(l.lie_le),
     }
 }
 
@@ -423,6 +424,19 @@ struct VuePage {
 
 // --- Lecture ----------------------------------------------------------------------------
 
+/// Curseur `AAAA-MM-JJ_<uuid>` : date comptable et identifiant du dernier brouillon de la page
+/// précédente, forme stricte (UUID à 36 caractères).
+fn curseur(texte: &str) -> Result<(time::Date, Uuid), ErreurApi> {
+    let (date, id) = texte.split_once('_').ok_or(ErreurApi::RequeteInvalide)?;
+    if id.len() != 36 {
+        return Err(ErreurApi::RequeteInvalide);
+    }
+    Ok((
+        saisie::date_lue(date).ok_or(ErreurApi::RequeteInvalide)?,
+        Uuid::try_parse(id).map_err(|_| ErreurApi::RequeteInvalide)?,
+    ))
+}
+
 fn lister_filtre(texte: Option<&str>) -> Result<(FiltreBrouillard, u32), ErreurApi> {
     let invalide = ErreurApi::RequeteInvalide;
     let mut filtre = FiltreBrouillard::default();
@@ -443,7 +457,7 @@ fn lister_filtre(texte: Option<&str>) -> Result<(FiltreBrouillard, u32), ErreurA
                 filtre.journal.replace(valeur.to_owned()).is_some()
             }
             "periode" => filtre.periode.replace(uuid()?).is_some(),
-            "apres" => filtre.apres.replace(uuid()?).is_some(),
+            "apres" => filtre.apres.replace(curseur(valeur)?).is_some(),
             "limite" => {
                 let n = (!valeur.is_empty() && valeur.bytes().all(|b| b.is_ascii_digit()))
                     .then(|| valeur.parse::<u32>().ok())
@@ -463,10 +477,14 @@ fn lister_filtre(texte: Option<&str>) -> Result<(FiltreBrouillard, u32), ErreurA
 
 async fn lister(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Resultat, ErreurApi> {
     let (filtre, limite) = lister_filtre(requete.parametres)?;
-    let page = brouillard::lister(tx, &filtre, limite).await?;
-    let suivant = (page.len() == limite as usize)
-        .then(|| page.last().map(|p| p.id.to_string()))
-        .flatten();
+    // `limite + 1` lignes : `suivant` n'est émis que s'il en reste au moins une.
+    let mut page = brouillard::lister(tx, &filtre, limite + 1).await?;
+    let reste = page.len() > limite as usize;
+    page.truncate(limite as usize);
+    let suivant = page
+        .last()
+        .filter(|_| reste)
+        .map(|p| format!("{}_{}", interne::date(p.date), p.id));
     let vue = VuePage {
         brouillons: page.iter().map(vue_resume).collect(),
         suivant,
@@ -477,9 +495,12 @@ async fn lister(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Res
 async fn lire(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Resultat, ErreurApi> {
     sans_parametres(requete)?;
     let id = id_chemin(requete.chemin, "brouillon")?;
-    let b = brouillard::lire(tx, id)
-        .await?
-        .ok_or(ErreurApi::Introuvable)?;
+    // Instantané unique (`REPEATABLE READ`, lecture seule) : l'en-tête, les lignes, les pièces et
+    // les contributeurs viennent du même état ; un brouillon supprimé entre-temps donne 404.
+    let mut instantane = ouvrir_transaction_lecture(requete.pool, *tx.contexte()).await?;
+    let b = brouillard::lire(&mut instantane, id).await;
+    instantane.annuler().await?;
+    let b = b?.ok_or(ErreurApi::Introuvable)?;
     Ok(Resultat::lecture(Json(vue(&b)).into_response()))
 }
 
@@ -553,6 +574,39 @@ fn traces_contenu(
         traces.push(t);
     }
     traces
+}
+
+const NOMS_PIECES: [&str; 10] = [
+    "pieces",
+    "pieces_2",
+    "pieces_3",
+    "pieces_4",
+    "pieces_5",
+    "pieces_6",
+    "pieces_7",
+    "pieces_8",
+    "pieces_9",
+    "pieces_10",
+];
+const NOMS_CONTRIBUTEURS: [&str; 10] = [
+    "contributeurs",
+    "contributeurs_2",
+    "contributeurs_3",
+    "contributeurs_4",
+    "contributeurs_5",
+    "contributeurs_6",
+    "contributeurs_7",
+    "contributeurs_8",
+    "contributeurs_9",
+    "contributeurs_10",
+];
+
+/// Cite des identifiants dans des données de trace, 20 par donnée (un texte d'audit fait au plus
+/// 1 000 octets) : au plus 200 identifiants ([`brouillard::PIECES_MAX`]).
+fn donnees_liste(trace: &mut Trace, noms: &[&'static str; 10], ids: &[String]) {
+    for (nom, groupe) in noms.iter().zip(ids.chunks(20)) {
+        trace.donnees.push((nom, groupe.join(",")));
+    }
 }
 
 // --- Contrôles communs --------------------------------------------------------------------
@@ -694,7 +748,16 @@ async fn supprimer(
     verrouiller_a_la_version(tx, id, version).await?;
     let avant = relire(tx, id).await?;
     brouillard::supprimer(tx, id).await?;
-    let traces = traces_contenu(dossier, id, "suppression", Some(&avant), None);
+    let mut traces = traces_contenu(dossier, id, "suppression", Some(&avant), None);
+    // « Avant » complet : aussi les pièces liées et les contributeurs, cités par identifiant.
+    let pieces: Vec<String> = avant.pieces.iter().map(|l| l.piece.to_string()).collect();
+    let contributeurs: Vec<String> = avant
+        .contributeurs
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    donnees_liste(&mut traces[0], &NOMS_PIECES, &pieces);
+    donnees_liste(&mut traces[0], &NOMS_CONTRIBUTEURS, &contributeurs);
     Ok(Resultat {
         reponse: (
             StatusCode::OK,
@@ -733,6 +796,10 @@ async fn drapeau(
     let avant = relire(tx, id).await?;
     if avant.a_revoir == pose {
         return Err(conflit(MotifConflit::DrapeauInchange));
+    }
+    // Celui qui a posé le drapeau ne le lève pas : un autre acteur (l'humain, si l'IA l'a posé).
+    if !pose && avant.a_revoir_par == Some(tx.contexte().id_utilisateur().uuid()) {
+        return Err(conflit(MotifConflit::RevueParLePoseur));
     }
     brouillard::poser_drapeau(tx, id, pose).await?;
     let apres = relire(tx, id).await?;
@@ -777,6 +844,9 @@ async fn lier(
         PieceALier::Liable => {}
     }
     let liens = brouillard::liens_du_brouillon(tx, id).await?;
+    if liens.len() >= brouillard::PIECES_MAX {
+        return Err(conflit(MotifConflit::TropDePieces));
+    }
     if liens.iter().any(|l| l.piece == piece) {
         return Err(conflit(MotifConflit::PieceDejaLiee));
     }

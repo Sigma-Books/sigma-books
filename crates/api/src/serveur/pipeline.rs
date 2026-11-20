@@ -578,6 +578,7 @@ async fn traiter_requete(
         corps: &corps,
         maintenant: etat.horloge.maintenant(),
         lecture_audit: &etat.pool_lecture_audit,
+        pool: &etat.pool,
         chemin: &parametres,
         pieces: etat.pieces(),
     };
