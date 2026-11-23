@@ -131,6 +131,10 @@ async fn monde(admin: &PgPool) -> Monde {
             // Un brouillon réel (PR 13a), sous-ressource `{brouillon}`.
             let b = commun::brouillard::doter(admin, c.cabinet, dossier, c.administrateur).await;
             inscrire_sous_ressource(dossier, "brouillon", b);
+            // Une écriture validée (PR 13b), sous-ressource `{ecriture}`.
+            let e = commun::brouillard::doter_validee(admin, c.cabinet, dossier, c.administrateur)
+                .await;
+            inscrire_sous_ressource(dossier, "ecriture", e);
             fixtures.insert(dossier, f);
         }
     }

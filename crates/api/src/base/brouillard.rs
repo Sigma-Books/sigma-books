@@ -915,7 +915,8 @@ async fn toucher(
     Ok(version)
 }
 
-/// Nombre de brouillons du dossier du contexte auxquels la pièce est liée (refus de l'écart).
+/// Nombre de brouillons **et d'écritures validées** du dossier du contexte auxquels la pièce est
+/// liée (refus de l'écart : une pièce liée à une écriture validée est définitive, ADR 0015).
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
@@ -925,8 +926,11 @@ pub async fn brouillons_lies_a_la_piece(
 ) -> Result<i64, ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     Ok(sqlx::query_scalar!(
-        "SELECT count(*) AS \"nombre!\" FROM brouillon_piece \
-         WHERE cabinet_id = $1 AND dossier_id = $2 AND piece_id = $3",
+        "SELECT (SELECT count(*) FROM brouillon_piece \
+                  WHERE cabinet_id = $1 AND dossier_id = $2 AND piece_id = $3) \
+              + (SELECT count(*) FROM ecriture_validee_piece \
+                  WHERE cabinet_id = $1 AND dossier_id = $2 AND piece_id = $3) \
+               AS \"nombre!\"",
         cabinet.uuid(),
         dossier.uuid(),
         piece,

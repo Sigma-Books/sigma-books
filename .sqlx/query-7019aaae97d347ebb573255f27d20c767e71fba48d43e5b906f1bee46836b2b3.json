@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO compteur_ecriture (cabinet_id, dossier_id, journal_id, exercice_id, dernier) VALUES ($1, $2, $3, $4, 0) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7019aaae97d347ebb573255f27d20c767e71fba48d43e5b906f1bee46836b2b3"
+}

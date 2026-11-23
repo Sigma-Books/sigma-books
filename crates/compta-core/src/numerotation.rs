@@ -127,6 +127,26 @@ impl Compteur {
         }
     }
 
+    /// Compteur relu de la persistance : dernière séquence attribuée pour ce journal et cet
+    /// exercice (lue sous verrou, lot L2).
+    ///
+    /// # Errors
+    /// [`ErreurNumerotation::SequenceEpuisee`] si `dernier` dépasse [`SEQUENCE_MAX`].
+    pub fn reprendre(
+        journal: CodeJournal,
+        exercice: CodeExercice,
+        dernier: u32,
+    ) -> Result<Self, ErreurNumerotation> {
+        if dernier > SEQUENCE_MAX {
+            return Err(ErreurNumerotation::SequenceEpuisee(journal, exercice));
+        }
+        Ok(Self {
+            journal,
+            exercice,
+            dernier,
+        })
+    }
+
     /// Dernière séquence attribuée (0 si aucune).
     #[must_use]
     pub fn dernier(&self) -> u32 {
@@ -181,6 +201,17 @@ mod tests {
             CodeJournal::parse("AC").unwrap(),
             CodeExercice::parse("2026").unwrap(),
         )
+    }
+
+    #[test]
+    fn un_compteur_se_reprend_de_la_persistance() {
+        let j = CodeJournal::parse("AC").unwrap();
+        let e = CodeExercice::parse("2026").unwrap();
+        let c = Compteur::reprendre(j.clone(), e.clone(), 230).unwrap();
+        assert_eq!(c.suivant().unwrap().0.to_string(), "AC-2026-000231");
+        let plein = Compteur::reprendre(j.clone(), e.clone(), SEQUENCE_MAX).unwrap();
+        assert!(plein.suivant().is_err());
+        assert!(Compteur::reprendre(j, e, SEQUENCE_MAX + 1).is_err());
     }
 
     #[test]

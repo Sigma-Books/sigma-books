@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ecriture_validee_piece (cabinet_id, dossier_id, ecriture_id, piece_id, position, role) VALUES ($1, $2, $3, $4, $5, $6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int2",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d137b30b8a651439a7dd42c0a2b67fb96dcc2627816debb9d5f3df86cb28c4ba"
+}

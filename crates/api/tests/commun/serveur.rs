@@ -229,20 +229,32 @@ pub fn application_du_binaire(pool: PgPool) -> Etat {
     )
 }
 
-/// Horloge de test : l'instant du système décalé d'un nombre de secondes réglable.
+/// Horloge de test : l'instant du système, ou un instant **fixe** ([`HorlogeTest::fixer`]),
+/// décalé d'un nombre de secondes réglable.
 #[derive(Debug, Clone, Default)]
-pub struct HorlogeTest(Arc<AtomicI64>);
+pub struct HorlogeTest {
+    decalage: Arc<AtomicI64>,
+    fixe: Arc<std::sync::Mutex<Option<OffsetDateTime>>>,
+}
 
 impl HorlogeTest {
     /// Avance l'horloge.
     pub fn avancer(&self, duree: time::Duration) {
-        self.0.fetch_add(duree.whole_seconds(), Ordering::SeqCst);
+        self.decalage
+            .fetch_add(duree.whole_seconds(), Ordering::SeqCst);
+    }
+
+    /// Règle l'horloge sur un instant absolu : elle ne suit plus l'horloge du système (le
+    /// décalage de [`HorlogeTest::avancer`] s'y ajoute encore).
+    pub fn fixer(&self, instant: OffsetDateTime) {
+        *self.fixe.lock().expect("horloge") = Some(instant);
     }
 }
 
 impl Horloge for HorlogeTest {
     fn maintenant(&self) -> OffsetDateTime {
-        OffsetDateTime::now_utc() + time::Duration::seconds(self.0.load(Ordering::SeqCst))
+        let base = (*self.fixe.lock().expect("horloge")).unwrap_or_else(OffsetDateTime::now_utc);
+        base + time::Duration::seconds(self.decalage.load(Ordering::SeqCst))
     }
 }
 

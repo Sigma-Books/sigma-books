@@ -577,6 +577,7 @@ async fn traiter_requete(
         parametres: parts.uri.query(),
         corps: &corps,
         maintenant: etat.horloge.maintenant(),
+        horloge: etat.horloge.as_ref(),
         lecture_audit: &etat.pool_lecture_audit,
         pool: &etat.pool,
         chemin: &parametres,
@@ -858,7 +859,7 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 24);
+        assert_eq!(mutations.len(), 25);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),
