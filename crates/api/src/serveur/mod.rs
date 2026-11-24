@@ -110,6 +110,9 @@ pub struct Reglages {
     /// Méthode de secours (PR 8b) : clé de l'instance, débits des connexions et des
     /// vérifications, hachages simultanés ([`facteurs::configurer`]).
     pub facteurs: facteurs::ReglagesFacteurs,
+    /// Nombre maximal d'écritures lues pour une édition (PR 14) ; au-delà, 409
+    /// `edition_trop_volumineuse`.
+    pub editions_ecritures_max: i64,
 }
 
 impl Reglages {
@@ -137,6 +140,7 @@ impl Reglages {
             nombre_en_tetes_max: 64,
             sessions: DureesSession::default(),
             facteurs: facteurs::ReglagesFacteurs::default(),
+            editions_ecritures_max: crate::base::editions::ECRITURES_MAX,
         }
     }
 }
@@ -144,6 +148,13 @@ impl Reglages {
 /// État partagé du serveur.
 pub struct Application {
     pool: PgPool,
+    /// Pool **distinct** des lectures à instantané unique d'un cas d'usage (même rôle
+    /// applicatif, mêmes options de connexion). La transaction du pipeline tient déjà une
+    /// connexion de `pool` : une seconde prise dans le même pool ferait attendre chaque requête
+    /// d'une connexion que seules les autres requêtes, elles aussi en attente, pourraient
+    /// libérer (interblocage, déni de service par un seul utilisateur). Ici, aucun cas d'usage ne
+    /// tient une connexion de ce pool en en attendant une autre : il se vide toujours.
+    pool_lectures: PgPool,
     /// Pool du rôle de lecture d'audit (ADR 0014), distinct.
     pool_lecture_audit: PgPool,
     decideur: Arc<dyn Decideur>,
@@ -158,6 +169,18 @@ pub struct Application {
     //
     // Voie pièces (PR 12) : stockage objet des pièces ([`Application::brancher_pieces`]).
     pieces: OnceLock<Pieces>,
+}
+
+/// Connexions du pool des lectures à instantané unique ([`Application::pool_lectures`]).
+const CONNEXIONS_LECTURES: u32 = 4;
+
+/// Pool des lectures à instantané unique : celui du rôle applicatif (déjà vérifié à son
+/// ouverture), ouvert à la demande, avec ses options de connexion et son délai d'attente.
+fn pool_des_lectures(pool: &PgPool) -> PgPool {
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(CONNEXIONS_LECTURES)
+        .acquire_timeout(pool.options().get_acquire_timeout())
+        .connect_lazy_with((*pool.connect_options()).clone())
 }
 
 /// État partagé, tel que le reçoivent les intergiciels et le pipeline.
@@ -196,8 +219,10 @@ impl Application {
         reglages: Reglages,
         horloge: Arc<dyn Horloge>,
     ) -> Etat {
+        let pool_lectures = pool_des_lectures(&pool);
         Arc::new(Self {
             pool,
+            pool_lectures,
             pool_lecture_audit,
             decideur,
             authentification,

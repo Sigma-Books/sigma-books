@@ -326,9 +326,13 @@ pub struct Requete<'a> {
     pub horloge: &'a dyn super::session::Horloge,
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
-    /// Pool du rôle applicatif : lectures à instantané unique d'un cas d'usage
-    /// ([`crate::base::ouvrir_transaction_lecture`]), en plus de la transaction du pipeline.
+    /// Pool des lectures à instantané unique d'un cas d'usage
+    /// ([`crate::base::ouvrir_transaction_lecture`]), **distinct** de celui de la transaction du
+    /// pipeline (sinon deux connexions du même pool par requête : interblocage sous charge, voir
+    /// `Application`).
     pub pool: &'a PgPool,
+    /// Nombre maximal d'écritures lues pour une édition (réglage `editions_ecritures_max`).
+    pub editions_max: i64,
     /// Paramètres du chemin, dont les sous-ressources (`{compte}`, `{tiers}`, `{piece}`…), à
     /// lire par `id_chemin`.
     pub chemin: &'a RawPathParams,

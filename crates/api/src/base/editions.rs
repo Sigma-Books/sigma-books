@@ -8,9 +8,14 @@
 //! référentiel viennent du même état. Toute requête filtre par le cabinet et le dossier du
 //! contexte, sous RLS.
 //!
-//! Le nombre d'écritures lues est borné ([`ECRITURES_MAX`]) : une édition plus grande se
-//! restreint par la période. Chaque lecture demande une écriture de plus que la borne pour savoir
-//! s'il y en avait davantage.
+//! Le nombre d'écritures lues est borné (`borne`, par défaut [`ECRITURES_MAX`], réglage
+//! `editions_ecritures_max`) : une édition plus grande se restreint par la période. Chaque
+//! lecture demande une écriture de plus que la borne pour savoir s'il y en avait davantage.
+//!
+//! Seules les écritures **de l'exercice** sont lues : l'appelant passe `du` = premier jour de
+//! l'exercice. Une écriture antérieure à l'exercice n'entre jamais dans ses éditions ; ses
+//! à-nouveaux sont les écritures d'un journal d'à-nouveaux **de l'exercice** (en pratique celles
+//! du premier jour).
 
 use std::collections::HashMap;
 
@@ -23,7 +28,7 @@ use super::brouillard::{
 use super::validation::hex;
 use super::{ErreurBase, IdCabinet, IdDossier, TransactionTenant};
 
-/// Nombre maximal d'écritures (validées, puis brouillons) lues pour une édition.
+/// Nombre maximal d'écritures (validées, puis brouillons) lues pour une édition, par défaut.
 pub const ECRITURES_MAX: i64 = 20_000;
 
 /// Écriture validée relue pour une édition : colonnes et lignes, sans chaîne ni pièces.
@@ -132,6 +137,7 @@ pub async fn validees_entre(
     tx: &mut TransactionTenant,
     du: Date,
     au: Date,
+    borne: i64,
 ) -> Result<Lecture<ValideeLue>, ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     let entetes = sqlx::query!(
@@ -149,11 +155,11 @@ pub async fn validees_entre(
         dossier.uuid(),
         du,
         au,
-        ECRITURES_MAX + 1,
+        borne.saturating_add(1),
     )
     .fetch_all(tx.connexion())
     .await?;
-    let borne = usize::try_from(ECRITURES_MAX).unwrap_or(usize::MAX);
+    let borne = usize::try_from(borne).unwrap_or(usize::MAX);
     let depasse = entetes.len() > borne;
     let entetes: Vec<_> = entetes.into_iter().take(borne).collect();
     let ids: Vec<Uuid> = entetes.iter().map(|e| e.id).collect();
@@ -240,6 +246,7 @@ pub async fn brouillons_entre(
     tx: &mut TransactionTenant,
     du: Date,
     au: Date,
+    borne: i64,
 ) -> Result<Lecture<ContenuStocke>, ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     let entetes = sqlx::query!(
@@ -257,11 +264,11 @@ pub async fn brouillons_entre(
         dossier.uuid(),
         du,
         au,
-        ECRITURES_MAX + 1,
+        borne.saturating_add(1),
     )
     .fetch_all(tx.connexion())
     .await?;
-    let borne = usize::try_from(ECRITURES_MAX).unwrap_or(usize::MAX);
+    let borne = usize::try_from(borne).unwrap_or(usize::MAX);
     let depasse = entetes.len() > borne;
     let entetes: Vec<_> = entetes.into_iter().take(borne).collect();
     let ids: Vec<Uuid> = entetes.iter().map(|e| e.id).collect();
@@ -314,31 +321,48 @@ pub async fn brouillons_entre(
     Ok(Lecture { elements, depasse })
 }
 
-/// Code du journal et date comptable de **chaque** brouillon du dossier du contexte (équilibré
-/// ou non), pour l'alerte de brouillard non validé. Pas de borne : deux colonnes par brouillon.
+/// Brouillons non validés regroupés par (journal, date comptable) : le code du journal, la date
+/// et le nombre de brouillons, pour l'alerte de brouillard non validé (équilibrés ou non). Le
+/// regroupement est fait par PostgreSQL : le volume lu ne dépend pas du nombre de brouillons
+/// mais du nombre de couples (journal, jour), borné par `borne` (`depasse` si davantage).
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
-pub async fn brouillons_datees(
+pub async fn brouillons_par_journal_et_date(
     tx: &mut TransactionTenant,
-) -> Result<Vec<(String, Date)>, ErreurBase> {
+    borne: i64,
+) -> Result<Lecture<(String, Date, usize)>, ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     let lignes = sqlx::query!(
         r#"
-        SELECT j.code AS journal, b.date_comptable
+        SELECT j.code AS journal, b.date_comptable, count(*) AS "nombre!"
         FROM brouillon b
         JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id
                       AND j.id = b.journal_id
         WHERE b.cabinet_id = $1 AND b.dossier_id = $2
-        ORDER BY b.date_comptable, b.id
+        GROUP BY j.code, b.date_comptable
+        ORDER BY b.date_comptable, j.code
+        LIMIT $3
         "#,
         cabinet.uuid(),
         dossier.uuid(),
+        borne.saturating_add(1),
     )
     .fetch_all(tx.connexion())
     .await?;
-    Ok(lignes
+    let borne = usize::try_from(borne).unwrap_or(usize::MAX);
+    let depasse = lignes.len() > borne;
+    let elements = lignes
         .into_iter()
-        .map(|l| (l.journal, l.date_comptable))
-        .collect())
+        .take(borne)
+        .map(|l| {
+            Ok((
+                l.journal,
+                l.date_comptable,
+                usize::try_from(l.nombre)
+                    .map_err(|_| ErreurBase::Donnee("nombre de brouillons négatif"))?,
+            ))
+        })
+        .collect::<Result<_, ErreurBase>>()?;
+    Ok(Lecture { elements, depasse })
 }

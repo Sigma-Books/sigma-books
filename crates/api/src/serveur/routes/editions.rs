@@ -12,7 +12,16 @@
 //! défaut, ou `provisoire`), `comptes` et `journaux` (listes séparées par des virgules, 50 au
 //! plus), et pour la balance `format` (2, 4, 6 par défaut, 8) et `regroupement` (`compte`, par
 //! défaut, ou `tronc`). Tout autre paramètre, un paramètre répété ou une valeur invalide : 400.
-//! Plus de [`ECRITURES_MAX`] écritures sur la plage : 409 `edition_trop_volumineuse`.
+//! Plus de `editions_ecritures_max` écritures (par défaut [`crate::base::editions::ECRITURES_MAX`]) sur la plage : 409
+//! `edition_trop_volumineuse`. Seules les écritures de l'**exercice** comptent : une écriture
+//! antérieure à son premier jour n'entre ni dans ses mouvements ni dans son ouverture ; les
+//! à-nouveaux sont les écritures d'un journal d'à-nouveaux de l'exercice.
+//!
+//! # Brouillard non pris en compte (mode provisoire)
+//! Un brouillon déséquilibré ou illisible (donnée stockée que les règles actuelles ne relisent
+//! plus, par exemple un régime fiscal retiré d'une version du référentiel) n'entre pas dans une
+//! édition provisoire : il ne la fait **jamais** échouer, et la réponse le **signale**
+//! (`brouillons_exclus`).
 //!
 //! # Défense en profondeur (ADR 0011)
 //! Le dossier est relu **visible** (affectation, sauf administrateur) ; toute lecture filtre par
@@ -43,7 +52,7 @@ use super::brouillard::validation::{
 use super::brouillard::{date_lue, referentiel_tva};
 use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
 use crate::base::brouillard::decimal_canonique;
-use crate::base::editions::{ECRITURES_MAX, brouillons_datees, brouillons_entre, validees_entre};
+use crate::base::editions::{brouillons_entre, brouillons_par_journal_et_date, validees_entre};
 use crate::base::organisation::lire_dossier_visible;
 use crate::base::referentiel::charger;
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
@@ -228,7 +237,16 @@ struct Donnees {
     mode: Mode,
     validees: Vec<EcritureValidee>,
     brouillard: Vec<EcritureEquilibree>,
+    /// Brouillons écartés du mode provisoire : déséquilibrés, illisibles.
+    exclus: Exclus,
     filtre: Filtre,
+}
+
+/// Brouillons que le mode provisoire n'a pas pu prendre en compte.
+#[derive(Debug, Default, Clone, Copy, Serialize)]
+struct Exclus {
+    desequilibres: usize,
+    illisibles: usize,
 }
 
 fn donnee() -> ErreurApi {
@@ -270,7 +288,7 @@ async fn lire_donnees(
 ) -> Result<Donnees, ErreurApi> {
     let tva = referentiel_tva()?;
     let mut instantane = ouvrir_transaction_lecture(requete.pool, *tx.contexte()).await?;
-    let lu = lire_dans_instantane(&mut instantane, p, tva).await;
+    let lu = lire_dans_instantane(&mut instantane, p, tva, requete.editions_max).await;
     instantane.annuler().await?;
     lu
 }
@@ -279,6 +297,7 @@ async fn lire_dans_instantane(
     instantane: &mut TransactionTenant,
     p: &Parametres,
     tva: &fiscal_sn::ReferentielTva,
+    borne: i64,
 ) -> Result<Donnees, ErreurApi> {
     let referentiel = charger(instantane).await?.ok_or(ErreurApi::Introuvable)?;
     let exercice = choisir_exercice(referentiel.exercices(), p)?;
@@ -293,9 +312,9 @@ async fn lire_dans_instantane(
         filtre = filtre.journaux(p.journaux.clone());
     }
     // L'exercice jusqu'à `au` : les écritures antérieures à la période alimentent l'ouverture.
-    let lues = validees_entre(instantane, exercice.debut(), au).await?;
+    let lues = validees_entre(instantane, exercice.debut(), au, borne).await?;
     if lues.depasse {
-        return Err(trop_volumineuse());
+        return Err(trop_volumineuse(borne));
     }
     let mut validees = Vec::with_capacity(lues.elements.len());
     for e in &lues.elements {
@@ -318,15 +337,20 @@ async fn lire_dans_instantane(
         );
     }
     let mut brouillard = Vec::new();
+    let mut exclus = Exclus::default();
     if p.provisoire {
-        let brouillons = brouillons_entre(instantane, exercice.debut(), au).await?;
+        let brouillons = brouillons_entre(instantane, exercice.debut(), au, borne).await?;
         if brouillons.depasse {
-            return Err(trop_volumineuse());
+            return Err(trop_volumineuse(borne));
         }
         for b in &brouillons.elements {
-            // Le brouillard déséquilibré n'entre pas dans une édition provisoire.
-            if let Some(e) = equilibree_du_brouillon(b, tva).map_err(|_| donnee())? {
-                brouillard.push(e);
+            // Le brouillard déséquilibré ou illisible n'entre pas dans une édition provisoire : il
+            // est compté et signalé, jamais cause d'échec (on ne peut pas l'atteindre par la
+            // saisie, mais une version du référentiel peut avoir retiré une valeur stockée).
+            match equilibree_du_brouillon(b, tva) {
+                Ok(Some(e)) => brouillard.push(e),
+                Ok(None) => exclus.desequilibres += 1,
+                Err(_) => exclus.illisibles += 1,
             }
         }
     }
@@ -341,14 +365,15 @@ async fn lire_dans_instantane(
         },
         validees,
         brouillard,
+        exclus,
         filtre,
     })
 }
 
-fn trop_volumineuse() -> ErreurApi {
+fn trop_volumineuse(borne: i64) -> ErreurApi {
     ErreurApi::Conflit {
         motif: MotifConflit::EditionTropVolumineuse,
-        nombre: u32::try_from(ECRITURES_MAX).ok(),
+        nombre: u32::try_from(borne).ok(),
     }
 }
 
@@ -369,6 +394,8 @@ struct Entete {
     du: String,
     au: String,
     mode: &'static str,
+    /// Brouillons que le mode provisoire n'a pas pu prendre en compte (zéros en définitif).
+    brouillons_exclus: Exclus,
 }
 
 fn entete(d: &Donnees) -> Entete {
@@ -380,6 +407,7 @@ fn entete(d: &Donnees) -> Entete {
             Mode::Definitif => "definitif",
             Mode::Provisoire => "provisoire",
         },
+        brouillons_exclus: d.exclus,
     }
 }
 
@@ -737,8 +765,9 @@ struct VueAlertes {
 }
 
 async fn alertes(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Resultat, ErreurApi> {
-    let p = lire_parametres(requete.parametres, &[])?;
-    drop(p);
+    if requete.parametres.is_some_and(|p| !p.is_empty()) {
+        return Err(ErreurApi::RequeteInvalide);
+    }
     // Date du jour : l'horloge de la requête (jamais dans `compta-core`).
     let aujourdhui = requete.maintenant.date();
     let mut instantane = ouvrir_transaction_lecture(requete.pool, *tx.contexte()).await?;
@@ -746,29 +775,40 @@ async fn alertes(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Re
         let referentiel = charger(&mut instantane)
             .await?
             .ok_or(ErreurApi::Introuvable)?;
-        let datees = brouillons_datees(&mut instantane).await?;
-        Ok::<_, ErreurApi>((referentiel, datees))
+        // Regroupés par (journal, jour) par PostgreSQL : le volume lu ne dépend pas du nombre
+        // de brouillons.
+        let groupes = brouillons_par_journal_et_date(&mut instantane, requete.editions_max).await?;
+        Ok::<_, ErreurApi>((referentiel, groupes))
     }
     .await;
     instantane.annuler().await?;
-    let (referentiel, datees) = lu?;
+    let (referentiel, groupes) = lu?;
+    if groupes.depasse {
+        return Err(trop_volumineuse(requete.editions_max));
+    }
     let exercices = referentiel.exercices();
-    let codes: Vec<(CodeJournal, Date)> = datees
+    let codes: Vec<(CodeJournal, Date, usize)> = groupes
+        .elements
         .into_iter()
-        .map(|(j, d)| Ok((CodeJournal::parse(&j).map_err(|_| donnee())?, d)))
+        .map(|(j, d, n)| Ok((CodeJournal::parse(&j).map_err(|_| donnee())?, d, n)))
         .collect::<Result<_, ErreurApi>>()?;
-    let brouillard_non_valide =
-        brouillard_en_retard(codes.iter().map(|(j, d)| (j, *d)), exercices, aujourdhui)
-            .into_iter()
-            .map(|a| VueAlerteBrouillard {
-                journal: a.journal.as_str().to_owned(),
-                debut_periode: jour(a.debut_periode),
-                fin_periode: jour(a.fin_periode),
-                nombre: a.nombre,
-                plus_ancienne: jour(a.plus_ancienne),
-                jours_de_retard: a.jours_de_retard,
-            })
-            .collect();
+    let brouillard_non_valide = brouillard_en_retard(
+        codes
+            .iter()
+            .flat_map(|(j, d, n)| std::iter::repeat_n((j, *d), *n)),
+        exercices,
+        aujourdhui,
+    )
+    .into_iter()
+    .map(|a| VueAlerteBrouillard {
+        journal: a.journal.as_str().to_owned(),
+        debut_periode: jour(a.debut_periode),
+        fin_periode: jour(a.fin_periode),
+        nombre: a.nombre,
+        plus_ancienne: jour(a.plus_ancienne),
+        jours_de_retard: a.jours_de_retard,
+    })
+    .collect();
     let echeances = exercices.echeances_de_cloture().map_err(|_| donnee())?;
     let echeances_de_cloture = echeances
         .into_iter()
