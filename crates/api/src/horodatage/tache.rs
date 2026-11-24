@@ -187,9 +187,12 @@ impl Travailleur {
     pub async fn superviser(&self) {
         loop {
             let boucle = self.clone();
-            let issue = tokio::spawn(async move { boucle.boucler(std::future::pending()).await });
+            let mut issue = AbandonAuDrop(tokio::spawn(async move {
+                boucle.boucler(std::future::pending()).await;
+            }));
             // `boucler` ne se termine pas : toute fin est une panique ou une annulation.
-            let _ = issue.await;
+            // Si la supervision est abandonnée, la boucle l'est avec elle (garde).
+            let _ = (&mut issue.0).await;
             tracing::error!(
                 target: CIBLE,
                 erreur = "horodatage",
@@ -370,6 +373,15 @@ impl Travailleur {
         }
         tx.confirmer().await?;
         Ok(Sortie::Jeton)
+    }
+}
+
+/// Abandonne la tâche si la supervision est abandonnée : la boucle ne lui survit pas.
+struct AbandonAuDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbandonAuDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 

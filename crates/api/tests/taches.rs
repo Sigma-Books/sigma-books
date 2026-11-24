@@ -722,9 +722,14 @@ async fn deux_passages_simultanes_ne_prennent_jamais_la_meme_tache() {
         )
     };
     let (t1, t2) = (travailleur(), travailleur());
+    // Deux passages simultanés se disputent les tâches : un passage s'arrête quand l'autre tient
+    // les lignes restantes (`SKIP LOCKED`), le nombre de tâches prises par chacun n'est donc pas
+    // garanti. Ce qui l'est : aucune tâche n'est prise deux fois (chaque tâche a exactement une
+    // tentative, plus bas) ; un second tour séquentiel termine ce qui reste.
     let (r1, r2) = tokio::join!(t1.passer(), t2.passer());
     let (r1, r2) = (r1.unwrap(), r2.unwrap());
-    assert!(r1.prises + r2.prises >= 12);
+    let r3 = t1.passer().await.unwrap();
+    assert!(r1.prises + r2.prises + r3.prises >= 12);
     let lignes: Vec<(String, i32)> =
         sqlx::query_as("SELECT etat, tentatives FROM tache WHERE cabinet_cible = $1")
             .bind(cabinet)
@@ -773,7 +778,12 @@ async fn la_boucle_supervisee_survit_a_une_panique() {
     tokio::time::timeout(std::time::Duration::from_secs(20), obtenu)
         .await
         .expect("la boucle relancée devait horodater");
-    drop(boucle);
+    // Abandon, puis attente de l'arrêt effectif de la boucle : une transaction de prise
+    // interrompue garde ses verrous jusqu'à son annulation, et ferait sauter la tâche d'un test
+    // suivant (`SKIP LOCKED`).
+    boucle.0.abort();
+    let _ = (&mut { boucle }.0).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 }
 
 #[tokio::test]
@@ -793,19 +803,23 @@ async fn un_echec_pendant_qu_une_tache_est_planifiee_fusionne_les_deux() {
     *a.autorite.pause.lock().unwrap() = None;
     libere.notify_one();
     passage.await.unwrap();
-    let t = a.horodatages().await;
+    // Après la fusion, les deux tâches ont la même date de création : l'ordre n'est pas celui
+    // de l'état, on compare donc trié.
+    let mut t = a.horodatages().await;
+    t.sort();
     assert_eq!(
         t,
         vec![
-            ("horodatage".into(), "quotidien".into(), "terminee".into()),
             ("horodatage".into(), "quotidien".into(), "en_attente".into()),
+            ("horodatage".into(), "quotidien".into(), "terminee".into()),
         ]
     );
     // La tâche restante garde la date de création la plus ancienne (calcul du retard).
     let (plus_ancienne,): (bool,) = sqlx::query_as(
         "SELECT cree_le <= (SELECT min(cree_le) FROM tache WHERE dossier_cible = $1 \
-                            AND etat = 'terminee') \
-         FROM tache WHERE dossier_cible = $1 AND etat = 'en_attente'",
+                            AND etat = 'terminee' AND nature = 'horodatage') \
+         FROM tache WHERE dossier_cible = $1 AND etat = 'en_attente' \
+                      AND nature = 'horodatage'",
     )
     .bind(a.b.c.dossier.uuid())
     .fetch_one(&a.b.env.admin)
