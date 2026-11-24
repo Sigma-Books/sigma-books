@@ -507,6 +507,13 @@ mc mb --with-lock local/sigma-pieces
   prépare le rôle et le compartiment, puis exécute ces tests dans une étape dédiée
   (`-- --include-ignored`). Aucun nouveau check requis.
 
+## File de tâches et horodatage (PR 15a ; ADR 0010, 0022)
+
+- Table d'instance `tache` (migration `0400`) : tâches `horodatage` (quotidien, verrouillage, clôture) et `notification` (exports d'audit, retard, témoin ; courriel : PR 9). Accès : `base::taches` (tenant : `planifier_horodatage`, `notifier` ; travailleur : `TransactionTravailleur`).
+- Jetons : `jeton_horodatage` (ajout seul), `base::jetons`.
+- Travailleur : `horodatage::tache::Travailleur`, lancé par le binaire `api` (un passage par minute ; `Horodateur` = le client des autorités, remplaçable en test). Pas de variable d'environnement de plus : la liste des autorités est `SIGMA_AUTORITES_HORODATAGE`.
+- Tests : `tests/taches.rs` (autorité simulée, jeton figé de L1).
+
 ## Brouillard
 
 Brouillard persistant et journalisé (PR 13a ; `src/base/brouillard.rs`, `src/serveur/routes/brouillard.rs`).
