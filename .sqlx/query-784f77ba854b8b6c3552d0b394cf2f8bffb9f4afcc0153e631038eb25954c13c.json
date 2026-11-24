@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO jeton_horodatage (cabinet_id, dossier_id, id, nombre, tete, autorite, date_jeton, obtenu_le, declencheur, jeton) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Bytea",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "784f77ba854b8b6c3552d0b394cf2f8bffb9f4afcc0153e631038eb25954c13c"
+}

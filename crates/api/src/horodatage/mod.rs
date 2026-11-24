@@ -32,6 +32,7 @@
 
 mod autorite;
 pub mod config;
+pub mod tache;
 
 use std::time::{Duration, Instant};
 
@@ -52,7 +53,14 @@ use crate::serveur::journal::CIBLE;
 
 /// Champs de journal propres au client, en plus de ceux du socle (`statut`, `duree_ms`) : liste
 /// blanche de [`crate::serveur::journal::CHAMPS`].
-pub const CHAMPS_JOURNAL: &[&str] = &["autorite", "issue"];
+pub const CHAMPS_JOURNAL: &[&str] = &[
+    "autorite",
+    "issue",
+    "prises",
+    "jetons",
+    "reportees",
+    "alertes",
+];
 
 /// Type de contenu d'une requête RFC 3161 (§3.4).
 pub const TYPE_REQUETE: &str = "application/timestamp-query";
@@ -215,6 +223,34 @@ pub struct JetonObtenu {
     pub jeton: Vec<u8>,
     /// Ce qu'il atteste (date, autorité, politique, ancre).
     pub verifie: JetonVerifie,
+}
+
+/// Ce qui fait horodater un témoin : le client des autorités ([`ClientHorodatage`]) ; les tests de
+/// la file en fournissent un qui rend des jetons figés ou échoue (aucun accès réseau).
+pub trait Horodateur: std::fmt::Debug + Send + Sync + 'static {
+    /// Fait horodater le témoin avec ce nonce.
+    ///
+    /// # Errors
+    /// [`ErreurHorodatage`] si aucun jeton valide n'a été obtenu.
+    fn horodater<'a>(
+        &'a self,
+        temoin: &'a Temoin,
+        nonce: Nonce,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<JetonObtenu, ErreurHorodatage>> + Send + 'a>,
+    >;
+}
+
+impl Horodateur for ClientHorodatage {
+    fn horodater<'a>(
+        &'a self,
+        temoin: &'a Temoin,
+        nonce: Nonce,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<JetonObtenu, ErreurHorodatage>> + Send + 'a>,
+    > {
+        Box::pin(Self::horodater(self, temoin, nonce))
+    }
 }
 
 /// Client des autorités d'horodatage : liste ordonnée, ancres de confiance, limites.

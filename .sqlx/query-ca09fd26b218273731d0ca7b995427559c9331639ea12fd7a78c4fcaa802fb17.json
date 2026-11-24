@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config('sigma.cabinet', '', true) AS cabinet, set_config('sigma.dossier', '', true) AS dossier, set_config('sigma.utilisateur', '', true) AS utilisateur, set_config('sigma.travail', 'file', true) AS travail",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cabinet",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "dossier",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "utilisateur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "travail",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "ca09fd26b218273731d0ca7b995427559c9331639ea12fd7a78c4fcaa802fb17"
+}

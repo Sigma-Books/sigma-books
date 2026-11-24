@@ -1,0 +1,21 @@
+# Catalogue « horodatage et intégrité » (PR 15 ; migration `0400_horodatage.sql`) : exceptions et
+# listes du test de catalogue (ADR 0011 ; crates/api/tests/catalogue.rs). Voir `socle.toml` pour
+# le format ; toute modification passe par la revue de l'équipe core.
+
+[[instance]]
+nom = "tache"
+rls = true
+justification = """
+File de tâches de l'instance (ADR 0010) : un travailleur la parcourt sans connaître de cabinet à \
+l'avance, d'où une table d'instance dont les cibles (`cabinet_cible`, `dossier_cible`) sont de \
+simples identifiants sans clé étrangère. Aucune donnée comptable : identifiants, instants, codes \
+stables. Sous RLS : un tenant lit et crée les tâches de sa cible exacte (jamais de mise à jour ni \
+de suppression) ; le travailleur, sans cabinet en contexte et avec le réglage `sigma.travail`, \
+que pose seule `base::taches::TransactionTravailleur`, lit, prend, termine et purge."""
+
+[[ajout_seul]]
+nom = "jeton_horodatage"
+justification = """
+Jeton RFC 3161 d'un dossier (ADR 0010, F2.5) : une preuve, jamais modifiée ni supprimée. Table de \
+dossier à la règle commune (RLS forcée, cabinet ET dossier) ; le rôle applicatif n'y a que \
+SELECT et INSERT."""

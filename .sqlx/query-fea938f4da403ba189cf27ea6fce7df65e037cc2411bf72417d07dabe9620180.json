@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tache (id, nature, sujet, cabinet_cible, dossier_cible, etat, cree_le, prochaine_tentative) SELECT gen_random_uuid(), 'notification', 'retard_horodatage', cabinet_cible, dossier_cible, 'en_attente', $2, $2 FROM tache WHERE nature = 'horodatage' AND etat <> 'terminee' AND cree_le <= $1 GROUP BY cabinet_cible, dossier_cible ON CONFLICT DO NOTHING RETURNING cabinet_cible, dossier_cible AS \"dossier_cible!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cabinet_cible",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tache",
+            "name": "cabinet_cible"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "dossier_cible!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tache",
+            "name": "dossier_cible"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "fea938f4da403ba189cf27ea6fce7df65e037cc2411bf72417d07dabe9620180"
+}
