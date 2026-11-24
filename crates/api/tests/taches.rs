@@ -1,0 +1,572 @@
+//! File de tâches et horodatage quotidien (PR 15a, L2-30 ; ADR 0010 ; F2.5, F6.2, F6.3) :
+//! planification par la validation et par le verrouillage, passage du travailleur, rejeu après
+//! échec, un jeton par jour, alerte au-delà de 24 h, reprise après arrêt, isolation de la file,
+//! alerte d'export d'audit (#157). L'autorité est simulée (aucun accès réseau) : elle rend le
+//! jeton figé de la PR 5 de L1 ; le client réel est testé dans `src/horodatage` et
+//! `tests/horodatage.rs`.
+#![cfg(feature = "tests-postgres")]
+// Fichier de test : les `expect`/`unwrap` y sont voulus.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    clippy::assert_is_empty,
+    clippy::format_collect,
+    clippy::manual_map
+)]
+
+mod commun;
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex as MutexStd};
+
+use api::horodatage::tache::{Bilan, Reglages, Travailleur};
+use api::horodatage::{Autorite, EchecAutorite, ErreurHorodatage, Horodateur, JetonObtenu, Nonce};
+use axum::http::StatusCode;
+use commun::banc::{Banc, banc};
+use commun::serveur::{HorlogeTest, envoyer};
+use integrite::horodatage::{JetonVerifie, Temoin};
+use sqlx::PgPool;
+use time::Duration;
+use tokio::sync::Mutex;
+use uuid::Uuid;
+
+const JETON_FIGE: &[u8] = include_bytes!("../../integrite/tests/vecteurs/horodatage/digicert.tsr");
+
+/// Les tests partagent la base et la file : un seul passage de travailleur à la fois.
+static SERIE: Mutex<()> = Mutex::const_new(());
+
+/// Autorité simulée : rend le jeton figé, ou échoue.
+#[derive(Debug, Default)]
+struct Simulee {
+    panne: MutexStd<bool>,
+    temoins: MutexStd<Vec<Temoin>>,
+}
+
+impl Simulee {
+    fn en_panne(&self, panne: bool) {
+        *self.panne.lock().unwrap() = panne;
+    }
+
+    fn contenus(&self) -> Vec<String> {
+        self.temoins
+            .lock()
+            .unwrap()
+            .iter()
+            .map(Temoin::contenu)
+            .collect()
+    }
+}
+
+impl Horodateur for Simulee {
+    fn horodater<'a>(
+        &'a self,
+        temoin: &'a Temoin,
+        _nonce: Nonce,
+    ) -> Pin<Box<dyn Future<Output = Result<JetonObtenu, ErreurHorodatage>> + Send + 'a>> {
+        Box::pin(async move {
+            self.temoins.lock().unwrap().push(temoin.clone());
+            let autorite = Autorite::parse("http://tsa.exemple.invalid").unwrap();
+            if *self.panne.lock().unwrap() {
+                return Err(ErreurHorodatage::ToutesEnEchec(vec![(
+                    autorite,
+                    EchecAutorite::DelaiTotal,
+                )]));
+            }
+            Ok(JetonObtenu {
+                autorite,
+                jeton: JETON_FIGE.to_vec(),
+                verifie: JetonVerifie {
+                    date: time::OffsetDateTime::now_utc(),
+                    autorite: "Autorité simulée".to_owned(),
+                    politique: "1.2.3".to_owned(),
+                    ancre: "Ancre simulée".to_owned(),
+                },
+            })
+        })
+    }
+}
+
+struct Atelier {
+    b: Banc,
+    autorite: Arc<Simulee>,
+    horloge: HorlogeTest,
+    travailleur: Travailleur,
+}
+
+async fn atelier() -> Atelier {
+    let b = banc().await;
+    let autorite = Arc::new(Simulee::default());
+    let horloge = HorlogeTest::default();
+    let reglages = Reglages {
+        lot: 10_000,
+        ..Reglages::default()
+    };
+    let travailleur = Travailleur::new(
+        b.env.application.clone(),
+        autorite.clone(),
+        Arc::new(horloge.clone()),
+        reglages,
+    );
+    Atelier {
+        b,
+        autorite,
+        horloge,
+        travailleur,
+    }
+}
+
+impl Atelier {
+    async fn valider_une(&self, libelle: &str) {
+        let (id, version, _) = self.b.pret(libelle).await;
+        let r = self.b.valider(id, version).await;
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    }
+
+    async fn passer(&self) -> Bilan {
+        self.travailleur.passer().await.unwrap()
+    }
+
+    /// Tâches du dossier : (nature, sujet, état).
+    async fn taches(&self) -> Vec<(String, String, String)> {
+        sqlx::query_as(
+            "SELECT nature, sujet, etat FROM tache WHERE dossier_cible = $1 \
+             ORDER BY nature, sujet, cree_le",
+        )
+        .bind(self.b.c.dossier.uuid())
+        .fetch_all(&self.b.env.admin)
+        .await
+        .unwrap()
+    }
+
+    /// Jetons du dossier : (nombre, tête).
+    async fn jetons(&self) -> Vec<(i64, Vec<u8>)> {
+        sqlx::query_as(
+            "SELECT nombre, tete FROM jeton_horodatage WHERE dossier_id = $1 ORDER BY nombre",
+        )
+        .bind(self.b.c.dossier.uuid())
+        .fetch_all(&self.b.env.admin)
+        .await
+        .unwrap()
+    }
+
+    async fn notifications(&self, sujet: &str) -> i64 {
+        sqlx::query_scalar(
+            "SELECT count(*) FROM tache WHERE nature = 'notification' AND sujet = $2 \
+             AND cabinet_cible = $1",
+        )
+        .bind(self.b.c.cabinet.uuid())
+        .bind(sujet)
+        .fetch_one(&self.b.env.admin)
+        .await
+        .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn la_validation_planifie_une_seule_tache_quotidienne_pour_le_jour_suivant() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    assert!(a.taches().await.is_empty());
+    a.valider_une("Première").await;
+    a.valider_une("Seconde").await;
+    assert_eq!(
+        a.taches().await,
+        vec![("horodatage".into(), "quotidien".into(), "en_attente".into())]
+    );
+    // Échéance : le début du jour suivant (UTC), jamais le jour même.
+    let (echue, avant_minuit): (bool, bool) = sqlx::query_as(
+        "SELECT prochaine_tentative <= now(), \
+                prochaine_tentative = ((now() AT TIME ZONE 'UTC')::date + 1)::timestamp \
+                                      AT TIME ZONE 'UTC' \
+         FROM tache WHERE dossier_cible = $1",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .fetch_one(&a.b.env.admin)
+    .await
+    .unwrap();
+    assert!(!echue);
+    assert!(avant_minuit);
+    // Aujourd'hui : rien n'est dû.
+    let bilan = a.passer().await;
+    assert_eq!(bilan.jetons, 0);
+    assert!(a.jetons().await.is_empty());
+}
+
+#[tokio::test]
+async fn le_passage_quotidien_obtient_un_jeton_pour_la_tete_et_l_inscrit_a_l_audit() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    let bilan = a.passer().await;
+    assert_eq!((bilan.prises >= 1, bilan.erreurs), (true, 0));
+    let chaine = a.b.chaine().await;
+    let jetons = a.jetons().await;
+    assert_eq!(jetons.len(), 1);
+    assert_eq!(jetons[0].0, 1);
+    assert_eq!(jetons[0].1, chaine[0].3, "jeton de la tête de la chaîne");
+    assert_eq!(
+        a.taches().await,
+        vec![("horodatage".into(), "quotidien".into(), "terminee".into())]
+    );
+    // F6.3 : l'autorité ne reçoit que le témoin (dossier, tête, nombre), sans donnée comptable.
+    let envoyes: Vec<String> = a
+        .autorite
+        .contenus()
+        .into_iter()
+        .filter(|c| c.contains(&a.b.c.dossier.uuid().to_string()))
+        .collect();
+    assert_eq!(envoyes.len(), 1);
+    let tete: String = chaine[0].3.iter().map(|o| format!("{o:02x}")).collect();
+    assert_eq!(
+        envoyes[0],
+        format!(
+            "sigma-books temoin v1\ndossier={}\ntete={tete}\nnombre=1\n",
+            a.b.c.dossier.uuid()
+        )
+    );
+    // Audit du dossier : acteur système, sans donnée comptable.
+    let entree: String = sqlx::query_scalar(
+        "SELECT contenu FROM audit_dossier WHERE dossier_id = $1 \
+         AND contenu LIKE '%ObtenirJetonHorodatage%'",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .fetch_one(&a.b.env.admin)
+    .await
+    .unwrap();
+    assert!(entree.contains("systeme"), "{entree}");
+    assert!(!entree.contains("Première"), "{entree}");
+    // Rien de nouveau : un second passage ne redemande rien.
+    let appels = a.autorite.contenus().len();
+    a.passer().await;
+    assert_eq!(a.autorite.contenus().len(), appels);
+    assert_eq!(a.jetons().await.len(), 1);
+}
+
+#[tokio::test]
+async fn un_echec_est_rejoue_avec_un_delai_croissant_sur_la_tete_du_moment() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    a.autorite.en_panne(true);
+    let bilan = a.passer().await;
+    assert!(bilan.reportees >= 1);
+    assert!(a.jetons().await.is_empty());
+    let (etat, tentatives, issue): (String, i32, Option<String>) = sqlx::query_as(
+        "SELECT etat, tentatives, derniere_issue FROM tache WHERE dossier_cible = $1",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .fetch_one(&a.b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!((etat.as_str(), tentatives), ("en_attente", 1));
+    assert_eq!(issue.as_deref(), Some("autorites"));
+    // Avant le délai de rejeu (une minute) : rien.
+    let appels = a.autorite.contenus().len();
+    a.passer().await;
+    assert_eq!(a.autorite.contenus().len(), appels);
+    // Une écriture de plus est validée pendant la panne ; l'autorité revient : le jeton couvre
+    // les deux écritures (rejeu différé, ADR 0010).
+    a.valider_une("Seconde").await;
+    a.autorite.en_panne(false);
+    a.horloge.avancer(Duration::minutes(2));
+    a.passer().await;
+    let jetons = a.jetons().await;
+    assert_eq!(jetons.len(), 1);
+    assert_eq!(jetons[0].0, 2);
+    let chaine = a.b.chaine().await;
+    assert_eq!(jetons[0].1, chaine[1].3);
+}
+
+#[tokio::test]
+async fn au_plus_un_jeton_par_jour_puis_le_lendemain() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    a.passer().await;
+    assert_eq!(a.jetons().await.len(), 1);
+    // Nouvelle écriture le même jour : une tâche attend, mais la règle diffère au lendemain.
+    a.valider_une("Seconde").await;
+    a.passer().await;
+    // La tâche est échue pour l'horloge de la base, pas pour celle des tests : on la rend
+    // échue.
+    sqlx::query(
+        "UPDATE tache SET prochaine_tentative = now() - interval '1 minute' \
+         WHERE dossier_cible = $1 AND etat = 'en_attente'",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .execute(&a.b.env.admin)
+    .await
+    .unwrap();
+    let bilan = a.passer().await;
+    assert!(bilan.reportees >= 1);
+    assert_eq!(a.jetons().await.len(), 1, "un seul jeton ce jour-là");
+    a.horloge.avancer(Duration::days(1));
+    a.passer().await;
+    let jetons = a.jetons().await;
+    assert_eq!(jetons.iter().map(|j| j.0).collect::<Vec<_>>(), [1, 2]);
+}
+
+#[tokio::test]
+async fn le_verrouillage_horodate_le_jour_meme_et_prepare_le_temoin_du_cabinet() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    let periode: Uuid =
+        sqlx::query_scalar("SELECT id FROM periode WHERE dossier_id = $1 ORDER BY debut LIMIT 1")
+            .bind(a.b.c.dossier.uuid())
+            .fetch_one(&a.b.env.admin)
+            .await
+            .unwrap();
+    let chemin = format!(
+        "/api/cabinets/{}/dossiers/{}/periodes/{periode}/verrouillage",
+        a.b.c.cabinet, a.b.c.dossier
+    );
+    let r = envoyer(&a.b.routeur, &chemin, Some(a.b.valideur), "{}", None).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let taches = a.taches().await;
+    assert!(
+        taches.contains(&(
+            "horodatage".into(),
+            "verrouillage".into(),
+            "en_attente".into()
+        )),
+        "{taches:?}"
+    );
+    // Échue tout de suite : un passage le jour même suffit (horloge non avancée).
+    a.passer().await;
+    assert_eq!(a.jetons().await.len(), 1);
+    assert_eq!(a.notifications("temoin").await, 1);
+    // Un verrouillage refusé (période déjà verrouillée) ne laisse aucune tâche de plus.
+    let avant = a.taches().await.len();
+    let r = envoyer(&a.b.routeur, &chemin, Some(a.b.valideur), "{}", None).await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(a.taches().await.len(), avant);
+}
+
+#[tokio::test]
+async fn une_alerte_de_retard_apres_24_heures_une_seule_fois() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.autorite.en_panne(true);
+    a.horloge.avancer(Duration::hours(23));
+    a.passer().await;
+    assert_eq!(a.notifications("retard_horodatage").await, 0, "avant 24 h");
+    a.horloge.avancer(Duration::hours(2));
+    let bilan = a.passer().await;
+    assert!(bilan.alertes >= 1);
+    assert_eq!(a.notifications("retard_horodatage").await, 1);
+    // Pas de doublon tant que l'alerte n'est pas traitée.
+    a.horloge.avancer(Duration::hours(1));
+    a.passer().await;
+    assert_eq!(a.notifications("retard_horodatage").await, 1);
+    // L'autorité revient : le jeton est obtenu, la chaîne est couverte.
+    a.autorite.en_panne(false);
+    a.horloge.avancer(Duration::hours(2));
+    a.passer().await;
+    assert_eq!(a.jetons().await.len(), 1);
+}
+
+#[tokio::test]
+async fn une_tache_prise_puis_abandonnee_est_reprise_apres_son_bail() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    // Arrêt du processus pendant l'appel : la tâche reste « en cours », bail passé.
+    sqlx::query(
+        "UPDATE tache SET etat = 'en_cours', reserve_jusqua = now() - interval '1 minute', \
+                          tentatives = 1, prochaine_tentative = now() - interval '2 minutes' \
+         WHERE dossier_cible = $1",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .execute(&a.b.env.admin)
+    .await
+    .unwrap();
+    a.passer().await;
+    assert_eq!(a.jetons().await.len(), 1);
+    let tentatives: i32 =
+        sqlx::query_scalar("SELECT tentatives FROM tache WHERE dossier_cible = $1")
+            .bind(a.b.c.dossier.uuid())
+            .fetch_one(&a.b.env.admin)
+            .await
+            .unwrap();
+    assert_eq!(tentatives, 2);
+    // Une tâche dont le bail court encore n'est pas reprise.
+    a.valider_une("Seconde").await;
+    sqlx::query(
+        "UPDATE tache SET etat = 'en_cours', reserve_jusqua = now() + interval '1 hour', \
+                          prochaine_tentative = now() - interval '2 minutes' \
+         WHERE dossier_cible = $1 AND etat = 'en_attente'",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .execute(&a.b.env.admin)
+    .await
+    .unwrap();
+    let appels = a.autorite.contenus().len();
+    a.passer().await;
+    assert_eq!(a.autorite.contenus().len(), appels);
+}
+
+#[tokio::test]
+async fn un_jeton_ne_se_modifie_ni_ne_se_supprime() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    a.passer().await;
+    assert_eq!(a.jetons().await.len(), 1);
+    let ctx = |pool: &PgPool| {
+        let pool = pool.clone();
+        let (c, d) = (a.b.c.cabinet.to_string(), a.b.c.dossier.to_string());
+        async move {
+            let mut tx = pool.begin().await.unwrap();
+            sqlx::query("SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)")
+                .bind(c)
+                .bind(d)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            tx
+        }
+    };
+    let mut tx = ctx(&a.b.env.application).await;
+    assert!(
+        sqlx::query("UPDATE jeton_horodatage SET nombre = 9")
+            .execute(&mut *tx)
+            .await
+            .is_err()
+    );
+    let mut tx = ctx(&a.b.env.application).await;
+    assert!(
+        sqlx::query("DELETE FROM jeton_horodatage")
+            .execute(&mut *tx)
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn la_file_est_cloisonnee_par_cabinet_et_le_tenant_ne_la_modifie_pas() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    let autre = atelier().await;
+    a.valider_une("Première").await;
+    autre.valider_une("Autre").await;
+    let pool = &a.b.env.application;
+    let lire = |cabinet: Option<Uuid>, dossier: Option<Uuid>| async move {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query(
+            "SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)",
+        )
+        .bind(cabinet.map_or_else(String::new, |c| c.to_string()))
+        .bind(dossier.map_or_else(String::new, |c| c.to_string()))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let n: i64 = sqlx::query_scalar("SELECT count(*) FROM tache")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        let (cible,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM tache WHERE cabinet_cible <> COALESCE(NULLIF(current_setting('sigma.cabinet', true), '')::uuid, gen_random_uuid())",
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        let modifiees = sqlx::query("UPDATE tache SET etat = 'terminee', termine_le = now()")
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected();
+        let supprimees = sqlx::query("DELETE FROM tache")
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected();
+        (n, cible, modifiees, supprimees)
+    };
+    // Sans contexte : aucune ligne.
+    assert_eq!(lire(None, None).await, (0, 0, 0, 0));
+    // Au contexte du dossier A : sa tâche seule, jamais celle de l'autre cabinet ; ni mise à
+    // jour ni suppression.
+    let (n, hors_cible, modifiees, supprimees) =
+        lire(Some(a.b.c.cabinet.uuid()), Some(a.b.c.dossier.uuid())).await;
+    assert_eq!(n, 1);
+    assert_eq!((hors_cible, modifiees, supprimees), (0, 0, 0));
+    // Au contexte du cabinet seul : les tâches de dossier ne sont pas visibles.
+    assert_eq!(lire(Some(a.b.c.cabinet.uuid()), None).await.0, 0);
+    // Création d'une tâche pour un autre cabinet : refusée par la RLS.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)",
+    )
+    .bind(a.b.c.cabinet.uuid().to_string())
+    .bind(a.b.c.dossier.uuid().to_string())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let refus = sqlx::query(
+        "INSERT INTO tache (id, nature, sujet, cabinet_cible, dossier_cible, etat, cree_le, prochaine_tentative) \
+         VALUES (gen_random_uuid(), 'horodatage', 'cloture', $1, $2, 'en_attente', now(), now())",
+    )
+    .bind(autre.b.c.cabinet.uuid())
+    .bind(autre.b.c.dossier.uuid())
+    .execute(&mut *tx)
+    .await;
+    assert!(refus.is_err());
+}
+
+#[tokio::test]
+async fn un_export_d_audit_cree_une_alerte_et_un_export_refuse_aucune() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    let dossier = a.b.c.dossier;
+    let chemin_dossier = format!(
+        "/api/cabinets/{}/dossiers/{dossier}/audit/export",
+        a.b.c.cabinet
+    );
+    let chemin_cabinet = format!("/api/cabinets/{}/audit/export", a.b.c.cabinet);
+    // Refusés : session non fraîche (ré-authentification), rôle sans droit.
+    for (chemin, par, anciennete) in [
+        (&chemin_dossier, a.b.c.administrateur, Some(600)),
+        (&chemin_cabinet, a.b.c.administrateur, Some(600)),
+        (&chemin_cabinet, a.b.valideur, None),
+    ] {
+        let r = envoyer(&a.b.routeur, chemin, Some(par), "", anciennete).await;
+        assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    }
+    assert_eq!(a.notifications("export_audit_dossier").await, 0);
+    assert_eq!(a.notifications("export_audit_cabinet").await, 0);
+    // Acceptés : une alerte chacun, sans donnée du dossier.
+    for chemin in [&chemin_dossier, &chemin_cabinet] {
+        let r = envoyer(&a.b.routeur, chemin, Some(a.b.c.administrateur), "", None).await;
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    }
+    assert_eq!(a.notifications("export_audit_dossier").await, 1);
+    assert_eq!(a.notifications("export_audit_cabinet").await, 1);
+    let (acteur, dossier_cible): (Option<Uuid>, Option<Uuid>) = sqlx::query_as(
+        "SELECT acteur_cible, dossier_cible FROM tache WHERE sujet = 'export_audit_cabinet' \
+         AND cabinet_cible = $1",
+    )
+    .bind(a.b.c.cabinet.uuid())
+    .fetch_one(&a.b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(acteur, Some(a.b.c.administrateur.uuid()));
+    assert_eq!(dossier_cible, None);
+    // Un second export : une seconde alerte (une par export).
+    envoyer(
+        &a.b.routeur,
+        &chemin_dossier,
+        Some(a.b.c.administrateur),
+        "",
+        None,
+    )
+    .await;
+    assert_eq!(a.notifications("export_audit_dossier").await, 2);
+}
