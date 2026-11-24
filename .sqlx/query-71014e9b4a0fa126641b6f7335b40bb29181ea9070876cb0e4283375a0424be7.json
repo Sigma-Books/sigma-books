@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM defi_webauthn WHERE id IN ( SELECT id FROM defi_webauthn WHERE utilisateur_id = $1 AND nature = $2 AND session_id IS NOT DISTINCT FROM $3 ORDER BY cree_le DESC, id OFFSET $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71014e9b4a0fa126641b6f7335b40bb29181ea9070876cb0e4283375a0424be7"
+}

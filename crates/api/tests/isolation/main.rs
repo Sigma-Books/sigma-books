@@ -60,8 +60,9 @@ use axum::http::StatusCode;
 use commun::referentiel::{Fixtures, doter};
 use commun::serveur::{
     AuthentificationTest, HorlogeTest, ORIGINE, Reponse, ToujoursAutorise, appeler_route,
-    appeler_session, application_base, application_sessions, capture_globale, cookie_de, envoyer,
-    evenements_de, id_requete, lire, ouvrir, verifier_liste_blanche,
+    appeler_session, application_base, application_sessions, application_sessions_avec,
+    capture_globale, cookie_de, envoyer, evenements_de, id_requete, lire, ouvrir, reglages_de_test,
+    verifier_liste_blanche,
 };
 use commun::{
     CabinetTest, affecter, ajouter_affecte, ajouter_membre, creer_cabinet, creer_utilisateur, env,
@@ -578,10 +579,21 @@ async fn chaque_route_a_son_cas_d_isolation_et_le_respecte() {
 
     // Routes hors cabinet : sessions réelles, décision Cedar réelle.
     let horloge = HorlogeTest::default();
-    let routeur = api::serveur::routeur(&application_sessions(
+    // Les débits des connexions et des vérifications de facteur (propres à la production)
+    // sont levés : chaque cas de connexion en consomme plusieurs, et ce n'est pas ce qu'on teste.
+    let mut reglages_facteurs = reglages_de_test();
+    for debit in [
+        &mut reglages_facteurs.facteurs.debit_connexion_adresse,
+        &mut reglages_facteurs.facteurs.debit_connexion_courriel,
+        &mut reglages_facteurs.facteurs.debit_verification,
+    ] {
+        debit.capacite = 20_000;
+    }
+    let routeur = api::serveur::routeur(&application_sessions_avec(
         &env,
         &horloge,
         Arc::new(Autorisation::charger().unwrap()),
+        reglages_facteurs,
     ));
     for route in ROUTES.iter().filter(|r| !r.portee.du_cabinet()) {
         let cas = cas_hors_cabinet(route).unwrap();

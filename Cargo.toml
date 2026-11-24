@@ -76,6 +76,9 @@ url = { version = "2.5.8", default-features = false, features = ["std"] }
 webauthn-rs = { version = "0.6.2", default-features = false, features = ["danger-allow-state-serialisation"] }
 # Types du protocole (défi d'authentification factice, anti-énumération) : déjà tirés par `webauthn-rs`.
 webauthn-rs-proto = { version = "0.6.2", default-features = false }
+# Authentificateur logiciel des tests (dépendance de développement du crate `api` seulement) :
+# enrôlement et connexion de bout en bout, sans matériel. Pas de nfc, usb, bluetooth.
+webauthn-authenticator-rs = { version = "0.6.2", default-features = false, features = ["softpasskey"] }
 
 # ADR 0018 : copie corrigée de `crypto-glue` 0.2.2 (`rsa` 0.10.0 au lieu d'une préversion visée
 # par RUSTSEC-2023-0071), à retirer dès la version 0.2.3 (#162). Voir docs/provenance/crypto-glue.md.

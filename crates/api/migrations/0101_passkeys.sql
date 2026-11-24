@@ -15,8 +15,10 @@
 --   du cookie `__Host-sigma_ceremonie` (jamais le jeton lui-même).
 --
 -- Connexion sans contexte : comme la 0100, la connexion ne pose JAMAIS `sigma.utilisateur` mais
--- `sigma.courriel_connexion` ; l'état du défi n'est lisible que sur présentation de l'empreinte
--- du jeton (`sigma.jeton_defi`), pour le seul compte du courriel saisi.
+-- `sigma.courriel_connexion` ; elle ne voit que les défis de **connexion** du compte du courriel
+-- saisi (jamais ceux d'un enrôlement ni d'une ré-authentification). L'état d'un défi de connexion
+-- n'a rien de secret pour le client qui en a reçu les options ; c'est le jeton du cookie, vérifié
+-- par la requête de consommation (`WHERE jeton_hache = …`), qui lie la réponse à la cérémonie.
 
 -- Passkeys d'un utilisateur. `identifiant_credential` est unique dans toute l'instance
 -- (WebAuthn : un identifiant ne s'enregistre pour aucun autre compte). `cle` : JSON de la
@@ -88,9 +90,9 @@ CREATE POLICY defi_webauthn_titulaire ON defi_webauthn
     FOR ALL
     USING (utilisateur_id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid)
     WITH CHECK (utilisateur_id = NULLIF(current_setting('sigma.utilisateur', true), '')::uuid);
--- Connexion : créer un défi pour le compte du courriel saisi (nature `connexion` seulement) ;
--- retrouver et consommer le sien, sur présentation de l'empreinte de son jeton ; élaguer ses
--- anciens défis.
+-- Connexion : créer un défi pour le compte du courriel saisi (nature `connexion` seulement),
+-- retrouver ses défis de connexion (la consommation filtre par l'empreinte du jeton) et élaguer
+-- les anciens.
 CREATE POLICY defi_webauthn_connexion_creation ON defi_webauthn
     FOR INSERT
     WITH CHECK (
@@ -104,7 +106,6 @@ CREATE POLICY defi_webauthn_connexion_lecture ON defi_webauthn
     FOR SELECT
     USING (
         nature = 'connexion'
-        AND jeton_hache = decode(NULLIF(current_setting('sigma.jeton_defi', true), ''), 'hex')
         AND utilisateur_id IN (
             SELECT u.id FROM utilisateur u
             WHERE lower(u.courriel) = lower(NULLIF(current_setting('sigma.courriel_connexion', true), ''))

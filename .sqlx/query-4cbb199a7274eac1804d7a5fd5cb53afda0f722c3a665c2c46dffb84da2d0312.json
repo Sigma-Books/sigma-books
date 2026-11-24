@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE facteur_passkey SET cle = $4::text::jsonb, derniere_utilisation = $5 WHERE id = $1 AND utilisateur_id = $2 AND cle = $3::text::jsonb RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "facteur_passkey",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4cbb199a7274eac1804d7a5fd5cb53afda0f722c3a665c2c46dffb84da2d0312"
+}

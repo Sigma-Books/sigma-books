@@ -11,7 +11,8 @@
 //! Comme la méthode de secours (module parent [`super::facteurs`]), la connexion par passkey
 //! s'exécute dans une [`TransactionConnexion`] : `sigma.courriel_connexion` posé, jamais
 //! d'utilisateur. Sous RLS, elle ne voit que les passkeys et les défis du compte du courriel
-//! saisi, et ne peut modifier d'une passkey que son état et sa dernière utilisation
+//! saisi (ses défis de connexion seulement), et ne peut modifier d'une passkey que son état et sa
+//! dernière utilisation
 //! (déclencheur de la migration). Elle ne devient une transaction d'utilisateur que sur
 //! présentation de la preuve rendue par [`TransactionConnexion::consommer_passkey`], qui
 //! fabrique le facteur vérifié **après** la mise à jour conditionnelle de l'état.
@@ -97,14 +98,6 @@ pub struct DefiLu {
     pub utilisateur: IdUtilisateur,
     /// État sérialisé.
     pub etat: String,
-}
-
-fn hex(octets: &[u8]) -> String {
-    use std::fmt::Write as _;
-    octets.iter().fold(String::new(), |mut texte, o| {
-        let _ = write!(texte, "{o:02x}");
-        texte
-    })
 }
 
 fn lue(
@@ -195,12 +188,6 @@ impl TransactionConnexion {
         instant: OffsetDateTime,
     ) -> Result<Option<DefiLu>, ErreurBase> {
         let (_, connexion) = self.contexte();
-        sqlx::query!(
-            "SELECT set_config('sigma.jeton_defi', $1, true) AS jeton",
-            hex(jeton_hache),
-        )
-        .fetch_one(&mut *connexion)
-        .await?;
         let ligne = sqlx::query!(
             "DELETE FROM defi_webauthn \
              WHERE jeton_hache = $1 AND nature = 'connexion' AND expire_le > $2 \
