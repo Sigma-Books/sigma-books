@@ -352,11 +352,10 @@ pub(crate) async fn executer(
         CasUsage::Audit(cas) => audit::executer(cas, tx, garde, requete).await,
         // Cas d'usage hors cabinet : modules `moi` et `facteurs` du serveur, jamais avec une
         // garde de cabinet.
-        CasUsage::Session(_) | CasUsage::Moi(_) | CasUsage::Facteurs(_) => {
+        CasUsage::Session(_) | CasUsage::Moi(_) | CasUsage::Facteurs(_) | CasUsage::Passkeys(_) => {
             Err(ErreurApi::Interne(CategorieErreur::Donnee))
         }
-        // Voie authentification (PR 8b, 8c, 9).
-        CasUsage::Passkeys(cas) => match cas {},
+        // Voie authentification (PR 9).
         CasUsage::Administration(cas) => match cas {},
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => referentiel::executer(cas, tx, garde, requete).await,
@@ -435,9 +434,10 @@ mod tests {
                 route.chemin
             );
             if route.portee == Portee::Facteurs {
-                assert_eq!(
-                    route.action,
-                    ActionRoute::Facteur(ActionFacteur::EnrolerSecours),
+                assert!(
+                    [ActionFacteur::EnrolerSecours, ActionFacteur::EnrolerPasskey]
+                        .map(ActionRoute::Facteur)
+                        .contains(&route.action),
                     "{}",
                     route.chemin
                 );

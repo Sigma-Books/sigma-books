@@ -41,7 +41,7 @@ namespace Sigma {
   action OuvrirSession appliesTo {
     principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
   };
-  // Ré-authentification par la méthode de secours (session « fraîche »).
+  // Ré-authentification par la méthode de secours ou une passkey (session « fraîche »).
   action SeReauthentifier appliesTo {
     principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
   };
@@ -59,6 +59,14 @@ namespace Sigma {
   };
   // Nouvelle série de codes de récupération (l'ancienne est annulée).
   action RegenererCodesRecuperation appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+  // Enrôlement d'une passkey, WebAuthn (PR 8c), cérémonie comprise.
+  action EnrolerPasskey appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
+  // Suppression d'une de ses passkeys.
+  action SupprimerPasskey appliesTo {
     principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
   };
 }

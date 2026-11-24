@@ -86,6 +86,18 @@ pub enum MotifRefus {
     JetonEnrolementInvalide,
     /// Ré-authentification refusée (mot de passe ou code).
     FacteursRefuses,
+    /// Passkey demandée par un compte qui n'en a aucune (ré-authentification).
+    AucunePasskey,
+    /// Cérémonie d'enrôlement d'une passkey refusée : défi absent, expiré ou déjà utilisé,
+    /// réponse invalide, nom invalide.
+    PasskeyRefusee,
+    /// Cet authentificateur est déjà enregistré (WebAuthn : un identifiant de credential ne
+    /// s'enregistre qu'une fois).
+    PasskeyDejaEnregistree,
+    /// Nombre maximal de passkeys atteint.
+    PasskeysMax,
+    /// Suppression refusée : ce serait le dernier facteur fort du compte (F1.1).
+    DernierFacteur,
 }
 
 impl MotifRefus {
@@ -99,6 +111,11 @@ impl MotifRefus {
             Self::CodeInvalide => "code_invalide",
             Self::JetonEnrolementInvalide => "jeton_enrolement_invalide",
             Self::FacteursRefuses => "facteurs_refuses",
+            Self::AucunePasskey => "aucune_passkey",
+            Self::PasskeyRefusee => "passkey_refusee",
+            Self::PasskeyDejaEnregistree => "passkey_deja_enregistree",
+            Self::PasskeysMax => "passkeys_max",
+            Self::DernierFacteur => "dernier_facteur",
         }
     }
 }
@@ -515,6 +532,11 @@ mod tests {
             ErreurApi::Refus(MotifRefus::CodeInvalide),
             ErreurApi::Refus(MotifRefus::JetonEnrolementInvalide),
             ErreurApi::Refus(MotifRefus::FacteursRefuses),
+            ErreurApi::Refus(MotifRefus::AucunePasskey),
+            ErreurApi::Refus(MotifRefus::PasskeyRefusee),
+            ErreurApi::Refus(MotifRefus::PasskeyDejaEnregistree),
+            ErreurApi::Refus(MotifRefus::PasskeysMax),
+            ErreurApi::Refus(MotifRefus::DernierFacteur),
             ErreurApi::TropDeRequetes { reessayer_dans: 1 },
             ErreurApi::Interne(CategorieErreur::Base),
             ErreurApi::DelaiDepasse,

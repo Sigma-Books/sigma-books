@@ -83,6 +83,7 @@ use super::erreur::{CategorieErreur, ErreurApi, MotifRefus};
 use super::limites::{CleAdresse, LimiteurDebit, ReglageDebit, adresse_client};
 use super::pipeline::id_authz;
 use super::routes::facteurs::Cas;
+use super::routes::passkeys::Cas as PasskeysCas;
 use super::routes::{ActionRoute, CasUsage, Route};
 use super::session::{
     JetonSession, SessionOuverte, cookie, jeton_de_la_requete, ouvrir_session_dans,
@@ -92,6 +93,7 @@ use crate::base::facteurs::{
     self as base_facteurs, MembreActif, TransactionConnexion, inscrire_dans_les_cabinets,
     ouvrir_transaction_connexion,
 };
+use crate::base::passkeys as base_passkeys;
 use crate::base::session::{
     self, MethodeSession, MotifRevocation, NatureSession, NouvelleSession, Session,
 };
@@ -101,6 +103,7 @@ use crate::base::{
 use crate::facteurs::cle::CleInstance;
 use crate::facteurs::codes::{self, CodeRecuperation};
 use crate::facteurs::mot_de_passe::{self, RefusMotDePasse, Verification};
+use crate::facteurs::passkey::Passkeys;
 use crate::facteurs::totp::{self, SecretTotp};
 
 /// Émetteur affiché par l'application d'authentification.
@@ -186,6 +189,9 @@ pub fn configurer(
 
 /// État partagé de la méthode de secours : limiteurs et borne des hachages.
 pub(crate) struct EtatFacteurs {
+    /// Partie de confiance WebAuthn (PR 8c), tirée de l'origine de l'instance ; absente si
+    /// l'origine n'est pas utilisable (le binaire refuse alors de démarrer, `config.rs`).
+    pub(super) passkeys: Option<Passkeys>,
     limiteur_adresse: LimiteurDebit<CleAdresse>,
     limiteur_courriel: LimiteurDebit<[u8; 16]>,
     limiteur_verification: LimiteurDebit<IdUtilisateur>,
@@ -196,8 +202,9 @@ pub(crate) struct EtatFacteurs {
 }
 
 impl EtatFacteurs {
-    pub(crate) fn new(reglages: &ReglagesFacteurs) -> Self {
+    pub(crate) fn new(reglages: &ReglagesFacteurs, origine: &str) -> Self {
         Self {
+            passkeys: Passkeys::depuis_origine(origine).ok(),
             limiteur_adresse: LimiteurDebit::new(reglages.debit_connexion_adresse),
             limiteur_courriel: LimiteurDebit::new(reglages.debit_connexion_courriel),
             limiteur_verification: LimiteurDebit::new(reglages.debit_verification),
@@ -210,11 +217,11 @@ impl EtatFacteurs {
 // --- Outils communs ------------------------------------------------------------------------
 
 /// Erreur interne de la méthode de secours.
-fn interne<T>(_: T) -> ErreurApi {
+pub(super) fn interne<T>(_: T) -> ErreurApi {
     ErreurApi::Interne(CategorieErreur::Authentification)
 }
 
-fn cle_instance(etat: &Etat) -> Result<Arc<CleInstance>, ErreurApi> {
+pub(super) fn cle_instance(etat: &Etat) -> Result<Arc<CleInstance>, ErreurApi> {
     etat.reglages
         .facteurs
         .cle_instance
@@ -222,7 +229,7 @@ fn cle_instance(etat: &Etat) -> Result<Arc<CleInstance>, ErreurApi> {
         .ok_or(ErreurApi::Interne(CategorieErreur::Authentification))
 }
 
-fn limiter<K: Eq + std::hash::Hash + Copy>(
+pub(super) fn limiter<K: Eq + std::hash::Hash + Copy>(
     limiteur: &LimiteurDebit<K>,
     cle: K,
 ) -> Result<(), ErreurApi> {
@@ -232,20 +239,23 @@ fn limiter<K: Eq + std::hash::Hash + Copy>(
 }
 
 /// Le corps JSON d'une requête ; champ inconnu ou absent : `refus`.
-fn corps_json<T: DeserializeOwned>(corps: &[u8], refus: ErreurApi) -> Result<T, ErreurApi> {
+pub(super) fn corps_json<T: DeserializeOwned>(
+    corps: &[u8],
+    refus: ErreurApi,
+) -> Result<T, ErreurApi> {
     Json::<T>::from_bytes(corps)
         .map(|Json(valeur)| valeur)
         .map_err(|_| refus)
 }
 
 /// Client de la requête : appareil déclaré et adresse, pour la session et les événements.
-struct Client {
-    appareil: Option<String>,
-    adresse: Option<IpAddr>,
-    cle_adresse: CleAdresse,
+pub(super) struct Client {
+    pub(super) appareil: Option<String>,
+    pub(super) adresse: Option<IpAddr>,
+    pub(super) cle_adresse: CleAdresse,
 }
 
-fn client(etat: &Etat, parts: &Parts) -> Client {
+pub(super) fn client(etat: &Etat, parts: &Parts) -> Client {
     let cle_adresse = adresse_client(
         &Request::from_parts(parts.clone(), ()),
         etat.reglages.en_tete_adresse_client.as_ref(),
@@ -265,7 +275,7 @@ fn client(etat: &Etat, parts: &Parts) -> Client {
     }
 }
 
-fn nouvel_evenement(
+pub(super) fn nouvel_evenement(
     utilisateur: IdUtilisateur,
     session: Option<IdSession>,
     nature: NatureEvenement,
@@ -439,12 +449,12 @@ fn entree_audit(
 }
 
 /// Réponse portant un `Set-Cookie`.
-fn avec_cookie(mut reponse: Response, valeur: HeaderValue) -> Response {
+pub(super) fn avec_cookie(mut reponse: Response, valeur: HeaderValue) -> Response {
     reponse.headers_mut().insert(header::SET_COOKIE, valeur);
     reponse
 }
 
-fn instant(i: OffsetDateTime) -> String {
+pub(super) fn instant(i: OffsetDateTime) -> String {
     integrite::audit::formater_instant(i)
 }
 
@@ -472,7 +482,11 @@ pub(crate) async fn connecter(
     let fin_au_plus_tot =
         tokio::time::Instant::now() + etat.reglages.facteurs.duree_plancher_connexion;
     let resultat = connecter_sans_plancher(etat, route, parts, corps).await;
-    if resultat.is_err() {
+    // Le défi d'une connexion par passkey reçoit la même durée plancher en cas de succès :
+    // un compte sans passkey (faux défi, rien d'écrit) ne s'y distingue pas par la durée.
+    let plancher_aussi_en_succes =
+        route.cas_usage == CasUsage::Passkeys(PasskeysCas::DefiConnexion);
+    if resultat.is_err() || plancher_aussi_en_succes {
         tokio::time::sleep_until(fin_au_plus_tot).await;
     }
     resultat
@@ -495,12 +509,18 @@ async fn connecter_sans_plancher(
     match route.cas_usage {
         CasUsage::Facteurs(Cas::ConnexionSecours) => connecter_secours(etat, &client, corps).await,
         CasUsage::Facteurs(Cas::ConnexionCode) => connecter_code(etat, &client, corps).await,
+        CasUsage::Passkeys(PasskeysCas::DefiConnexion) => {
+            super::passkeys::defi_connexion(etat, corps).await
+        }
+        CasUsage::Passkeys(PasskeysCas::ConnexionPasskey) => {
+            super::passkeys::connecter_passkey(etat, &client, parts, corps).await
+        }
         _ => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }
 }
 
 /// Vrai si le compte a atteint le plafond persistant d'échecs de connexion.
-async fn plafonne(
+pub(super) async fn plafonne(
     etat: &Etat,
     tx: &mut TransactionConnexion,
     utilisateur: Option<IdUtilisateur>,
@@ -532,7 +552,11 @@ struct CorpsConnexionCode {
 }
 
 /// Courriel de la connexion, et contrôle du débit par courriel (que le compte existe ou non).
-fn courriel_limite(etat: &Etat, cle: &CleInstance, saisi: &str) -> Result<String, ErreurApi> {
+pub(super) fn courriel_limite(
+    etat: &Etat,
+    cle: &CleInstance,
+    saisi: &str,
+) -> Result<String, ErreurApi> {
     let courriel = courriel_saisi(saisi).ok_or(ErreurApi::NonAuthentifie)?;
     limiter(
         &etat.facteurs.limiteur_courriel,
@@ -670,7 +694,7 @@ async fn connecter_code(etat: &Etat, client: &Client, corps: &[u8]) -> Result<Re
 }
 
 /// Échec d'une connexion sur un compte connu : événement d'échec, puis 401.
-async fn refuser_connexion(
+pub(super) async fn refuser_connexion(
     mut tx: TransactionConnexion,
     utilisateur: IdUtilisateur,
     methode: MethodeSession,
@@ -693,7 +717,7 @@ async fn refuser_connexion(
 
 /// Ouverture de la session après la vérification du facteur : décision `OuvrirSession`,
 /// session, événement de réussite, audit de chaque cabinet actif ; une seule transaction.
-async fn ouvrir(
+pub(super) async fn ouvrir(
     etat: &Etat,
     mut tx: TransactionUtilisateur,
     utilisateur: IdUtilisateur,
@@ -779,15 +803,17 @@ pub(crate) async fn executer(
     let ActionRoute::Facteur(action) = route.action else {
         return Err(ErreurApi::Interne(CategorieErreur::Donnee));
     };
-    let CasUsage::Facteurs(cas) = route.cas_usage else {
-        return Err(ErreurApi::Interne(CategorieErreur::Donnee));
-    };
     let soi = Soi {
         etat,
         identite,
         action,
         client: client(etat, parts),
         maintenant: etat.horloge.maintenant(),
+    };
+    let cas = match route.cas_usage {
+        CasUsage::Facteurs(cas) => cas,
+        CasUsage::Passkeys(cas) => return super::passkeys::executer(&soi, cas, parts, corps).await,
+        _ => return Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     };
     match cas {
         Cas::Reauthentifier => reauthentifier(&soi, parts, corps).await,
@@ -803,26 +829,26 @@ pub(crate) async fn executer(
 }
 
 /// L'utilisateur de la session authentifiée, l'action de la route et la requête.
-struct Soi<'a> {
-    etat: &'a Etat,
-    identite: &'a Identite,
-    action: ActionFacteur,
-    client: Client,
-    maintenant: OffsetDateTime,
+pub(super) struct Soi<'a> {
+    pub(super) etat: &'a Etat,
+    pub(super) identite: &'a Identite,
+    pub(super) action: ActionFacteur,
+    pub(super) client: Client,
+    pub(super) maintenant: OffsetDateTime,
 }
 
 impl Soi<'_> {
-    fn utilisateur(&self) -> IdUtilisateur {
+    pub(super) fn utilisateur(&self) -> IdUtilisateur {
         self.identite.utilisateur
     }
 
-    async fn transaction(&self) -> Result<TransactionUtilisateur, ErreurApi> {
+    pub(super) async fn transaction(&self) -> Result<TransactionUtilisateur, ErreurApi> {
         Ok(ouvrir_transaction_utilisateur(&self.etat.pool, self.utilisateur()).await?)
     }
 
     /// Lit la session de la requête (sous RLS) et décide l'action de la route dans son
     /// contexte (nature, méthode, fraîcheur lues en base).
-    async fn decider(
+    pub(super) async fn decider(
         &self,
         tx: &mut TransactionUtilisateur,
     ) -> Result<(Session, Verdict), ErreurApi> {
@@ -843,7 +869,7 @@ impl Soi<'_> {
         Ok((s, verdict))
     }
 
-    fn evenement(
+    pub(super) fn evenement(
         &self,
         nature: NatureEvenement,
         methode: Option<MethodeSession>,
@@ -860,7 +886,7 @@ impl Soi<'_> {
         )
     }
 
-    fn limiter(&self) -> Result<(), ErreurApi> {
+    pub(super) fn limiter(&self) -> Result<(), ErreurApi> {
         limiter(
             &self.etat.facteurs.limiteur_verification,
             self.utilisateur(),
@@ -868,7 +894,7 @@ impl Soi<'_> {
     }
 
     /// Audit de chaque cabinet actif, puis validation.
-    async fn auditer_et_confirmer(
+    pub(super) async fn auditer_et_confirmer(
         &self,
         tx: TransactionUtilisateur,
         verdict: &Verdict,
@@ -954,6 +980,19 @@ async fn reauthentifier(soi: &Soi<'_>, parts: &Parts, corps: &[u8]) -> Result<Re
         tx.confirmer().await?;
         return Err(ErreurApi::Refus(MotifRefus::FacteursRefuses));
     }
+    terminer_reauthentification(soi, tx, &s, &present, MethodeSession::Secours).await
+}
+
+/// Fin d'une ré-authentification réussie (secours ou passkey), dans la transaction qui vient de
+/// consommer le facteur : fraîcheur, rotation du jeton (ADR 0012), événement. Le nouveau jeton
+/// de session est dans le cookie.
+pub(super) async fn terminer_reauthentification(
+    soi: &Soi<'_>,
+    mut tx: TransactionUtilisateur,
+    s: &Session,
+    present: &JetonSession,
+    methode: MethodeSession,
+) -> Result<Response, ErreurApi> {
     if !session::marquer_verification(&mut tx, s.id, soi.maintenant).await? {
         return Err(ErreurApi::NonAuthentifie);
     }
@@ -966,7 +1005,7 @@ async fn reauthentifier(soi: &Soi<'_>, parts: &Parts, corps: &[u8]) -> Result<Re
         &mut tx,
         &soi.evenement(
             NatureEvenement::Reauthentification,
-            Some(MethodeSession::Secours),
+            Some(methode),
             Issue::Succes,
         ),
     )
@@ -986,6 +1025,16 @@ async fn reauthentifier(soi: &Soi<'_>, parts: &Parts, corps: &[u8]) -> Result<Re
 struct VueFacteurs {
     secours: Option<VueSecours>,
     codes_restants: i64,
+    /// Ses passkeys (PR 8c) : identifiant, nom, dates ; jamais la clé ni le compteur.
+    passkeys: Vec<VuePasskey>,
+}
+
+#[derive(Debug, Serialize)]
+struct VuePasskey {
+    id: String,
+    nom: String,
+    cree_le: String,
+    derniere_utilisation: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1001,6 +1050,7 @@ async fn consulter_facteurs(soi: &Soi<'_>) -> Result<Response, ErreurApi> {
     let _autorisee = soi.decider(&mut tx).await?;
     let secours = base_facteurs::lire_secours(&mut tx).await?;
     let codes_restants = base_facteurs::compter_codes_restants(&mut tx).await?;
+    let passkeys = base_passkeys::lister(&mut tx).await?;
     tx.confirmer().await?;
     let vue = VueFacteurs {
         secours: secours
@@ -1010,6 +1060,16 @@ async fn consulter_facteurs(soi: &Soi<'_>) -> Result<Response, ErreurApi> {
                 utilisable: s.totp_cle_id == cle.identifiant(),
             }),
         codes_restants,
+        passkeys: passkeys
+            .into_iter()
+            .filter(|p| p.utilisateur == soi.utilisateur())
+            .map(|p| VuePasskey {
+                id: p.id.to_string(),
+                nom: p.nom,
+                cree_le: instant(p.cree_le),
+                derniere_utilisation: p.derniere_utilisation.map(instant),
+            })
+            .collect(),
     };
     Ok(Json(vue).into_response())
 }
