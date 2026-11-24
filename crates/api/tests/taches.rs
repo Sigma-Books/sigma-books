@@ -124,6 +124,17 @@ impl Atelier {
         assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
     }
 
+    /// Appels à l'autorité pour le dossier de l'atelier (d'autres processus de test créent des
+    /// tâches échues, que le travailleur prend aussi).
+    fn appels(&self) -> usize {
+        let dossier = self.b.c.dossier.uuid().to_string();
+        self.autorite
+            .contenus()
+            .iter()
+            .filter(|c| c.contains(&dossier))
+            .count()
+    }
+
     async fn passer(&self) -> Bilan {
         self.travailleur.passer().await.unwrap()
     }
@@ -189,8 +200,7 @@ async fn la_validation_planifie_une_seule_tache_quotidienne_pour_le_jour_suivant
     assert!(!echue);
     assert!(avant_minuit);
     // Aujourd'hui : rien n'est dû.
-    let bilan = a.passer().await;
-    assert_eq!(bilan.jetons, 0);
+    a.passer().await;
     assert!(a.jetons().await.is_empty());
 }
 
@@ -239,9 +249,9 @@ async fn le_passage_quotidien_obtient_un_jeton_pour_la_tete_et_l_inscrit_a_l_aud
     assert!(entree.contains("systeme"), "{entree}");
     assert!(!entree.contains("Première"), "{entree}");
     // Rien de nouveau : un second passage ne redemande rien.
-    let appels = a.autorite.contenus().len();
+    let appels = a.appels();
     a.passer().await;
-    assert_eq!(a.autorite.contenus().len(), appels);
+    assert_eq!(a.appels(), appels);
     assert_eq!(a.jetons().await.len(), 1);
 }
 
@@ -265,9 +275,9 @@ async fn un_echec_est_rejoue_avec_un_delai_croissant_sur_la_tete_du_moment() {
     assert_eq!((etat.as_str(), tentatives), ("en_attente", 1));
     assert_eq!(issue.as_deref(), Some("autorites"));
     // Avant le délai de rejeu (une minute) : rien.
-    let appels = a.autorite.contenus().len();
+    let appels = a.appels();
     a.passer().await;
-    assert_eq!(a.autorite.contenus().len(), appels);
+    assert_eq!(a.appels(), appels);
     // Une écriture de plus est validée pendant la panne ; l'autorité revient : le jeton couvre
     // les deux écritures (rejeu différé, ADR 0010).
     a.valider_une("Seconde").await;
@@ -407,9 +417,9 @@ async fn une_tache_prise_puis_abandonnee_est_reprise_apres_son_bail() {
     .execute(&a.b.env.admin)
     .await
     .unwrap();
-    let appels = a.autorite.contenus().len();
+    let appels = a.appels();
     a.passer().await;
-    assert_eq!(a.autorite.contenus().len(), appels);
+    assert_eq!(a.appels(), appels);
 }
 
 #[tokio::test]
