@@ -77,6 +77,7 @@ comptabilité, PR 13a) lie le brouillard aux pièces (`0300_pieces.sql`) ; elle 
 supérieur à celui de la voie dont elle dépend, hors de sa plage. Même cas pour
 `0351_ecriture_validee_pieces.sql` (PR 13b), qui lie les écritures validées (`0203_validation.sql`,
 dans la plage) aux pièces ; `0352_piece_liee_non_ecartee.sql` (déclencheur sur `piece`) en dépend aussi.
+`0204_contre_passation.sql` (PR 13c) ne dépend que de `0203` : index unique partiel sur l'origine d'une contre-passation.
 
 `sqlx migrate` accepte des versions non contiguës et les applique dans l'ordre croissant sur une
 base neuve (vérifié avec `sqlx-cli` 0.9.1). Limites :

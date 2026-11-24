@@ -142,11 +142,15 @@ pub enum MotifConflit {
     RevueParLePoseur,
     /// Trop de pièces liées au brouillon.
     TropDePieces,
+    /// Écriture déjà contre-passée : une origine n'a qu'une contre-passation (PR 13c).
+    DejaContrePassee,
+    /// Validation par lot sans aucune écriture à valider (toutes « à revoir »).
+    LotSansEcritureAValider,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 18] = [
+    pub const TOUS: [Self; 20] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -165,6 +169,8 @@ impl MotifConflit {
         Self::PieceLiee,
         Self::RevueParLePoseur,
         Self::TropDePieces,
+        Self::DejaContrePassee,
+        Self::LotSansEcritureAValider,
     ];
 
     /// Code du corps de la réponse.
@@ -189,6 +195,8 @@ impl MotifConflit {
             Self::PieceLiee => "piece_liee",
             Self::RevueParLePoseur => "revue_par_le_poseur",
             Self::TropDePieces => "trop_de_pieces",
+            Self::DejaContrePassee => "deja_contre_passee",
+            Self::LotSansEcritureAValider => "lot_sans_ecriture_a_valider",
         }
     }
 }
@@ -252,11 +260,13 @@ pub enum MotifValidation {
     EcritureInvalide,
     /// Contenu qui ne se relit pas à l'identique du format canonique.
     NonRepresentable,
+    /// Contre-passation datée avant l'écriture d'origine.
+    DateAnterieureAOrigine,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 27] = [
+    pub const TOUS: [Self; 28] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::EcheanceDeCloture,
@@ -284,6 +294,7 @@ impl MotifValidation {
         Self::MontantEchelleExcessive,
         Self::EcritureInvalide,
         Self::NonRepresentable,
+        Self::DateAnterieureAOrigine,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -336,6 +347,7 @@ impl MotifValidation {
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
+            Self::DateAnterieureAOrigine => "date_anterieure_a_l_origine",
         }
     }
 }
@@ -453,6 +465,51 @@ pub(crate) fn pour_statut(statut: StatusCode) -> Response {
     };
     let mut reponse = erreur.into_response();
     *reponse.status_mut() = statut;
+    reponse
+}
+
+/// Écriture d'un lot refusée : son identifiant (celui du corps de la requête) et le code stable
+/// du motif (PR 13c).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefusLot {
+    /// Identifiant de l'écriture, tel que la requête le cite.
+    pub ecriture: uuid::Uuid,
+    /// Code stable du motif (liste fermée : [`MotifConflit`], [`MotifValidation`]).
+    pub code: &'static str,
+}
+
+#[derive(Serialize)]
+struct VueRefusLot {
+    ecriture: String,
+    code: &'static str,
+}
+
+#[derive(Serialize)]
+struct CorpsLot {
+    erreur: &'static str,
+    refus: Vec<VueRefusLot>,
+}
+
+/// Réponse 409 d'une validation par lot refusée : le code `lot_refuse` et la liste des écritures
+/// refusées avec leur motif. À rendre **sans trace** : le pipeline annule la transaction de toute
+/// réponse d'erreur du cas d'usage (rien n'est écrit, ADR 0011).
+#[must_use]
+pub fn reponse_lot_refuse(refus: &[RefusLot]) -> Response {
+    let mut reponse = (
+        StatusCode::CONFLICT,
+        Json(CorpsLot {
+            erreur: "lot_refuse",
+            refus: refus
+                .iter()
+                .map(|r| VueRefusLot {
+                    ecriture: r.ecriture.to_string(),
+                    code: r.code,
+                })
+                .collect(),
+        }),
+    )
+        .into_response();
+    reponse.extensions_mut().insert(CorpsUniforme);
     reponse
 }
 

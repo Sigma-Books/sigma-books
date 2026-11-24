@@ -99,6 +99,10 @@ pub enum Portee {
     /// et ses contributeurs lus en base (séparation des tâches, spec §20). Brouillon absent du
     /// dossier : 404.
     Brouillon,
+    /// Une écriture validée d'un dossier (`{cabinet}`, `{dossier}`, `{ecriture}` ; PR 13c) :
+    /// visibilité du dossier (`AccederDossier`), puis l'action décidée sur l'**écriture
+    /// validée**, lue en base sous RLS. Écriture absente du dossier : 404.
+    EcritureValidee,
     /// Ressources propres de l'utilisateur authentifié, hors de tout cabinet (ses sessions, ses
     /// cabinets) : transaction au contexte du seul utilisateur ; session complète exigée.
     Utilisateur,
@@ -122,7 +126,11 @@ impl Portee {
     pub const fn du_cabinet(self) -> bool {
         matches!(
             self,
-            Self::Cabinet | Self::DossiersDuCabinet | Self::Dossier | Self::Brouillon
+            Self::Cabinet
+                | Self::DossiersDuCabinet
+                | Self::Dossier
+                | Self::Brouillon
+                | Self::EcritureValidee
         )
     }
 
@@ -138,6 +146,7 @@ impl Portee {
             | Self::DossiersDuCabinet
             | Self::Dossier
             | Self::Brouillon
+            | Self::EcritureValidee
             | Self::Utilisateur => {
                 matches!(nature, NatureSession::Complete)
             }
@@ -416,6 +425,7 @@ mod tests {
                 Portee::DossiersDuCabinet,
                 Portee::Dossier,
                 Portee::Brouillon,
+                Portee::EcritureValidee,
                 Portee::Utilisateur,
                 Portee::Anonyme,
             ] {

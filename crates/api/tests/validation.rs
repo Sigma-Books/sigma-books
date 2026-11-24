@@ -17,253 +17,21 @@
 
 mod commun;
 
-use std::sync::Arc;
+use commun::banc::{Banc, aujourd, banc, banc_avec, banque, caisse, code, contenu, equilibre};
 
 use api::base::referentiel::{EtatReferentiel, Modele, muter};
 use api::base::validation as base;
 use api::base::{ContexteTenant, ouvrir_transaction};
 use api::serveur::routes::brouillard::referentiel_tva;
 use api::serveur::routes::brouillard::validation::reconstituer;
-use api::serveur::{Application, Reglages, routeur};
-use authz::Autorisation;
-use axum::Router;
 use axum::http::StatusCode;
-use commun::brouillard::{aujourd_hui, journal_de_saisie, ligne, saisie, texte_date};
-use commun::referentiel::{Fixtures, comptes, doter};
-use commun::serveur::{
-    AuthentificationTest, HorlogeTest, ORIGINE, Reponse, application_base, envoyer, lire,
-};
-use commun::{CabinetTest, Env, ajouter_affecte, creer_cabinet, env};
-use integrite::{Empreinte, chainer, genese};
+use commun::ajouter_affecte;
+use commun::brouillard::{aujourd_hui, journal_de_saisie, ligne, saisie};
+use commun::referentiel::comptes;
+use commun::serveur::{HorlogeTest, Reponse, envoyer, lire};
+use integrite::Empreinte;
 use serde_json::Value;
 use uuid::Uuid;
-
-struct Banc {
-    env: Env,
-    c: CabinetTest,
-    f: Fixtures,
-    routeur: Router,
-    valideur: api::base::IdUtilisateur,
-    auditeur: api::base::IdUtilisateur,
-}
-
-async fn banc_avec(horloge: Option<&HorlogeTest>) -> Banc {
-    let env = env().await;
-    let c = creer_cabinet(&env.admin, "Cabinet").await;
-    let f = doter(&env.application, c.cabinet, c.dossier, c.administrateur).await;
-    let valideur = ajouter_affecte(&env.admin, &c, "valideur").await;
-    let auditeur = ajouter_affecte(&env.admin, &c, "auditeur").await;
-    let etat = match horloge {
-        None => application_base(&env, Reglages::new(ORIGINE.to_owned())),
-        Some(h) => {
-            let mut reglages = commun::serveur::reglages_de_test();
-            reglages.facteurs.cle_instance = Some(commun::serveur::cle_de_test());
-            let etat = Application::avec_horloge(
-                env.application.clone(),
-                env.lecture_audit.clone(),
-                Arc::new(Autorisation::charger().unwrap()),
-                Arc::new(AuthentificationTest::default()),
-                reglages,
-                Arc::new(h.clone()),
-            );
-            commun::serveur::brancher_pieces_memoire(&etat);
-            etat
-        }
-    };
-    Banc {
-        routeur: routeur(&etat),
-        env,
-        c,
-        f,
-        valideur,
-        auditeur,
-    }
-}
-
-async fn banc() -> Banc {
-    banc_avec(None).await
-}
-
-fn code(r: &Reponse) -> String {
-    r.json()["erreur"].as_str().unwrap_or_default().to_owned()
-}
-
-/// Corps d'une saisie à la date et au journal donnés.
-fn contenu(journal: &str, date: &str, lignes: &[String], extra: &str) -> String {
-    format!(
-        r#"{{"journal":"{journal}","date":"{date}","libelle":"Écriture de test"{extra},"lignes":[{}]}}"#,
-        lignes.join(",")
-    )
-}
-
-impl Banc {
-    fn base(&self) -> String {
-        format!(
-            "/api/cabinets/{}/dossiers/{}/brouillard",
-            self.c.cabinet, self.c.dossier
-        )
-    }
-
-    fn ecritures(&self) -> String {
-        format!(
-            "/api/cabinets/{}/dossiers/{}/ecritures",
-            self.c.cabinet, self.c.dossier
-        )
-    }
-
-    async fn creer(&self, corps: &str) -> Uuid {
-        let r = envoyer(
-            &self.routeur,
-            &self.base(),
-            Some(self.c.collaborateur),
-            corps,
-            None,
-        )
-        .await;
-        assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
-        r.json()["id"].as_str().unwrap().parse().unwrap()
-    }
-
-    /// Lie une pièce neuve au brouillon (version 1 attendue) ; rend la version suivante.
-    async fn lier(&self, id: Uuid, version: i32) -> (Uuid, i32) {
-        let piece = commun::pieces::doter(
-            &self.env.admin,
-            self.c.cabinet,
-            self.c.dossier,
-            self.c.administrateur,
-        )
-        .await;
-        let r = envoyer(
-            &self.routeur,
-            &format!("{}/{id}/pieces", self.base()),
-            Some(self.c.collaborateur),
-            &format!(r#"{{"piece":"{piece}","role":"principale","version":{version}}}"#),
-            None,
-        )
-        .await;
-        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
-        (piece, r.json()["version"].as_i64().unwrap() as i32)
-    }
-
-    /// Brouillon équilibré du jour, avec une pièce liée, prêt à valider : (id, version, pièce).
-    async fn pret(&self, libelle: &str) -> (Uuid, i32, Uuid) {
-        let id = self.creer(&saisie(libelle, None)).await;
-        let (piece, version) = self.lier(id, 1).await;
-        (id, version, piece)
-    }
-
-    async fn pret_avec(&self, corps: &str) -> (Uuid, i32) {
-        let id = self.creer(corps).await;
-        let (_, version) = self.lier(id, 1).await;
-        (id, version)
-    }
-
-    async fn valider_par(&self, u: api::base::IdUtilisateur, id: Uuid, version: i32) -> Reponse {
-        envoyer(
-            &self.routeur,
-            &format!("{}/{id}/validation", self.base()),
-            Some(u),
-            &format!(r#"{{"version":{version}}}"#),
-            None,
-        )
-        .await
-    }
-
-    async fn valider(&self, id: Uuid, version: i32) -> Reponse {
-        self.valider_par(self.valideur, id, version).await
-    }
-
-    async fn compter(&self, table: &str) -> i64 {
-        sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT count(*) FROM {table} WHERE dossier_id = $1"
-        )))
-        .bind(self.c.dossier.uuid())
-        .fetch_one(&self.env.admin)
-        .await
-        .unwrap()
-    }
-
-    async fn sql(&self, requete: &str) {
-        sqlx::query(sqlx::AssertSqlSafe(requete.to_owned()))
-            .bind(self.c.dossier.uuid())
-            .execute(&self.env.admin)
-            .await
-            .unwrap();
-    }
-
-    /// Écritures de la chaîne, dans l'ordre : (rang, numéro, texte, empreinte, précédente).
-    async fn chaine(&self) -> Vec<(i64, String, String, Vec<u8>, Vec<u8>)> {
-        sqlx::query_as(
-            "SELECT rang, numero, contenu_canonique, empreinte, empreinte_precedente \
-             FROM ecriture_validee WHERE dossier_id = $1 ORDER BY rang",
-        )
-        .bind(self.c.dossier.uuid())
-        .fetch_all(&self.env.admin)
-        .await
-        .unwrap()
-    }
-
-    fn genese(&self) -> Empreinte {
-        genese(&integrite::IdDossier::parse(&self.c.dossier.uuid().to_string()).unwrap())
-    }
-
-    /// La chaîne stockée se recalcule : chaque empreinte suit la précédente et le texte stocké.
-    async fn chaine_valide(&self) -> bool {
-        let mut precedente = self.genese();
-        for (i, (rang, _, texte, empreinte, prec)) in self.chaine().await.iter().enumerate() {
-            let attendue = chainer(&precedente, texte.as_bytes());
-            if *rang != i64::try_from(i + 1).unwrap()
-                || prec.as_slice() != precedente.octets()
-                || empreinte.as_slice() != attendue.octets()
-            {
-                return false;
-            }
-            precedente = attendue;
-        }
-        let (rang, tete): (i64, Vec<u8>) =
-            sqlx::query_as("SELECT rang, empreinte FROM chaine_tete WHERE dossier_id = $1")
-                .bind(self.c.dossier.uuid())
-                .fetch_one(&self.env.admin)
-                .await
-                .unwrap_or((0, self.genese().octets().to_vec()));
-        rang == i64::try_from(self.chaine().await.len()).unwrap()
-            && tete.as_slice() == precedente.octets()
-    }
-
-    async fn compteur(&self) -> Vec<i32> {
-        sqlx::query_scalar(
-            "SELECT dernier FROM compteur_ecriture WHERE dossier_id = $1 ORDER BY dernier",
-        )
-        .bind(self.c.dossier.uuid())
-        .fetch_all(&self.env.admin)
-        .await
-        .unwrap()
-    }
-
-    async fn annee(&self) -> String {
-        sqlx::query_scalar("SELECT code FROM exercice WHERE dossier_id = $1 ORDER BY debut LIMIT 1")
-            .bind(self.c.dossier.uuid())
-            .fetch_one(&self.env.admin)
-            .await
-            .unwrap()
-    }
-}
-
-fn caisse() -> &'static str {
-    comptes().caisse.as_str()
-}
-fn banque() -> &'static str {
-    comptes().banque.as_str()
-}
-fn aujourd() -> String {
-    texte_date(aujourd_hui())
-}
-fn equilibre(montant: &str) -> Vec<String> {
-    vec![
-        ligne(caisse(), "debit", montant),
-        ligne(banque(), "credit", montant),
-    ]
-}
 
 // --- Nominal -------------------------------------------------------------------------------
 
@@ -1418,9 +1186,19 @@ fn aucune_route_de_modification_ni_de_suppression_des_ecritures() {
         .iter()
         .filter(|r| r.chemin.contains("/ecritures"))
         .collect();
-    assert_eq!(routes.len(), 2);
+    // Deux lectures, et la seule mutation : la contre-passation, qui ajoute une écriture miroir
+    // sans toucher à l'origine (ajout seul). Ni modification ni suppression.
+    assert_eq!(routes.len(), 3);
     for r in routes {
-        assert_eq!(r.methode, Methode::Get, "{}", r.chemin);
+        if r.methode == Methode::Post {
+            assert!(
+                r.chemin.ends_with("/{ecriture}/contre-passation"),
+                "{}",
+                r.chemin
+            );
+        } else {
+            assert_eq!(r.methode, Methode::Get, "{}", r.chemin);
+        }
     }
 }
 

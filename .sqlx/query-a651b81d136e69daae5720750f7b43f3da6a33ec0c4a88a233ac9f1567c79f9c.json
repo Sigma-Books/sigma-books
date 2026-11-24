@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.numero, j.code AS journal, x.code AS exercice, e.date_comptable,\n               e.date_valeur_comptable, e.libelle, e.version_parametres, e.format,\n               e.contenu_canonique, e.empreinte, e.empreinte_precedente, e.rang, e.valide_par,\n               e.date_validation, e.valide_le, e.origine_id\n        FROM ecriture_validee e\n        JOIN journal j ON j.cabinet_id = e.cabinet_id AND j.dossier_id = e.dossier_id\n                      AND j.id = e.journal_id\n        JOIN exercice x ON x.cabinet_id = e.cabinet_id AND x.dossier_id = e.dossier_id\n                       AND x.id = e.exercice_id\n        WHERE e.cabinet_id = $1 AND e.dossier_id = $2 AND e.id = $3\n        ",
+  "query": "\n        SELECT e.numero, j.code AS journal, x.code AS exercice, e.date_comptable,\n               e.date_valeur_comptable, e.libelle, e.version_parametres, e.format,\n               e.contenu_canonique, e.empreinte, e.empreinte_precedente, e.rang, e.valide_par,\n               e.date_validation, e.valide_le, e.origine_id, o.numero AS \"origine_numero?\",\n               (SELECT c.numero FROM ecriture_validee c\n                 WHERE c.cabinet_id = e.cabinet_id AND c.dossier_id = e.dossier_id\n                   AND c.origine_id = e.id) AS \"contre_passee_par?\"\n        FROM ecriture_validee e\n        LEFT JOIN ecriture_validee o ON o.cabinet_id = e.cabinet_id AND o.dossier_id = e.dossier_id\n                                    AND o.id = e.origine_id\n        JOIN journal j ON j.cabinet_id = e.cabinet_id AND j.dossier_id = e.dossier_id\n                      AND j.id = e.journal_id\n        JOIN exercice x ON x.cabinet_id = e.cabinet_id AND x.dossier_id = e.dossier_id\n                       AND x.id = e.exercice_id\n        WHERE e.cabinet_id = $1 AND e.dossier_id = $2 AND e.id = $3\n        ",
   "describe": {
     "columns": [
       {
@@ -178,6 +178,23 @@
             "name": "origine_id"
           }
         }
+      },
+      {
+        "ordinal": 16,
+        "name": "origine_numero?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "contre_passee_par?",
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -203,8 +220,10 @@
       false,
       false,
       false,
-      true
+      true,
+      false,
+      null
     ]
   },
-  "hash": "b4a7eed69381cfebba60dd8eee59017b26b2b060778c694ce8b6af27578212d4"
+  "hash": "a651b81d136e69daae5720750f7b43f3da6a33ec0c4a88a233ac9f1567c79f9c"
 }

@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO ecriture_validee\n            (cabinet_id, dossier_id, id, journal_id, exercice_id, sequence, numero,\n             date_comptable, date_valeur_comptable, libelle, version_parametres, format,\n             contenu_canonique, empreinte, empreinte_precedente, rang, valide_par,\n             date_validation, valide_le, origine_id)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,\n                $18, $19, $20)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4",
+        "Text",
+        "Date",
+        "Date",
+        "Text",
+        "Text",
+        "Int2",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Int8",
+        "Uuid",
+        "Date",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "79a23d178978b370e65bc87bc02e7eb017194186bb34f6decce1908939009af6"
+}
