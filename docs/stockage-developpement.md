@@ -38,6 +38,11 @@ sous 5 Go.
    Cargo verrouille le répertoire, deux compilations simultanées s'attendent. Les crates du
    dépôt sont recompilées par worktree (chemins différents) mais coexistent sans se gêner.
    Le clone principal garde son propre `target/` (0,5 Go).
+   **Limite constatée** : ces binaires du dépôt (surtout les tests d'intégration de `api`) sont
+   recréés pour chaque worktree et chaque jeu d'options (`--all-features`, `clippy`…) et
+   s'accumulent : 35 Go en une journée de trois agents avant que le profil allégé soit fusionné
+   (leurs branches avaient encore le débogage complet, 325 Mo par binaire). `scripts/disque-nettoyer.sh`
+   les supprime au-delà du plafond de 12 Go ; les dépendances externes sont conservées.
 2. **Débogage allégé** (`Cargo.toml`, versionné) : `debug = "line-tables-only"` pour le dépôt,
    `debug = false` pour les dépendances. Les traces de panique gardent les numéros de ligne.
 3. **Tests d'intégration non regroupés.** Réunir les 19 fichiers de `crates/api/tests/` en un seul

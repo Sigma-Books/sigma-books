@@ -85,6 +85,16 @@ if [ -d "$partage" ]; then
       agir ".target/debug/deps : fichiers de plus de ${jours} jours" "${vieux:-0}" \
         find "$partage/debug/deps" -type f -mtime +"$jours" -delete
     fi
+    # Toujours au-dessus du plafond : les binaires des crates du dépôt (tests d'intégration) sont
+    # recréés par worktree et par jeu d'options ; ils s'accumulent. Les dépendances externes
+    # (l'essentiel du temps de compilation) sont conservées.
+    ko="$(taille_ko "$partage")"
+    if [ "$ko" -gt $((max_go * 1048576)) ] || [ "$appliquer" -eq 0 ]; then
+      for c in "$principal"/crates/*/; do
+        n="$(basename "$c")"
+        [ -d "$partage/debug/build/$n" ] && agir ".target/debug/build/$n (binaires du dépôt, régénérables)" "$(taille_ko "$partage/debug/build/$n")" rm -rf -- "$partage/debug/build/$n"
+      done
+    fi
   else echo "  sous le plafond : rien à faire"; fi
 else echo "  absent"; fi
 
