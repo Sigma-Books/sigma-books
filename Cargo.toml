@@ -78,6 +78,8 @@ webauthn-rs = { version = "0.6.2", default-features = false, features = ["danger
 webauthn-rs-proto = { version = "0.6.2", default-features = false }
 # Authentificateur logiciel des tests (dépendance de développement du crate `api` seulement) :
 # enrôlement et connexion de bout en bout, sans matériel. Pas de nfc, usb, bluetooth.
+# Copie corrigée de `crypto-glue` (voir `[patch.crates-io]`), citée directement par un test RS256.
+crypto-glue = "0.2.2"
 webauthn-authenticator-rs = { version = "0.6.2", default-features = false, features = ["softpasskey"] }
 
 # ADR 0018 : copie corrigée de `crypto-glue` 0.2.2 (`rsa` 0.10.0 au lieu d'une préversion visée

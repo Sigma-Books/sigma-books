@@ -83,6 +83,7 @@ dependencies = [
  "axum",
  "base64ct",
  "compta-core",
+ "crypto-glue",
  "ctutils",
  "der",
  "fiscal-sn",

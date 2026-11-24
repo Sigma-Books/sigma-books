@@ -64,6 +64,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 # Authentificateur logiciel : parcours WebAuthn complets dans les tests (PR 8c).
+crypto-glue.workspace = true
 webauthn-authenticator-rs.workspace = true
 # Propriétés du stockage à plat du référentiel (`base::referentiel`).
 proptest.workspace = true
