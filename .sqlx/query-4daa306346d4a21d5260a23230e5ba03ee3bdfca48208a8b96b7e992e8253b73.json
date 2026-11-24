@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT v.ecriture_id, p.empreinte\n        FROM ecriture_validee_piece v\n        JOIN piece p ON p.cabinet_id = v.cabinet_id AND p.dossier_id = v.dossier_id\n                    AND p.id = v.piece_id\n        WHERE v.cabinet_id = $1 AND v.dossier_id = $2 AND v.ecriture_id = ANY($3)\n        ORDER BY v.ecriture_id, v.position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ecriture_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_piece",
+            "name": "ecriture_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "piece",
+            "name": "empreinte"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4daa306346d4a21d5260a23230e5ba03ee3bdfca48208a8b96b7e992e8253b73"
+}

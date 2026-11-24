@@ -187,5 +187,20 @@ pub async fn doter_validee(
         .await
         .unwrap();
     }
+    // Une écriture validée porte toujours une justification (AUDCIF art. 17 et 22) : une pièce
+    // propre à l'écriture, liée en principale (compta-core refuse de relire une écriture
+    // validée sans justification).
+    let piece = super::pieces::doter(admin, cabinet, dossier, utilisateur).await;
+    sqlx::query(
+        "INSERT INTO ecriture_validee_piece (cabinet_id, dossier_id, ecriture_id, piece_id, \
+         position, role) VALUES ($1, $2, $3, $4, 1, 'principale')",
+    )
+    .bind(cabinet.uuid())
+    .bind(dossier.uuid())
+    .bind(id)
+    .bind(piece)
+    .execute(admin)
+    .await
+    .unwrap();
     id
 }

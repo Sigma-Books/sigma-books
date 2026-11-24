@@ -44,6 +44,9 @@ pub struct ValideeLue {
     pub date_validation: Date,
     /// Lignes, dans l'ordre.
     pub lignes: Vec<LigneStockee>,
+    /// Empreintes (hexadécimales minuscules) des pièces liées, dans l'ordre de la justification :
+    /// `compta-core` ne reconstitue pas une écriture validée sans justification.
+    pub empreintes: Vec<String>,
 }
 
 /// Lecture bornée : les éléments, et si la borne était dépassée (les éléments sont alors
@@ -62,6 +65,10 @@ fn tenant(tx: &TransactionTenant) -> Result<(IdCabinet, IdDossier), ErreurBase> 
         .id_dossier()
         .ok_or(ErreurBase::Donnee("éditions hors du contexte d'un dossier"))?;
     Ok((contexte.id_cabinet(), dossier))
+}
+
+fn hex(octets: &[u8]) -> String {
+    octets.iter().map(|o| format!("{o:02x}")).collect()
 }
 
 /// Colonnes d'une ligne telle que lue (validée ou brouillon).
@@ -169,6 +176,28 @@ pub async fn validees_entre(
     )
     .fetch_all(tx.connexion())
     .await?;
+    let pieces = sqlx::query!(
+        r#"
+        SELECT v.ecriture_id, p.empreinte
+        FROM ecriture_validee_piece v
+        JOIN piece p ON p.cabinet_id = v.cabinet_id AND p.dossier_id = v.dossier_id
+                    AND p.id = v.piece_id
+        WHERE v.cabinet_id = $1 AND v.dossier_id = $2 AND v.ecriture_id = ANY($3)
+        ORDER BY v.ecriture_id, v.position
+        "#,
+        cabinet.uuid(),
+        dossier.uuid(),
+        &ids,
+    )
+    .fetch_all(tx.connexion())
+    .await?;
+    let mut empreintes: HashMap<Uuid, Vec<String>> = HashMap::new();
+    for p in pieces {
+        empreintes
+            .entry(p.ecriture_id)
+            .or_default()
+            .push(hex(&p.empreinte));
+    }
     let mut par_ecriture: HashMap<Uuid, Vec<LigneStockee>> = HashMap::new();
     for l in lignes {
         let ligne = ligne_lue(Colonnes {
@@ -192,6 +221,7 @@ pub async fn validees_entre(
         .into_iter()
         .map(|e| ValideeLue {
             lignes: par_ecriture.remove(&e.id).unwrap_or_default(),
+            empreintes: empreintes.remove(&e.id).unwrap_or_default(),
             numero: e.numero,
             journal: e.journal,
             date: e.date_comptable,

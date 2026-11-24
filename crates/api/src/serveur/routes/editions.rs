@@ -311,7 +311,7 @@ async fn lire_dans_instantane(
                     date_validation: e.date_validation,
                     lignes: &e.lignes,
                 },
-                &[],
+                &e.empreintes,
                 tva,
             )
             .map_err(|_| donnee())?,
