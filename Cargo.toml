@@ -57,7 +57,7 @@ ctutils = { version = "0.4.8", default-features = false }
 zeroize = { version = "1.9.2", default-features = false }
 # Méthode de secours du crate `api` (ADR 0012 ; L2 PR 8b), RustCrypto, MIT ou Apache-2.0.
 # Mot de passe : Argon2id, chaîne PHC. Série 0.5, celle que tirera `webauthn-rs` (PR 8c).
-argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "password-hash", "zeroize"] }
+argon2 = { version = "0.6.0", default-features = false, features = ["alloc", "password-hash", "zeroize"] }
 # Secret TOTP chiffré par la clé de l'instance (AEAD, nonce de 96 bits tiré par `getrandom`).
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
 # Sous-clés de la clé de l'instance (HKDF-SHA256) et TOTP (HMAC-SHA1, RFC 6238) ; déjà dans
