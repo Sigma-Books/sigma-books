@@ -22,7 +22,9 @@
 //! Pour un courriel inconnu ou sans passkey, [`defi_factice`] rend un défi de même forme qu'un
 //! vrai, avec de faux identifiants de credential dérivés du courriel par la clé de l'instance :
 //! stables d'un appel à l'autre (un vrai compte rend toujours les mêmes), indiscernables sans
-//! la clé. Le nombre d'identifiants factices (1 à 3) est lui aussi dérivé du courriel.
+//! la clé. Leur nombre (1 à 10, plus souvent peu) et leurs longueurs (16 à 128 octets) sont eux
+//! aussi dérivés du courriel, dans les distributions de vrais identifiants ; un compte plafonné
+//! reçoit ses vraies options (sans état gardé), non des faux.
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use sha2::{Digest, Sha256};
@@ -30,7 +32,7 @@ use uuid::Uuid;
 use webauthn_rs::prelude::{
     AuthenticationResult, CreationChallengeResponse, Passkey, PasskeyAuthentication,
     PasskeyRegistration, PublicKeyCredential, RegisterPublicKeyCredential,
-    RequestChallengeResponse, Url, Webauthn, WebauthnBuilder,
+    RequestChallengeResponse, Url, Webauthn, WebauthnBuilder, WebauthnError,
 };
 use webauthn_rs_proto::{
     AllowCredentials, PublicKeyCredentialRequestOptions, UserVerificationPolicy,
@@ -50,6 +52,9 @@ pub const DEFIS_CONNEXION_MAX: i64 = 4;
 /// Nom du cookie qui porte le jeton de cérémonie.
 pub const NOM_COOKIE_CEREMONIE: &str = "__Host-sigma_ceremonie";
 
+/// Longueurs des faux identifiants de credential, parmi celles des authentificateurs courants.
+const LONGUEURS_FACTICES: [usize; 6] = [16, 32, 32, 48, 64, 128];
+
 const OCTETS_JETON: usize = 32;
 /// 32 octets en base64url sans remplissage.
 const LONGUEUR_TEXTE: usize = 43;
@@ -65,6 +70,10 @@ pub enum ErreurPasskey {
     /// vérification de l'utilisateur…).
     #[error("cérémonie WebAuthn refusée")]
     Refusee,
+    /// Compteur de signatures qui n'avance pas : l'authentificateur a peut-être été cloné
+    /// (WebAuthn §6.1.1). Refusé comme tout échec, mais tracé à part.
+    #[error("compteur de signatures régressif : clonage possible")]
+    Clonage,
     /// Aléa du système indisponible.
     #[error("aléa du système indisponible")]
     Alea,
@@ -149,7 +158,7 @@ impl Passkeys {
     /// l'utilisateur, compteur qui n'a pas régressé).
     ///
     /// # Errors
-    /// [`ErreurPasskey::Refusee`].
+    /// [`ErreurPasskey::Clonage`] si le compteur régresse ; [`ErreurPasskey::Refusee`] sinon.
     pub fn fin_authentification(
         &self,
         reponse: &PublicKeyCredential,
@@ -158,7 +167,10 @@ impl Passkeys {
         let resultat = self
             .webauthn
             .finish_passkey_authentication(reponse, etat)
-            .map_err(|_| ErreurPasskey::Refusee)?;
+            .map_err(|e| match e {
+                WebauthnError::CredentialPossibleCompromise => ErreurPasskey::Clonage,
+                _ => ErreurPasskey::Refusee,
+            })?;
         // Défense en profondeur : la vérification de l'utilisateur est exigée par le défi ;
         // on la contrôle encore sur le résultat, quoi que fasse l'authentificateur.
         if resultat.user_verified() {
@@ -181,14 +193,22 @@ impl Passkeys {
     ) -> Result<RequestChallengeResponse, ErreurPasskey> {
         let mut defi = [0u8; 32];
         tirer(&mut defi).map_err(|_| ErreurPasskey::Alea)?;
-        let nombre = 1 + usize::from(cle.octets_factices(courriel, 0)[0] % 3);
+        // Nombre et longueurs tirés, par courriel, dans les distributions de vrais identifiants :
+        // un à dix (plus souvent peu), de 16 à 128 octets (longueurs courantes des
+        // authentificateurs). Stables d'un appel à l'autre.
+        let graine = cle.octets_factices(courriel, 0, 2);
+        let zeros = u16::from_be_bytes([graine[0], graine[1]]).leading_zeros();
+        let nombre = 1 + usize::try_from(zeros.min(9)).unwrap_or(0);
         let identifiants = (1..=nombre)
-            .map(|rang| AllowCredentials {
-                type_: "public-key".to_owned(),
-                id: cle
-                    .octets_factices(courriel, u8::try_from(rang).unwrap_or(u8::MAX))
-                    .to_vec(),
-                transports: None,
+            .map(|rang| {
+                let rang = u8::try_from(rang).unwrap_or(u8::MAX);
+                let choix = cle.octets_factices(courriel, rang, 1)[0];
+                let longueur = LONGUEURS_FACTICES[usize::from(choix) % LONGUEURS_FACTICES.len()];
+                AllowCredentials {
+                    type_: "public-key".to_owned(),
+                    id: cle.octets_factices(courriel, rang, longueur),
+                    transports: None,
+                }
             })
             .collect();
         let reponse = RequestChallengeResponse {
@@ -343,7 +363,7 @@ mod tests {
         assert_eq!(ids(&a1), ids(&a2));
         assert_ne!(a1.public_key.challenge, a2.public_key.challenge);
         assert_ne!(ids(&a1), ids(&b));
-        assert!((1..=3).contains(&ids(&a1).len()));
+        assert!((1..=10).contains(&ids(&a1).len()));
         assert_eq!(a1.public_key.rp_id, "compta.exemple.invalid");
         assert_eq!(
             a1.public_key.user_verification,

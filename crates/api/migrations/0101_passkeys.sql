@@ -56,8 +56,21 @@ ALTER TABLE evenement_authentification DROP CONSTRAINT evenement_authentificatio
 ALTER TABLE evenement_authentification ADD CONSTRAINT evenement_authentification_nature_check
     CHECK (nature IN (
         'connexion', 'reauthentification', 'enrolement_secours', 'generation_codes',
-        'deconnexion', 'revocation_session', 'enrolement_passkey', 'suppression_passkey'
+        'deconnexion', 'revocation_session', 'enrolement_passkey', 'suppression_passkey',
+        'clonage_passkey'
     ));
+-- À la connexion, l'échec inscrit pour le compte du courriel saisi peut aussi être la détection
+-- d'un clonage (compteur régressif), tracée à part ; toujours un échec, jamais une session.
+DROP POLICY evenement_connexion ON evenement_authentification;
+CREATE POLICY evenement_connexion ON evenement_authentification
+    FOR INSERT
+    WITH CHECK (
+        nature IN ('connexion', 'clonage_passkey') AND issue = 'echec' AND session_id IS NULL
+        AND utilisateur_id IN (
+            SELECT u.id FROM utilisateur u
+            WHERE lower(u.courriel) = lower(NULLIF(current_setting('sigma.courriel_connexion', true), ''))
+        )
+    );
 
 -- RLS : le titulaire (utilisateur authentifié, `sigma.utilisateur`) ; à la connexion, le compte
 -- du courriel saisi, pour les seules commandes nécessaires.

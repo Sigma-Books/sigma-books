@@ -270,20 +270,28 @@ impl CleInstance {
 }
 
 impl CleInstance {
-    /// Octets stables et imprévisibles dérivés d'un courriel et d'un rang : HMAC-SHA256 par la
-    /// sous-clé d'énumération. Ils fournissent les **faux** identifiants de passkey rendus pour
-    /// un courriel inconnu ou sans passkey (anti-énumération) : toujours les mêmes pour un même
-    /// courriel, indiscernables d'identifiants réels sans la clé de l'instance.
+    /// Octets stables et imprévisibles, de la `longueur` demandée, dérivés d'un courriel et d'un
+    /// rang : HMAC-SHA256 par la sous-clé d'énumération, par blocs numérotés. Ils fournissent les
+    /// **faux** identifiants de passkey rendus pour un courriel inconnu ou sans passkey
+    /// (anti-énumération) : toujours les mêmes pour un même courriel, indiscernables d'identifiants
+    /// réels sans la clé de l'instance.
     #[must_use]
-    pub fn octets_factices(&self, courriel: &str, rang: u8) -> [u8; 32] {
+    pub fn octets_factices(&self, courriel: &str, rang: u8, longueur: usize) -> Vec<u8> {
         use hmac::{Hmac, Mac};
-        let mut sortie = [0u8; 32];
-        if let Ok(mut mac) = <Hmac<Sha256> as KeyInit>::new_from_slice(&self.enumeration) {
-            mac.update(b"passkey-factice v1\0");
-            mac.update(&[rang]);
-            mac.update(courriel.to_lowercase().as_bytes());
-            sortie.copy_from_slice(&mac.finalize().into_bytes());
+        let mut sortie = Vec::with_capacity(longueur + 32);
+        let mut bloc = 0u8;
+        while sortie.len() < longueur {
+            if let Ok(mut mac) = <Hmac<Sha256> as KeyInit>::new_from_slice(&self.enumeration) {
+                mac.update(b"passkey-factice v2\0");
+                mac.update(&[rang, bloc]);
+                mac.update(courriel.to_lowercase().as_bytes());
+                sortie.extend_from_slice(&mac.finalize().into_bytes());
+            } else {
+                sortie.extend_from_slice(&[0u8; 32]);
+            }
+            bloc = bloc.wrapping_add(1);
         }
+        sortie.truncate(longueur);
         sortie
     }
 }

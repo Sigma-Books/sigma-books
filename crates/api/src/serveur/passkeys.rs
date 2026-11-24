@@ -46,8 +46,8 @@ use webauthn_rs::prelude::{
 use super::Etat;
 use super::erreur::{CategorieErreur, ErreurApi, MotifRefus};
 use super::facteurs::{
-    Client, Soi, cle_instance, corps_json, courriel_limite, interne, ouvrir, plafonne,
-    refuser_connexion, terminer_reauthentification,
+    Client, Soi, cle_instance, corps_json, courriel_limite, interne, nouvel_evenement, ouvrir,
+    plafonne, refuser_connexion, terminer_reauthentification,
 };
 use super::pipeline::id_chemin;
 use super::routes::passkeys::Cas;
@@ -57,8 +57,8 @@ use crate::base::facteurs::{self as base_facteurs, ouvrir_transaction_connexion}
 use crate::base::passkeys::{self as base_passkeys, NatureDefi, NouveauDefi, PasskeyLue};
 use crate::base::session::{self, MethodeSession, MotifRevocation, NatureSession};
 use crate::facteurs::passkey::{
-    DEFIS_CONNEXION_MAX, JetonDefi, PASSKEYS_MAX, Passkeys, VALIDITE_DEFI, cookie_ceremonie_efface,
-    jeton_de_la_requete as jeton_de_ceremonie,
+    DEFIS_CONNEXION_MAX, ErreurPasskey, JetonDefi, PASSKEYS_MAX, Passkeys, VALIDITE_DEFI,
+    cookie_ceremonie_efface, jeton_de_la_requete as jeton_de_ceremonie,
 };
 
 /// Nombre maximal de caractères du nom d'une passkey (contrainte de la table).
@@ -103,26 +103,41 @@ struct Verifiee {
     nouvel_etat: String,
 }
 
+/// Pourquoi une authentification est refusée. L'appelant rend toujours la même réponse ; la
+/// distinction ne sert qu'à tracer un clonage possible.
+enum Echec {
+    /// Réponse invalide, défi absent, échu, ou d'une autre cérémonie.
+    Refus,
+    /// Compteur de signatures régressif : l'authentificateur a peut-être été cloné.
+    Clonage,
+}
+
 /// Fait vérifier la réponse de l'authentificateur contre l'état de la cérémonie, puis cherche
-/// la passkey signataire parmi celles du compte et calcule son nouvel état (compteur). `None`
-/// à la moindre irrégularité : l'appelant refuse sans rien dire de la cause.
+/// la passkey signataire parmi celles du compte et calcule son nouvel état (compteur).
 fn verifier_authentification(
     passkeys: &Passkeys,
     lues: &[PasskeyLue],
     etat_ceremonie: &str,
     reponse: &PublicKeyCredential,
-) -> Option<Verifiee> {
-    let etat: PasskeyAuthentication = serde_json::from_str(etat_ceremonie).ok()?;
-    let resultat = passkeys.fin_authentification(reponse, &etat).ok()?;
+) -> Result<Verifiee, Echec> {
+    let etat: PasskeyAuthentication =
+        serde_json::from_str(etat_ceremonie).map_err(|_| Echec::Refus)?;
+    let resultat = passkeys
+        .fin_authentification(reponse, &etat)
+        .map_err(|e| match e {
+            ErreurPasskey::Clonage => Echec::Clonage,
+            _ => Echec::Refus,
+        })?;
     let lue = lues
         .iter()
-        .find(|l| l.passkey.cred_id() == resultat.cred_id())?;
+        .find(|l| l.passkey.cred_id() == resultat.cred_id())
+        .ok_or(Echec::Refus)?;
     let mut passkey = lue.passkey.clone();
-    passkey.update_credential(&resultat)?;
-    Some(Verifiee {
+    passkey.update_credential(&resultat).ok_or(Echec::Refus)?;
+    Ok(Verifiee {
         id: lue.id,
         etat_lu: lue.etat_lu.clone(),
-        nouvel_etat: base_passkeys::serialiser(&passkey).ok()?,
+        nouvel_etat: base_passkeys::serialiser(&passkey).map_err(|_| Echec::Refus)?,
     })
 }
 
@@ -149,25 +164,30 @@ pub(super) async fn defi_connexion(etat: &Etat, corps: &[u8]) -> Result<Response
     let plafonne = plafonne(etat, &mut tx, utilisateur, maintenant).await?;
     let jeton = JetonDefi::tirer().map_err(interne)?;
     let options = match utilisateur {
-        Some(utilisateur) if !plafonne => {
+        Some(utilisateur) => {
             let cles: Vec<Passkey> = lues.iter().map(|p| p.passkey.clone()).collect();
             let (options, etat_auth) = passkeys.debut_authentification(&cles).map_err(interne)?;
-            tx.creer_defi(
-                &NouveauDefi {
-                    utilisateur,
-                    nature: NatureDefi::Connexion,
-                    session: None,
-                    jeton_hache: jeton.empreinte(),
-                    etat: etat_json(&etat_auth)?,
-                    instant: maintenant,
-                    expire_le: maintenant + VALIDITE_DEFI,
-                },
-                DEFIS_CONNEXION_MAX,
-            )
-            .await?;
+            // Un compte plafonné reçoit les mêmes options réelles (leur changement trahirait le
+            // compte à qui provoque le plafond), mais aucun état n'est gardé : aucune réponse
+            // ne le terminera.
+            if !plafonne {
+                tx.creer_defi(
+                    &NouveauDefi {
+                        utilisateur,
+                        nature: NatureDefi::Connexion,
+                        session: None,
+                        jeton_hache: jeton.empreinte(),
+                        etat: etat_json(&etat_auth)?,
+                        instant: maintenant,
+                        expire_le: maintenant + VALIDITE_DEFI,
+                    },
+                    DEFIS_CONNEXION_MAX,
+                )
+                .await?;
+            }
             options
         }
-        _ => passkeys.defi_factice(&cle, &courriel).map_err(interne)?,
+        None => passkeys.defi_factice(&cle, &courriel).map_err(interne)?,
     };
     tx.confirmer().await?;
     reponse_defi(options, &jeton)
@@ -211,11 +231,25 @@ pub(super) async fn connecter_passkey(
     let preuve = match defi {
         Some(defi) if !plafonne && defi.utilisateur == utilisateur => {
             match verifier_authentification(passkeys, &lues, &defi.etat, &corps.credential) {
-                Some(v) => {
+                Ok(v) => {
                     tx.consommer_passkey(utilisateur, v.id, &v.etat_lu, &v.nouvel_etat, maintenant)
                         .await?
                 }
-                None => None,
+                Err(Echec::Clonage) => {
+                    // Tracé à part ; la réponse reste celle de tout autre échec (401).
+                    tx.inscrire_evenement(&nouvel_evenement(
+                        utilisateur,
+                        None,
+                        NatureEvenement::ClonagePasskey,
+                        Some(MethodeSession::Passkey),
+                        Issue::Echec,
+                        maintenant,
+                        client,
+                    ))
+                    .await?;
+                    None
+                }
+                Err(Echec::Refus) => None,
             }
         }
         _ => None,
@@ -336,10 +370,22 @@ async fn reauthentifier_passkey(
         soi.maintenant,
     )
     .await?;
-    let verifiee =
-        defi.and_then(|etat| verifier_authentification(passkeys, &lues, &etat, &corps.credential));
+    let verifiee = defi.map_or(Err(Echec::Refus), |etat| {
+        verifier_authentification(passkeys, &lues, &etat, &corps.credential)
+    });
+    if matches!(verifiee, Err(Echec::Clonage)) {
+        evenement::inscrire(
+            &mut tx,
+            &soi.evenement(
+                NatureEvenement::ClonagePasskey,
+                Some(MethodeSession::Passkey),
+                Issue::Echec,
+            ),
+        )
+        .await?;
+    }
     let admis = match &verifiee {
-        Some(v) => {
+        Ok(v) => {
             base_passkeys::consommer_passkey(
                 &mut tx,
                 v.id,
@@ -349,7 +395,7 @@ async fn reauthentifier_passkey(
             )
             .await?
         }
-        None => false,
+        Err(_) => false,
     };
     if !admis {
         evenement::inscrire(
@@ -434,6 +480,8 @@ async fn enroler_passkey(
     let mut tx = soi.transaction().await?;
     // Décision revérifiée sur l'état exact de la session, dans la transaction de l'action.
     let (s, verdict) = soi.decider(&mut tx).await?;
+    // Verrou avant de compter : deux enrôlements concurrents ne franchissent pas le plafond.
+    base_passkeys::verrouiller(&mut tx).await?;
     // Le défi est consommé dans tous les cas : une cérémonie ne sert qu'une fois.
     let defi = base_passkeys::consommer_defi(
         &mut tx,
@@ -508,6 +556,9 @@ async fn supprimer_passkey(soi: &Soi<'_>, parts: &Parts) -> Result<Response, Err
 
     let mut tx = soi.transaction().await?;
     let (s, verdict) = soi.decider(&mut tx).await?;
+    // Verrou avant de lire : deux suppressions concurrentes ne retirent pas chacune « l'autre »
+    // facteur et ne laissent pas le compte sans facteur fort (F1.1).
+    base_passkeys::verrouiller(&mut tx).await?;
     let lues = base_passkeys::lister(&mut tx).await?;
     if !lues.iter().any(|p| p.id == id) {
         return Err(ErreurApi::Introuvable);

@@ -36,6 +36,8 @@ pub enum NatureEvenement {
     EnrolementPasskey,
     /// Suppression d'une passkey (PR 8c).
     SuppressionPasskey,
+    /// Compteur de signatures régressif : clonage possible d'une passkey (PR 8c).
+    ClonagePasskey,
 }
 
 impl NatureEvenement {
@@ -51,6 +53,7 @@ impl NatureEvenement {
             Self::RevocationSession => "revocation_session",
             Self::EnrolementPasskey => "enrolement_passkey",
             Self::SuppressionPasskey => "suppression_passkey",
+            Self::ClonagePasskey => "clonage_passkey",
         }
     }
 }

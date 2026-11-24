@@ -357,7 +357,8 @@ n'est écrit dans le dépôt. Code : `src/facteurs/passkey.rs` (protocole), `src
 - **Anti-énumération** : le défi d'une connexion rend la même forme (`{"defi": …}`, cookie compris),
   la même durée plancher (en succès comme en échec) pour un courriel inconnu, un compte sans
   passkey et un compte plafonné : faux identifiants dérivés du courriel par la clé de l'instance
-  (stables, 1 à 3), rien d'écrit. Un échec rend toujours 401 `non_authentifie`.
+  (stables ; 1 à 10, de 16 à 128 octets, tirés comme de vrais), rien d'écrit ; un compte plafonné
+  reçoit ses vraies options, sans état gardé. Un échec rend toujours 401 `non_authentifie`.
 - **Bornes** : 10 passkeys par utilisateur ; 4 défis de connexion en cours par compte ; nom de
   1 à 100 caractères sans caractère de contrôle ; mêmes débits que le secours.
 - **Suppression** : session complète fraîche ; le compte garde au moins un facteur fort (une autre

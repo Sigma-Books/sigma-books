@@ -440,3 +440,21 @@ pub async fn consommer_passkey(
     )
     .await
 }
+
+/// Verrouille les passkeys de l'utilisateur du contexte jusqu'à la fin de la transaction (verrou
+/// consultatif). À prendre **avant** de compter ou de supprimer : sans lui, deux transactions
+/// concurrentes (READ COMMITTED) lisent le même état et franchissent chacune le plafond de
+/// passkeys, ou retirent chacune « l'autre » facteur et laissent le compte sans facteur fort.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn verrouiller(tx: &mut TransactionUtilisateur) -> Result<(), ErreurBase> {
+    let cle = format!("sigma passkeys {}", tx.utilisateur().uuid());
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS \"verrou\"",
+        cle,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    Ok(())
+}
