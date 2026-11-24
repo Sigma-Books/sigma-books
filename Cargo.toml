@@ -70,6 +70,15 @@ hmac = { version = "0.13.0", default-features = false }
 rusty-s3 = { version = "0.12.0", default-features = false, features = ["rustcrypto"] }
 url = { version = "2.5.8", default-features = false, features = ["std"] }
 
+# Espace disque (docs/stockage-developpement.md) : les symboles de débogage complets pesaient
+# ~250 Mo par binaire de test. Les numéros de ligne suffisent aux traces de panique ; aucune
+# information de débogage pour les dépendances. Ne change ni le comportement ni les tests.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # Argon2 compilé optimisé même en développement : les tests vérifient de vrais mots de passe
 # (19 Mio, 2 passes), sans quoi chaque vérification prendrait plusieurs secondes.
 [profile.dev.package.argon2]
