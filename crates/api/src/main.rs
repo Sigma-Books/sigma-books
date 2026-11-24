@@ -114,9 +114,7 @@ async fn demarrer() -> Result<(), String> {
         adresse_ecoute = %config.adresse_ecoute,
         "serveur démarré"
     );
-    let boucle = tokio::spawn(async move {
-        travailleur.boucler(std::future::pending()).await;
-    });
+    let boucle = tokio::spawn(async move { travailleur.superviser().await });
     let service = servir(ecouteur, routeur, &config.reglages, async {
         // Sans gestionnaire de signal, on ne s'arrête que sur fermeture du processus.
         if tokio::signal::ctrl_c().await.is_err() {

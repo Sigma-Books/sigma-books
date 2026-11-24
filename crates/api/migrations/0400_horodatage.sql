@@ -32,6 +32,9 @@ CREATE TABLE tache (
     -- Bail d'une tâche prise : passé ce délai, un autre passage peut la reprendre (arrêt du
     -- processus pendant l'appel à l'autorité).
     reserve_jusqua timestamptz,
+    -- Jeton de prise, tiré à chaque prise : seul le travailleur qui l'a tiré peut terminer ou
+    -- reporter la tâche (un travailleur dont le bail a expiré ne clôt pas la prise du suivant).
+    prise uuid,
     tentatives integer NOT NULL DEFAULT 0 CHECK (tentatives >= 0),
     -- Code stable de la dernière issue (jamais le texte d'une réponse d'autorité).
     derniere_issue text CHECK (derniere_issue ~ '^[a-z0-9_]{1,40}$'),
@@ -47,13 +50,16 @@ CREATE TABLE tache (
                          'temoin') OR dossier_cible IS NOT NULL),
     CHECK (sujet <> 'export_audit_cabinet' OR dossier_cible IS NULL),
     CHECK ((etat = 'terminee') = (termine_le IS NOT NULL)),
-    CHECK ((etat = 'en_cours') = (reserve_jusqua IS NOT NULL))
+    CHECK ((etat = 'en_cours') = (reserve_jusqua IS NOT NULL)),
+    CHECK ((etat = 'en_cours') = (prise IS NOT NULL))
 );
--- Une tâche d'horodatage non terminée par dossier et par déclencheur ; une seule alerte de
+-- Une tâche d'horodatage **en attente** par dossier et par déclencheur : une tâche en cours
+-- (appel à l'autorité en train de se faire) n'empêche pas d'en planifier une autre, sans quoi une
+-- validation survenue pendant l'appel resterait sans jeton ni alerte (F6.2). Une seule alerte de
 -- retard non traitée par dossier.
 CREATE UNIQUE INDEX tache_horodatage_unique
     ON tache (cabinet_cible, dossier_cible, sujet)
-    WHERE nature = 'horodatage' AND etat <> 'terminee';
+    WHERE nature = 'horodatage' AND etat = 'en_attente';
 CREATE UNIQUE INDEX tache_retard_unique
     ON tache (cabinet_cible, dossier_cible)
     WHERE sujet = 'retard_horodatage' AND etat <> 'terminee';
@@ -95,7 +101,7 @@ CREATE POLICY tache_travailleur ON tache
         AND current_setting('sigma.travail', true) = 'file'
     );
 GRANT SELECT, INSERT, DELETE ON tache TO sigma_application;
-GRANT UPDATE (etat, prochaine_tentative, reserve_jusqua, tentatives, derniere_issue, termine_le)
+GRANT UPDATE (etat, cree_le, prochaine_tentative, reserve_jusqua, prise, tentatives, derniere_issue, termine_le)
     ON tache TO sigma_application;
 
 -- Jeton d'horodatage d'un dossier : le témoin horodaté (nombre d'écritures et tête de chaîne à

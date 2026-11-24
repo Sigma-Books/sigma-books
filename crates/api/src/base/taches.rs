@@ -157,6 +157,8 @@ pub struct TachePrise {
     pub sujet: SujetHorodatage,
     /// Tentatives déjà faites (celle-ci non comprise).
     pub tentatives: i32,
+    /// Jeton de cette prise : lui seul termine ou reporte la tâche.
+    pub prise: Uuid,
 }
 
 /// Transaction du travailleur de la file : contexte `sigma.travail = 'file'`, aucun cabinet.
@@ -200,8 +202,9 @@ impl TransactionTravailleur {
     }
 
     /// Prend au plus `limite` tâches d'horodatage échues (en attente à l'échéance, ou en cours
-    /// dont le bail est passé), les marque en cours jusqu'à `maintenant + bail`. `SKIP LOCKED` :
-    /// deux travailleurs ne prennent jamais la même tâche.
+    /// dont le bail est passé), les marque en cours jusqu'à `maintenant + bail` avec un jeton de
+    /// prise neuf. `SKIP LOCKED` : deux travailleurs ne prennent jamais la même tâche. Le
+    /// travailleur en prend **une à la fois** : le bail ne couvre que la tâche en cours.
     ///
     /// # Errors
     /// Erreur de PostgreSQL ou ligne incohérente.
@@ -212,8 +215,10 @@ impl TransactionTravailleur {
         limite: i64,
     ) -> Result<Vec<TachePrise>, ErreurBase> {
         let jusqua = maintenant + bail;
+        let prise = Uuid::new_v4();
         let lignes = sqlx::query!(
-            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, tentatives = tentatives + 1 \
+            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tentatives + 1 \
              WHERE id IN ( \
                  SELECT id FROM tache \
                  WHERE nature = 'horodatage' \
@@ -225,6 +230,7 @@ impl TransactionTravailleur {
             maintenant,
             jusqua,
             limite,
+            prise,
         )
         .fetch_all(self.connexion())
         .await?;
@@ -238,56 +244,86 @@ impl TransactionTravailleur {
                     sujet: SujetHorodatage::depuis_nom(&l.sujet)
                         .ok_or(ErreurBase::Donnee("sujet de tâche inconnu"))?,
                     tentatives: l.avant,
+                    prise,
                 })
             })
             .collect()
     }
 
-    /// Termine une tâche prise, avec le code de son issue.
+    /// Termine une tâche prise, avec le code de son issue. Sans effet (`false`) si la prise n'est
+    /// plus celle de l'appelant : son bail a expiré et un autre travailleur a repris la tâche.
     ///
     /// # Errors
     /// Erreur de PostgreSQL.
     pub async fn terminer(
         &mut self,
         id: Uuid,
+        prise: Uuid,
         issue: &str,
         maintenant: OffsetDateTime,
-    ) -> Result<(), ErreurBase> {
-        sqlx::query!(
-            "UPDATE tache SET etat = 'terminee', termine_le = $3, reserve_jusqua = NULL, \
-                              derniere_issue = $2 \
-             WHERE id = $1 AND etat = 'en_cours'",
+    ) -> Result<bool, ErreurBase> {
+        Ok(sqlx::query!(
+            "UPDATE tache SET etat = 'terminee', termine_le = $4, reserve_jusqua = NULL, \
+                              prise = NULL, derniere_issue = $3 \
+             WHERE id = $1 AND etat = 'en_cours' AND prise = $2",
             id,
+            prise,
             issue,
             maintenant,
         )
         .execute(self.connexion())
-        .await?;
-        Ok(())
+        .await?
+        .rows_affected()
+            == 1)
     }
 
     /// Remet une tâche prise en attente, à rejouer à `prochaine`, avec le code de l'issue
-    /// (rejeu différé : échec de toutes les autorités, ou rappel du lendemain).
+    /// (rejeu différé : échec de toutes les autorités, ou rappel du lendemain). Sans effet
+    /// (`false`) si la prise n'est plus celle de l'appelant.
+    ///
+    /// Si une tâche du même sujet attend déjà pour ce dossier (planifiée pendant l'appel), les
+    /// deux sont fusionnées : celle-ci se termine (`fusionnee`) et l'autre reprend la plus
+    /// ancienne date de création, qui sert au retard.
     ///
     /// # Errors
     /// Erreur de PostgreSQL.
     pub async fn reporter(
         &mut self,
         id: Uuid,
+        prise: Uuid,
         issue: &str,
         prochaine: OffsetDateTime,
-    ) -> Result<(), ErreurBase> {
-        sqlx::query!(
-            "UPDATE tache SET etat = 'en_attente', prochaine_tentative = $3, \
-                              reserve_jusqua = NULL, derniere_issue = $2 \
-             WHERE id = $1 AND etat = 'en_cours'",
+        maintenant: OffsetDateTime,
+    ) -> Result<bool, ErreurBase> {
+        let fusion = sqlx::query!(
+            "UPDATE tache a SET cree_le = LEAST(a.cree_le, t.cree_le) \
+             FROM tache t \
+             WHERE t.id = $1 AND t.etat = 'en_cours' AND t.prise = $2 \
+               AND a.nature = 'horodatage' AND a.etat = 'en_attente' \
+               AND a.cabinet_cible = t.cabinet_cible AND a.dossier_cible = t.dossier_cible \
+               AND a.sujet = t.sujet",
             id,
+            prise,
+        )
+        .execute(self.connexion())
+        .await?
+        .rows_affected();
+        if fusion > 0 {
+            return self.terminer(id, prise, "fusionnee", maintenant).await;
+        }
+        Ok(sqlx::query!(
+            "UPDATE tache SET etat = 'en_attente', prochaine_tentative = $4, \
+                              reserve_jusqua = NULL, prise = NULL, derniere_issue = $3 \
+             WHERE id = $1 AND etat = 'en_cours' AND prise = $2",
+            id,
+            prise,
             issue,
             prochaine,
         )
         .execute(self.connexion())
-        .await?;
-        Ok(())
+        .await?
+        .rows_affected()
+            == 1)
     }
 
     /// Crée l'alerte de retard (F6.2) de chaque dossier dont une tâche d'horodatage non

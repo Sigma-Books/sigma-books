@@ -58,6 +58,8 @@ pub struct Reglages {
     pub delai_alerte: time::Duration,
     /// Conservation des tâches d'horodatage terminées.
     pub conservation: time::Duration,
+    /// Attente avant de relancer la boucle après son arrêt inattendu (panique).
+    pub relance: Duration,
 }
 
 impl Default for Reglages {
@@ -68,6 +70,7 @@ impl Default for Reglages {
             lot: 20,
             delai_alerte: time::Duration::hours(24),
             conservation: time::Duration::days(30),
+            relance: Duration::from_secs(5),
         }
     }
 }
@@ -142,13 +145,16 @@ impl Travailleur {
     /// tâche n'interrompt pas les autres : elle est comptée dans [`Bilan::erreurs`].
     pub async fn passer(&self) -> Result<Bilan, ErreurBase> {
         let mut bilan = Bilan::default();
-        let maintenant = self.horloge.maintenant();
-        let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
-        let taches = tx
-            .prendre_echues(maintenant, self.reglages.bail, self.reglages.lot)
-            .await?;
-        tx.confirmer().await?;
-        for tache in taches {
+        // Une tâche à la fois : le bail ne couvre que celle qui est en cours (un lot de tâches
+        // lentes ne laisse pas expirer le bail des dernières), et deux instances se partagent
+        // le travail tâche par tâche.
+        for _ in 0..self.reglages.lot {
+            let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
+            let mut prises = tx
+                .prendre_echues(self.horloge.maintenant(), self.reglages.bail, 1)
+                .await?;
+            tx.confirmer().await?;
+            let Some(tache) = prises.pop() else { break };
             bilan.prises += 1;
             match self.traiter(tache).await {
                 Ok(Issue::Jeton) => bilan.jetons += 1,
@@ -173,6 +179,24 @@ impl Travailleur {
             );
         }
         Ok(bilan)
+    }
+
+    /// Boucle **supervisée** : si la boucle s'arrête de façon inattendue (panique), l'arrêt est
+    /// journalisé (erreur, sans détail) et la boucle est relancée après [`Reglages::relance`].
+    /// Ne rend jamais la main : à lancer dans une tâche que l'on abandonne à l'arrêt du serveur.
+    pub async fn superviser(&self) {
+        loop {
+            let boucle = self.clone();
+            let issue = tokio::spawn(async move { boucle.boucler(std::future::pending()).await });
+            // `boucler` ne se termine pas : toute fin est une panique ou une annulation.
+            let _ = issue.await;
+            tracing::error!(
+                target: CIBLE,
+                erreur = "horodatage",
+                "boucle d'horodatage arrêtée, relance"
+            );
+            tokio::time::sleep(self.reglages.relance).await;
+        }
     }
 
     /// Boucle jusqu'à ce que `arret` se termine. Une erreur de passage est journalisée (code
@@ -210,23 +234,33 @@ impl Travailleur {
         let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
         let issue = match resultat {
             Sortie::Jeton => {
-                tx.terminer(tache.id, "jeton_obtenu", maintenant).await?;
+                tx.terminer(tache.id, tache.prise, "jeton_obtenu", maintenant)
+                    .await?;
                 Issue::Jeton
             }
             Sortie::SansObjet => {
-                tx.terminer(tache.id, "sans_objet", maintenant).await?;
+                tx.terminer(tache.id, tache.prise, "sans_objet", maintenant)
+                    .await?;
                 Issue::SansObjet
             }
             Sortie::Lendemain => {
-                tx.reporter(tache.id, "jeton_du_jour", lendemain(maintenant))
-                    .await?;
+                tx.reporter(
+                    tache.id,
+                    tache.prise,
+                    "jeton_du_jour",
+                    lendemain(maintenant),
+                    maintenant,
+                )
+                .await?;
                 Issue::Reportee
             }
             Sortie::Echec(issue) => {
                 tx.reporter(
                     tache.id,
+                    tache.prise,
                     issue,
                     maintenant + delai_de_rejeu(tache.tentatives),
+                    maintenant,
                 )
                 .await?;
                 Issue::Reportee

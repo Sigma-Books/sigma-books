@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tache a SET cree_le = LEAST(a.cree_le, t.cree_le) FROM tache t WHERE t.id = $1 AND t.etat = 'en_cours' AND t.prise = $2 AND a.nature = 'horodatage' AND a.etat = 'en_attente' AND a.cabinet_cible = t.cabinet_cible AND a.dossier_cible = t.dossier_cible AND a.sujet = t.sujet",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "44b2b772dc1fdf5ef27ebf07a5547a532a02095bb19364c45be570e83365fb45"
+}

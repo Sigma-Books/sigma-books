@@ -29,7 +29,7 @@ use commun::serveur::{HorlogeTest, envoyer};
 use integrite::horodatage::{JetonVerifie, Temoin};
 use sqlx::PgPool;
 use time::Duration;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use uuid::Uuid;
 
 const JETON_FIGE: &[u8] = include_bytes!("../../integrite/tests/vecteurs/horodatage/digicert.tsr");
@@ -38,15 +38,35 @@ const JETON_FIGE: &[u8] = include_bytes!("../../integrite/tests/vecteurs/horodat
 static SERIE: Mutex<()> = Mutex::const_new(());
 
 /// Autorité simulée : rend le jeton figé, ou échoue.
+struct AbandonAuDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbandonAuDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+type Pause = (String, Arc<Notify>, Arc<Notify>);
+
 #[derive(Debug, Default)]
 struct Simulee {
     panne: MutexStd<bool>,
     temoins: MutexStd<Vec<Temoin>>,
+    /// Dossier pour lequel l'appel s'arrête (signale `arrive`, attend `libere`).
+    pause: MutexStd<Option<Pause>>,
+    /// Dossier pour lequel l'appel panique, une seule fois.
+    panique: MutexStd<Option<String>>,
 }
 
 impl Simulee {
     fn en_panne(&self, panne: bool) {
         *self.panne.lock().unwrap() = panne;
+    }
+
+    fn faire_pause(&self, dossier: Uuid) -> (Arc<Notify>, Arc<Notify>) {
+        let (arrive, libere) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        *self.pause.lock().unwrap() = Some((dossier.to_string(), arrive.clone(), libere.clone()));
+        (arrive, libere)
     }
 
     fn contenus(&self) -> Vec<String> {
@@ -67,6 +87,23 @@ impl Horodateur for Simulee {
     ) -> Pin<Box<dyn Future<Output = Result<JetonObtenu, ErreurHorodatage>> + Send + 'a>> {
         Box::pin(async move {
             self.temoins.lock().unwrap().push(temoin.clone());
+            let dossier = temoin.dossier().as_str().to_owned();
+            let panique = {
+                let mut p = self.panique.lock().unwrap();
+                if p.as_deref() == Some(dossier.as_str()) {
+                    p.take()
+                } else {
+                    None
+                }
+            };
+            assert!(panique.is_none(), "panique voulue de l'autorité simulée");
+            let pause = self.pause.lock().unwrap().clone();
+            if let Some((d, arrive, libere)) = pause
+                && d == dossier
+            {
+                arrive.notify_one();
+                libere.notified().await;
+            }
             let autorite = Autorite::parse("http://tsa.exemple.invalid").unwrap();
             if *self.panne.lock().unwrap() {
                 return Err(ErreurHorodatage::ToutesEnEchec(vec![(
@@ -96,12 +133,16 @@ struct Atelier {
 }
 
 async fn atelier() -> Atelier {
+    atelier_avec(Reglages::default()).await
+}
+
+async fn atelier_avec(reglages: Reglages) -> Atelier {
     let b = banc().await;
     let autorite = Arc::new(Simulee::default());
     let horloge = HorlogeTest::default();
     let reglages = Reglages {
         lot: 10_000,
-        ..Reglages::default()
+        ..reglages
     };
     let travailleur = Travailleur::new(
         b.env.application.clone(),
@@ -149,6 +190,15 @@ impl Atelier {
         .fetch_all(&self.b.env.admin)
         .await
         .unwrap()
+    }
+
+    /// Tâches d'horodatage seules (l'horloge avancée de plusieurs jours crée aussi une alerte).
+    async fn horodatages(&self) -> Vec<(String, String, String)> {
+        self.taches()
+            .await
+            .into_iter()
+            .filter(|t| t.0 == "horodatage")
+            .collect()
     }
 
     async fn notifications(&self, sujet: &str) -> i64 {
@@ -380,7 +430,7 @@ async fn une_tache_prise_puis_abandonnee_est_reprise_apres_son_bail() {
     // Arrêt du processus pendant l'appel : la tâche reste « en cours », bail passé.
     sqlx::query(
         "UPDATE tache SET etat = 'en_cours', reserve_jusqua = now() - interval '1 minute', \
-                          tentatives = 1, prochaine_tentative = now() - interval '2 minutes' \
+                          prise = gen_random_uuid(), tentatives = 1, prochaine_tentative = now() - interval '2 minutes' \
          WHERE dossier_cible = $1",
     )
     .bind(a.b.c.dossier.uuid())
@@ -400,7 +450,7 @@ async fn une_tache_prise_puis_abandonnee_est_reprise_apres_son_bail() {
     a.valider_une("Seconde").await;
     sqlx::query(
         "UPDATE tache SET etat = 'en_cours', reserve_jusqua = now() + interval '1 hour', \
-                          prochaine_tentative = now() - interval '2 minutes' \
+                          prise = gen_random_uuid(), prochaine_tentative = now() - interval '2 minutes' \
          WHERE dossier_cible = $1 AND etat = 'en_attente'",
     )
     .bind(a.b.c.dossier.uuid())
@@ -569,4 +619,187 @@ async fn un_export_d_audit_cree_une_alerte_et_un_export_refuse_aucune() {
     )
     .await;
     assert_eq!(a.notifications("export_audit_dossier").await, 2);
+}
+
+#[tokio::test]
+async fn une_validation_pendant_l_appel_a_l_autorite_garde_sa_tache() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    let (arrive, libere) = a.autorite.faire_pause(a.b.c.dossier.uuid());
+    let travailleur = a.travailleur.clone();
+    let passage = tokio::spawn(async move { travailleur.passer().await.unwrap() });
+    arrive.notified().await;
+    // La tâche est en cours ; une seconde écriture est validée pendant l'appel.
+    a.valider_une("Seconde").await;
+    libere.notify_one();
+    passage.await.unwrap();
+    assert_eq!(
+        a.horodatages().await,
+        vec![
+            ("horodatage".into(), "quotidien".into(), "terminee".into()),
+            ("horodatage".into(), "quotidien".into(), "en_attente".into()),
+        ]
+    );
+    assert_eq!(
+        a.jetons().await.iter().map(|j| j.0).collect::<Vec<_>>(),
+        [1]
+    );
+    // La tâche planifiée pendant l'appel obtient le jeton qui couvre la seconde écriture.
+    *a.autorite.pause.lock().unwrap() = None;
+    a.horloge.avancer(Duration::days(2));
+    a.passer().await;
+    assert_eq!(
+        a.jetons().await.iter().map(|j| j.0).collect::<Vec<_>>(),
+        [1, 2]
+    );
+}
+
+#[tokio::test]
+async fn un_travailleur_dont_le_bail_a_expire_ne_clot_pas_la_prise_du_suivant() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    let (arrive, libere) = a.autorite.faire_pause(a.b.c.dossier.uuid());
+    let travailleur = a.travailleur.clone();
+    let passage = tokio::spawn(async move { travailleur.passer().await.unwrap() });
+    arrive.notified().await;
+    // Un autre travailleur a repris la tâche : nouvelle prise.
+    let n = sqlx::query("UPDATE tache SET prise = gen_random_uuid() WHERE dossier_cible = $1")
+        .bind(a.b.c.dossier.uuid())
+        .execute(&a.b.env.admin)
+        .await
+        .unwrap()
+        .rows_affected();
+    assert_eq!(n, 1);
+    libere.notify_one();
+    passage.await.unwrap();
+    // Le premier n'a pas clos la prise du second.
+    assert_eq!(
+        a.horodatages().await,
+        vec![("horodatage".into(), "quotidien".into(), "en_cours".into())]
+    );
+}
+
+#[tokio::test]
+async fn deux_passages_simultanes_ne_prennent_jamais_la_meme_tache() {
+    let _s = SERIE.lock().await;
+    let env = commun::env().await;
+    let cabinet = Uuid::new_v4();
+    for _ in 0..12 {
+        sqlx::query(
+            "INSERT INTO tache (id, nature, sujet, cabinet_cible, dossier_cible, etat, cree_le, \
+                                prochaine_tentative) \
+             VALUES (gen_random_uuid(), 'horodatage', 'cloture', $1, gen_random_uuid(), \
+                     'en_attente', now(), now() - interval '1 minute')",
+        )
+        .bind(cabinet)
+        .execute(&env.admin)
+        .await
+        .unwrap();
+    }
+    let travailleur = || {
+        Travailleur::new(
+            env.application.clone(),
+            Arc::new(Simulee::default()),
+            Arc::new(HorlogeTest::default()),
+            Reglages {
+                lot: 10_000,
+                ..Reglages::default()
+            },
+        )
+    };
+    let (t1, t2) = (travailleur(), travailleur());
+    let (r1, r2) = tokio::join!(t1.passer(), t2.passer());
+    let (r1, r2) = (r1.unwrap(), r2.unwrap());
+    assert!(r1.prises + r2.prises >= 12);
+    let lignes: Vec<(String, i32)> =
+        sqlx::query_as("SELECT etat, tentatives FROM tache WHERE cabinet_cible = $1")
+            .bind(cabinet)
+            .fetch_all(&env.admin)
+            .await
+            .unwrap();
+    assert_eq!(lignes.len(), 12);
+    // Chaque tâche a été prise une seule fois, et terminée.
+    assert!(
+        lignes.iter().all(|(e, n)| e == "terminee" && *n == 1),
+        "{lignes:?}"
+    );
+}
+
+#[tokio::test]
+async fn la_boucle_supervisee_survit_a_une_panique() {
+    let _s = SERIE.lock().await;
+    let a = atelier_avec(Reglages {
+        periode: std::time::Duration::from_millis(50),
+        relance: std::time::Duration::from_millis(50),
+        ..Reglages::default()
+    })
+    .await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    *a.autorite.panique.lock().unwrap() = Some(a.b.c.dossier.uuid().to_string());
+    let travailleur = a.travailleur.clone();
+    // Abandonnée à la fin du test, même en cas d'échec : elle ne doit pas prendre les tâches
+    // des autres tests.
+    let boucle = AbandonAuDrop(tokio::spawn(async move { travailleur.superviser().await }));
+    let attendre = async {
+        while a.autorite.panique.lock().unwrap().is_some() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), attendre)
+        .await
+        .expect("la panique devait avoir lieu");
+    // La tâche est restée en cours (bail) : passé le bail, la boucle relancée la reprend.
+    a.horloge.avancer(Duration::minutes(10));
+    let obtenu = async {
+        while a.jetons().await.is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), obtenu)
+        .await
+        .expect("la boucle relancée devait horodater");
+    drop(boucle);
+}
+
+#[tokio::test]
+async fn un_echec_pendant_qu_une_tache_est_planifiee_fusionne_les_deux() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.horloge.avancer(Duration::days(2));
+    let (arrive, libere) = a.autorite.faire_pause(a.b.c.dossier.uuid());
+    let travailleur = a.travailleur.clone();
+    let passage = tokio::spawn(async move { travailleur.passer().await.unwrap() });
+    arrive.notified().await;
+    a.valider_une("Seconde").await;
+    // L'autorité échoue : la tâche en cours doit être reportée, alors qu'une autre attend déjà.
+    a.autorite.en_panne(true);
+    // La tâche planifiée pendant l'appel est reprise dans le même passage : plus de pause.
+    *a.autorite.pause.lock().unwrap() = None;
+    libere.notify_one();
+    passage.await.unwrap();
+    let t = a.horodatages().await;
+    assert_eq!(
+        t,
+        vec![
+            ("horodatage".into(), "quotidien".into(), "terminee".into()),
+            ("horodatage".into(), "quotidien".into(), "en_attente".into()),
+        ]
+    );
+    // La tâche restante garde la date de création la plus ancienne (calcul du retard).
+    let (plus_ancienne,): (bool,) = sqlx::query_as(
+        "SELECT cree_le <= (SELECT min(cree_le) FROM tache WHERE dossier_cible = $1 \
+                            AND etat = 'terminee') \
+         FROM tache WHERE dossier_cible = $1 AND etat = 'en_attente'",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .fetch_one(&a.b.env.admin)
+    .await
+    .unwrap();
+    assert!(plus_ancienne);
 }
