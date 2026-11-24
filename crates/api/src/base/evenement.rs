@@ -32,6 +32,10 @@ pub enum NatureEvenement {
     Deconnexion,
     /// Révocation d'une de ses sessions.
     RevocationSession,
+    /// Enrôlement d'une passkey (PR 8c).
+    EnrolementPasskey,
+    /// Suppression d'une passkey (PR 8c).
+    SuppressionPasskey,
 }
 
 impl NatureEvenement {
@@ -45,6 +49,8 @@ impl NatureEvenement {
             Self::GenerationCodes => "generation_codes",
             Self::Deconnexion => "deconnexion",
             Self::RevocationSession => "revocation_session",
+            Self::EnrolementPasskey => "enrolement_passkey",
+            Self::SuppressionPasskey => "suppression_passkey",
         }
     }
 }

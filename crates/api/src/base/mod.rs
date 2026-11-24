@@ -42,6 +42,7 @@ pub mod config;
 pub mod evenement;
 pub mod facteurs;
 pub mod organisation;
+pub mod passkeys;
 pub mod referentiel;
 pub mod session;
 pub mod validation;
