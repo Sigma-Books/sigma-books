@@ -514,6 +514,20 @@ mc mb --with-lock local/sigma-pieces
 - Travailleur : `horodatage::tache::Travailleur`, lancé par le binaire `api` (un passage par minute ; `Horodateur` = le client des autorités, remplaçable en test). Pas de variable d'environnement de plus : la liste des autorités est `SIGMA_AUTORITES_HORODATAGE`.
 - Tests : `tests/taches.rs` (autorité simulée, jeton figé de L1).
 
+## Intégrité d'un dossier (PR 15b ; ADR 0007, 0010 ; spec §6.4, §21)
+
+Routes `/api/cabinets/{c}/dossiers/{d}/integrite…` (administrateur, valideur, auditeur affectés) :
+
+| Route | Rôle |
+|---|---|
+| `GET /integrite` | État : nombre d'écritures, tête, jetons, écritures sans jeton, attente et retard d'horodatage (> 24 h), témoin courant |
+| `GET /integrite/jetons` | Jetons stockés (autorité, dates, nombre d'écritures couvert) |
+| `GET /integrite/verification` | **Recalcul de la chaîne depuis la base** (#188) : rang, empreinte précédente, empreinte recalculée du texte stocké, colonnes (numéro, dates, libellé, format, lignes) rapprochées du texte, tête stockée, témoin et signature de chaque jeton. Rapport « intègre » ou anomalies localisées par rang et numéro (codes stables, jamais un libellé ni un montant) |
+| `GET /integrite/temoin` | Témoin externe courant en pièce jointe, à conserver hors de l'instance (F2.4) |
+| `POST /integrite/export` | Export d'intégrité au format en vigueur (v3, v4 si une écriture porte une étiquette fiscale), jetons compris ; **session fraîche**, audit (tête, nombre, jetons), alerte à l'administrateur dans la même transaction |
+
+Choix : l'export recopie le texte et les empreintes **stockés** sans rien recalculer (une base altérée se voit à `sigma-verifier`) ; il est construit en mémoire, dans une transaction à instantané unique (limite acceptée en L2, comme l'export d'audit). La vérification reprend le calcul sur l'empreinte stockée après une anomalie : seule l'écriture altérée est signalée. Les signatures des jetons se vérifient hors du fil des requêtes (`spawn_blocking`). Tests : `tests/integrite.rs` (altérations faites par le rôle propriétaire), `api::verification` (propriété sur chaque octet).
+
 ## Brouillard
 
 Brouillard persistant et journalisé (PR 13a ; `src/base/brouillard.rs`, `src/serveur/routes/brouillard.rs`).

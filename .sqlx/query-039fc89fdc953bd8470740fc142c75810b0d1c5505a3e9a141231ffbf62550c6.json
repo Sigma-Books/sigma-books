@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT min(cree_le) FROM tache WHERE nature = 'horodatage' AND etat <> 'terminee' AND cabinet_cible = $1 AND dossier_cible = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "min",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "039fc89fdc953bd8470740fc142c75810b0d1c5505a3e9a141231ffbf62550c6"
+}

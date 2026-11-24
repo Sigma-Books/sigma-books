@@ -98,11 +98,10 @@ pub(crate) async fn executer(
         | CasUsage::Referentiel(_)
         | CasUsage::Pieces(_)
         | CasUsage::Brouillard(_)
-        | CasUsage::Editions(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
+        | CasUsage::Editions(_)
+        | CasUsage::Integrite(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
         // Voie authentification (PR 9).
         CasUsage::Administration(cas) => match cas {},
-        // Voie intégrité et horodatage (PR 15).
-        CasUsage::Integrite(cas) => match cas {},
     }?;
     tx.confirmer().await?;
     Ok(reponse)
