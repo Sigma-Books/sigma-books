@@ -176,6 +176,13 @@ pub enum CasUsage {
 }
 
 impl CasUsage {
+    /// Vrai pour un cas d'usage de l'authentification d'un utilisateur (facteurs de secours,
+    /// passkeys), exécuté hors cabinet par `serveur::facteurs`.
+    #[must_use]
+    pub const fn est_facteur(self) -> bool {
+        matches!(self, Self::Facteurs(_) | Self::Passkeys(_))
+    }
+
     /// Nom du module du cas d'usage ([`Module::nom`]).
     #[must_use]
     pub const fn module(self) -> &'static str {

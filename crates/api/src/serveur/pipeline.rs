@@ -510,10 +510,7 @@ async fn traiter_requete(
 
     // Hors cabinet : session courante, ressources propres de l'utilisateur, ses facteurs.
     if !route.portee.du_cabinet() {
-        let reponse = if matches!(
-            route.cas_usage,
-            super::routes::CasUsage::Facteurs(_) | super::routes::CasUsage::Passkeys(_)
-        ) {
+        let reponse = if route.cas_usage.est_facteur() {
             super::facteurs::executer(etat, route, &parts, &identite, &corps).await?
         } else {
             super::moi::executer(etat, route, &mut parts, &identite).await?

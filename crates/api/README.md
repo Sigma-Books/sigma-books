@@ -67,7 +67,7 @@ prennent jamais le même numéro.
 | Plage | Voie |
 |---|---|
 | `0001` à `0099` | Socle déjà fusionné (organisation, identifiants, audit, sessions) |
-| `0100` à `0199` | Authentification (PR 8b, 8c, 9) |
+| `0100` à `0199` | Authentification (PR 8b `0100`, 8c `0101`, 9) |
 | `0200` à `0299` | Comptabilité (PR 11, 13, 14) |
 | `0300` à `0399` | Pièces (PR 12) |
 | `0400` à `0499` | Intégrité et horodatage (PR 15) |
@@ -131,7 +131,7 @@ cargo run -p api
 ```
 
 Connexion par la méthode de secours (mot de passe et TOTP) ou par un code de récupération
-(« Méthode de secours » ci-dessous) ; les passkeys arrivent avec la PR 8c. Sans session ouverte,
+(« Méthode de secours » ci-dessous) ; les passkeys (PR 8c) : « Passkeys, WebAuthn » ci-dessous. Sans session ouverte,
 toute autre route de l'API répond 401.
 
 ### Variables d'environnement
@@ -263,10 +263,9 @@ catalogue `catalogue/facteurs.toml`.
 - **Codes de récupération** : 120 bits, base32 de Crockford, hachés (SHA-256), à usage unique
   (`utilise_le IS NULL`, atomique). Un code n'ouvre qu'une **session restreinte** : sa propre
   session et l'enrôlement du secours, rien d'autre (F1.12).
-- **Écart assumé avec l'ADR 0012** : l'ADR réserve la session restreinte à l'enrôlement d'une
-  nouvelle **passkey**. Les passkeys arrivent en PR 8c ; d'ici là, le secours est le seul
-  facteur enrôlable, et la session restreinte permet donc d'enrôler (ou de remplacer) le
-  secours. La PR 8c ajoutera l'enrôlement d'une passkey à cette session.
+- **ADR 0012** : la session restreinte sert à enrôler un facteur. Elle enrôle une **passkey**
+  (PR 8c, `EnrolerPasskey`) ou remplace le secours (`EnrolerSecours`, écart assumé de la PR 8b,
+  conservé : le secours reste le repli de l'ADR).
 - **Connexion sans contexte** : la transaction de connexion ne pose **jamais**
   `sigma.utilisateur`, mais `sigma.courriel_connexion` (politiques `*_connexion` de la migration
   `0100`) : elle ne voit que la ligne `utilisateur` du courriel saisi, son secours et ses codes, et
@@ -326,8 +325,66 @@ même une décision forcée à « autorisé » n'ouvre qu'une session restreinte
 pour ressource lui-même, et pour contexte la session lue en base (nature, méthode, fraîcheur) ;
 la RLS et le filtre des requêtes bornent tout à cet utilisateur.
 
-**Hors de cette PR** : passkeys (PR 8c), réinitialisation par un administrateur et alertes par
-courriel (PR 9), purge des événements (durée à fixer, ADR 0017).
+**Hors de cette PR** : réinitialisation par un administrateur et alertes par courriel (PR 9),
+purge des événements (durée à fixer, ADR 0017). Les passkeys (PR 8c) sont décrites ci-dessous.
+
+### Passkeys, WebAuthn (PR 8c ; ADR 0006, ADR 0012, ADR 0018)
+
+Les passkeys sont la méthode principale ; le secours ci-dessus est le repli. La vérification est
+celle de `webauthn-rs` 0.6.2 (MPL-2.0, audité par SUSE), sur une copie corrigée de `crypto-glue`
+(`vendor/crypto-glue/`, ADR 0018, `docs/provenance/crypto-glue.md`) ; rien de cryptographique
+n'est écrit dans le dépôt. Code : `src/facteurs/passkey.rs` (protocole), `src/base/passkeys.rs`
+(base), `src/serveur/passkeys.rs` (cas d'usage), migration `0101_passkeys.sql`.
+
+- **Partie de confiance** : l'hôte de `SIGMA_ORIGINE`, seule origine admise. Une origine sans hôte
+  nommé (adresse IP) interdit toute passkey : le binaire refuse de démarrer.
+- **Vérification de l'utilisateur exigée** (code, biométrie), à l'enrôlement comme à chaque
+  authentification, et recontrôlée sur le résultat : une passkey est un facteur fort à elle seule.
+  Pas d'attestation, pas de passkey découvrable : on part du courriel, puis `allowCredentials`.
+- **Une cérémonie, deux appels** : un « défi » (options WebAuthn rendues, état gardé en base, jeton
+  dans le cookie `__Host-sigma_ceremonie`, `HttpOnly`, `Secure`, `SameSite=Strict`, 5 minutes), puis
+  la réponse de l'authentificateur. L'état est **à usage unique** (`DELETE … RETURNING`) : une
+  réponse rejouée, un défi échu, d'une autre session ou d'un autre compte ne passent pas. Le
+  jeton n'est stocké que sous forme d'empreinte SHA-256.
+- **Rien de secret en base** : `facteur_passkey.cle` est la `Passkey` sérialisée (clé publique,
+  identifiant, compteur) ; la clé privée reste dans l'authentificateur. Le compteur est remplacé
+  par une mise à jour conditionnelle (`WHERE cle = <état lu>`) : deux connexions concurrentes ne se
+  superposent pas. Un identifiant de credential est unique dans toute l'instance.
+- **RLS de la connexion** : comme le secours, sans utilisateur ; elle ne voit que les passkeys et
+  les défis de **connexion** du compte du courriel saisi, ne peut changer d'une passkey que son
+  état et sa dernière utilisation (déclencheur), et ne devient une transaction d'utilisateur que
+  sur présentation du facteur vérifié.
+- **Anti-énumération** : le défi d'une connexion rend la même forme (`{"defi": …}`, cookie compris),
+  la même durée plancher (en succès comme en échec) pour un courriel inconnu, un compte sans
+  passkey et un compte plafonné : faux identifiants dérivés du courriel par la clé de l'instance
+  (stables, 1 à 3), rien d'écrit. Un échec rend toujours 401 `non_authentifie`.
+- **Bornes** : 10 passkeys par utilisateur ; 4 défis de connexion en cours par compte ; nom de
+  1 à 100 caractères sans caractère de contrôle ; mêmes débits que le secours.
+- **Suppression** : session complète fraîche ; le compte garde au moins un facteur fort (une autre
+  passkey ou un secours utilisable), sinon 422 `dernier_facteur` (F1.1). Un enrôlement ou une
+  suppression révoque les autres sessions (ADR 0012).
+- **Événements et audit** : `connexion` (méthode `passkey`), `enrolement_passkey`,
+  `suppression_passkey`, `reauthentification`, et, dans l'audit de chaque cabinet actif,
+  `OuvrirSession`, `EnrolerPasskey`, `SupprimerPasskey`. Aucun secret ni credential.
+
+| Route | Portée | Cedar |
+|---|---|---|
+| `POST /api/connexion/passkey/defi` : courriel ; options d'authentification (réelles ou factices) | sans session | `SeConnecter` (Anonyme) |
+| `POST /api/connexion/passkey` : courriel, réponse ; session complète | sans session | `SeConnecter`, puis `OuvrirSession` (Utilisateur) |
+| `POST /api/session/reauthentification/passkey/defi`, `…/passkey` : réponse ; session fraîche, jeton tourné | session complète | `SeReauthentifier` |
+| `POST /api/moi/facteurs/passkeys/defi`, `POST /api/moi/facteurs/passkeys` : nom, réponse | session complète fraîche, ou restreinte | `EnrolerPasskey` |
+| `DELETE /api/moi/facteurs/passkeys/{passkey}` | session complète fraîche | `SupprimerPasskey` |
+
+`GET /api/moi/facteurs` rend aussi ses passkeys (identifiant, nom, dates ; ni clé ni compteur).
+
+**Tests** : `tests/passkeys.rs` (parcours de bout en bout avec un authentificateur logiciel,
+`webauthn-authenticator-rs` en dépendance de développement : enrôlement, connexion,
+ré-authentification, suppression, rejeu, défi échu, cérémonie d'un autre, concurrence, anti-
+énumération, session restreinte, RLS) et `tests/isolation/passkeys.rs` (un cas par route, et
+« Cedar se trompe »).
+
+**Surveillance** (ADR 0018) : `cargo deny` ne vérifie pas les avis de la copie locale ; toute PR qui
+touche à l'authentification vérifie les avis publiés pour `crypto-glue` et `webauthn-rs`.
 
 ## Journal d'audit
 

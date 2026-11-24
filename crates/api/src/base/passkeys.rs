@@ -247,7 +247,7 @@ async fn elaguer_et_inserer(
              ORDER BY cree_le DESC, id OFFSET $4)",
         defi.utilisateur.uuid(),
         defi.nature.nom(),
-        defi.session.map(|s| s.uuid()),
+        defi.session.map(IdSession::uuid),
         (conserves - 1).max(0),
     )
     .execute(&mut *connexion)
@@ -260,7 +260,7 @@ async fn elaguer_et_inserer(
         defi.jeton_hache.as_slice(),
         defi.utilisateur.uuid(),
         defi.nature.nom(),
-        defi.session.map(|s| s.uuid()),
+        defi.session.map(IdSession::uuid),
         defi.etat,
         defi.instant,
         defi.expire_le,
@@ -336,7 +336,7 @@ pub async fn inserer(
 ) -> Result<Option<Uuid>, ErreurBase> {
     let utilisateur = tx.utilisateur().uuid();
     let etat = serialiser(passkey)?;
-    let identifiant: Vec<u8> = passkey.cred_id().to_vec();
+    let identifiant: &Vec<u8> = passkey.cred_id();
     let id = Uuid::new_v4();
     let cree = sqlx::query_scalar!(
         "INSERT INTO facteur_passkey \

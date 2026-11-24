@@ -4,6 +4,8 @@
 //! ne termine ni ne supprime la passkey ou la cérémonie d'un autre.
 //!
 //! « Cedar se trompe » : [`les_passkeys_restent_bornees_quand_cedar_se_trompe`].
+// Fichier de test : A, B, a, b, d, r y sont les noms usuels des deux mondes et des réponses.
+#![allow(clippy::many_single_char_names)]
 
 use std::sync::Arc;
 
@@ -424,12 +426,13 @@ async fn cas_defi_enrolement(c: &Ctx<'_>) {
     assert_eq!(d.statut, StatusCode::OK, "{}", d.texte());
     let options: CreationChallengeResponse =
         serde_json::from_value(d.json()["defi"].clone()).unwrap();
-    assert!(
+    assert_eq!(
         options
             .public_key
             .exclude_credentials
             .unwrap_or_default()
-            .is_empty()
+            .len(),
+        0
     );
     assert_eq!(defis_de(&env.admin, b).await, 1);
     // Le défi n'est créé que pour l'utilisateur de la session, même pour un membre de deux cabinets.

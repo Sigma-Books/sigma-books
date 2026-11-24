@@ -9,7 +9,11 @@
 //! les routes.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
-#![allow(clippy::expect_used, clippy::unwrap_used)]
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::many_single_char_names
+)]
 
 mod commun;
 
