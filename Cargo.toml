@@ -74,6 +74,8 @@ url = { version = "2.5.8", default-features = false, features = ["std"] }
 # d'authentificateur) ; l'état d'une cérémonie est stocké en base (fonctionnalité `danger-…`,
 # documentée sûre pour cet usage). Tire `crypto-glue`, remplacé par `vendor/` (voir `[patch]`).
 webauthn-rs = { version = "0.6.2", default-features = false, features = ["danger-allow-state-serialisation"] }
+# Types du protocole (défi d'authentification factice, anti-énumération) : déjà tirés par `webauthn-rs`.
+webauthn-rs-proto = { version = "0.6.2", default-features = false }
 
 # ADR 0018 : copie corrigée de `crypto-glue` 0.2.2 (`rsa` 0.10.0 au lieu d'une préversion visée
 # par RUSTSEC-2023-0071), à retirer dès la version 0.2.3 (#162). Voir docs/provenance/crypto-glue.md.

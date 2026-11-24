@@ -112,6 +112,7 @@ dependencies = [
  "url",
  "uuid",
  "webauthn-rs",
+ "webauthn-rs-proto",
  "x509-tsp",
  "zeroize",
 ]

@@ -269,6 +269,25 @@ impl CleInstance {
     }
 }
 
+impl CleInstance {
+    /// Octets stables et imprévisibles dérivés d'un courriel et d'un rang : HMAC-SHA256 par la
+    /// sous-clé d'énumération. Ils fournissent les **faux** identifiants de passkey rendus pour
+    /// un courriel inconnu ou sans passkey (anti-énumération) : toujours les mêmes pour un même
+    /// courriel, indiscernables d'identifiants réels sans la clé de l'instance.
+    #[must_use]
+    pub fn octets_factices(&self, courriel: &str, rang: u8) -> [u8; 32] {
+        use hmac::{Hmac, Mac};
+        let mut sortie = [0u8; 32];
+        if let Ok(mut mac) = <Hmac<Sha256> as KeyInit>::new_from_slice(&self.enumeration) {
+            mac.update(b"passkey-factice v1\0");
+            mac.update(&[rang]);
+            mac.update(courriel.to_lowercase().as_bytes());
+            sortie.copy_from_slice(&mac.finalize().into_bytes());
+        }
+        sortie
+    }
+}
+
 /// AES-256-GCM : `nonce ‖ chiffré ‖ étiquette`.
 fn sceller(cle: &[u8; OCTETS_CLE], aad: &[u8], clair: &[u8]) -> Result<Vec<u8>, ErreurAlea> {
     let mut nonce = [0u8; OCTETS_NONCE];
