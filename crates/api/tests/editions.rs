@@ -48,6 +48,11 @@ struct Banc {
 }
 
 async fn banc() -> Banc {
+    banc_borne(None).await
+}
+
+/// Banc dont la borne des éditions est `borne` (réglage `editions_ecritures_max`).
+async fn banc_borne(borne: Option<i64>) -> Banc {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     doter(&env.application, c.cabinet, c.dossier, c.administrateur).await;
@@ -56,6 +61,9 @@ async fn banc() -> Banc {
     let horloge = HorlogeTest::default();
     let mut reglages = commun::serveur::reglages_de_test();
     reglages.facteurs.cle_instance = Some(commun::serveur::cle_de_test());
+    if let Some(borne) = borne {
+        reglages.editions_ecritures_max = borne;
+    }
     let etat = Application::avec_horloge(
         env.application.clone(),
         env.lecture_audit.clone(),
@@ -345,19 +353,41 @@ async fn le_regroupement_par_tronc_et_les_filtres() {
     let j = journal_de_saisie();
     let v = b.ok(&format!("editions/balance?journaux={j}")).await;
     assert_eq!(v["lignes"].as_array().unwrap().len(), 2);
-    // Une période qui ne contient aucune écriture, avant `aujourd'hui` : l'ouverture et les
-    // mouvements sont vides, la balance aussi.
-    let exercice = b.ok("editions/balance").await["exercice"].clone();
-    let v = b
-        .ok(&format!(
-            "editions/balance?exercice={}&du={}&au={}",
-            exercice.as_str().unwrap(),
-            "2026-01-01",
-            "2026-01-02"
-        ))
-        .await;
-    assert_eq!(v["du"], "2026-01-01");
-    assert!(v["lignes"].as_array().unwrap().is_empty() || u8::from(aujourd_hui().month()) == 1);
+    // Périodes déterministes (les écritures sont datées d'aujourd'hui) : l'exercice a au moins
+    // un jour avant ou après aujourd'hui. Un jour **après** aujourd'hui : les écritures sont
+    // dans l'ouverture (1 500 de part et d'autre), aucun mouvement. Un jour **avant** : elles
+    // sont postérieures à la période, la balance est vide.
+    let tout = b.ok("editions/balance").await;
+    let (debut, fin) = (
+        tout["du"].as_str().unwrap().to_owned(),
+        tout["au"].as_str().unwrap().to_owned(),
+    );
+    let exercice = tout["exercice"].as_str().unwrap().to_owned();
+    let aujourdhui = texte_date(aujourd_hui());
+    let mut verifie = 0;
+    if fin > aujourdhui {
+        let v = b
+            .ok(&format!(
+                "editions/balance?exercice={exercice}&du={fin}&au={fin}"
+            ))
+            .await;
+        assert_eq!(
+            ligne_de(&v, caisse())["valeurs"],
+            serde_json::json!(["1500", "0", "0", "0", "1500", "0"]),
+            "ouverture seule"
+        );
+        verifie += 1;
+    }
+    if debut < aujourdhui {
+        let v = b
+            .ok(&format!(
+                "editions/balance?exercice={exercice}&du={debut}&au={debut}"
+            ))
+            .await;
+        assert_eq!(v["lignes"].as_array().unwrap().len(), 0, "après la période");
+        verifie += 1;
+    }
+    assert!(verifie >= 1, "exercice d'un seul jour, aujourd'hui");
 }
 
 #[tokio::test]
@@ -530,12 +560,14 @@ async fn les_alertes_signalent_le_brouillard_en_retard_et_l_echeance_de_cloture(
     let futur = aujourd_hui().replace_day(1).unwrap() + time::Duration::days(120);
     b.horloge
         .fixer(time::PrimitiveDateTime::new(futur, time::Time::MIDNIGHT).assume_utc());
+    // Un second brouillon du même jour et du même journal : l'alerte les compte ensemble.
+    b.brouillon("Brouillon bis", "50", caisse(), banque()).await;
     let v = b.ok("alertes").await;
     assert_eq!(v["date_du_jour"], texte_date(futur));
     let brouillard = v["brouillard_non_valide"].as_array().unwrap();
     assert_eq!(brouillard.len(), 1, "{v}");
     assert_eq!(brouillard[0]["journal"], journal_de_saisie());
-    assert_eq!(brouillard[0]["nombre"], 1);
+    assert_eq!(brouillard[0]["nombre"], 2);
     assert!(brouillard[0]["jours_de_retard"].as_i64().unwrap() >= 1);
     let echeances = v["echeances_de_cloture"].as_array().unwrap();
     assert!(!echeances.is_empty(), "{v}");
@@ -547,4 +579,191 @@ async fn les_alertes_signalent_le_brouillard_en_retard_et_l_echeance_de_cloture(
         );
         assert_ne!(e["statut"], "cloturee");
     }
+}
+
+#[tokio::test]
+async fn les_editions_simultanees_au_dela_du_pool_aboutissent_toutes() {
+    // Le pool du rôle applicatif des tests a 4 connexions ; chaque requête en tient une (la
+    // transaction du pipeline) et lit l'instantané sur le pool des lectures : 16 éditions
+    // simultanées, quatre fois la taille du pool, doivent toutes réussir (aucun interblocage).
+    let b = banc_garni().await;
+    let mut taches = tokio::task::JoinSet::new();
+    for i in 0..16 {
+        let routeur = b.routeur.clone();
+        let chemin = format!(
+            "{}/{}",
+            b.racine(),
+            [
+                "editions/balance?mode=provisoire",
+                "editions/grand-livre",
+                "alertes",
+                "editions/journaux"
+            ][i % 4]
+        );
+        let utilisateur = b.c.administrateur;
+        taches.spawn(async move { lire(&routeur, &chemin, Some(utilisateur)).await });
+    }
+    let mut reussies = 0;
+    while let Some(r) = taches.join_next().await {
+        let r = r.unwrap();
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+        reussies += 1;
+    }
+    assert_eq!(reussies, 16);
+}
+
+#[tokio::test]
+async fn une_edition_trop_volumineuse_est_refusee_en_409() {
+    // Borne de 2 écritures : deux validées passent, la troisième fait refuser l'édition.
+    let b = banc_borne(Some(2)).await;
+    b.valider("Première", "1000", caisse(), banque()).await;
+    b.valider("Seconde", "500", caisse(), banque()).await;
+    let r = b.editer("editions/balance", b.c.administrateur).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    b.valider("Troisième", "100", caisse(), banque()).await;
+    for chemin in [
+        "editions/balance",
+        "editions/grand-livre",
+        "editions/journaux",
+        "editions/centralisateur",
+    ] {
+        let r = b.editer(chemin, b.c.administrateur).await;
+        assert_eq!(r.statut, StatusCode::CONFLICT, "{chemin} : {}", r.texte());
+        assert_eq!(r.json()["erreur"], "edition_trop_volumineuse");
+        assert_eq!(r.json()["nombre"], 2);
+    }
+    // Restreindre la période n'y change rien ici (tout est daté d'aujourd'hui) ; mais le brouillard
+    // compte aussi, séparément, en mode provisoire.
+    let b = banc_borne(Some(1)).await;
+    b.valider("Une", "1000", caisse(), banque()).await;
+    b.brouillon("Un", "300", caisse(), banque()).await;
+    b.brouillon("Deux", "200", caisse(), banque()).await;
+    let r = b
+        .editer("editions/balance?mode=provisoire", b.c.administrateur)
+        .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    let r = b.editer("editions/balance", b.c.administrateur).await;
+    assert_eq!(
+        r.statut,
+        StatusCode::OK,
+        "le définitif ignore le brouillard"
+    );
+}
+
+#[tokio::test]
+async fn le_brouillard_desequilibre_ou_illisible_est_exclu_et_signale() {
+    let b = banc_garni().await;
+    // Un brouillon déséquilibré : débit 300, crédit 200.
+    let corps = format!(
+        r#"{{"journal":"{}","date":"{}","libelle":"Déséquilibré","lignes":[{},{}]}}"#,
+        journal_de_saisie(),
+        texte_date(aujourd_hui()),
+        ligne(caisse(), "debit", "300"),
+        ligne(banque(), "credit", "200"),
+    );
+    let r = envoyer(
+        &b.routeur,
+        &format!("{}/brouillard", b.racine()),
+        Some(b.c.collaborateur),
+        &corps,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    // Un brouillon illisible : un régime fiscal que le référentiel ne connaît pas.
+    let id = b.brouillon("Illisible", "100", caisse(), banque()).await;
+    sqlx::query(
+        "UPDATE brouillon_ligne SET fiscal_nature = 'base', fiscal_sens = 'collectee', \
+         fiscal_regime = 'regime-retire' WHERE brouillon_id = $1 AND position = 1",
+    )
+    .bind(id)
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    let v = b.ok("editions/balance?mode=provisoire").await;
+    // Seul le brouillon équilibré et lisible de `banc_garni` (300) s'ajoute.
+    assert_eq!(decimal(&ligne_de(&v, caisse())["valeurs"][2]), "1800");
+    assert_eq!(v["brouillons_exclus"]["desequilibres"], 1);
+    assert_eq!(v["brouillons_exclus"]["illisibles"], 1);
+    // En définitif : rien à signaler.
+    let d = b.ok("editions/balance").await;
+    assert_eq!(d["brouillons_exclus"]["desequilibres"], 0);
+    assert_eq!(d["brouillons_exclus"]["illisibles"], 0);
+    // Les autres éditions provisoires ne tombent pas non plus.
+    for chemin in [
+        "editions/grand-livre?mode=provisoire",
+        "editions/journaux?mode=provisoire",
+        "editions/centralisateur?mode=provisoire",
+    ] {
+        let r = b.editer(chemin, b.c.administrateur).await;
+        assert_eq!(r.statut, StatusCode::OK, "{chemin} : {}", r.texte());
+    }
+}
+
+#[tokio::test]
+async fn une_ecriture_anterieure_a_l_exercice_n_entre_pas_dans_ses_editions() {
+    let b = banc_garni().await;
+    let (exercice, journal, debut): (Uuid, Uuid, time::Date) = sqlx::query_as(
+        "SELECT x.id, j.id, x.debut FROM exercice x, journal j \
+         WHERE x.dossier_id = $1 AND j.dossier_id = $1 AND j.code = $2 \
+         ORDER BY x.debut LIMIT 1",
+    )
+    .bind(b.c.dossier.uuid())
+    .bind(journal_de_saisie())
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    // Écriture validée de 1 000 la veille du premier jour de l'exercice (insérée par le
+    // super-utilisateur : aucune route ne date une écriture hors exercice).
+    let veille = debut - time::Duration::days(1);
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ecriture_validee (cabinet_id, dossier_id, id, journal_id, exercice_id, \
+         sequence, numero, date_comptable, libelle, format, contenu_canonique, empreinte, \
+         empreinte_precedente, rang, valide_par, date_validation, valide_le) \
+         VALUES ($1, $2, $3, $4, $5, 900, 'AC-0000-000900', $6, 'Antérieure', 1, 'fictif', $7, \
+                 $8, 900, $9, $6, now())",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .bind(id)
+    .bind(journal)
+    .bind(exercice)
+    .bind(veille)
+    .bind(vec![9u8; 32])
+    .bind(vec![8u8; 32])
+    .bind(b.c.administrateur.uuid())
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    for (position, compte, sens) in [(1i16, caisse(), "debit"), (2, banque(), "credit")] {
+        sqlx::query(
+            "INSERT INTO ecriture_validee_ligne (cabinet_id, dossier_id, ecriture_id, position, \
+             compte_numero, sens, montant) VALUES ($1, $2, $3, $4, $5, $6, 1000)",
+        )
+        .bind(b.c.cabinet.uuid())
+        .bind(b.c.dossier.uuid())
+        .bind(id)
+        .bind(position)
+        .bind(compte)
+        .bind(sens)
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    }
+    // Les éditions de l'exercice ne la voient ni en mouvements ni en ouverture : toujours 1 500.
+    let v = b.ok("editions/balance").await;
+    assert_eq!(
+        ligne_de(&v, caisse())["valeurs"],
+        serde_json::json!(["0", "0", "1500", "0", "1500", "0"])
+    );
+    let gl = b.ok("editions/grand-livre").await;
+    let bloc = gl["comptes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["compte"] == caisse())
+        .unwrap();
+    assert_eq!(bloc["solde_ouverture"], "0");
+    assert_eq!(bloc["solde_final"], "1500");
 }
