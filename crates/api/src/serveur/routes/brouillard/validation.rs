@@ -54,7 +54,9 @@ use uuid::Uuid;
 use super::{
     CorpsVersion, VueLigne, conflit, corps, referentiel_tva, sans_parametres, trace_de, vue_ligne,
 };
-use crate::base::brouillard::{self, BrouillonStocke, LigneStockee, RolePiece, decimal_canonique};
+use crate::base::brouillard::{
+    self, BrouillonStocke, ContenuStocke, LigneStockee, RolePiece, decimal_canonique,
+};
 use crate::base::organisation::{lire_acces_dossier, lire_appartenance, lire_cabinet};
 use crate::base::referentiel::charger;
 use crate::base::validation::{
@@ -190,28 +192,99 @@ pub fn reconstituer(
     e: &EcritureStockee,
     tva: &ReferentielTva,
 ) -> Result<EcritureValidee, ErreurBase> {
-    let incoherent = || ErreurBase::Donnee("écriture validée incohérente");
     let empreintes: Vec<String> = e.pieces.iter().map(|p| p.empreinte.clone()).collect();
-    let brouillon = brouillon_de(
-        &e.journal,
-        e.date,
-        e.date_valeur_comptable,
-        &e.libelle,
-        e.version_parametres.as_deref(),
-        &e.lignes,
+    reconstituer_colonnes(
+        &ColonnesValidee {
+            numero: &e.numero,
+            journal: &e.journal,
+            date: e.date,
+            date_valeur_comptable: e.date_valeur_comptable,
+            libelle: &e.libelle,
+            version_parametres: e.version_parametres.as_deref(),
+            date_validation: e.date_validation,
+            origine_numero: e.origine_numero.as_deref(),
+            lignes: &e.lignes,
+        },
         &empreintes,
+        tva,
+    )
+}
+
+/// Colonnes d'une écriture validée nécessaires à sa reconstitution (sans chaîne ni pièces).
+#[derive(Debug, Clone, Copy)]
+pub struct ColonnesValidee<'a> {
+    /// Numéro `AC-2026-000231`.
+    pub numero: &'a str,
+    /// Code du journal.
+    pub journal: &'a str,
+    /// Date comptable.
+    pub date: Date,
+    /// Date de valeur comptable.
+    pub date_valeur_comptable: Option<Date>,
+    /// Libellé.
+    pub libelle: &'a str,
+    /// Version des paramètres fiscaux.
+    pub version_parametres: Option<&'a str>,
+    /// Date de validation.
+    pub date_validation: Date,
+    /// Numéro de l'écriture contre-passée, pour une contre-passation.
+    pub origine_numero: Option<&'a str>,
+    /// Lignes.
+    pub lignes: &'a [LigneStockee],
+}
+
+/// Reconstitution depuis les seules colonnes utiles à une édition (les pièces, si elles sont
+/// fournies, rétablissent la justification).
+///
+/// # Errors
+/// Donnée relue incohérente.
+pub fn reconstituer_colonnes(
+    c: &ColonnesValidee<'_>,
+    empreintes: &[String],
+    tva: &ReferentielTva,
+) -> Result<EcritureValidee, ErreurBase> {
+    let incoherent = || ErreurBase::Donnee("écriture validée incohérente");
+    let brouillon = brouillon_de(
+        c.journal,
+        c.date,
+        c.date_valeur_comptable,
+        c.libelle,
+        c.version_parametres,
+        c.lignes,
+        empreintes,
         tva,
     )?;
     let equilibree = brouillon.valider_equilibre().map_err(|_| incoherent())?;
-    let numero = NumeroEcriture::parse(&e.numero).map_err(|_| incoherent())?;
-    let origine = e
+    let numero = NumeroEcriture::parse(c.numero).map_err(|_| incoherent())?;
+    let origine = c
         .origine_numero
-        .as_deref()
         .map(NumeroEcriture::parse)
         .transpose()
         .map_err(|_| incoherent())?;
-    EcritureValidee::reconstituer(equilibree, numero, e.date_validation, origine)
+    EcritureValidee::reconstituer(equilibree, numero, c.date_validation, origine)
         .map_err(|_| incoherent())
+}
+
+/// Écriture équilibrée d'un brouillon relu, ou `None` s'il n'est pas (encore) équilibré : les
+/// éditions provisoires ne retiennent que le brouillard équilibré.
+///
+/// # Errors
+/// Donnée relue incohérente (journal, texte, ligne).
+pub fn equilibree_du_brouillon(
+    c: &ContenuStocke,
+    tva: &ReferentielTva,
+) -> Result<Option<EcritureEquilibree>, ErreurBase> {
+    let brouillon = brouillon_de(
+        &c.journal,
+        c.date,
+        c.date_valeur_comptable,
+        &c.libelle,
+        None,
+        &c.lignes,
+        &[],
+        tva,
+    )?;
+    Ok(brouillon.valider_equilibre().ok())
 }
 
 // --- Fonction d'application pure ----------------------------------------------------------
@@ -863,7 +936,6 @@ mod tests {
     use proptest::prelude::*;
     use time::macros::date;
 
-    use crate::base::brouillard::ContenuStocke;
     use crate::base::referentiel::{Instanciation, Modele, Ouverture};
 
     struct Decor {

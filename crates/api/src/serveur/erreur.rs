@@ -163,11 +163,13 @@ pub enum MotifConflit {
     DejaContrePassee,
     /// Validation par lot sans aucune écriture à valider (toutes « à revoir »).
     LotSansEcritureAValider,
+    /// Édition au-delà du nombre d'écritures traitables en une requête : restreindre la période.
+    EditionTropVolumineuse,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 20] = [
+    pub const TOUS: [Self; 21] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -188,6 +190,7 @@ impl MotifConflit {
         Self::TropDePieces,
         Self::DejaContrePassee,
         Self::LotSansEcritureAValider,
+        Self::EditionTropVolumineuse,
     ];
 
     /// Code du corps de la réponse.
@@ -214,6 +217,7 @@ impl MotifConflit {
             Self::TropDePieces => "trop_de_pieces",
             Self::DejaContrePassee => "deja_contre_passee",
             Self::LotSansEcritureAValider => "lot_sans_ecriture_a_valider",
+            Self::EditionTropVolumineuse => "edition_trop_volumineuse",
         }
     }
 }

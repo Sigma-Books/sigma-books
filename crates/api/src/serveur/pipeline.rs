@@ -691,7 +691,8 @@ async fn traiter_requete(
         maintenant: etat.horloge.maintenant(),
         horloge: etat.horloge.as_ref(),
         lecture_audit: &etat.pool_lecture_audit,
-        pool: &etat.pool,
+        pool: &etat.pool_lectures,
+        editions_max: etat.reglages.editions_ecritures_max,
         chemin: &parametres,
         pieces: etat.pieces(),
     };

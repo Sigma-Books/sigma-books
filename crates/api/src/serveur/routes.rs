@@ -326,9 +326,13 @@ pub struct Requete<'a> {
     pub horloge: &'a dyn super::session::Horloge,
     /// Pool du rôle de lecture d'audit.
     pub lecture_audit: &'a PgPool,
-    /// Pool du rôle applicatif : lectures à instantané unique d'un cas d'usage
-    /// ([`crate::base::ouvrir_transaction_lecture`]), en plus de la transaction du pipeline.
+    /// Pool des lectures à instantané unique d'un cas d'usage
+    /// ([`crate::base::ouvrir_transaction_lecture`]), **distinct** de celui de la transaction du
+    /// pipeline (sinon deux connexions du même pool par requête : interblocage sous charge, voir
+    /// `Application`).
     pub pool: &'a PgPool,
+    /// Nombre maximal d'écritures lues pour une édition (réglage `editions_ecritures_max`).
+    pub editions_max: i64,
     /// Paramètres du chemin, dont les sous-ressources (`{compte}`, `{tiers}`, `{piece}`…), à
     /// lire par `id_chemin`.
     pub chemin: &'a RawPathParams,
@@ -376,7 +380,7 @@ pub(crate) async fn executer(
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => referentiel::executer(cas, tx, garde, requete).await,
         CasUsage::Brouillard(cas) => brouillard::executer(cas, tx, garde, requete).await,
-        CasUsage::Editions(cas) => match cas {},
+        CasUsage::Editions(cas) => editions::executer(cas, tx, garde, requete).await,
         // Voie pièces (PR 12).
         CasUsage::Pieces(cas) => pieces::executer(cas, tx, garde, requete).await,
         // Voie intégrité et horodatage (PR 15).

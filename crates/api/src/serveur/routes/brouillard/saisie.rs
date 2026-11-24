@@ -86,7 +86,7 @@ struct CorpsEtiquette {
 }
 
 /// Date `AAAA-MM-JJ` stricte.
-pub(super) fn date_lue(texte: &str) -> Option<Date> {
+pub(crate) fn date_lue(texte: &str) -> Option<Date> {
     let o = texte.as_bytes();
     let forme = o.len() == 10
         && o[4] == b'-'

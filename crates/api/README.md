@@ -530,6 +530,35 @@ Un seul état « brouillon », un drapeau facultatif « à revoir », un verrou 
 - **Tables dépendantes** (`brouillon_ligne`, `_contributeur`, `_piece`) : exemptées du fil-piège
   sous condition (aucune colonne temporelle, clé étrangère vers `brouillon`), voir le catalogue.
 
+## Éditions et alertes
+
+Lectures seules (PR 14), ouvertes aux quatre rôles du cabinet sur les dossiers qu'ils voient
+(§20) : `GET …/dossiers/{dossier}/editions/{balance,grand-livre,journaux,centralisateur}` et
+`GET …/dossiers/{dossier}/alertes`. Le calcul est celui de `compta_core::editions` ; l'API relit
+les écritures validées de l'exercice jusqu'à la fin de la période (et, en mode `provisoire`, le
+brouillard équilibré) dans **un seul instantané** (`REPEATABLE READ`, lecture seule), en deux
+requêtes à plat par nature d'écriture (`src/base/editions.rs`), et ne calcule rien elle-même.
+
+- Paramètres : `exercice`, `du`, `au`, `mode` (`definitif` par défaut, `provisoire`), `comptes`,
+  `journaux` (listes de 50 au plus) ; balance seulement : `format` (2, 4, 6 par défaut, 8) et
+  `regroupement` (`compte`, `tronc`). Paramètre inconnu, répété ou invalide : 400.
+- Borne : au plus 20 000 écritures par lecture (réglage `editions_ecritures_max`) ; au-delà, 409
+  `edition_trop_volumineuse` (réduire la période). Pas de pagination : une édition est un état
+  entier. Seules les écritures **de l'exercice** comptent.
+- Lecture sur un **pool distinct** (`Requete::pool`, 4 connexions) : la transaction du pipeline
+  tient déjà une connexion du pool applicatif ; en prendre une seconde dans le même pool
+  interbloquerait l'API sous charge. Test : 16 éditions simultanées pour un pool de 4.
+- Une écriture validée relue sans justification (aucune pièce liée) fait échouer l'édition (500) :
+  `compta-core` refuse de la reconstituer, et c'est une alerte d'intégrité, non un cas à masquer.
+  Seule la validation crée une écriture validée (et exige une justification) ; la reprise de
+  données (§9) devra exiger une pièce.
+- Mode provisoire : un brouillon déséquilibré ou illisible (valeur stockée que le référentiel
+  actuel ne relit plus) est exclu et **signalé** (`brouillons_exclus`), il ne fait jamais
+  échouer l'édition.
+- Alertes : brouillard non validé par (période, journal) dès le lendemain de la fin de la période
+  (AUDCIF art. 22 2°), et échéance de clôture des périodes terminées non clôturées, à 30 jours ou
+  dépassée (point 15). La date du jour est celle de l'horloge de la requête.
+
 ## Travailler en voies parallèles
 
 Trois voies avancent en parallèle sur le lot L2 : **authentification** (PR 8b, 8c, 9),
