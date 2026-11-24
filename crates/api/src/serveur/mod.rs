@@ -38,6 +38,7 @@ pub mod csrf;
 pub mod entetes;
 pub mod erreur;
 pub mod facteurs;
+pub mod integrite;
 pub mod journal;
 pub mod limites;
 mod moi;

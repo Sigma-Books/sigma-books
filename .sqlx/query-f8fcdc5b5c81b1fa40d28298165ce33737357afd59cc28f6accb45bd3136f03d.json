@@ -1,0 +1,151 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, rang, numero, date_comptable, date_validation, date_valeur_comptable, libelle, format, contenu_canonique, empreinte, empreinte_precedente FROM ecriture_validee WHERE cabinet_id = $1 AND dossier_id = $2 AND rang > $3 ORDER BY rang LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_comptable",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "date_comptable"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "date_validation",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "date_validation"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "date_valeur_comptable",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "date_valeur_comptable"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "format",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "format"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "contenu_canonique",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "contenu_canonique"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "empreinte"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "empreinte_precedente",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "empreinte_precedente"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f8fcdc5b5c81b1fa40d28298165ce33737357afd59cc28f6accb45bd3136f03d"
+}

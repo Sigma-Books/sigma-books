@@ -42,6 +42,7 @@ pub mod config;
 pub mod editions;
 pub mod evenement;
 pub mod facteurs;
+pub mod integrite;
 pub mod jetons;
 pub mod organisation;
 pub mod passkeys;
