@@ -121,7 +121,7 @@ impl Banc {
     }
 
     /// Brouillon validé (pièce liée, validation par le valideur).
-    async fn valider(&self, libelle: &str, montant: &str, debit: &str, credit: &str) {
+    async fn valider(&self, libelle: &str, montant: &str, debit: &str, credit: &str) -> Uuid {
         let id = self.brouillon(libelle, montant, debit, credit).await;
         let piece = commun::pieces::doter(
             &self.env.admin,
@@ -149,6 +149,25 @@ impl Banc {
         )
         .await;
         assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+        id
+    }
+
+    /// Contre-passe une écriture validée, aujourd'hui (valideur) ; rend l'identifiant de la
+    /// contre-passation.
+    async fn contre_passer(&self, id: Uuid) -> Uuid {
+        let r = envoyer(
+            &self.routeur,
+            &format!("{}/ecritures/{id}/contre-passation", self.racine()),
+            Some(self.valideur),
+            &format!(
+                r#"{{"date":"{}","libelle":"Contre-passation","motif":"Erreur de saisie"}}"#,
+                texte_date(aujourd_hui())
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+        r.json()["id"].as_str().unwrap().parse().unwrap()
     }
 
     async fn editer(&self, suffixe: &str, utilisateur: api::base::IdUtilisateur) -> Reponse {
@@ -766,4 +785,61 @@ async fn une_ecriture_anterieure_a_l_exercice_n_entre_pas_dans_ses_editions() {
         .unwrap();
     assert_eq!(bloc["solde_ouverture"], "0");
     assert_eq!(bloc["solde_final"], "1500");
+}
+
+#[tokio::test]
+async fn une_ecriture_et_sa_contre_passation_soldent_la_balance_dans_tous_les_modes() {
+    let b = banc().await;
+    let id = b.valider("À annuler", "1000", caisse(), banque()).await;
+    let contre = b.contre_passer(id).await;
+    assert_ne!(contre, id);
+    // Une contre-passation est une écriture validée comme une autre : elle figure dans les
+    // éditions, et l'origine se reconstitue (sinon `compta-core` la refuserait : 500).
+    for suffixe in [
+        "editions/balance",
+        "editions/balance?mode=provisoire",
+        "editions/balance?regroupement=tronc",
+    ] {
+        let v = b.ok(suffixe).await;
+        let lignes = v["lignes"].as_array().unwrap();
+        assert!(!lignes.is_empty(), "{suffixe}");
+        for l in lignes {
+            let valeurs: Vec<String> = l["valeurs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(decimal)
+                .collect();
+            // 6 colonnes : mouvements 1 000 / 1 000, soldes nuls.
+            assert_eq!(valeurs[2], "1000", "{suffixe} {l}");
+            assert_eq!(valeurs[3], "1000", "{suffixe} {l}");
+            assert_eq!(valeurs[4], "0", "{suffixe} {l}");
+            assert_eq!(valeurs[5], "0", "{suffixe} {l}");
+        }
+        assert_eq!(v["equilibree"], true);
+        assert_eq!(
+            v["totaux"],
+            serde_json::json!(["0", "0", "2000", "2000", "0", "0"])
+        );
+    }
+    // Grand livre, journaux, centralisateur : deux écritures, soldes finaux nuls.
+    let gl = b.ok("editions/grand-livre").await;
+    for c in gl["comptes"].as_array().unwrap() {
+        assert_eq!(c["lignes"].as_array().unwrap().len(), 2, "{c}");
+        assert_eq!(c["solde_final"], "0");
+    }
+    let j = b.ok("editions/journaux").await;
+    assert_eq!(j["journaux"][0]["ecritures"].as_array().unwrap().len(), 2);
+    assert_eq!(j["journaux"][0]["total_debit"], "2000");
+    let c = b.ok("editions/centralisateur").await;
+    assert_eq!(c["mouvements"]["total_debit"], "2000");
+    assert_eq!(c["mouvements"]["total_credit"], "2000");
+    // Contre-passer la contre-passation : l'origine est elle-même une contre-passation, les
+    // éditions la relisent encore, et l'effet de l'écriture initiale est rétabli (soldes 1 000).
+    b.contre_passer(contre).await;
+    let v = b.ok("editions/balance").await;
+    assert_eq!(
+        v["totaux"],
+        serde_json::json!(["0", "0", "3000", "3000", "1000", "1000"])
+    );
 }

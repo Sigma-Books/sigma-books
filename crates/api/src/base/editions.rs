@@ -48,6 +48,8 @@ pub struct ValideeLue {
     pub version_parametres: Option<String>,
     /// Date de validation.
     pub date_validation: Date,
+    /// Numéro de l'écriture contre-passée, si celle-ci est une contre-passation.
+    pub origine_numero: Option<String>,
     /// Lignes, dans l'ordre.
     pub lignes: Vec<LigneStockee>,
     /// Empreintes (hexadécimales minuscules) des pièces liées, dans l'ordre de la justification :
@@ -133,6 +135,7 @@ fn ligne_lue(c: Colonnes) -> Result<LigneStockee, ErreurBase> {
 ///
 /// # Errors
 /// Contexte sans dossier, ligne relue incohérente, erreur de PostgreSQL.
+#[allow(clippy::too_many_lines)]
 pub async fn validees_entre(
     tx: &mut TransactionTenant,
     du: Date,
@@ -143,10 +146,13 @@ pub async fn validees_entre(
     let entetes = sqlx::query!(
         r#"
         SELECT e.id, e.numero, j.code AS journal, e.date_comptable, e.date_valeur_comptable,
-               e.libelle, e.version_parametres, e.date_validation
+               e.libelle, e.version_parametres, e.date_validation,
+               o.numero AS "origine_numero?"
         FROM ecriture_validee e
         JOIN journal j ON j.cabinet_id = e.cabinet_id AND j.dossier_id = e.dossier_id
                       AND j.id = e.journal_id
+        LEFT JOIN ecriture_validee o ON o.cabinet_id = e.cabinet_id
+                                    AND o.dossier_id = e.dossier_id AND o.id = e.origine_id
         WHERE e.cabinet_id = $1 AND e.dossier_id = $2 AND e.date_comptable BETWEEN $3 AND $4
         ORDER BY e.date_comptable, e.numero
         LIMIT $5
@@ -232,6 +238,7 @@ pub async fn validees_entre(
             libelle: e.libelle,
             version_parametres: e.version_parametres,
             date_validation: e.date_validation,
+            origine_numero: e.origine_numero,
         })
         .collect();
     Ok(Lecture { elements, depasse })

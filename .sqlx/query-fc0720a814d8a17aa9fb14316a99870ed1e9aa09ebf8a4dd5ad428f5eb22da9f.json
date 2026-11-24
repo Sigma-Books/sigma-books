@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT e.id, e.numero, j.code AS journal, e.date_comptable, e.date_valeur_comptable,\n               e.libelle, e.version_parametres, e.date_validation\n        FROM ecriture_validee e\n        JOIN journal j ON j.cabinet_id = e.cabinet_id AND j.dossier_id = e.dossier_id\n                      AND j.id = e.journal_id\n        WHERE e.cabinet_id = $1 AND e.dossier_id = $2 AND e.date_comptable BETWEEN $3 AND $4\n        ORDER BY e.date_comptable, e.numero\n        LIMIT $5\n        ",
+  "query": "\n        SELECT e.id, e.numero, j.code AS journal, e.date_comptable, e.date_valeur_comptable,\n               e.libelle, e.version_parametres, e.date_validation,\n               o.numero AS \"origine_numero?\"\n        FROM ecriture_validee e\n        JOIN journal j ON j.cabinet_id = e.cabinet_id AND j.dossier_id = e.dossier_id\n                      AND j.id = e.journal_id\n        LEFT JOIN ecriture_validee o ON o.cabinet_id = e.cabinet_id\n                                    AND o.dossier_id = e.dossier_id AND o.id = e.origine_id\n        WHERE e.cabinet_id = $1 AND e.dossier_id = $2 AND e.date_comptable BETWEEN $3 AND $4\n        ORDER BY e.date_comptable, e.numero\n        LIMIT $5\n        ",
   "describe": {
     "columns": [
       {
@@ -90,6 +90,17 @@
             "name": "date_validation"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "origine_numero?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "numero"
+          }
+        }
       }
     ],
     "parameters": {
@@ -109,8 +120,9 @@
       true,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "809e45ef1c6f7e7fab195e1d223152c7ed707982eb81e8a88d961a34ab4b4c66"
+  "hash": "fc0720a814d8a17aa9fb14316a99870ed1e9aa09ebf8a4dd5ad428f5eb22da9f"
 }

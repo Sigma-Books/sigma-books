@@ -328,6 +328,7 @@ async fn lire_dans_instantane(
                     libelle: &e.libelle,
                     version_parametres: e.version_parametres.as_deref(),
                     date_validation: e.date_validation,
+                    origine_numero: e.origine_numero.as_deref(),
                     lignes: &e.lignes,
                 },
                 &e.empreintes,
