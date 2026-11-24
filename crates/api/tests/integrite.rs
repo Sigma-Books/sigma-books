@@ -445,3 +445,165 @@ async fn aucune_route_ne_modifie_une_ecriture_ni_un_jeton() {
         );
     }
 }
+
+#[tokio::test]
+async fn les_requetes_simultanees_au_dela_du_pool_aboutissent_toutes() {
+    // Le pool du rôle applicatif des tests a 4 connexions ; chaque requête en tient une (la
+    // transaction du pipeline) et lit son instantané sur le pool des lectures : 16 requêtes
+    // simultanées (état, vérification, export, jetons) ne s'interbloquent pas.
+    let b = banc().await;
+    valider_n(&b, 2).await;
+    let mut taches = tokio::task::JoinSet::new();
+    for i in 0..16 {
+        let routeur = b.routeur.clone();
+        let (cabinet, dossier, u) = (b.c.cabinet, b.c.dossier, b.valideur);
+        taches.spawn(async move {
+            let suite = ["", "/verification", "/jetons", "/export"][i % 4];
+            let chemin = format!("/api/cabinets/{cabinet}/dossiers/{dossier}/integrite{suite}");
+            if suite == "/export" {
+                envoyer(&routeur, &chemin, Some(u), "", None).await
+            } else {
+                lire(&routeur, &chemin, Some(u)).await
+            }
+        });
+    }
+    let mut reussies = 0;
+    while let Some(r) = taches.join_next().await {
+        let r = r.unwrap();
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+        reussies += 1;
+    }
+    assert_eq!(reussies, 16);
+}
+
+/// Prolonge la chaîne jusqu'à `n` écritures par copie de la première (numéro et empreintes
+/// recalculés, colonnes et lignes cohérentes) : une chaîne de plusieurs pages sans 600
+/// validations par l'API.
+async fn prolonger(b: &Banc, n: i64) {
+    let premiere = b.chaine().await.remove(0);
+    let (id1,): (Uuid,) =
+        sqlx::query_as("SELECT id FROM ecriture_validee WHERE dossier_id = $1 AND rang = 1")
+            .bind(b.c.dossier.uuid())
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+    let (mut precedente, mut dernier) = (
+        integrite::Empreinte::depuis_octets(premiere.3.clone().try_into().unwrap()),
+        premiere.1.clone(),
+    );
+    let racine = premiere.1.trim_end_matches("000001").to_owned();
+    for i in 2..=n {
+        let numero = format!("{racine}{i:06}");
+        let texte = premiere.2.replace(&premiere.1, &numero);
+        let empreinte = integrite::chainer(&precedente, texte.as_bytes());
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO ecriture_validee (cabinet_id, dossier_id, id, journal_id, exercice_id, \
+                 sequence, numero, date_comptable, date_valeur_comptable, libelle, \
+                 version_parametres, format, contenu_canonique, empreinte, empreinte_precedente, \
+                 rang, valide_par, date_validation, valide_le) \
+             SELECT cabinet_id, dossier_id, $2, journal_id, exercice_id, $3, $4, date_comptable, \
+                 date_valeur_comptable, libelle, version_parametres, format, $5, $6, $7, $3, \
+                 valide_par, date_validation, valide_le \
+             FROM ecriture_validee WHERE id = $1",
+        )
+        .bind(id1)
+        .bind(id)
+        .bind(i32::try_from(i).unwrap())
+        .bind(&numero)
+        .bind(&texte)
+        .bind(empreinte.octets().as_slice())
+        .bind(precedente.octets().as_slice())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO ecriture_validee_ligne (cabinet_id, dossier_id, ecriture_id, position, \
+                 compte_numero, sens, montant, devise, montant_devise, cours, tiers_id) \
+             SELECT cabinet_id, dossier_id, $2, position, compte_numero, sens, montant, devise, \
+                 montant_devise, cours, tiers_id \
+             FROM ecriture_validee_ligne WHERE ecriture_id = $1",
+        )
+        .bind(id1)
+        .bind(id)
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+        precedente = empreinte;
+        dernier = numero;
+    }
+    let _ = dernier;
+    sqlx::query("UPDATE chaine_tete SET rang = $2, empreinte = $3 WHERE dossier_id = $1")
+        .bind(b.c.dossier.uuid())
+        .bind(n)
+        .bind(precedente.octets().as_slice())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn une_chaine_de_plusieurs_pages_se_verifie_et_s_exporte() {
+    let b = banc().await;
+    valider_n(&b, 1).await;
+    prolonger(&b, 620).await;
+    // Plus de 500 écritures : deux pages de lecture.
+    let v = json(&b, "/verification").await;
+    assert_eq!(v["integre"], true, "{v}");
+    assert_eq!(v["nombre"], 620);
+    let r = export(&b, b.valideur, None).await;
+    let rapport = integrite::verifier(r.corps.as_slice(), &Options::default()).unwrap();
+    assert_eq!(rapport.nombre, 620);
+    assert!(rapport.anomalies.is_empty(), "{:?}", rapport.anomalies);
+    // Une altération sur la seconde page est localisée à son rang.
+    sous_proprietaire(
+        &b,
+        "UPDATE ecriture_validee SET contenu_canonique = replace(contenu_canonique, 'Écriture 1', 'Écriture Z') WHERE rang = 550",
+    )
+    .await;
+    let v = json(&b, "/verification").await;
+    assert_eq!(v["premiere_alteration"], 550, "{v}");
+}
+
+#[tokio::test]
+async fn l_export_signale_la_troncature_des_jetons_et_l_audit_cite_le_total() {
+    let b = banc().await;
+    valider_n(&b, 1).await;
+    // Un export normal : rien de tronqué.
+    let r = export(&b, b.valideur, None).await;
+    assert_eq!(r.entetes["x-sigma-export-tronque"], "false");
+    // Plus de jetons que ne le permet un export (10 000).
+    sqlx::query(
+        "INSERT INTO jeton_horodatage (cabinet_id, dossier_id, id, nombre, tete, autorite, \
+                                       date_jeton, obtenu_le, declencheur, jeton) \
+         SELECT $1, $2, gen_random_uuid(), 1, empreinte, 'tsa.exemple.invalide:80', now(), \
+                now() + g * interval '1 second', 'quotidien', '\\x0102'::bytea \
+         FROM ecriture_validee, generate_series(1, 10001) g \
+         WHERE dossier_id = $2 AND rang = 1",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    let r = export(&b, b.valideur, None).await;
+    assert_eq!(r.statut, StatusCode::OK);
+    assert_eq!(r.entetes["x-sigma-export-tronque"], "true");
+    assert_eq!(r.entetes["x-sigma-jetons-total"], "10001");
+    assert_eq!(r.entetes["x-sigma-jetons-exportes"], "10000");
+    let entree: String = sqlx::query_scalar(
+        "SELECT contenu FROM audit_dossier WHERE dossier_id = $1 \
+         AND contenu LIKE '%ExporterIntegrite%' ORDER BY rang DESC LIMIT 1",
+    )
+    .bind(b.c.dossier.uuid())
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    assert!(
+        entree.contains("10001") && entree.contains("10000"),
+        "{entree}"
+    );
+    // L'état ne charge que le compte et le dernier jeton.
+    let e = json(&b, "").await;
+    assert_eq!(e["jetons"], 10001);
+}

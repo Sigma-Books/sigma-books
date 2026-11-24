@@ -13,7 +13,7 @@ use std::fmt::Write as _;
 use std::sync::OnceLock;
 
 use axum::Json;
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use base64ct::{Base64, Encoding};
 use integrite::export::{BASE64_LIGNE, ENTETE_EXPORT_V3, ENTETE_EXPORT_V4, FIN_EXPORT};
@@ -29,17 +29,24 @@ use super::pipeline::Garde;
 use super::routes::Requete;
 use crate::base::audit::PorteeAudit;
 use crate::base::integrite::{
-    a_une_etiquette, compter_jetons, horodatage_en_attente_depuis, jetons, page_chaine,
+    ResumeJeton, a_une_etiquette, compter_jetons, dernier_resume, horodatage_en_attente_depuis,
+    jetons, page_chaine, resumes_jetons,
 };
 use crate::base::jetons::lire_tete;
 use crate::base::taches::{SujetNotification, notifier};
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
-use crate::verification::{
-    Anomalie, ControleOfficiel, JetonStocke, LigneChaine, Rapport, VerificateurChaine,
-};
+use crate::verification::{Anomalie, ControleOfficiel, LigneChaine, Rapport, VerificateurChaine};
 
 /// Écritures lues par page pendant la vérification et l'export.
 const PAGE: i64 = 500;
+/// Vérifications de chaîne simultanées dans le processus : chacune lit toute la chaîne d'un
+/// dossier et vérifie des signatures RSA. Les suivantes attendent, **avant** d'ouvrir leur
+/// transaction de lecture (une requête en attente ne tient aucune connexion du pool des
+/// lectures).
+const VERIFICATIONS_SIMULTANEES: usize = 2;
+/// Signatures de jetons vérifiées par vérification : les plus récentes (un jeton par jour et par
+/// dossier en régime normal, soit environ un an). Les témoins de tous les jetons sont contrôlés.
+const SIGNATURES_MAX: usize = 400;
 /// Retard d'horodatage signalé (F6.2).
 const RETARD: time::Duration = time::Duration::hours(24);
 
@@ -76,6 +83,10 @@ async fn tete(tx: &mut TransactionTenant) -> Result<(i64, Empreinte), ErreurApi>
 }
 
 /// Transaction de lecture à instantané unique, au contexte de la transaction de l'action.
+/// Elle s'ouvre sur `requete.pool`, le pool **distinct** des lectures
+/// ([`crate::serveur::Application`]) : jamais une seconde connexion du pool de la transaction du
+/// pipeline, qui ferait attendre chaque requête d'une connexion que seules les autres requêtes,
+/// elles aussi en attente, pourraient libérer.
 async fn lecture(
     tx: &TransactionTenant,
     requete: &Requete<'_>,
@@ -94,7 +105,7 @@ struct VueJeton {
     declencheur: String,
 }
 
-fn vue_jeton(j: &JetonStocke) -> Result<VueJeton, ErreurApi> {
+fn vue_jeton(j: &ResumeJeton) -> Result<VueJeton, ErreurApi> {
     Ok(VueJeton {
         id: j.id.to_string(),
         nombre: j.nombre,
@@ -149,20 +160,19 @@ fn temoin_de(tx: &TransactionTenant, nombre: i64, tete: Empreinte) -> Result<Tem
 pub async fn etat(tx: &TransactionTenant, requete: &Requete<'_>) -> Result<Response, ErreurApi> {
     let mut l = lecture(tx, requete).await?;
     let (nombre, tete) = tete(&mut l).await?;
-    let tous = jetons(&mut l).await?;
+    let dernier = dernier_resume(&mut l).await?;
     let total = compter_jetons(&mut l).await?;
     let attente = horodatage_en_attente_depuis(&mut l).await?;
     let temoin = temoin_de(&l, nombre, tete)?;
     l.annuler().await?;
-    let dernier = tous.iter().max_by_key(|j| (j.nombre, j.obtenu_le));
-    let couvertes = dernier.map_or(0, |j| j.nombre);
+    let couvertes = dernier.as_ref().map_or(0, |j| j.nombre);
     let retard = attente.is_some_and(|depuis| requete.maintenant - depuis > RETARD);
     let vue = VueEtat {
         dossier: id_dossier(tx)?.to_string(),
         nombre,
         tete: tete.to_string(),
         jetons: total,
-        dernier_jeton: dernier.map(vue_jeton).transpose()?,
+        dernier_jeton: dernier.as_ref().map(vue_jeton).transpose()?,
         ecritures_sans_jeton: (nombre - couvertes).max(0),
         horodatage: VueHorodatage {
             en_attente_depuis: attente.map(instant).transpose()?,
@@ -192,7 +202,7 @@ pub async fn lister_jetons(
     requete: &Requete<'_>,
 ) -> Result<Response, ErreurApi> {
     let mut l = lecture(tx, requete).await?;
-    let tous = jetons(&mut l).await?;
+    let tous = resumes_jetons(&mut l).await?;
     let total = compter_jetons(&mut l).await?;
     l.annuler().await?;
     let jetons = tous.iter().map(vue_jeton).collect::<Result<_, _>>()?;
@@ -225,6 +235,9 @@ struct VueVerification {
     tete: String,
     jetons: u64,
     jetons_valides: u64,
+    /// Jetons dont le témoin concorde mais dont la signature n'est pas vérifiée (les plus
+    /// anciens au-delà de la borne).
+    jetons_non_verifies: u64,
     /// Rang de la première écriture altérée, s'il y en a une.
     premiere_alteration: Option<i64>,
     anomalies: Vec<VueAnomalie>,
@@ -236,6 +249,9 @@ struct VueVerification {
 /// # Errors
 /// Erreur de base.
 pub async fn calculer(tx: &TransactionTenant, requete: &Requete<'_>) -> Result<Rapport, ErreurApi> {
+    static LIMITE: tokio::sync::Semaphore =
+        tokio::sync::Semaphore::const_new(VERIFICATIONS_SIMULTANEES);
+    let _permis = LIMITE.acquire().await.map_err(interne)?;
     let mut l = lecture(tx, requete).await?;
     let dossier = id_dossier(&l)?;
     let stockee = lire_tete(&mut l).await?.map(|t| (t.rang, t.empreinte));
@@ -255,7 +271,7 @@ pub async fn calculer(tx: &TransactionTenant, requete: &Requete<'_>) -> Result<R
     let ancres = ancres()?;
     tokio::task::spawn_blocking(move || {
         let controle = ControleOfficiel::new(ancres.to_vec());
-        verificateur.terminer(&dossier, stockee, &tous, &controle)
+        verificateur.terminer(&dossier, stockee, &tous, &controle, SIGNATURES_MAX)
     })
     .await
     .map_err(interne)
@@ -276,6 +292,7 @@ pub async fn verifier(
         tete: r.tete.to_string(),
         jetons: r.jetons,
         jetons_valides: r.jetons_valides,
+        jetons_non_verifies: r.jetons_non_verifies,
         premiere_alteration: r
             .anomalies
             .iter()
@@ -332,6 +349,7 @@ pub async fn exporter(
     let dossier = id_dossier(&l)?;
     let v4 = a_une_etiquette(&mut l).await?;
     let tous = jetons(&mut l).await?;
+    let total_jetons = compter_jetons(&mut l).await?;
     let mut sortie = String::new();
     let _ = writeln!(
         sortie,
@@ -381,9 +399,26 @@ pub async fn exporter(
     trace.donnees.push(("export", "integrite".to_owned()));
     trace.donnees.push(("tete", tete.to_string()));
     trace.donnees.push(("nombre", nombre.to_string()));
+    // Un export compte au plus `JETONS_MAX` jetons (format) : au-delà, les plus récents. La
+    // troncature est dite dans la réponse (en-têtes) et dans l'audit (total de la base).
     trace.donnees.push(("jetons", tous.len().to_string()));
-    Ok((
-        piece_jointe(sortie, &format!("integrite-dossier-{id}.txt"))?,
-        trace,
-    ))
+    trace
+        .donnees
+        .push(("jetons_total", total_jetons.to_string()));
+    let tronque = i64::try_from(tous.len()).map_err(interne)? < total_jetons;
+    let mut reponse = piece_jointe(sortie, &format!("integrite-dossier-{id}.txt"))?;
+    let entetes = reponse.headers_mut();
+    entetes.insert(
+        HeaderName::from_static("x-sigma-jetons-total"),
+        HeaderValue::from(total_jetons),
+    );
+    entetes.insert(
+        HeaderName::from_static("x-sigma-jetons-exportes"),
+        HeaderValue::from(tous.len()),
+    );
+    entetes.insert(
+        HeaderName::from_static("x-sigma-export-tronque"),
+        HeaderValue::from_static(if tronque { "true" } else { "false" }),
+    );
+    Ok((reponse, trace))
 }

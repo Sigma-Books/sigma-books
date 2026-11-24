@@ -131,6 +131,9 @@ pub struct Rapport {
     pub jetons: u64,
     /// Jetons valides (témoin concordant et signature vérifiée).
     pub jetons_valides: u64,
+    /// Jetons dont le témoin concorde mais dont la signature n'a pas été vérifiée, faute de
+    /// place dans la borne de signatures par vérification : les plus anciens.
+    pub jetons_non_verifies: u64,
     /// Anomalies détaillées (au plus [`ANOMALIES_DETAILLEES`]).
     pub anomalies: Vec<Anomalie>,
     /// Anomalies non détaillées.
@@ -303,7 +306,9 @@ impl VerificateurChaine {
     }
 
     /// Termine : compare la tête recalculée à la tête stockée (`stockee` : rang et empreinte de
-    /// `chaine_tete`, absente si aucune écriture n'a été validée) et contrôle les jetons.
+    /// `chaine_tete`, absente si aucune écriture n'a été validée) et contrôle les jetons : le
+    /// témoin de chacun, la signature des `signatures_max` plus récents seulement (une signature
+    /// RSA coûte du calcul ; les jetons sont rendus du plus ancien au plus récent).
     #[must_use]
     pub fn terminer(
         mut self,
@@ -311,6 +316,7 @@ impl VerificateurChaine {
         stockee: Option<(i64, Empreinte)>,
         jetons: &[JetonStocke],
         controle: &dyn ControleJeton,
+        signatures_max: usize,
     ) -> Rapport {
         let signaler = |anomalies: &mut Vec<Anomalie>,
                         omises: &mut u64,
@@ -343,7 +349,9 @@ impl VerificateurChaine {
             None => {}
         }
         let mut valides = 0_u64;
-        for jeton in jetons {
+        let mut non_verifies = 0_u64;
+        let premiere_signature = jetons.len().saturating_sub(signatures_max);
+        for (i, jeton) in jetons.iter().enumerate() {
             let tete_au_rang = if jeton.nombre == 0 {
                 Some(genese(dossier))
             } else {
@@ -355,6 +363,7 @@ impl VerificateurChaine {
                 Some(t) if t != jeton.tete => {
                     signaler(anomalies, omises, "jeton_hors_chaine", rang, Some("tete"));
                 }
+                Some(_) if i < premiere_signature => non_verifies += 1,
                 Some(_) => {
                     let temoin = Temoin::nouveau(
                         dossier.clone(),
@@ -375,6 +384,7 @@ impl VerificateurChaine {
             tete: self.courante,
             jetons: jetons.len() as u64,
             jetons_valides: valides,
+            jetons_non_verifies: non_verifies,
             anomalies: self.anomalies,
             anomalies_omises: self.omises,
         }
@@ -453,7 +463,7 @@ mod tests {
         for l in lignes {
             v.ajouter(l);
         }
-        v.terminer(dossier, stockee, jetons, controle)
+        v.terminer(dossier, stockee, jetons, controle, 1000)
     }
 
     fn jeton(nombre: i64, tete: Empreinte) -> JetonStocke {
@@ -588,6 +598,28 @@ mod tests {
         let r = verifier(&d, &lignes, Some((n, tete)), &bons, &Refuse);
         assert_eq!(r.jetons_valides, 0);
         assert_eq!(r.anomalies[0].code, "jeton_invalide");
+    }
+
+    #[test]
+    fn seules_les_signatures_les_plus_recentes_sont_verifiees() {
+        let (d, lignes) = vecteur();
+        let tete = lignes.last().unwrap().empreinte;
+        let n = i64::try_from(lignes.len()).unwrap();
+        let jetons = [
+            jeton(1, lignes[0].empreinte),
+            jeton(2, lignes[1].empreinte),
+            jeton(n, tete),
+        ];
+        let mut v = VerificateurChaine::new(&d, jetons.iter().map(|j| j.nombre));
+        for l in &lignes {
+            v.ajouter(l);
+        }
+        let r = v.terminer(&d, Some((n, tete)), &jetons, &Accepte, 1);
+        assert!(r.est_integre());
+        assert_eq!(
+            (r.jetons, r.jetons_valides, r.jetons_non_verifies),
+            (3, 1, 2)
+        );
     }
 
     #[test]

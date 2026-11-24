@@ -149,6 +149,90 @@ pub async fn jetons(tx: &mut TransactionTenant) -> Result<Vec<JetonStocke>, Erre
         .collect()
 }
 
+/// Jeton d'horodatage sans son contenu DER : ce que montrent l'état et la liste (le DER, jusqu'à
+/// 64 Kio par jeton, n'est lu que pour l'export et la vérification).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumeJeton {
+    /// Identifiant.
+    pub id: Uuid,
+    /// Nombre d'écritures couvertes.
+    pub nombre: i64,
+    /// Tête de chaîne horodatée.
+    pub tete: Empreinte,
+    /// Autorité.
+    pub autorite: String,
+    /// Date attestée.
+    pub date_jeton: OffsetDateTime,
+    /// Instant d'obtention.
+    pub obtenu_le: OffsetDateTime,
+    /// Déclencheur.
+    pub declencheur: String,
+}
+
+/// Jetons du dossier **sans leur DER**, dans l'ordre de la chaîne couverte puis de leur
+/// obtention (au plus [`JETONS_MAX`] : au-delà, les plus récents).
+///
+/// # Errors
+/// Contexte sans dossier, donnée incohérente, erreur de PostgreSQL.
+pub async fn resumes_jetons(tx: &mut TransactionTenant) -> Result<Vec<ResumeJeton>, ErreurBase> {
+    let (cabinet, dossier) = dossier(tx)?;
+    let lignes = sqlx::query!(
+        "SELECT id, nombre, tete, autorite, date_jeton, obtenu_le, declencheur \
+         FROM (SELECT id, nombre, tete, autorite, date_jeton, obtenu_le, declencheur \
+               FROM jeton_horodatage WHERE cabinet_id = $1 AND dossier_id = $2 \
+               ORDER BY nombre DESC, obtenu_le DESC, id DESC LIMIT $3) t \
+         ORDER BY nombre, obtenu_le, id",
+        cabinet,
+        dossier,
+        JETONS_MAX,
+    )
+    .fetch_all(tx.connexion())
+    .await?;
+    lignes
+        .into_iter()
+        .map(|l| {
+            Ok(ResumeJeton {
+                id: l.id,
+                nombre: l.nombre,
+                tete: empreinte(&l.tete)?,
+                autorite: l.autorite,
+                date_jeton: l.date_jeton,
+                obtenu_le: l.obtenu_le,
+                declencheur: l.declencheur,
+            })
+        })
+        .collect()
+}
+
+/// Dernier jeton du dossier (le plus de chaîne couverte, puis le plus récent), sans son DER.
+///
+/// # Errors
+/// Contexte sans dossier, donnée incohérente, erreur de PostgreSQL.
+pub async fn dernier_resume(tx: &mut TransactionTenant) -> Result<Option<ResumeJeton>, ErreurBase> {
+    let (cabinet, dossier) = dossier(tx)?;
+    let Some(l) = sqlx::query!(
+        "SELECT id, nombre, tete, autorite, date_jeton, obtenu_le, declencheur \
+         FROM jeton_horodatage WHERE cabinet_id = $1 AND dossier_id = $2 \
+         ORDER BY nombre DESC, obtenu_le DESC, id DESC LIMIT 1",
+        cabinet,
+        dossier,
+    )
+    .fetch_optional(tx.connexion())
+    .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(ResumeJeton {
+        id: l.id,
+        nombre: l.nombre,
+        tete: empreinte(&l.tete)?,
+        autorite: l.autorite,
+        date_jeton: l.date_jeton,
+        obtenu_le: l.obtenu_le,
+        declencheur: l.declencheur,
+    }))
+}
+
 /// Nombre de jetons du dossier.
 ///
 /// # Errors
