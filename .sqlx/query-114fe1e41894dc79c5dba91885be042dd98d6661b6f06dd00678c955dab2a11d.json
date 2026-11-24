@@ -1,0 +1,166 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT l.ecriture_id, l.compte_numero, l.sens, l.montant::text AS \"montant!\", l.devise,\n               l.montant_devise::text AS montant_devise, l.cours::text AS cours, l.tiers_id,\n               l.fiscal_nature, l.fiscal_sens, l.fiscal_regime,\n               l.fiscal_taux::text AS fiscal_taux, l.fiscal_exigibilite, l.fiscal_motif\n        FROM ecriture_validee_ligne l\n        WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.ecriture_id = ANY($3)\n        ORDER BY l.ecriture_id, l.position\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ecriture_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "ecriture_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "compte_numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "compte_numero"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sens",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "sens"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "montant!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "devise",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "devise"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "montant_devise",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "cours",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "tiers_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "tiers_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "fiscal_nature",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "fiscal_nature"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "fiscal_sens",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "fiscal_sens"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "fiscal_regime",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "fiscal_regime"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "fiscal_taux",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "fiscal_exigibilite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "fiscal_exigibilite"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "fiscal_motif",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "fiscal_motif"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      true,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "114fe1e41894dc79c5dba91885be042dd98d6661b6f06dd00678c955dab2a11d"
+}

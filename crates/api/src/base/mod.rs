@@ -39,6 +39,7 @@
 pub mod audit;
 pub mod brouillard;
 pub mod config;
+pub mod editions;
 pub mod evenement;
 pub mod facteurs;
 pub mod organisation;

@@ -376,7 +376,7 @@ pub(crate) async fn executer(
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => referentiel::executer(cas, tx, garde, requete).await,
         CasUsage::Brouillard(cas) => brouillard::executer(cas, tx, garde, requete).await,
-        CasUsage::Editions(cas) => match cas {},
+        CasUsage::Editions(cas) => editions::executer(cas, tx, garde, requete).await,
         // Voie pièces (PR 12).
         CasUsage::Pieces(cas) => pieces::executer(cas, tx, garde, requete).await,
         // Voie intégrité et horodatage (PR 15).

@@ -50,6 +50,7 @@ mod lot;
 mod saisie;
 pub mod validation;
 
+pub(crate) use saisie::date_lue;
 pub use saisie::referentiel_tva;
 
 /// Cas d'usage du module.
