@@ -56,6 +56,16 @@ impl FacteurVerifie {
     pub const fn methode(&self) -> MethodeSession {
         self.methode
     }
+
+    /// Preuve d'une passkey dont la signature vient d'être vérifiée **et** dont le nouvel état
+    /// (compteur) vient d'être consommé en base. Réservée à [`super::passkeys`], qui ne
+    /// l'appelle qu'après la mise à jour conditionnelle de l'état de la passkey.
+    pub(super) const fn passkey(utilisateur: IdUtilisateur) -> Self {
+        Self {
+            utilisateur,
+            methode: MethodeSession::Passkey,
+        }
+    }
 }
 
 /// Méthode de secours lue en base.
@@ -128,6 +138,12 @@ pub async fn ouvrir_transaction_connexion(
 }
 
 impl TransactionConnexion {
+    /// Courriel saisi et connexion de la transaction, pour les requêtes des passkeys
+    /// ([`super::passkeys`]), qui partagent ce contexte.
+    pub(super) fn contexte(&mut self) -> (&str, &mut PgConnection) {
+        (&self.courriel, &mut self.tx)
+    }
+
     /// L'utilisateur du courriel saisi, s'il existe.
     ///
     /// # Errors

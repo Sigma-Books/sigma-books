@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO facteur_passkey (id, utilisateur_id, identifiant_credential, cle, nom, cree_le) VALUES ($1, $2, $3, $4::text::jsonb, $5, $6) ON CONFLICT (identifiant_credential) DO NOTHING RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "facteur_passkey",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bytea",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "474a32c7dbf6ee6eb2be447c6fefef8ccef7b37785988219a73313c36a1e0c2f"
+}

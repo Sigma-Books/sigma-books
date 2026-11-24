@@ -7,7 +7,8 @@
 //!   **pas** accepté, base de l'anti-rejeu ; URI `otpauth` ;
 //! - [`mot_de_passe`] : Argon2id (19 Mio, 2 passes), 12 caractères au moins, liste de mots de
 //!   passe compromis ([`compromis`]) ;
-//! - [`codes`] : codes de récupération de 120 bits, stockés hachés (SHA-256).
+//! - [`codes`] : codes de récupération de 120 bits, stockés hachés (SHA-256) ;
+//! - [`passkey`] : passkeys, WebAuthn (`webauthn-rs`), jeton de cérémonie, faux défi (PR 8c).
 //!
 //! Aucun secret n'a de `Debug` lisible ; tous sont effacés de la mémoire à leur libération.
 
@@ -15,6 +16,7 @@ pub mod cle;
 pub mod codes;
 pub mod compromis;
 pub mod mot_de_passe;
+pub mod passkey;
 pub mod totp;
 
 /// Échec du tirage d'un aléa (source du système indisponible).

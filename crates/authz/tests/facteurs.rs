@@ -60,16 +60,18 @@ fn attendue(action: ActionFacteur, c: ContexteFacteur) -> Decision {
     let admis = match action {
         ActionFacteur::OuvrirSession => matches!(
             (c.methode, c.nature),
-            (M::Secours, N::Complete) | (M::CodeRecuperation, N::Restreinte)
+            (M::Passkey | M::Secours, N::Complete) | (M::CodeRecuperation, N::Restreinte)
         ),
         ActionFacteur::SeReauthentifier
         | ActionFacteur::ConsulterSesFacteurs
         | ActionFacteur::ConsulterSesEvenements => c.nature == N::Complete,
-        ActionFacteur::EnrolerSecours => {
+        ActionFacteur::EnrolerSecours | ActionFacteur::EnrolerPasskey => {
             (c.nature == N::Complete && fraiche)
                 || (c.nature == N::Restreinte && c.methode == M::CodeRecuperation)
         }
-        ActionFacteur::RegenererCodesRecuperation => c.nature == N::Complete && fraiche,
+        ActionFacteur::RegenererCodesRecuperation | ActionFacteur::SupprimerPasskey => {
+            c.nature == N::Complete && fraiche
+        }
     };
     if admis {
         Decision::Autorise

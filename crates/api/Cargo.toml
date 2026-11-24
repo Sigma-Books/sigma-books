@@ -44,6 +44,8 @@ hyper = { workspace = true, features = ["client"] }
 hyper-util.workspace = true
 rusty-s3.workspace = true
 serde.workspace = true
+# État des passkeys et des cérémonies WebAuthn, stocké en JSON (`webauthn-rs` le sérialise ainsi).
+serde_json.workspace = true
 sha1.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
@@ -55,15 +57,19 @@ tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
+webauthn-rs.workspace = true
+webauthn-rs-proto.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Authentificateur logiciel : parcours WebAuthn complets dans les tests (PR 8c).
+crypto-glue.workspace = true
+webauthn-authenticator-rs.workspace = true
 # Propriétés du stockage à plat du référentiel (`base::referentiel`).
 proptest.workspace = true
 # Lecture du nonce dans la requête figée des vecteurs (tests du client d'horodatage).
 der.workspace = true
 x509-tsp.workspace = true
-serde_json.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "sync", "test-util"] }
 toml.workspace = true

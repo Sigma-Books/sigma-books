@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM defi_webauthn WHERE jeton_hache = $1 AND utilisateur_id = $2 AND nature = $3 AND session_id = $4 AND expire_le > $5 RETURNING etat::text AS \"etat!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "317aa2cc9bb970a4724ba4d534422423d01e166f7ce844a6188041dd54733d9b"
+}

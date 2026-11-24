@@ -1,4 +1,4 @@
-//! Domaine « facteurs » (ADR 0012, ADR 0017 ; PR 8b) : connexion, méthode de secours, codes de
+//! Domaine « facteurs » (ADR 0012, ADR 0017 ; PR 8b, 8c) : connexion, méthode de secours, codes de
 //! récupération, ré-authentification, événements d'authentification
 //! (`politiques/schema/facteurs.cedarschema`, `politiques/facteurs.cedar`).
 //!
@@ -57,7 +57,7 @@ macro_rules! actions_facteur {
 actions_facteur! {
     /// Ouverture d'une session après la vérification d'un facteur.
     OuvrirSession,
-    /// Ré-authentification par la méthode de secours.
+    /// Ré-authentification par la méthode de secours ou par une passkey.
     SeReauthentifier,
     /// État de ses facteurs.
     ConsulterSesFacteurs,
@@ -67,6 +67,10 @@ actions_facteur! {
     EnrolerSecours,
     /// Nouvelle série de codes de récupération.
     RegenererCodesRecuperation,
+    /// Enrôlement d'une passkey (WebAuthn, PR 8c), cérémonie comprise.
+    EnrolerPasskey,
+    /// Suppression d'une de ses passkeys.
+    SupprimerPasskey,
 }
 
 /// Nature d'une session, telle que la voit Cedar (ADR 0012).
@@ -95,7 +99,7 @@ impl NatureDeSession {
 /// Facteur vérifié à l'ouverture d'une session, tel que le voit Cedar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MethodeDeSession {
-    /// Passkey (PR 8c).
+    /// Passkey (WebAuthn, PR 8c).
     Passkey,
     /// Mot de passe et TOTP.
     Secours,

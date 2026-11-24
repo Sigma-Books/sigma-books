@@ -1,6 +1,6 @@
 // Autorisations (`permit`) et interdictions (`forbid`) du domaine « facteurs » : connexion,
 // méthode de secours, codes de récupération, ré-authentification, événements
-// d'authentification (ADR 0012, ADR 0017 ; PR 8b).
+// d'authentification (ADR 0012, ADR 0017 ; PR 8b, 8c).
 //
 // La ressource d'une action de l'utilisateur sur ses facteurs est toujours l'utilisateur
 // lui-même : l'invariant `invariant-soi-meme` (invariants.cedar) interdit toute action sur un
@@ -17,8 +17,9 @@ permit (
   resource is Sigma::Instance
 );
 
-// Ouverture d'une session : la méthode de secours (mot de passe et TOTP) ouvre une session
-// complète ; un code de récupération, une session restreinte (enrôlement seulement, F1.12).
+// Ouverture d'une session : une passkey (vérification de l'utilisateur exigée, ADR 0012) ou la
+// méthode de secours (mot de passe et TOTP) ouvre une session complète ; un code de
+// récupération, une session restreinte (enrôlement seulement, F1.12).
 @id("adr0012-ouverture-session")
 permit (
   principal is Sigma::Utilisateur,
@@ -27,7 +28,8 @@ permit (
 )
 when {
   resource == principal &&
-  ((context.methode == "secours" && context.nature == "complete") ||
+  (((context.methode == "passkey" || context.methode == "secours") &&
+    context.nature == "complete") ||
    (context.methode == "code_recuperation" && context.nature == "restreinte"))
 };
 
@@ -41,7 +43,7 @@ forbid (
 )
 when { context.methode == "code_recuperation" && context.nature != "restreinte" };
 
-// Ré-authentification : depuis une session complète seulement.
+// Ré-authentification (secours ou passkey) : depuis une session complète seulement.
 @id("adr0012-reauthentification")
 permit (
   principal is Sigma::Utilisateur,
@@ -83,6 +85,31 @@ when {
 permit (
   principal is Sigma::Utilisateur,
   action == Sigma::Action::"RegenererCodesRecuperation",
+  resource is Sigma::Utilisateur
+)
+when { resource == principal && context.nature == "complete" && context.session_fraiche };
+
+// Enrôlement d'une passkey : mêmes conditions que celui du secours (session complète fraîche,
+// ou session restreinte ouverte par un code de récupération, qui ne sert qu'à enrôler un
+// facteur, F1.12). Une passkey ajoutée depuis une session non fraîche affaiblirait la
+// protection du compte : le facteur de l'attaquant serait déjà là.
+@id("adr0012-enrolement-passkey")
+permit (
+  principal is Sigma::Utilisateur,
+  action == Sigma::Action::"EnrolerPasskey",
+  resource is Sigma::Utilisateur
+)
+when {
+  resource == principal &&
+  ((context.nature == "complete" && context.session_fraiche) ||
+   (context.nature == "restreinte" && context.methode == "code_recuperation"))
+};
+
+// Suppression d'une de ses passkeys : session complète et fraîche.
+@id("adr0012-suppression-passkey")
+permit (
+  principal is Sigma::Utilisateur,
+  action == Sigma::Action::"SupprimerPasskey",
   resource is Sigma::Utilisateur
 )
 when { resource == principal && context.nature == "complete" && context.session_fraiche };

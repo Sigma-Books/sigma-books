@@ -13,7 +13,7 @@
 //! | base | [`crate::base::config`] | `SIGMA_URL_BASE_APPLICATION`, `SIGMA_URL_BASE_LECTURE_AUDIT` |
 //! | horodatage | [`crate::horodatage::config`] | `SIGMA_AUTORITES_HORODATAGE` |
 //! | sessions | [`super::session::configurer`] | `SIGMA_CONSERVATION_SESSIONS_JOURS` |
-//! | facteurs | [`super::facteurs::configurer`] | `SIGMA_FICHIER_CLE_INSTANCE` |
+//! | facteurs | [`super::facteurs::configurer`] | `SIGMA_FICHIER_CLE_INSTANCE` ; passkeys : `SIGMA_ORIGINE` (hôte nommé) |
 //! | pièces | [`crate::pieces::config`] | `SIGMA_PIECES_*` |
 //!
 //! Variables du serveur :
@@ -120,6 +120,10 @@ impl Configuration {
         super::session::configurer(&env, &mut reglages.sessions)?;
         // Voie authentification (PR 8b, 8c, 9).
         super::facteurs::configurer(&env, &mut reglages.facteurs)?;
+        // Passkeys (PR 8c) : l'hôte de l'origine est la partie de confiance WebAuthn ; une origine
+        // qui n'en est pas une (adresse IP) interdit toute connexion par passkey : refus de démarrer.
+        crate::facteurs::passkey::Passkeys::depuis_origine(&reglages.origine)
+            .map_err(|_| ErreurConfiguration::Invalide("SIGMA_ORIGINE"))?;
         //
         // Voie comptabilité (PR 11, 13, 14).
         //

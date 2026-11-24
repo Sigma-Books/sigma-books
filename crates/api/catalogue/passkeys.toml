@@ -1,0 +1,26 @@
+# Catalogue « passkeys » : passkeys WebAuthn et cérémonies en cours (ADR 0006, ADR 0012 ;
+# L2 PR 8c ; migration 0101_passkeys.sql).
+#
+# Un fichier par module (`crates/api/catalogue/<module>.toml`) : une voie de travail n'édite que le
+# sien. Voir `facteurs.toml` pour le format ; toute modification passe par la revue de l'équipe core.
+
+[[instance]]
+nom = "facteur_passkey"
+rls = true
+justification = """
+Passkeys d'un utilisateur (ADR 0012), hors de tout cabinet : clé publique, identifiant du \
+credential et compteur de signatures (`Passkey` de `webauthn-rs` sérialisée) ; jamais de clé \
+privée, qui reste dans l'authentificateur ; aucune donnée comptable. Sous RLS : visible de son \
+titulaire (`sigma.utilisateur`) ; à la connexion, lecture et mise à jour de l'état et de la \
+dernière utilisation pour le seul compte du courriel saisi (`sigma.courriel_connexion`), \
+jamais de création ni de suppression, et un déclencheur ne laisse changer que ces deux colonnes."""
+
+[[instance]]
+nom = "defi_webauthn"
+rls = true
+justification = """
+État d'une cérémonie WebAuthn en cours (défi d'enrôlement, de connexion ou de ré-authentification), \
+à usage unique et de 5 minutes, hors de tout cabinet. Retrouvé par l'empreinte SHA-256 du jeton du \
+cookie de cérémonie, jamais par le jeton. Sous RLS : visible de son titulaire (`sigma.utilisateur`) ; \
+à la connexion, création d'un défi de connexion pour le compte du courriel saisi, lecture sur \
+présentation de l'empreinte du jeton (`sigma.jeton_defi`), suppression de ses défis."""

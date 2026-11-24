@@ -94,11 +94,11 @@ pub(crate) async fn executer(
         CasUsage::Organisation(_)
         | CasUsage::Audit(_)
         | CasUsage::Facteurs(_)
+        | CasUsage::Passkeys(_)
         | CasUsage::Referentiel(_)
         | CasUsage::Pieces(_)
         | CasUsage::Brouillard(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
-        // Voie authentification (PR 8b, 8c, 9).
-        CasUsage::Passkeys(cas) => match cas {},
+        // Voie authentification (PR 9).
         CasUsage::Administration(cas) => match cas {},
         CasUsage::Editions(cas) => match cas {},
         // Voie intégrité et horodatage (PR 15).

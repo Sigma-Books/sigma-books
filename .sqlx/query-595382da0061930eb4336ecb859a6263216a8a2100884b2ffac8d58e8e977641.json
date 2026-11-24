@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM defi_webauthn WHERE utilisateur_id = $1 AND expire_le <= $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "595382da0061930eb4336ecb859a6263216a8a2100884b2ffac8d58e8e977641"
+}
