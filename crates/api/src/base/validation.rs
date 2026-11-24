@@ -134,7 +134,7 @@ pub struct PieceVerrouillee {
     pub ecartee: bool,
 }
 
-fn hex(octets: &[u8]) -> String {
+pub(super) fn hex(octets: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut s = String::with_capacity(octets.len() * 2);
     for o in octets {

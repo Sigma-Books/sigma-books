@@ -20,6 +20,7 @@ use uuid::Uuid;
 use super::brouillard::{
     ContenuStocke, DeviseStockee, EtiquetteStockee, LigneStockee, decimal_canonique,
 };
+use super::validation::hex;
 use super::{ErreurBase, IdCabinet, IdDossier, TransactionTenant};
 
 /// Nombre maximal d'écritures (validées, puis brouillons) lues pour une édition.
@@ -65,10 +66,6 @@ fn tenant(tx: &TransactionTenant) -> Result<(IdCabinet, IdDossier), ErreurBase> 
         .id_dossier()
         .ok_or(ErreurBase::Donnee("éditions hors du contexte d'un dossier"))?;
     Ok((contexte.id_cabinet(), dossier))
-}
-
-fn hex(octets: &[u8]) -> String {
-    octets.iter().map(|o| format!("{o:02x}")).collect()
 }
 
 /// Colonnes d'une ligne telle que lue (validée ou brouillon).
