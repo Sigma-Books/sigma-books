@@ -372,6 +372,31 @@ mod tests {
     }
 
     #[test]
+    fn les_faux_identifiants_varient_en_nombre_et_en_longueur() {
+        let cle = CleInstance::depuis_octets([9; 32]);
+        let p = passkeys();
+        let (mut nombres, mut longueurs) = (
+            std::collections::BTreeSet::new(),
+            std::collections::BTreeSet::new(),
+        );
+        for i in 0..200 {
+            let r = p
+                .defi_factice(&cle, &format!("compte-{i}@exemple.invalid"))
+                .expect("faux défi");
+            let ids = &r.public_key.allow_credentials;
+            assert!((1..=10).contains(&ids.len()));
+            nombres.insert(ids.len());
+            for id in ids {
+                assert!((16..=128).contains(&id.id.len()));
+                longueurs.insert(id.id.len());
+            }
+        }
+        // Plusieurs nombres, plusieurs longueurs ; surtout peu d'identifiants, parfois beaucoup.
+        assert!(nombres.len() >= 3, "{nombres:?}");
+        assert!(longueurs.len() >= 4, "{longueurs:?}");
+    }
+
+    #[test]
     fn le_jeton_de_ceremonie_fait_l_aller_retour() {
         let jeton = JetonDefi::tirer().expect("aléa");
         let cookie = jeton.cookie();

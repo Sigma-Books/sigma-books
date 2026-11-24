@@ -15,3 +15,5 @@
 | PR | PR 8c du lot L2 |
 
 Les avis de sécurité de `crypto-glue` et de `webauthn-rs` sont vérifiés à chaque PR d'authentification (ADR 0018) : aucun avis publié à la date de cette PR (`cargo deny`, avis RustSec).
+
+Note : `vendor/crypto-glue/Cargo.toml.orig` (fichier de l'archive publiée, ignoré par Cargo) garde la dépendance d'origine, `rsa` `0.10.0-rc.18` avec la fonctionnalité `sha2`. Il n'est pas utilisé et n'est pas modifié, afin que la différence avec l'archive reste visible ; seul `Cargo.toml` fait foi.

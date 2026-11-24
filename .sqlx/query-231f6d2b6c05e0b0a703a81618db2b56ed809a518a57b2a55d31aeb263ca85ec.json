@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS \"verrou\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "verrou",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "231f6d2b6c05e0b0a703a81618db2b56ed809a518a57b2a55d31aeb263ca85ec"
+}

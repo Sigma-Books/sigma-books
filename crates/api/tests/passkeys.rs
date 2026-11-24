@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use api::base::IdUtilisateur;
 use api::base::session::NatureSession;
-use api::serveur::Reglages;
+use api::serveur::{Horloge, Reglages};
 use authz::Autorisation;
 use axum::Router;
 use axum::http::StatusCode;
@@ -530,6 +530,436 @@ async fn les_defis_exigent_la_verification_de_l_utilisateur() {
     );
 }
 
+// --- Origine, partie de confiance, clonage ------------------------------------------------------
+
+#[tokio::test]
+async fn une_mauvaise_origine_ou_un_mauvais_rp_id_est_refuse() {
+    let b = banc().await;
+    let u = b.c.administrateur;
+    let s = session(&b, u, NatureSession::Complete).await;
+    let autre_origine = Url::parse("https://autre.exemple.invalid").unwrap();
+    // Enrôlement : l'authentificateur signe pour une autre origine (hameçonnage), ou pour un
+    // `rp_id` plus large que le nôtre.
+    let d = envoyer(&b, "POST", DEFI_ENROLEMENT, Some(&s.0), Some(&s.1), "").await;
+    let ceremonie = cookie_ceremonie(&d);
+    let options: CreationChallengeResponse =
+        serde_json::from_value(d.json()["defi"].clone()).unwrap();
+    let credential = SoftPasskey::new(true)
+        .do_registration(autre_origine.clone(), options)
+        .map(|c| serde_json::json!({ "nom": "H", "credential": c }).to_string());
+    if let Ok(corps) = credential {
+        let r = envoyer(
+            &b,
+            "POST",
+            ENROLEMENT,
+            Some(&cookies(&s, &ceremonie)),
+            Some(&s.1),
+            &corps,
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+        assert_eq!(r.json()["erreur"], "passkey_refusee");
+    }
+    let d = envoyer(&b, "POST", DEFI_ENROLEMENT, Some(&s.0), Some(&s.1), "").await;
+    let ceremonie = cookie_ceremonie(&d);
+    let mut options: CreationChallengeResponse =
+        serde_json::from_value(d.json()["defi"].clone()).unwrap();
+    options.public_key.rp.id = "exemple.invalid".to_owned();
+    if let Ok(c) = SoftPasskey::new(true).do_registration(origine(), options) {
+        let corps = serde_json::json!({ "nom": "H", "credential": c }).to_string();
+        let r = envoyer(
+            &b,
+            "POST",
+            ENROLEMENT,
+            Some(&cookies(&s, &ceremonie)),
+            Some(&s.1),
+            &corps,
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    }
+    assert_eq!(passkeys_de(&b, u).await, 0);
+
+    // Connexion : une vraie passkey, mais signée pour une autre origine ou un autre `rp_id`.
+    let mut auth = SoftPasskey::new(true);
+    assert_eq!(
+        enroler(&b, &mut auth, &s, "T").await.statut,
+        StatusCode::CREATED
+    );
+    let mail = courriel(u);
+    for variante in ["origine", "rp_id"] {
+        let (d, ceremonie, _) = defi_connexion(&b, &mut SoftPasskey::new(true), &mail).await;
+        let mut options: RequestChallengeResponse =
+            serde_json::from_value(d.json()["defi"].clone()).unwrap();
+        let origine_signee = if variante == "origine" {
+            autre_origine.clone()
+        } else {
+            options.public_key.rp_id = "exemple.invalid".to_owned();
+            origine()
+        };
+        let Ok(credential) = auth.do_authentication(origine_signee, options) else {
+            continue; // l'authentificateur refuse lui-même : rien à envoyer
+        };
+        let r = envoyer_connexion(&b, &corps_connexion(&mail, &credential), Some(&ceremonie)).await;
+        assert_eq!(
+            r.statut,
+            StatusCode::UNAUTHORIZED,
+            "{variante} : {}",
+            r.texte()
+        );
+    }
+    assert_eq!(evenements(&b, u, "connexion", "succes").await, 0);
+}
+
+/// Fait croire que le compteur de la passkey est déjà haut : la prochaine signature, de compteur
+/// plus bas, ressemble à celle d'un authentificateur cloné.
+async fn avancer_le_compteur(b: &Banc, u: IdUtilisateur) {
+    let touchees = sqlx::query(
+        "UPDATE facteur_passkey SET cle = jsonb_set(cle, '{cred,counter}', '1000000') \
+         WHERE utilisateur_id = $1",
+    )
+    .bind(u.uuid())
+    .execute(&b.env.admin)
+    .await
+    .unwrap()
+    .rows_affected();
+    assert_eq!(touchees, 1);
+    let compteur: String = sqlx::query_scalar(
+        "SELECT (cle #> '{cred,counter}')::text FROM facteur_passkey WHERE utilisateur_id = $1",
+    )
+    .bind(u.uuid())
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(compteur, "1000000", "forme de l'état stocké");
+}
+
+#[tokio::test]
+async fn un_compteur_qui_regresse_est_refuse_et_trace_a_part() {
+    let b = banc().await;
+    let u = b.c.administrateur;
+    let s = session(&b, u, NatureSession::Complete).await;
+    let mut auth = SoftPasskey::new(true);
+    assert_eq!(
+        enroler(&b, &mut auth, &s, "T").await.statut,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        connexion(&b, &mut auth, &courriel(u)).await.statut,
+        StatusCode::OK
+    );
+    avancer_le_compteur(&b, u).await;
+
+    // Connexion : refusée comme tout échec (401), mais le clonage est tracé à part.
+    let r = connexion(&b, &mut auth, &courriel(u)).await;
+    assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{}", r.texte());
+    assert_eq!(r.json()["erreur"], "non_authentifie");
+    assert_eq!(evenements(&b, u, "clonage_passkey", "echec").await, 1);
+    assert_eq!(evenements(&b, u, "connexion", "echec").await, 1);
+    assert_eq!(evenements(&b, u, "connexion", "succes").await, 1);
+    // L'état de la passkey n'a pas bougé (compteur et date de dernière utilisation).
+    avancer_le_compteur(&b, u).await;
+
+    // Ré-authentification : même refus, même trace.
+    let d = envoyer(&b, "POST", DEFI_REAUTH, Some(&s.0), Some(&s.1), "").await;
+    let ceremonie = cookie_ceremonie(&d);
+    let options: RequestChallengeResponse =
+        serde_json::from_value(d.json()["defi"].clone()).unwrap();
+    let credential = auth.do_authentication(origine(), options).unwrap();
+    let corps = serde_json::json!({ "credential": credential }).to_string();
+    let r = envoyer(
+        &b,
+        "POST",
+        REAUTH,
+        Some(&cookies(&s, &ceremonie)),
+        Some(&s.1),
+        &corps,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    assert_eq!(evenements(&b, u, "clonage_passkey", "echec").await, 2);
+    // Le journal ne contient ni compteur, ni clé, ni credential.
+    let etat = envoyer(&b, "GET", "/api/moi/evenements", Some(&s.0), None, "").await;
+    assert!(etat.texte().contains("clonage_passkey"));
+    assert!(!etat.texte().contains("1000000"));
+}
+
+#[tokio::test]
+async fn la_mise_a_jour_de_l_etat_est_conditionnelle_a_l_etat_lu() {
+    use api::base::facteurs::ouvrir_transaction_connexion;
+    let b = banc().await;
+    let u = b.c.administrateur;
+    let s = session(&b, u, NatureSession::Complete).await;
+    assert_eq!(
+        enroler(&b, &mut SoftPasskey::new(true), &s, "T")
+            .await
+            .statut,
+        StatusCode::CREATED
+    );
+    let (id, etat): (Uuid, String) =
+        sqlx::query_as("SELECT id, cle::text FROM facteur_passkey WHERE utilisateur_id = $1")
+            .bind(u.uuid())
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+    let nouveau = etat.replacen("\"counter\": 0", "\"counter\": 5", 1);
+    assert_ne!(nouveau, etat, "forme de l'état stocké : {etat}");
+    let maintenant = b.horloge.maintenant();
+    // État lu périmé (la ligne a changé entre-temps) : rien n'est mis à jour, aucune preuve.
+    let mut tx = ouvrir_transaction_connexion(&b.env.application, &courriel(u))
+        .await
+        .unwrap();
+    let preuve = tx
+        .consommer_passkey(u, id, "{}", &nouveau, maintenant)
+        .await
+        .unwrap();
+    assert!(preuve.is_none());
+    tx.confirmer().await.unwrap();
+    let (cle, usage): (String, Option<time::OffsetDateTime>) =
+        sqlx::query_as("SELECT cle::text, derniere_utilisation FROM facteur_passkey WHERE id = $1")
+            .bind(id)
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+    assert_eq!(cle, etat);
+    assert!(usage.is_none());
+    // État lu exact : mise à jour, une seule fois (la seconde présente l'ancien état).
+    let mut tx = ouvrir_transaction_connexion(&b.env.application, &courriel(u))
+        .await
+        .unwrap();
+    assert!(
+        tx.consommer_passkey(u, id, &etat, &nouveau, maintenant)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    tx.confirmer().await.unwrap();
+    let mut tx = ouvrir_transaction_connexion(&b.env.application, &courriel(u))
+        .await
+        .unwrap();
+    assert!(
+        tx.consommer_passkey(u, id, &etat, &nouveau, maintenant)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    tx.confirmer().await.unwrap();
+    // Une passkey d'un autre utilisateur n'est jamais touchée, même avec le bon état.
+    let mut tx = ouvrir_transaction_connexion(&b.env.application, &courriel(b.c.collaborateur))
+        .await
+        .unwrap();
+    assert!(
+        tx.consommer_passkey(b.c.collaborateur, id, &nouveau, &etat, maintenant)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+// --- Courses ---------------------------------------------------------------------------------
+
+#[tokio::test]
+async fn deux_suppressions_concurrentes_laissent_toujours_un_facteur_fort() {
+    let b = banc().await;
+    let u = b.c.administrateur;
+    let s = session(&b, u, NatureSession::Complete).await;
+    for nom in ["Une", "Deux"] {
+        assert_eq!(
+            enroler(&b, &mut SoftPasskey::new(true), &s, nom)
+                .await
+                .statut,
+            StatusCode::CREATED
+        );
+    }
+    for _ in 0..3 {
+        let ids = identifiants(&b, &s).await;
+        assert_eq!(ids.len(), 2);
+        let (c0, c1) = (
+            format!("{ENROLEMENT}/{}", ids[0]),
+            format!("{ENROLEMENT}/{}", ids[1]),
+        );
+        let (x, y) = tokio::join!(
+            envoyer(&b, "DELETE", &c0, Some(&s.0), Some(&s.1), ""),
+            envoyer(&b, "DELETE", &c1, Some(&s.0), Some(&s.1), ""),
+        );
+        let mut statuts = [x.statut, y.statut];
+        statuts.sort();
+        assert_eq!(
+            statuts,
+            [StatusCode::NO_CONTENT, StatusCode::UNPROCESSABLE_ENTITY],
+            "{} / {}",
+            x.texte(),
+            y.texte()
+        );
+        assert_eq!(passkeys_de(&b, u).await, 1, "un facteur fort reste");
+        // Retour à deux passkeys pour le tour suivant.
+        assert_eq!(
+            enroler(&b, &mut SoftPasskey::new(true), &s, "Retour")
+                .await
+                .statut,
+            StatusCode::CREATED
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn deux_enrolements_concurrents_ne_franchissent_pas_le_plafond() {
+    let b = banc().await;
+    let u = b.c.administrateur;
+    let s = session(&b, u, NatureSession::Complete).await;
+    for i in 0..9 {
+        let r = enroler(&b, &mut SoftPasskey::new(true), &s, &format!("Clé {i}")).await;
+        assert_eq!(r.statut, StatusCode::CREATED, "{i} : {}", r.texte());
+    }
+    // Deux sessions, donc deux cérémonies en cours, chacune franchissant le contrôle du défi
+    // (9 passkeys) ; leurs réponses arrivent ensemble.
+    let (s1, s2) = (
+        session(&b, u, NatureSession::Complete).await,
+        session(&b, u, NatureSession::Complete).await,
+    );
+    let mut preparees = Vec::new();
+    for sess in [&s1, &s2] {
+        let d = envoyer(
+            &b,
+            "POST",
+            DEFI_ENROLEMENT,
+            Some(&sess.0),
+            Some(&sess.1),
+            "",
+        )
+        .await;
+        assert_eq!(d.statut, StatusCode::OK, "{}", d.texte());
+        let options: CreationChallengeResponse =
+            serde_json::from_value(d.json()["defi"].clone()).unwrap();
+        let credential = SoftPasskey::new(true)
+            .do_registration(origine(), options)
+            .unwrap();
+        let corps = serde_json::json!({ "nom": "Course", "credential": credential }).to_string();
+        preparees.push((cookies(sess, &cookie_ceremonie(&d)), sess.1.clone(), corps));
+    }
+    // Les deux réponses partent ensemble, sur des fils distincts. La première enrôlée révoque
+    // la session de l'autre (ADR 0012) : l'autre peut donc aussi être refusée à
+    // l'authentification (401) plutôt qu'au plafond (422). Ce qui ne doit jamais arriver :
+    // deux enrôlements réussis, soit onze passkeys.
+    let lancer = |(cookie, csrf, corps): (String, String, String)| {
+        let routeur = b.routeur.clone();
+        tokio::spawn(async move {
+            appeler_session_corps(
+                &routeur,
+                "POST",
+                ENROLEMENT,
+                Some(&cookie),
+                Some(&csrf),
+                &corps,
+            )
+            .await
+        })
+    };
+    let (x, y) = tokio::join!(lancer(preparees[0].clone()), lancer(preparees[1].clone()));
+    let (x, y) = (x.unwrap(), y.unwrap());
+    let reussis = [x.statut, y.statut]
+        .iter()
+        .filter(|s| **s == StatusCode::CREATED)
+        .count();
+    assert_eq!(reussis, 1, "{} / {}", x.texte(), y.texte());
+    for r in [&x, &y] {
+        assert!(
+            [
+                StatusCode::CREATED,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                StatusCode::UNAUTHORIZED
+            ]
+            .contains(&r.statut),
+            "{}",
+            r.texte()
+        );
+    }
+    assert_eq!(passkeys_de(&b, u).await, 10);
+}
+
+/// Prend, dans une transaction du super-utilisateur, le verrou consultatif des passkeys de `u`
+/// (même clé que `base::passkeys::verrouiller`), et le garde jusqu'à `COMMIT`.
+async fn tenir_le_verrou(b: &Banc, u: IdUtilisateur) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut tx = b.env.admin.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('sigma passkeys ' || $1::text, 0))")
+        .bind(u.uuid())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn la_suppression_et_l_enrolement_attendent_le_verrou_des_passkeys() {
+    let b = banc().await;
+    let (u, autre) = (b.c.administrateur, b.c.collaborateur);
+    let s = session(&b, u, NatureSession::Complete).await;
+    for nom in ["Une", "Deux"] {
+        assert_eq!(
+            enroler(&b, &mut SoftPasskey::new(true), &s, nom)
+                .await
+                .statut,
+            StatusCode::CREATED
+        );
+    }
+    let ids = identifiants(&b, &s).await;
+    // Suppression : tant qu'une autre transaction du même utilisateur tient le verrou, elle attend.
+    let tx = tenir_le_verrou(&b, u).await;
+    let (routeur, cookie, csrf) = (b.routeur.clone(), s.0.clone(), s.1.clone());
+    let chemin = format!("{ENROLEMENT}/{}", ids[0]);
+    let suppression = tokio::spawn(async move {
+        appeler_session_corps(&routeur, "DELETE", &chemin, Some(&cookie), Some(&csrf), "").await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(
+        !suppression.is_finished(),
+        "la suppression doit attendre le verrou"
+    );
+    assert_eq!(passkeys_de(&b, u).await, 2);
+    // Le verrou d'un autre utilisateur ne la gêne pas.
+    drop(tenir_le_verrou(&b, autre).await);
+    tx.commit().await.unwrap();
+    let r = tokio::time::timeout(std::time::Duration::from_secs(10), suppression)
+        .await
+        .expect("la suppression passe quand le verrou est levé")
+        .unwrap();
+    assert_eq!(r.statut, StatusCode::NO_CONTENT, "{}", r.texte());
+
+    // Enrôlement : même attente, avant de compter.
+    let d = envoyer(&b, "POST", DEFI_ENROLEMENT, Some(&s.0), Some(&s.1), "").await;
+    let options: CreationChallengeResponse =
+        serde_json::from_value(d.json()["defi"].clone()).unwrap();
+    let credential = SoftPasskey::new(true)
+        .do_registration(origine(), options)
+        .unwrap();
+    let corps = serde_json::json!({ "nom": "Verrou", "credential": credential }).to_string();
+    let cookie = cookies(&s, &cookie_ceremonie(&d));
+    let tx = tenir_le_verrou(&b, u).await;
+    let (routeur, csrf) = (b.routeur.clone(), s.1.clone());
+    let enrolement = tokio::spawn(async move {
+        appeler_session_corps(
+            &routeur,
+            "POST",
+            ENROLEMENT,
+            Some(&cookie),
+            Some(&csrf),
+            &corps,
+        )
+        .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(
+        !enrolement.is_finished(),
+        "l'enrôlement doit attendre le verrou"
+    );
+    tx.commit().await.unwrap();
+    let r = tokio::time::timeout(std::time::Duration::from_secs(10), enrolement)
+        .await
+        .expect("l'enrôlement passe quand le verrou est levé")
+        .unwrap();
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+}
+
 // --- Anti-énumération ------------------------------------------------------------------------
 
 #[tokio::test]
@@ -550,7 +980,7 @@ async fn le_defi_ne_dit_pas_si_le_compte_existe_ni_s_il_a_une_passkey() {
         assert!(ceremonie.starts_with(&format!("{CEREMONIE}=")));
         let options = &d.json()["defi"]["publicKey"];
         let ids = options["allowCredentials"].as_array().unwrap().len();
-        assert!((1..=3).contains(&ids), "{ids} identifiants");
+        assert!((1..=10).contains(&ids), "{ids} identifiants");
         assert_eq!(options["userVerification"], "required");
         let mut cles: Vec<String> = options.as_object().unwrap().keys().cloned().collect();
         cles.sort();
@@ -1026,7 +1456,7 @@ async fn la_connexion_ne_voit_que_les_passkeys_de_son_courriel_et_n_en_change_qu
          VALUES ($1, $2, $3, 'enrolement', NULL, '{}', now(), now() + interval '1 minute')",
     )
     .bind(Uuid::new_v4())
-    .bind(vec![7u8; 32])
+    .bind(Uuid::new_v4().as_bytes().repeat(2))
     .bind(a.uuid())
     .execute(&mut *tx)
     .await;
