@@ -43,6 +43,23 @@ pub fn referentiel_tva() -> Result<&'static ReferentielTva, ErreurBase> {
         .ok_or(ErreurBase::Donnee("référentiel de TVA invalide"))
 }
 
+/// Comptes de TVA désignés par `syscohada` (443, 444, 445), chargés et validés une fois (le
+/// serveur les charge au démarrage et refuse de démarrer s'ils sont invalides).
+///
+/// # Errors
+/// [`ErreurBase::Donnee`] si les données embarquées sont invalides.
+pub fn comptes_tva() -> Result<&'static syscohada::ComptesTva, ErreurBase> {
+    static COMPTES: OnceLock<Option<syscohada::ComptesTva>> = OnceLock::new();
+    COMPTES
+        .get_or_init(|| {
+            syscohada::Referentiel::officiel()
+                .and_then(|r| r.comptes_de_tva())
+                .ok()
+        })
+        .as_ref()
+        .ok_or(ErreurBase::Donnee("comptes de TVA invalides"))
+}
+
 /// Corps de la création et de la modification (`version` : modification seulement).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -81,6 +81,17 @@ Les journaux par défaut d'un dossier (spec §5.2) sont décrits sans compte dan
 
 Le chargement refuse un compte absent de la liste officielle ou subdivisé. Les journaux BQx et MMx ne sont pas des journaux par défaut : leur compte est fourni à leur création. `Referentiel::journaux_par_defaut(plan)` instancie les journaux d'un nouveau dossier.
 
+## Comptes de TVA désignés (`data/comptes-tva.toml`, issue #189, ADR 0026)
+`compta-core` ne connaît aucun numéro de compte : le rapprochement d'une ligne étiquetée « taxe » avec son compte (validation unitaire et par lot de l'API) lit cette désignation, `Referentiel::comptes_de_tva()`. Un compte désigné vaut pour **ses subdivisions** (officielles, libres `4431-01`, ou par période d'imposition du Guide).
+
+| Compte | Rôle | Sens normal | Liste des comptes | Fiche du compte 44 | Textes du rôle |
+|---|---|---|---|---|---|
+| 443 « ÉTAT, T.V.A. FACTURÉE » (4431 à 4435) | `facturee` (taxe collectée) | créditeur | p. PDF 243 | p. PDF 394-395 | Guide §4.4 p. PDF 31, §2.2 p. PDF 35, p. PDF 94 (4435) |
+| 444 « ÉTAT, T.V.A. DUE OU CRÉDIT DE T.V.A. » (4441, 4449) | `due` (solde, aucune étiquette) | créditeur | p. PDF 244 | p. PDF 394-395 | Guide §2.2 p. PDF 35, application 7 p. PDF 36 |
+| 445 « ÉTAT, T.V.A. RÉCUPÉRABLE » (4451 à 4456) | `recuperable` (taxe déductible) | débiteur | p. PDF 244 | p. PDF 394-395 | Guide §4.4 p. PDF 31, §2.2 p. PDF 35, p. PDF 89 et 94 (4455) |
+
+La fiche du compte 44 est générale : elle ne distingue pas la TVA. C'est le Guide d'application qui pose le rôle des trois comptes. 446 (autres taxes sur le chiffre d'affaires) n'est pas de la TVA. Le chargement refuse un compte absent de la liste, d'intitulé, de page ou de sens normal différents de `comptes.toml`, un rôle manquant ou en double, un compte imbriqué, une page de fiche hors plage ou une source vide.
+
 ## Comparaison avec Tryton et Odoo
 | | Tryton `account_syscohada` (2016, `f5354cc`) | Odoo 19.0 `l10n_syscohada` (`fa175fb`) |
 |---|---|---|

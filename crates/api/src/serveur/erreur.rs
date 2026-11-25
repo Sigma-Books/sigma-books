@@ -183,6 +183,12 @@ pub enum MotifConflit {
     ReinitialisationNonEnAttente,
     /// Un compte existe déjà pour ce courriel : il accepte l'invitation une fois connecté.
     CompteExistant,
+    /// Une ligne étiquetée « taxe » ne porte pas le compte de TVA de son sens, ou une base porte un
+    /// compte de TVA (ADR 0026, validation unitaire et par lot).
+    EtiquetteTvaIncoherente,
+    /// Le total des étiquettes « taxe » diffère du solde des comptes de TVA de l'écriture
+    /// (ADR 0026, validation unitaire et par lot).
+    EcartTvaEtiquettes,
     /// Le membre appartient aussi à d'autres cabinets : sa réinitialisation retirerait ses accès
     /// à des cabinets que l'administrateur n'administre pas (ADR 0023, §4).
     MembreDUnAutreCabinet,
@@ -190,7 +196,7 @@ pub enum MotifConflit {
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 29] = [
+    pub const TOUS: [Self; 31] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -220,6 +226,8 @@ impl MotifConflit {
         Self::ReinitialisationNonEnAttente,
         Self::CompteExistant,
         Self::MembreDUnAutreCabinet,
+        Self::EtiquetteTvaIncoherente,
+        Self::EcartTvaEtiquettes,
     ];
 
     /// Code du corps de la réponse.
@@ -255,6 +263,8 @@ impl MotifConflit {
             Self::ReinitialisationNonEnAttente => "reinitialisation_non_en_attente",
             Self::CompteExistant => "compte_existant",
             Self::MembreDUnAutreCabinet => "membre_d_un_autre_cabinet",
+            Self::EtiquetteTvaIncoherente => "etiquette_tva_incoherente",
+            Self::EcartTvaEtiquettes => "ecart_tva_etiquettes",
         }
     }
 }

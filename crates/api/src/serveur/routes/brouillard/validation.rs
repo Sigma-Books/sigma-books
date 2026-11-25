@@ -45,14 +45,17 @@ use compta_core::{
     NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva, StatutPeriode,
     TauxTva, TexteCourt, Validation, VersionParametres,
 };
+use compta_core::{ErreurRapprochementTva, rapprocher_etiquettes_et_comptes};
 use fiscal_sn::ReferentielTva;
 use integrite::{EcritureCanonique, Empreinte, chainer};
 use serde::Serialize;
+use syscohada::ComptesTva;
 use time::Date;
 use uuid::Uuid;
 
 use super::{
-    CorpsVersion, VueLigne, conflit, corps, referentiel_tva, sans_parametres, trace_de, vue_ligne,
+    CorpsVersion, VueLigne, comptes_tva, conflit, corps, referentiel_tva, sans_parametres,
+    trace_de, vue_ligne,
 };
 use crate::base::brouillard::{
     self, BrouillonStocke, ContenuStocke, LigneStockee, RolePiece, decimal_canonique,
@@ -329,6 +332,17 @@ impl Preparee {
     }
 }
 
+/// Code stable d'un refus du rapprochement des étiquettes et des comptes de TVA.
+fn motif_rapprochement(e: &ErreurRapprochementTva) -> MotifConflit {
+    match e {
+        ErreurRapprochementTva::TaxeSurUnCompteEtranger { .. }
+        | ErreurRapprochementTva::BaseSurUnCompteDeTva { .. } => {
+            MotifConflit::EtiquetteTvaIncoherente
+        }
+        ErreurRapprochementTva::Ecart(_) => MotifConflit::EcartTvaEtiquettes,
+    }
+}
+
 /// Première étape pure : rebâtit l'écriture, la rend équilibrée (`compta-core`), contrôle
 /// l'échelle des montants et désigne l'exercice de sa date.
 ///
@@ -338,6 +352,7 @@ pub fn preparer(
     b: &BrouillonStocke,
     empreintes: &[String],
     tva: &ReferentielTva,
+    comptes_tva: &ComptesTva,
     exercices: &Exercices,
 ) -> Result<Preparee, ErreurApi> {
     // Échelle des montants, avant de les relire en décimaux (le format canonique n'en relit
@@ -366,6 +381,10 @@ pub fn preparer(
     let ecriture = brouillon
         .valider_equilibre()
         .map_err(|r| refus(motif_ecriture(r.erreur()), None))?;
+    // Étiquettes fiscales et comptes de TVA (ADR 0026) : règle pure de `compta-core`, comptes
+    // désignés par `syscohada`.
+    rapprocher_etiquettes_et_comptes(ecriture.lignes(), |c| comptes_tva.role(c))
+        .map_err(|e| conflit(motif_rapprochement(&e)))?;
     let exercice = exercices
         .exercice_contenant(ecriture.date())
         .map(|e| e.code().clone());
@@ -501,16 +520,18 @@ pub(super) fn finaliser(validation: Validation, tete: &Tete) -> Result<Decision,
 ///
 /// # Errors
 /// Voir [`preparer`] et [`decider`].
+#[allow(clippy::too_many_arguments)]
 pub fn appliquer(
     b: &BrouillonStocke,
     empreintes: &[String],
     tva: &ReferentielTva,
+    comptes_tva: &ComptesTva,
     contexte: &Contexte<'_>,
     dernier: impl FnOnce(&CodeJournal, &CodeExercice) -> u32,
     tete: &Tete,
     date_validation: Date,
 ) -> Result<Decision, ErreurApi> {
-    let p = preparer(b, empreintes, tva, contexte.exercices)?;
+    let p = preparer(b, empreintes, tva, comptes_tva, contexte.exercices)?;
     let d = match p.exercice() {
         Some(e) => dernier(p.journal(), e),
         None => 0,
@@ -642,7 +663,13 @@ pub(super) async fn valider(
     controler_pieces(&b, &pieces)?;
     let empreintes: Vec<String> = pieces.iter().map(|p| p.empreinte.clone()).collect();
 
-    let preparee = preparer(&b, &empreintes, tva, referentiel.exercices())?;
+    let preparee = preparer(
+        &b,
+        &empreintes,
+        tva,
+        comptes_tva()?,
+        referentiel.exercices(),
+    )?;
     let journal_id = referentiel
         .id_journal(preparee.journal())
         .ok_or_else(donnee)?;
@@ -1102,6 +1129,7 @@ mod tests {
             &b,
             &["b".repeat(64)],
             referentiel_tva().unwrap(),
+            comptes_tva().unwrap(),
             &contexte,
             |_, _| 230,
             &tete,
@@ -1173,6 +1201,7 @@ mod tests {
                 &b,
                 &["c".repeat(64)],
                 referentiel_tva().unwrap(),
+                comptes_tva().unwrap(),
                 &contexte,
                 |_, _| 0,
                 &tete,
@@ -1254,6 +1283,7 @@ mod tests {
                     &b,
                     &empreintes,
                     tva,
+                    comptes_tva().unwrap(),
                     &contexte,
                     |j, e| derniers.get(&(j.clone(), e.clone())).copied().unwrap_or(0),
                     &tete,
@@ -1536,6 +1566,7 @@ mod tests {
                     &b,
                     &empreintes,
                     tva,
+                    comptes_tva().unwrap(),
                     &contexte,
                     |j, e| derniers.get(&(j.clone(), e.clone())).copied().unwrap_or(0),
                     &tete,

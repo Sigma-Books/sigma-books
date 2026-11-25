@@ -85,6 +85,8 @@ async fn demarrer() -> Result<(), String> {
     api::base::referentiel::Modele::officiel().map_err(|e| e.to_string())?;
     // Régimes et motifs de TVA de `fiscal-sn` (étiquette fiscale du brouillard, PR 13a).
     api::serveur::routes::brouillard::referentiel_tva().map_err(|e| e.to_string())?;
+    // Comptes de TVA de `syscohada` (rapprochement des étiquettes à la validation, ADR 0026).
+    api::serveur::routes::brouillard::comptes_tva().map_err(|e| e.to_string())?;
     // Le message d'une erreur de connexion ne cite pas l'URL (ni son mot de passe).
     let pool = ouvrir_pool_application(&config.base.url_application, ReglagesPool::default())
         .await
