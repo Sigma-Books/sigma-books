@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tache (id, nature, sujet, cabinet_cible, objet, etat, cree_le, prochaine_tentative) VALUES ($1, 'notification', $2, $3, $4, 'en_attente', now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a5e948b216a88150071b8ed5940f1a38ed60a07d5feb29cea66e9fd320889d42"
+}

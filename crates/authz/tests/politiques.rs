@@ -36,6 +36,8 @@ const MATRICE: &[(Action, [bool; 5])] = &[
     (Action::GererCabinet, [OUI, NON, NON, NON, NON]),
     (Action::ModifierDroits, [OUI, NON, NON, NON, NON]),
     (Action::ReinitialiserAcces, [OUI, NON, NON, NON, NON]),
+    // Contester la réinitialisation de son accès : tout rôle du cabinet
+    (Action::AnnulerSaReinitialisation, [OUI, OUI, OUI, OUI, NON]),
     (
         Action::ActiverSeparationDesTaches,
         [OUI, NON, NON, NON, NON],

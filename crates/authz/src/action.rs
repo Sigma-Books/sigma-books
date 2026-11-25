@@ -78,6 +78,9 @@ actions! {
     ModifierDroits => Cabinet,
     /// Réinitialiser l'accès d'un membre (ADR 0012, F1.12 ; ré-authentification).
     ReinitialiserAcces => Cabinet,
+    /// Contester la réinitialisation de son propre accès pendant le délai de 24 heures (ADR 0012) :
+    /// tout rôle du cabinet ; la requête vérifie que la réinitialisation est bien la sienne.
+    AnnulerSaReinitialisation => Cabinet,
     /// Activer la séparation des tâches (Q5.3).
     ActiverSeparationDesTaches => Cabinet,
     /// Désactiver la séparation des tâches (Q5.3 ; ré-authentification).

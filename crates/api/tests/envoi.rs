@@ -51,7 +51,7 @@ async fn banc() -> Banc {
     let env = env().await;
     sqlx::query(
         "UPDATE tache SET etat = 'terminee', termine_le = now(), reserve_jusqua = NULL, prise = NULL \
-         WHERE nature = 'courriel' AND etat <> 'terminee'",
+         WHERE nature IN ('courriel', 'notification') AND etat <> 'terminee'",
     )
     .execute(&env.admin)
     .await
@@ -94,6 +94,19 @@ async fn banc() -> Banc {
 }
 
 impl Banc {
+    /// Passage de la file **des liens seulement** : les alertes (PR 9c, `alertes.rs`) que
+    /// produisent les mêmes actions sont closes avant, pour ne compter que les liens.
+    async fn passer(&self) -> api::envoi::tache::Bilan {
+        sqlx::query(
+            "UPDATE tache SET etat = 'terminee', termine_le = now(), reserve_jusqua = NULL, \
+                              prise = NULL WHERE nature = 'notification' AND etat <> 'terminee'",
+        )
+        .execute(&self.env.admin)
+        .await
+        .unwrap();
+        self.expediteur.passer().await.unwrap()
+    }
+
     async fn session(&self, u: IdUtilisateur) -> Session {
         let o = ouvrir(&self.env, &self.horloge, u, NatureSession::Complete).await;
         (cookie_de(&o), o.jeton.csrf())
@@ -176,7 +189,7 @@ async fn l_invitation_part_par_courriel_avec_un_lien_qui_fonctionne() {
     // Rien n'est parti avant le passage de la file ; la tâche attend, sans lien ni courriel.
     assert!(b.transport.vide());
     assert_eq!(b.tache(id).await.0, "en_attente");
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.envoyes), (1, 1));
     let remis = b.transport.remis();
     assert_eq!(remis.len(), 1);
@@ -203,7 +216,7 @@ async fn l_invitation_part_par_courriel_avec_un_lien_qui_fonctionne() {
     assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
     assert_eq!(r.json()["nature"], "enrolement");
     // Un second passage n'envoie plus rien.
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     assert_eq!(b.transport.remis().len(), 1);
 }
 
@@ -212,7 +225,7 @@ async fn le_renvoi_remplace_le_lien() {
     let b = banc().await;
     let admin = b.session(b.c.administrateur).await;
     let (id, _) = b.inviter(&admin).await;
-    b.expediteur.passer().await.unwrap();
+    b.passer().await;
     let premier = jeton_du_message(&b.transport.remis()[0]);
     let r = b
         .appel(
@@ -234,7 +247,7 @@ async fn le_renvoi_remplace_le_lien() {
         )
         .await;
     assert_eq!(r.json()["envoi_planifie"], false);
-    b.expediteur.passer().await.unwrap();
+    b.passer().await;
     let remis = b.transport.remis();
     assert_eq!(remis.len(), 2);
     let second = jeton_du_message(&remis[1]);
@@ -285,7 +298,7 @@ async fn un_echec_provisoire_est_rejoue_avec_un_lien_neuf() {
     let (id, _) = b.inviter(&admin).await;
     b.transport
         .programmer([Err(ErreurEnvoi::Temporaire), Err(ErreurEnvoi::Tls)]);
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.reportes, bilan.envoyes), (1, 1, 0));
     let (etat, issue, _) = b.tache(id).await;
     assert_eq!(
@@ -293,16 +306,16 @@ async fn un_echec_provisoire_est_rejoue_avec_un_lien_neuf() {
         ("en_attente", Some("smtp_temporaire"))
     );
     // Pas de rejeu avant le délai (une minute).
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     b.horloge.avancer(Duration::seconds(61));
-    b.expediteur.passer().await.unwrap();
+    b.passer().await;
     let (_, issue, _) = b.tache(id).await;
     assert_eq!(issue.as_deref(), Some("smtp_tls"));
     // Délai doublé : deux minutes.
     b.horloge.avancer(Duration::seconds(100));
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     b.horloge.avancer(Duration::seconds(30));
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!(bilan.envoyes, 1);
     assert_eq!(b.tache(id).await.0, "terminee");
     // Trois liens émis (deux jamais remis) : seul le dernier est vivant.
@@ -317,7 +330,7 @@ async fn un_refus_definitif_n_est_pas_rejoue_et_les_echecs_s_arretent() {
     let admin = b.session(b.c.administrateur).await;
     let (id, _) = b.inviter(&admin).await;
     b.transport.programmer([Err(ErreurEnvoi::Refus)]);
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.clos, bilan.envoyes), (1, 0));
     let (etat, issue, _) = b.tache(id).await;
     assert_eq!(
@@ -325,7 +338,7 @@ async fn un_refus_definitif_n_est_pas_rejoue_et_les_echecs_s_arretent() {
         ("terminee", Some("smtp_refus"))
     );
     b.horloge.avancer(Duration::hours(2));
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     assert_eq!(b.transport.tentatives(), 1);
     // Échecs provisoires répétés : abandon à la huitième tentative.
     let admin = b.session(b.c.administrateur).await;
@@ -333,7 +346,7 @@ async fn un_refus_definitif_n_est_pas_rejoue_et_les_echecs_s_arretent() {
     b.transport
         .programmer((0..20).map(|_| Err(ErreurEnvoi::Temporaire)));
     for _ in 0..12 {
-        b.expediteur.passer().await.unwrap();
+        b.passer().await;
         b.horloge.avancer(Duration::hours(2));
     }
     let (etat, issue, tentatives) = b.tache(id2).await;
@@ -357,7 +370,7 @@ async fn une_invitation_revoquee_avant_l_envoi_ne_part_pas() {
         )
         .await;
     assert_eq!(r.statut, StatusCode::OK);
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.clos, bilan.envoyes), (1, 1, 0));
     assert!(b.transport.vide());
     assert_eq!(b.tache(id).await.1.as_deref(), Some("sans_objet"));
@@ -390,9 +403,9 @@ async fn la_reinitialisation_ne_part_qu_apres_le_delai_de_contestation() {
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
     let id = Uuid::parse_str(r.json()["id"].as_str().unwrap()).unwrap();
     // Pendant le délai : aucune prise, aucun courriel, aucun lien.
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     b.horloge.avancer(Duration::hours(23));
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     // Une tâche rendue échue trop tôt (horloge, rattrapage) ne part pas non plus.
     sqlx::query(
         "UPDATE tache SET prochaine_tentative = now() - interval '1 minute' WHERE objet = $1",
@@ -401,7 +414,7 @@ async fn la_reinitialisation_ne_part_qu_apres_le_delai_de_contestation() {
     .execute(&b.env.admin)
     .await
     .unwrap();
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.reportes, bilan.envoyes), (1, 1, 0));
     assert!(b.transport.vide());
     assert_eq!(b.liens_fermes(id, "remplace").await, 0);
@@ -413,7 +426,7 @@ async fn la_reinitialisation_ne_part_qu_apres_le_delai_de_contestation() {
     assert_eq!(n, 0, "aucun lien émis avant le terme du délai");
     // Au terme du délai : le courriel part, le lien dure une heure.
     b.horloge.avancer(Duration::hours(1) + Duration::minutes(2));
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!(bilan.envoyes, 1, "{bilan:?}");
     let remis = b.transport.remis();
     assert_eq!(remis[0].sujet, api::envoi::modele::SUJET_REINITIALISATION);
@@ -453,7 +466,7 @@ async fn une_reinitialisation_annulee_ne_part_pas() {
         .await;
     assert_eq!(r.statut, StatusCode::OK);
     b.horloge.avancer(Duration::hours(25));
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.clos, bilan.envoyes), (1, 0));
     assert!(b.transport.vide());
 }
@@ -502,7 +515,7 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
         )
         .await;
     assert_eq!(r.statut, StatusCode::CREATED);
-    b.expediteur.passer().await.unwrap();
+    b.passer().await;
     // Chaque courriel est parti vers l'adresse de **son** cabinet, et chacun de ses liens
     // n'ouvre que son cabinet.
     let remis = b.transport.remis();

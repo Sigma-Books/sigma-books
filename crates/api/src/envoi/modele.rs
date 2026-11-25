@@ -88,6 +88,151 @@ pub fn reinitialisation(destinataire: &str, nom: &str, lien: &str) -> Option<Mes
     })
 }
 
+/// À qui s'adresse une alerte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Destinataire {
+    /// Administrateur actif du cabinet.
+    Administrateur,
+    /// Membre concerné par l'événement (réinitialisation de son accès).
+    Concerne,
+}
+
+/// Ce que le témoin remis au cabinet cite : des empreintes et des nombres, jamais une donnée
+/// comptable (`docs/integrite/format-v2.md` §4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemoinAlerte {
+    /// Nombre d'écritures chaînées.
+    pub nombre: i64,
+    /// Empreinte de tête de la chaîne (hexadécimal).
+    pub tete: String,
+    /// Jeton déjà obtenu : (nombre d'écritures couvert, instant d'obtention en UTC).
+    pub jeton: Option<(i64, String)>,
+}
+
+/// Alerte de sécurité ou de suivi (ADR 0012, 0022, 0025) : **texte constant** par sujet. Aucun
+/// nom, aucun montant ; seul un identifiant de dossier (UUID) et, pour le témoin, des empreintes
+/// et des nombres. Le sujet de la notification n'est pas un en-tête libre : il vient d'une liste
+/// fermée.
+#[must_use]
+#[allow(clippy::too_many_lines)] // Un texte constant par sujet : une table, pas de logique.
+pub fn alerte(
+    sujet: crate::base::taches::SujetNotification,
+    destinataire: &str,
+    nom: &str,
+    qui: Destinataire,
+    dossier: Option<uuid::Uuid>,
+    temoin: Option<&TemoinAlerte>,
+) -> Option<Message> {
+    use crate::base::taches::SujetNotification as S;
+    let destinataire = courriel::adresse(destinataire)?;
+    let nom = courriel::nom(nom)?;
+    let dossier_texte = dossier.map_or_else(String::new, |d| format!("\nDossier : {d}"));
+    let (sujet_courriel, corps): (&'static str, String) = match (sujet, qui) {
+        (S::ExportAuditCabinet, _) => (
+            "Sigma Books : export de l'audit du cabinet",
+            "L'audit de votre cabinet vient d'être exporté.".to_owned(),
+        ),
+        (S::ExportAuditDossier, _) => (
+            "Sigma Books : export de l'audit d'un dossier",
+            format!("L'audit d'un dossier de votre cabinet vient d'être exporté.{dossier_texte}"),
+        ),
+        (S::ExportIntegrite, _) => (
+            "Sigma Books : export d'intégrité d'un dossier",
+            format!(
+                "Un export d'intégrité d'un dossier de votre cabinet vient d'être réalisé.{dossier_texte}"
+            ),
+        ),
+        (S::RetardHorodatage, _) => (
+            "Sigma Books : horodatage en retard",
+            format!(
+                "Aucun horodatage n'a pu être obtenu depuis plus de 24 heures pour un dossier de \
+                 votre cabinet. Le serveur continue d'essayer ; vérifiez l'accès sortant aux \
+                 autorités d'horodatage.{dossier_texte}"
+            ),
+        ),
+        (S::Temoin, _) => {
+            let faits = temoin.map_or_else(
+                || "Le témoin n'est pas disponible pour le moment.".to_owned(),
+                |t| {
+                    let jeton = t.jeton.as_ref().map_or_else(
+                        || "Aucun jeton d'horodatage n'est encore obtenu pour cette chaîne.".to_owned(),
+                        |(n, quand)| format!("Dernier jeton d'horodatage : {n} écriture(s) couverte(s), obtenu le {quand} (UTC)."),
+                    );
+                    format!(
+                        "Écritures chaînées : {}\nEmpreinte de tête : {}\n{jeton}",
+                        t.nombre, t.tete
+                    )
+                },
+            );
+            (
+                "Sigma Books : témoin de la chaîne d'un dossier",
+                format!(
+                    "Une période a été verrouillée ou clôturée. Conservez ce témoin hors de \
+                     Sigma Books : il permet de vérifier plus tard que la chaîne n'a pas été \
+                     refaite.{dossier_texte}\n{faits}"
+                ),
+            )
+        }
+        (S::ReinitialisationDemandee, Destinataire::Concerne) => (
+            "Sigma Books : réinitialisation de votre accès demandée",
+            "Un administrateur de votre cabinet a demandé la réinitialisation de votre accès. \
+             Votre accès actuel reste valable pendant 24 heures. Si vous n'êtes pas à l'origine \
+             ou au courant de cette demande, connectez-vous et contestez-la dans Sigma Books, ou \
+             prévenez un autre administrateur."
+                .to_owned(),
+        ),
+        (S::ReinitialisationDemandee, Destinataire::Administrateur) => (
+            "Sigma Books : réinitialisation d'un accès demandée",
+            "La réinitialisation de l'accès d'un membre de votre cabinet a été demandée. Elle \
+             aboutit dans 24 heures, sauf annulation par un administrateur ou par le membre. \
+             Si vous ne la reconnaissez pas, annulez-la dans l'administration du cabinet."
+                .to_owned(),
+        ),
+        (S::ReinitialisationAnnulee, _) => (
+            "Sigma Books : réinitialisation d'un accès annulée",
+            "La réinitialisation de l'accès d'un membre de votre cabinet a été annulée.".to_owned(),
+        ),
+        (S::ReinitialisationAboutie, _) => (
+            "Sigma Books : accès d'un membre réinitialisé",
+            "Le lien de réinitialisation de l'accès d'un membre de votre cabinet vient d'être \
+             utilisé : ses anciens moyens de connexion sont retirés. Si vous ne reconnaissez pas \
+             cette opération, suspendez le membre dans l'administration du cabinet."
+                .to_owned(),
+        ),
+        (S::DroitsModifies, _) => (
+            "Sigma Books : droits modifiés dans votre cabinet",
+            "Les droits d'un membre de votre cabinet ont changé (rôle, suspension, accès aux \
+             dossiers, ou arrivée d'un membre). Consultez l'audit du cabinet pour le détail."
+                .to_owned(),
+        ),
+        (S::SeparationDesactivee, _) => (
+            "Sigma Books : séparation des tâches désactivée",
+            "La séparation des tâches de votre cabinet a été désactivée : un utilisateur peut \
+             désormais valider ses propres saisies."
+                .to_owned(),
+        ),
+        (S::ConnexionSecours, _) => (
+            "Sigma Books : connexion par la méthode de secours",
+            "Un membre de votre cabinet vient de se connecter par la méthode de secours (mot de \
+             passe et code), non par une passkey. Si ce n'était pas lui, suspendez-le."
+                .to_owned(),
+        ),
+        (S::CodeRecuperationUtilise, _) => (
+            "Sigma Books : code de récupération utilisé",
+            "Un membre de votre cabinet vient d'utiliser un code de récupération. Si ce n'était \
+             pas lui, suspendez-le et réinitialisez son accès."
+                .to_owned(),
+        ),
+    };
+    Some(Message {
+        destinataire,
+        sujet: sujet_courriel,
+        texte: format!(
+            "Bonjour {nom},\n\n{corps}\n\nCe message est automatique ; il ne contient aucune donnée comptable.\n"
+        ),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +298,70 @@ mod tests {
         let a = invitation("a@cabinet.sn", "Un", &lien).unwrap();
         let b = invitation("b@cabinet.sn", "Deux", &lien).unwrap();
         assert_eq!(a.sujet, b.sujet);
+    }
+
+    #[test]
+    fn chaque_alerte_est_constante_et_sans_donnee_personnelle() {
+        use crate::base::taches::SujetNotification as S;
+        let mut sujets = std::collections::BTreeSet::new();
+        for sujet in S::TOUS {
+            for qui in [Destinataire::Administrateur, Destinataire::Concerne] {
+                let m = alerte(sujet, "awa@cabinet.sn", "Awa Diop", qui, None, None).unwrap();
+                assert!(m.sujet.is_ascii() || m.sujet.chars().all(|c| !c.is_control()));
+                assert!(!m.sujet.contains('\n') && !m.sujet.contains("Awa"));
+                assert!(!m.texte.contains("FCFA") && !m.texte.contains("XOF"));
+                sujets.insert((m.sujet, qui == Destinataire::Concerne));
+            }
+        }
+        assert!(sujets.len() >= S::TOUS.len());
+    }
+
+    #[test]
+    fn le_temoin_cite_des_empreintes_et_des_nombres() {
+        use crate::base::taches::SujetNotification as S;
+        let t = TemoinAlerte {
+            nombre: 42,
+            tete: "ab".repeat(32),
+            jeton: Some((42, "2026-11-25T10:00:00Z".to_owned())),
+        };
+        let d = uuid::Uuid::nil();
+        let m = alerte(
+            S::Temoin,
+            "a@cabinet.sn",
+            "A",
+            Destinataire::Administrateur,
+            Some(d),
+            Some(&t),
+        )
+        .unwrap();
+        assert!(m.texte.contains("Écritures chaînées : 42") && m.texte.contains(&t.tete));
+        assert!(m.texte.contains(&d.to_string()));
+    }
+
+    #[test]
+    fn une_alerte_a_une_adresse_douteuse_ne_part_pas() {
+        use crate::base::taches::SujetNotification as S;
+        assert!(
+            alerte(
+                S::DroitsModifies,
+                "a@b.sn\nBcc: x@y.sn",
+                "A",
+                Destinataire::Administrateur,
+                None,
+                None
+            )
+            .is_none()
+        );
+        assert!(
+            alerte(
+                S::DroitsModifies,
+                "a@cabinet.sn",
+                "A\r\nB",
+                Destinataire::Administrateur,
+                None,
+                None
+            )
+            .is_none()
+        );
     }
 }
