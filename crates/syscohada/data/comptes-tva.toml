@@ -1,0 +1,58 @@
+# Comptes de TVA désignés dans la liste officielle (issue #189, ADR 0026).
+#
+# `compta-core` ne connaît aucun numéro de compte (règle absolue 9) : le rapprochement d'une ligne
+# étiquetée « taxe » avec son compte (ADR 0019, ADR 0026) lit cette désignation. Chaque entrée
+# désigne un compte **et ses subdivisions** (4431 à 4435 pour 443 ; les subdivisions libres
+# `4431-01`, et les subdivisions par période d'imposition du Guide, suivent leur ascendant).
+#
+# Champs :
+# - numero, intitule, page_liste : le compte tel qu'il figure dans `comptes.toml` (validé à
+#   chaque chargement : numéro officiel, intitulé et page identiques) ;
+# - role : `facturee` (TVA collectée, famille 443), `due` (solde de la période, famille 444),
+#   `recuperable` (TVA déductible, famille 445) ;
+# - sens_normal : sens normal du solde, identique à `comptes.toml` (validé) ;
+# - page_fonctionnement : page PDF de la fiche « Contenu et fonctionnement des comptes » du
+#   compte 44, dans la plage 274 à 539 (validé) ;
+# - source : documents et pages PDF qui fondent le rôle. Documents : AUDCIF + SYSCOHADA, JO OHADA
+#   n° spécial du 15/02/2017 ; Guide d'application du SYSCOHADA révisé, 1er mai 2017.
+#
+# Ce que disent les textes (instruit le 2026-11-25) :
+# - la liste officielle (p. PDF 243-244) désigne 443 « ÉTAT, T.V.A. FACTURÉE », 444 « ÉTAT,
+#   T.V.A. DUE OU CRÉDIT DE T.V.A. » et 445 « ÉTAT, T.V.A. RÉCUPÉRABLE », avec leurs
+#   subdivisions ; la fiche du compte 44 (p. PDF 394-395) est générale (dettes d'impôts
+#   créditées, créances sur l'État débitées) et ne distingue pas la TVA ;
+# - le Guide (§4.4 p. PDF 31, §2.2 p. PDF 35) pose le rôle : la TVA facturée au client est
+#   enregistrée « dès l'émission de la facture » au 443, dette envers l'État ; la TVA déductible
+#   des achats est une créance sur l'État, au débit du 445 ; en fin de période les comptes 443 et
+#   445 sont virés au 444, créditeur (4441 TVA due) ou débiteur (4449 crédit de TVA à reporter) ;
+# - le Guide ne fixe pas le sens débit ou crédit d'une ligne de TVA : une régularisation ou un
+#   avoir débite le 443 et crédite le 445 (p. PDF 89 et 94 : 4455 crédité pour l'avoir attendu du
+#   fournisseur, 4435 crédité pour la facture à établir). Le rapprochement ne contraint donc que
+#   le compte (la famille), jamais le sens débit ou crédit.
+
+[[compte_tva]]
+numero = "443"
+intitule = "ÉTAT, T.V.A. FACTURÉE"
+page_liste = 243
+role = "facturee"
+sens_normal = "crediteur"
+page_fonctionnement = 395
+source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 243 (443, 4431 à 4435) ; fiche du compte 44, p. PDF 394-395 ; Guide d'application du SYSCOHADA révisé (1er mai 2017), §4.4 p. PDF 31 (TVA facturée au client, au 443) et §2.2 p. PDF 35 (dette envers l'État dès l'émission de la facture), p. PDF 94 (4435 pour la facture à établir)"
+
+[[compte_tva]]
+numero = "444"
+intitule = "ÉTAT, T.V.A. DUE OU CRÉDIT DE T.V.A."
+page_liste = 244
+role = "due"
+sens_normal = "crediteur"
+page_fonctionnement = 395
+source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 244 (444, 4441, 4449) ; fiche du compte 44, p. PDF 394-395 ; Guide d'application du SYSCOHADA révisé (1er mai 2017), §2.2 p. PDF 35 (en fin de période d'imposition, 443 et 445 sont virés au 444 : 4441 si créditeur, 4449 si débiteur) et application 7 p. PDF 36"
+
+[[compte_tva]]
+numero = "445"
+intitule = "ÉTAT, T.V.A. RÉCUPÉRABLE"
+page_liste = 244
+role = "recuperable"
+sens_normal = "debiteur"
+page_fonctionnement = 395
+source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 244 (445, 4451 à 4456) ; fiche du compte 44, p. PDF 394-395 ; Guide d'application du SYSCOHADA révisé (1er mai 2017), §4.4 p. PDF 31 (TVA récupérable des achats : créance sur l'État, au 445) et §2.2 p. PDF 35 (TVA déductible au débit du 445), p. PDF 89 et 94 (4455 pour la facture non parvenue)"

@@ -10,7 +10,8 @@
 //! [`Referentiel::comptes_reference`] : `compta-core` ne connaît aucun numéro de compte.
 //!
 //! Le compte de trésorerie des journaux par défaut (CA : caisse) est aussi une donnée de ce
-//! crate, `data/journaux.toml` : [`Referentiel::journaux_par_defaut`].
+//! crate, `data/journaux.toml` : [`Referentiel::journaux_par_defaut`]. Les comptes de TVA (443,
+//! 444, 445) sont désignés par `data/comptes-tva.toml` : [`Referentiel::comptes_de_tva`].
 
 #![forbid(unsafe_code)]
 
@@ -23,8 +24,10 @@ use compta_core::{
 use serde::Deserialize;
 
 mod journaux;
+mod tva;
 
 pub use journaux::CompteDeJournal;
+pub use tva::{CompteTva, ComptesTva};
 
 /// Données embarquées : liste officielle des comptes.
 const COMPTES_TOML: &str = include_str!("../data/comptes.toml");
@@ -90,6 +93,9 @@ pub enum ErreurReferentiel {
     /// Journal par défaut invalide, ou journaux par défaut non instanciables.
     #[error("journaux par défaut : {0}")]
     Journal(ErreurJournal),
+    /// Désignation des comptes de TVA invalide (`data/comptes-tva.toml`).
+    #[error("comptes de TVA : {0}")]
+    ComptesTva(String),
     /// Le compte d'un journal par défaut ne cite pas sa source ou son motif.
     #[error("compte du journal {0} : source ou motif manquant")]
     SourceManquante(CodeJournal),

@@ -596,3 +596,184 @@ sens = "crediteur"
             .is_ok()
     );
 }
+
+// --- Comptes de TVA désignés (issue #189, ADR 0026) -----------------------------------------
+
+mod comptes_tva {
+    use super::*;
+    use compta_core::RoleCompteTva::{Due, Facturee, Recuperable};
+
+    fn tva() -> ComptesTva {
+        officiel().comptes_de_tva().expect("désignation valide")
+    }
+
+    #[test]
+    fn trois_comptes_designes_avec_leur_source() {
+        let t = tva();
+        let vus: Vec<_> = t
+            .entrees()
+            .iter()
+            .map(|e| (e.numero().as_str(), e.role(), e.page_liste()))
+            .collect();
+        assert_eq!(
+            vus,
+            [
+                ("443", Facturee, 243),
+                ("444", Due, 244),
+                ("445", Recuperable, 244)
+            ]
+        );
+        for e in t.entrees() {
+            assert!(e.source().contains("p. PDF"), "{}", e.numero());
+            assert!(e.source().contains("Guide"), "{}", e.numero());
+            assert_eq!(e.page_fonctionnement(), 395);
+            // Intitulé identique à la liste officielle.
+            let officiel = officiel();
+            let c = officiel.compte(e.numero()).unwrap();
+            assert_eq!(c.intitule().as_str(), e.intitule());
+        }
+    }
+
+    #[test]
+    fn le_role_suit_la_famille_pour_tous_les_comptes_officiels() {
+        let (r, t) = (officiel(), tva());
+        let mut vus = 0;
+        for c in r.comptes() {
+            let attendu = match c.numero().tronc().get(..3) {
+                Some("443") => Some(Facturee),
+                Some("444") => Some(Due),
+                Some("445") => Some(Recuperable),
+                _ => None,
+            };
+            assert_eq!(t.role(c.numero()), attendu, "{}", c.numero());
+            vus += usize::from(attendu.is_some());
+        }
+        // 443 (+5), 444 (+2), 445 (+6) : 3 + 13 comptes.
+        assert_eq!(vus, 16);
+        // Sous-comptes libres et subdivisions par période (Guide, application 7).
+        assert_eq!(t.role(&n("4431-01")), Some(Facturee));
+        assert_eq!(t.role(&n("4441-12")), Some(Due));
+        assert_eq!(t.role(&n("4452-A")), Some(Recuperable));
+        // 446 (autres taxes sur le chiffre d'affaires) et 441 ne sont pas de la TVA.
+        assert_eq!(t.role(&n("446")), None);
+        assert_eq!(t.role(&n("441")), None);
+        assert_eq!(t.role(&n("4426")), None);
+        assert_eq!(t.role(&n("645")), None);
+    }
+
+    #[test]
+    fn le_sens_normal_est_celui_du_plan() {
+        let r = officiel();
+        for (e, sens) in tva().entrees().iter().zip([
+            SensNormal::Crediteur,
+            SensNormal::Crediteur,
+            SensNormal::Debiteur,
+        ]) {
+            assert_eq!(r.compte(e.numero()).unwrap().sens(), sens);
+        }
+    }
+
+    const BON: &str = r#"
+[[compte_tva]]
+numero = "443"
+intitule = "ÉTAT, T.V.A. FACTURÉE"
+page_liste = 243
+role = "facturee"
+sens_normal = "crediteur"
+page_fonctionnement = 395
+source = "s"
+[[compte_tva]]
+numero = "444"
+intitule = "ÉTAT, T.V.A. DUE OU CRÉDIT DE T.V.A."
+page_liste = 244
+role = "due"
+sens_normal = "crediteur"
+page_fonctionnement = 395
+source = "s"
+[[compte_tva]]
+numero = "445"
+intitule = "ÉTAT, T.V.A. RÉCUPÉRABLE"
+page_liste = 244
+role = "recuperable"
+sens_normal = "debiteur"
+page_fonctionnement = 395
+source = "s"
+"#;
+
+    #[test]
+    fn donnees_invalides_refusees() {
+        let r = officiel();
+        assert!(r.comptes_de_tva_depuis_toml(BON).is_ok());
+        let cas: [(&str, &str); 11] = [
+            ("intitulé", "intitule = \"ÉTAT, T.V.A. FACTURÉE\""),
+            ("page de la liste", "page_liste = 243"),
+            ("sens", "sens_normal = \"crediteur\""),
+            ("source", "source = \"s\""),
+            ("fonctionnement", "page_fonctionnement = 395"),
+            ("rôle", "role = \"facturee\""),
+            ("numéro", "numero = \"443\""),
+            ("inconnu", "numero = \"443\""),
+            ("imbriqué", "numero = \"445\""),
+            ("doublon", "role = \"due\""),
+            ("absent", "numero = \"443\""),
+        ];
+        let remplacements: [&str; 11] = [
+            "intitule = \"TVA\"",
+            "page_liste = 244",
+            "sens_normal = \"debiteur\"",
+            "source = \" \"",
+            "page_fonctionnement = 100",
+            "role = \"inconnu\"",
+            "numero = \"4431x\"",
+            "numero = \"449999\"",
+            "numero = \"4451\"",
+            "role = \"facturee\"",
+            "",
+        ];
+        for ((nom, ancien), nouveau) in cas.into_iter().zip(remplacements) {
+            let texte = if nom == "absent" {
+                // Retire le bloc du 443 : le rôle « facturée » n'est plus désigné.
+                BON.replacen(
+                    "[[compte_tva]]\nnumero = \"443\"\nintitule = \"ÉTAT, T.V.A. FACTURÉE\"\npage_liste = 243\nrole = \"facturee\"\nsens_normal = \"crediteur\"\npage_fonctionnement = 395\nsource = \"s\"\n",
+                    "",
+                    1,
+                )
+            } else {
+                BON.replacen(ancien, nouveau, 1)
+            };
+            assert!(
+                r.comptes_de_tva_depuis_toml(&texte).is_err(),
+                "{nom} aurait dû être refusé"
+            );
+        }
+        assert!(
+            r.comptes_de_tva_depuis_toml("[[compte_tva]]\nx = 1")
+                .is_err()
+        );
+    }
+}
+
+proptest! {
+    /// Le rôle d'un compte ne dépend que de sa famille à trois chiffres (subdivisions
+    /// officielles ou libres comprises).
+    #[test]
+    fn le_role_d_un_compte_ne_depend_que_de_sa_famille(
+        famille in 100u16..1000,
+        suite in "[0-9]{0,1}",
+        libre in proptest::option::of("[A-Z0-9]{1,3}"),
+    ) {
+        let t = officiel().comptes_de_tva().unwrap();
+        let mut numero = format!("{famille}{suite}");
+        if let Some(l) = libre {
+            numero = format!("{numero}-{l}");
+        }
+        let compte = NumeroCompte::parse(&numero).unwrap();
+        let attendu = match famille {
+            443 => Some(compta_core::RoleCompteTva::Facturee),
+            444 => Some(compta_core::RoleCompteTva::Due),
+            445 => Some(compta_core::RoleCompteTva::Recuperable),
+            _ => None,
+        };
+        prop_assert_eq!(t.role(&compte), attendu);
+    }
+}

@@ -672,6 +672,109 @@ pub fn controler_taxes_et_comptes(
     Ok(())
 }
 
+/// Rôle d'un compte de TVA dans le rapprochement avec les étiquettes (désigné par les données
+/// de `syscohada`, jamais codé ici : règle absolue 9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoleCompteTva {
+    /// Compte de TVA facturée (famille 443) : porte les étiquettes « taxe collectée ».
+    Facturee,
+    /// Compte de TVA due ou de crédit de TVA (famille 444) : solde de la période, virement des
+    /// comptes de TVA facturée et récupérable ; ne porte aucune étiquette.
+    Due,
+    /// Compte de TVA récupérable (famille 445) : porte les étiquettes « taxe déductible ».
+    Recuperable,
+}
+
+impl RoleCompteTva {
+    /// Sens de TVA que ce compte porte, `None` pour le compte de TVA due.
+    #[must_use]
+    pub fn sens(self) -> Option<SensTva> {
+        match self {
+            Self::Facturee => Some(SensTva::Collectee),
+            Self::Recuperable => Some(SensTva::Deductible),
+            Self::Due => None,
+        }
+    }
+}
+
+/// Refus du rapprochement des étiquettes fiscales et des comptes de TVA d'une écriture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ErreurRapprochementTva {
+    /// Une ligne étiquetée « taxe » ne porte pas le compte de TVA de son sens : « taxe
+    /// collectée » hors des comptes de TVA facturée (charge, produit, TVA récupérable, TVA due…),
+    /// « taxe déductible » hors des comptes de TVA récupérable.
+    #[error("ligne {} : l'étiquette « taxe » ({sens:?}) ne correspond pas au compte", ligne + 1)]
+    TaxeSurUnCompteEtranger {
+        /// Rang de la ligne (à partir de 0).
+        ligne: usize,
+        /// Sens de l'étiquette.
+        sens: SensTva,
+    },
+    /// Une ligne de base (montant hors taxe) est portée par un compte de TVA.
+    #[error("ligne {} : une base ne se porte pas sur un compte de TVA", ligne + 1)]
+    BaseSurUnCompteDeTva {
+        /// Rang de la ligne (à partir de 0).
+        ligne: usize,
+    },
+    /// Le total des étiquettes « taxe » diffère du solde des comptes de TVA (y compris une ligne
+    /// sur un compte de TVA facturée ou récupérable sans étiquette « taxe »).
+    #[error(transparent)]
+    Ecart(#[from] EcartTaxe),
+}
+
+/// Rapproche la nature, le sens et le compte des étiquettes fiscales d'une écriture (ADR 0026) :
+///
+/// 1. une ligne « taxe » collectée porte un compte de TVA facturée, une ligne « taxe »
+///    déductible un compte de TVA récupérable ; jamais un compte de charge, de produit ou de
+///    tiers ;
+/// 2. une ligne « base » ne porte aucun compte de TVA ;
+/// 3. le total des étiquettes « taxe » égale le solde des comptes de TVA ([`controler_taxes_et_comptes`]) ;
+///    une ligne sur un compte de TVA facturée ou récupérable qui n'est pas étiquetée « taxe »
+///    est donc refusée.
+///
+/// Exception, la seule : l'écriture de **centralisation** de la période (les comptes 443 et 445
+/// sont virés au 444 : Guide d'application, p. PDF 35-36) n'a aucune étiquette et ne porte que
+/// des comptes de TVA ; elle ne crée ni ne supprime de taxe, la déclaration somme les étiquettes.
+///
+/// `role_du_compte` désigne les comptes de TVA (données de `syscohada`) ; `None` pour tout autre.
+///
+/// # Errors
+/// [`ErreurRapprochementTva`], le premier refus dans l'ordre ci-dessus.
+pub fn rapprocher_etiquettes_et_comptes(
+    lignes: &[Ligne],
+    role_du_compte: impl Fn(&NumeroCompte) -> Option<RoleCompteTva>,
+) -> Result<(), ErreurRapprochementTva> {
+    for (rang, ligne) in lignes.iter().enumerate() {
+        let Some(etiquette) = ligne.etiquette() else {
+            continue;
+        };
+        let role = role_du_compte(ligne.compte());
+        match etiquette.nature() {
+            NatureEtiquette::Taxe => {
+                if role.and_then(RoleCompteTva::sens) != Some(etiquette.sens()) {
+                    return Err(ErreurRapprochementTva::TaxeSurUnCompteEtranger {
+                        ligne: rang,
+                        sens: etiquette.sens(),
+                    });
+                }
+            }
+            NatureEtiquette::Base => {
+                if role.is_some() {
+                    return Err(ErreurRapprochementTva::BaseSurUnCompteDeTva { ligne: rang });
+                }
+            }
+        }
+    }
+    let centralisation = lignes
+        .iter()
+        .all(|l| l.etiquette().is_none() && role_du_compte(l.compte()).is_some());
+    if centralisation {
+        return Ok(());
+    }
+    controler_taxes_et_comptes(lignes, |c| role_du_compte(c).and_then(RoleCompteTva::sens))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
