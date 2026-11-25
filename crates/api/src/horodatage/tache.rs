@@ -99,6 +99,7 @@ pub struct Travailleur {
     horodateur: Arc<dyn Horodateur>,
     horloge: Arc<dyn Horloge>,
     reglages: Reglages,
+    dossier: Option<uuid::Uuid>,
 }
 
 fn jour_utc(instant: OffsetDateTime) -> Date {
@@ -135,7 +136,17 @@ impl Travailleur {
             horodateur,
             horloge,
             reglages,
+            dossier: None,
         }
+    }
+
+    /// Ne traite que les tâches de ce dossier (démonstration de bout en bout, reprise ciblée) :
+    /// la file est globale à l'instance, un travailleur ainsi restreint ne prend jamais la tâche
+    /// d'un autre dossier. Sans cet appel, toutes les tâches échues sont traitées.
+    #[must_use]
+    pub fn restreint_au_dossier(mut self, dossier: IdDossier) -> Self {
+        self.dossier = Some(dossier.uuid());
+        self
     }
 
     /// Un passage : tâches échues, alertes de retard, purge.
@@ -151,7 +162,12 @@ impl Travailleur {
         for _ in 0..self.reglages.lot {
             let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
             let prises = tx
-                .prendre_echues(self.horloge.maintenant(), self.reglages.bail, 1)
+                .prendre_echues(
+                    self.horloge.maintenant(),
+                    self.reglages.bail,
+                    1,
+                    self.dossier,
+                )
                 .await?;
             tx.confirmer().await?;
             if prises.is_empty() {

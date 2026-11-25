@@ -50,6 +50,8 @@ const OID_TIME_STAMPING: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.
 const OID_EXTENDED_KEY_USAGE: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.5.29.37");
 const OID_SHA256: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.1");
 const OID_RSA_SHA256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
+/// Politique d'horodatage de l'autorité de test : OID public et documenté (arc d'exemple), sans
+/// valeur secrète.
 const POLITIQUE: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.3.4");
 
 /// `ESSCertIDv2` (RFC 5035) sans algorithme (SHA-256 par défaut) ni numéro de série.
@@ -91,6 +93,13 @@ impl BuilderProfile for ProfilTsa {
             extn_value: OctetString::new(usage).expect("octets"),
         }])
     }
+}
+
+/// Numéro de série tiré à chaque exécution (16 octets aléatoires, positif, non nul).
+fn numero_de_serie() -> [u8; 16] {
+    let mut octets = *uuid::Uuid::new_v4().as_bytes();
+    octets[0] = (octets[0] & 0x7f) | 0x01;
+    octets
 }
 
 /// Entier DER positif minimal d'un `u64`.
@@ -137,7 +146,7 @@ impl AutoriteLocale {
         let sujet =
             Name::from_str("CN=Autorite d'horodatage locale du test,O=Sigma Books test").unwrap();
         let spki = SubjectPublicKeyInfoOwned::from_key(&cle.verifying_key()).expect("clé publique");
-        let serie = SerialNumber::new(&[0x01, 0x02, 0x03, 0x04]).expect("numéro de série");
+        let serie = SerialNumber::new(&numero_de_serie()).expect("numéro de série");
         let constructeur =
             CertificateBuilder::new(ProfilTsa(sujet), serie, validite, spki).expect("certificat");
         let certificat = constructeur

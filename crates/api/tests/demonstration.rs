@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use api::base::liens::{self, NatureLien};
-use api::base::{ContexteTenant, IdCabinet, IdUtilisateur, ouvrir_transaction};
+use api::base::{ContexteTenant, IdCabinet, IdDossier, IdUtilisateur, ouvrir_transaction};
 use api::horodatage::tache::{Reglages as ReglagesTache, Travailleur};
 use api::instance::{Commande, executer};
 use api::serveur::Horloge;
@@ -70,6 +70,7 @@ struct Personne {
     id: Uuid,
     auth: SoftPasskey,
     session: Session,
+    invitation: Uuid,
 }
 
 struct Monde {
@@ -153,6 +154,20 @@ impl Monde {
             &corps,
         )
         .await
+    }
+
+    /// Repousse les tâches d'horodatage du dossier hors de portée des travailleurs des autres
+    /// tests (voir l'étape 7) : verrouillage à 3 650 jours, les autres à 5 000.
+    async fn cacher_taches(&self, dossier: Uuid) {
+        sqlx::query(
+            "UPDATE tache SET prochaine_tentative = now() + CASE sujet \
+                 WHEN 'verrouillage' THEN interval '3650 days' ELSE interval '5000 days' END \
+             WHERE dossier_cible = $1 AND nature = 'horodatage' AND etat = 'en_attente'",
+        )
+        .bind(dossier)
+        .execute(&self.env.admin)
+        .await
+        .unwrap();
     }
 
     async fn lire(&self, s: &Session, chemin: &str) -> Reponse {
@@ -318,6 +333,7 @@ impl Monde {
             id,
             auth,
             session,
+            invitation: Uuid::nil(),
         }
     }
 
@@ -387,7 +403,9 @@ impl Monde {
         .await
         .unwrap();
         tx.confirmer().await.unwrap();
-        self.integrer(&jeton.texte(), &courriel).await
+        let mut personne = self.integrer(&jeton.texte(), &courriel).await;
+        personne.invitation = invitation;
+        personne
     }
 }
 
@@ -428,6 +446,9 @@ struct Secrets {
     cabinet: Uuid,
     dossier: Option<Uuid>,
     noms: Vec<String>,
+    /// Vrais identifiants du cabinet A, par famille de ressource : (`membre`, `invitation`,
+    /// `compte`, `periode`, `brouillon`, `piece`, `ecriture`).
+    ressources: BTreeMap<&'static str, Uuid>,
 }
 
 /// Contrôle de l'étape `etape` : l'administrateur du cabinet B ne voit rien du cabinet A. Les
@@ -436,6 +457,7 @@ struct Secrets {
 async fn isoler(m: &Monde, b: &(Uuid, Personne, Uuid), a: &Secrets, etape: &str) {
     let (cabinet_b, admin_b, dossier_b) = (b.0, &b.1, b.2);
     let ca = a.cabinet;
+    let avant = instantane(m, ca).await;
     let mut chemins = vec![
         format!("/api/cabinets/{ca}"),
         format!("/api/cabinets/{ca}/dossiers"),
@@ -499,6 +521,54 @@ async fn isoler(m: &Monde, b: &(Uuid, Personne, Uuid), a: &Secrets, etape: &str)
         let r = m.poster(&admin_b.session, chemin, corps).await;
         controle_refus(&r, a, etape, chemin);
     }
+    // Les VRAIS identifiants du cabinet A, présentés par B : sur chaque famille de ressource, le
+    // refus est indiscernable de celui d'un identifiant inexistant (même statut, même corps),
+    // chez A comme dans le propre cabinet de B (identifiant d'autrui cité dans son chemin).
+    let familles = familles(m, a);
+    assert_eq!(
+        familles.len(),
+        familles_attendues(a),
+        "{etape} : toutes les familles connues sont éprouvées"
+    );
+    for f in familles {
+        let reel = a.ressources[f.genre];
+        let (dossier_a, aleatoire) = (a.dossier.unwrap_or_else(Uuid::nil), Uuid::new_v4());
+        let chemin = |c: Uuid, d: Uuid, x: Uuid| {
+            f.chemin
+                .replace("{c}", &c.to_string())
+                .replace("{d}", &d.to_string())
+                .replace("{x}", &x.to_string())
+        };
+        let (methode, corps) = (f.methode, &f.corps);
+        let appel = |c: Uuid, d: Uuid, x: Uuid| {
+            let chemin = chemin(c, d, x);
+            async move {
+                (
+                    m.appel(&admin_b.session, methode, &chemin, corps).await,
+                    chemin,
+                )
+            }
+        };
+        let (vrai, chemin_vrai) = appel(ca, dossier_a, reel).await;
+        let (inexistant, _) = appel(ca, dossier_a, aleatoire).await;
+        controle_refus(&vrai, a, etape, &chemin_vrai);
+        assert_eq!(
+            (vrai.statut, &vrai.corps),
+            (inexistant.statut, &inexistant.corps),
+            "{etape} : {} {chemin_vrai} se distingue d'une ressource inexistante",
+            f.methode
+        );
+        let (croise, chemin_croise) = appel(cabinet_b, dossier_b, reel).await;
+        let (croise_ref, _) = appel(cabinet_b, dossier_b, aleatoire).await;
+        assert!(!croise.statut.is_success(), "{etape} : {chemin_croise}");
+        assert_eq!(
+            (croise.statut, &croise.corps),
+            (croise_ref.statut, &croise_ref.corps),
+            "{etape} : {} {chemin_croise} se distingue d'une ressource inexistante",
+            f.methode
+        );
+        controle_absent(&croise.texte(), a, etape, &chemin_croise);
+    }
     // Dépôt d'une pièce chez autrui.
     if let Some(d) = a.dossier {
         let r = m
@@ -529,6 +599,247 @@ async fn isoler(m: &Monde, b: &(Uuid, Personne, Uuid), a: &Secrets, etape: &str)
     assert_eq!(r.statut, StatusCode::OK, "{etape} : {texte}");
     assert!(texte.contains(&dossier_b.to_string()), "{etape}");
     controle_absent(&texte, a, etape, "liste des dossiers de B");
+    // Rien n'a bougé chez A : écritures, brouillons, périodes, chaîne, audit, droits.
+    assert_eq!(
+        instantane(m, ca).await,
+        avant,
+        "{etape} : l'état du cabinet A a changé sous les requêtes de B"
+    );
+}
+
+/// Une requête de B contre une famille de ressources de A.
+struct Famille {
+    genre: &'static str,
+    methode: &'static str,
+    chemin: &'static str,
+    corps: Value,
+}
+
+/// Requêtes de B sur les familles de ressources de A déjà connues à cette étape.
+fn familles(m: &Monde, a: &Secrets) -> Vec<Famille> {
+    let (caisse, banque) = (
+        comptes().caisse.as_str().to_owned(),
+        comptes().banque.as_str().to_owned(),
+    );
+    let mut corrige = contenu(
+        m,
+        (1, 1),
+        "Intrusion",
+        &[(caisse, "debit", 1), (banque, "credit", 1)],
+    );
+    corrige["version"] = json!(1);
+    let d = "/api/cabinets/{c}/dossiers/{d}";
+    let tous = [
+        (
+            "brouillon",
+            "GET",
+            format!("{d}/brouillard/{{x}}"),
+            Value::Null,
+        ),
+        (
+            "brouillon",
+            "POST",
+            format!("{d}/brouillard/{{x}}/modification"),
+            corrige,
+        ),
+        (
+            "brouillon",
+            "POST",
+            format!("{d}/brouillard/{{x}}/validation"),
+            json!({"version": 1}),
+        ),
+        (
+            "brouillon",
+            "POST",
+            format!("{d}/brouillard/{{x}}/suppression"),
+            json!({"version": 1}),
+        ),
+        (
+            "brouillon",
+            "POST",
+            format!("{d}/brouillard/{{x}}/a-revoir"),
+            json!({}),
+        ),
+        (
+            "ecriture",
+            "GET",
+            format!("{d}/ecritures/{{x}}"),
+            Value::Null,
+        ),
+        (
+            "ecriture",
+            "POST",
+            format!("{d}/ecritures/{{x}}/contre-passation"),
+            json!({"date": date(m, 1, 1), "libelle": "Intrusion", "motif": "Intrusion"}),
+        ),
+        (
+            "piece",
+            "GET",
+            format!("{d}/pieces/{{x}}/contenu"),
+            Value::Null,
+        ),
+        (
+            "piece",
+            "POST",
+            format!("{d}/pieces/{{x}}/ecart"),
+            json!({"motif": "Intrusion"}),
+        ),
+        (
+            "periode",
+            "POST",
+            format!("{d}/periodes/{{x}}/verrouillage"),
+            json!({}),
+        ),
+        (
+            "periode",
+            "POST",
+            format!("{d}/periodes/{{x}}/deverrouillage"),
+            json!({"motif": "Intrusion"}),
+        ),
+        (
+            "periode",
+            "POST",
+            format!("{d}/periodes/{{x}}/cloture"),
+            json!({"confirmation": "irreversible"}),
+        ),
+        (
+            "compte",
+            "POST",
+            format!("{d}/comptes/{{x}}/intitule"),
+            json!({"intitule": "Intrus"}),
+        ),
+        (
+            "compte",
+            "POST",
+            format!("{d}/comptes/{{x}}/desactivation"),
+            json!({}),
+        ),
+        (
+            "membre",
+            "GET",
+            "/api/cabinets/{c}/membres/{x}/sessions".to_owned(),
+            Value::Null,
+        ),
+        (
+            "membre",
+            "POST",
+            "/api/cabinets/{c}/membres/{x}/role".to_owned(),
+            json!({"role": "auditeur"}),
+        ),
+        (
+            "membre",
+            "POST",
+            "/api/cabinets/{c}/membres/{x}/suspension".to_owned(),
+            json!({}),
+        ),
+        (
+            "invitation",
+            "POST",
+            "/api/cabinets/{c}/invitations/{x}/renvoi".to_owned(),
+            json!({}),
+        ),
+        (
+            "invitation",
+            "DELETE",
+            "/api/cabinets/{c}/invitations/{x}".to_owned(),
+            Value::Null,
+        ),
+    ];
+    tous.into_iter()
+        .filter(|(genre, ..)| a.ressources.contains_key(genre))
+        .map(|(genre, methode, chemin, corps)| Famille {
+            genre,
+            methode,
+            // Les gabarits vivent le temps du test : fuite volontaire de petites chaînes.
+            chemin: Box::leak(chemin.into_boxed_str()),
+            corps,
+        })
+        .collect()
+}
+
+/// Nombre de requêtes de [`familles`] attendu selon les ressources connues (relevé indépendant).
+fn familles_attendues(a: &Secrets) -> usize {
+    [
+        ("brouillon", 5),
+        ("ecriture", 2),
+        ("piece", 2),
+        ("periode", 3),
+        ("compte", 2),
+        ("membre", 3),
+        ("invitation", 2),
+    ]
+    .iter()
+    .filter(|(f, _)| a.ressources.contains_key(f))
+    .map(|(_, n)| n)
+    .sum()
+}
+
+/// État observable du cabinet A, lu par le super-utilisateur : ce que les requêtes de B ne
+/// doivent jamais changer.
+async fn instantane(m: &Monde, cabinet: Uuid) -> Vec<String> {
+    let mut etat = Vec::new();
+    for table in [
+        "dossier",
+        "appartenance",
+        "acces_dossier",
+        "invitation",
+        "compte",
+        "journal",
+        "tiers",
+        "exercice",
+        "periode",
+        "brouillon",
+        "brouillon_ligne",
+        "brouillon_piece",
+        "piece",
+        "ecriture_validee",
+        "ecriture_validee_ligne",
+        "ecriture_validee_piece",
+        "chaine_tete",
+        "compteur_ecriture",
+        "jeton_horodatage",
+        "audit_cabinet",
+        "audit_dossier",
+    ] {
+        let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {table} WHERE cabinet_id = $1"
+        )))
+        .bind(cabinet)
+        .fetch_one(&m.env.admin)
+        .await
+        .unwrap();
+        etat.push(format!("{table}={n}"));
+    }
+    for (nom, requete) in [
+        (
+            "periodes",
+            "SELECT coalesce(string_agg(id::text || ':' || statut, ',' ORDER BY id), '') \
+             FROM periode WHERE cabinet_id = $1",
+        ),
+        (
+            "chaine",
+            "SELECT coalesce(string_agg(rang::text || ':' || encode(empreinte, 'hex'), ',' \
+                 ORDER BY dossier_id, rang), '') FROM ecriture_validee WHERE cabinet_id = $1",
+        ),
+        (
+            "brouillons",
+            "SELECT coalesce(string_agg(id::text || ':' || version::text, ',' ORDER BY id), '') \
+             FROM brouillon WHERE cabinet_id = $1",
+        ),
+        (
+            "roles",
+            "SELECT coalesce(string_agg(utilisateur_id::text || ':' || role || ':' || actif::text, \
+                 ',' ORDER BY utilisateur_id), '') FROM appartenance WHERE cabinet_id = $1",
+        ),
+    ] {
+        let v: String = sqlx::query_scalar(requete)
+            .bind(cabinet)
+            .fetch_one(&m.env.admin)
+            .await
+            .unwrap();
+        etat.push(format!("{nom}={v}"));
+    }
+    etat
 }
 
 fn controle_refus(r: &Reponse, a: &Secrets, etape: &str, chemin: &str) {
@@ -608,6 +919,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         cabinet: cabinet_a,
         dossier: None,
         noms: vec![],
+        ressources: BTreeMap::new(),
     };
     isoler(&m, &b, &a, "1 cabinets créés").await;
 
@@ -617,6 +929,8 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     let collaborateur = m.inviter(cabinet_a, &admin_a, "collaborateur").await;
     let mut auditeur = m.inviter(cabinet_a, &admin_a, "auditeur").await;
     a.noms = vec![valideur.courriel.clone(), collaborateur.courriel.clone()];
+    a.ressources.insert("membre", valideur.id);
+    a.ressources.insert("invitation", valideur.invitation);
     isoler(&m, &b, &a, "2 membres invités").await;
 
     // Étape 3 : l'administrateur crée un dossier depuis le référentiel officiel et y affecte les
@@ -654,10 +968,27 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     let r = m
         .lire(&collaborateur.session, &format!("{racine}/comptes"))
         .await;
-    let nb_comptes = attendre(&r, StatusCode::OK)["comptes"]
-        .as_array()
-        .unwrap()
-        .len();
+    let comptes_a = attendre(&r, StatusCode::OK);
+    let nb_comptes = comptes_a["comptes"].as_array().unwrap().len();
+    a.ressources.insert(
+        "compte",
+        comptes_a["comptes"][0]["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap(),
+    );
+    let r = m
+        .lire(&collaborateur.session, &format!("{racine}/exercices"))
+        .await;
+    a.ressources.insert(
+        "periode",
+        attendre(&r, StatusCode::OK)["exercices"][0]["periodes"][0]["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap(),
+    );
     assert!(
         nb_comptes > 100,
         "plan officiel copié : {nb_comptes} comptes"
@@ -667,6 +998,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     // Étape 4 : saisie au brouillard par le collaborateur, avec pièces ; modification journalisée.
     let mut attendues: Vec<Mouvement> = Vec::new();
     let mut brouillons: Vec<(Uuid, i64, Vec<Mouvement>)> = Vec::new();
+    let mut premiere_piece = None;
     for (jour, libelle, montant, contre) in [
         ((1, 1), "Vente au comptant du mois", 100_000, &caisse),
         ((1, 1), "Encaissement bancaire", 250_000, &banque),
@@ -707,6 +1039,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
             .as_str()
             .unwrap()
             .to_owned();
+        premiere_piece.get_or_insert_with(|| piece.parse::<Uuid>().unwrap());
         let r = m
             .poster(
                 &collaborateur.session,
@@ -787,6 +1120,8 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
             .len(),
         4
     );
+    a.ressources.insert("brouillon", fevrier);
+    a.ressources.insert("piece", premiere_piece.unwrap());
     isoler(&m, &b, &a, "4 brouillard saisi").await;
 
     // Étape 5 : validation unitaire par le valideur (la première), puis par lot (ré-authentifiée)
@@ -804,6 +1139,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     assert_eq!(validee1["rang"], 1, "{validee1}");
     attendues.extend(l1.iter().cloned());
     let ecriture1: Uuid = validee1["id"].as_str().unwrap().parse().unwrap();
+    a.ressources.insert("ecriture", ecriture1);
     // La session du valideur vieillit : la validation par lot exige une session fraîche.
     m.horloge.avancer(Duration::minutes(6));
     let lot: Vec<Value> = brouillons[1..3]
@@ -837,6 +1173,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     for (_, _, l) in &brouillons[1..3] {
         attendues.extend(l.iter().cloned());
     }
+    m.cacher_taches(dossier).await;
     isoler(&m, &b, &a, "5 écritures validées").await;
 
     // Étape 6 : contre-passation de la première écriture, puis une seconde (ADR 0021 : plusieurs
@@ -863,6 +1200,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         .await;
     let liste = attendre(&r, StatusCode::OK);
     assert_eq!(liste["ecritures"].as_array().unwrap().len(), 5, "{liste}");
+    m.cacher_taches(dossier).await;
     isoler(&m, &b, &a, "6 contre-passations").await;
 
     // Étape 7 : verrouillage de la première période (celle du mois courant ; qui déclenche l'horodatage), le jeton est
@@ -903,33 +1241,43 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         ],
         "la validation planifie le jeton quotidien, le verrouillage le jeton immédiat"
     );
-    // Passage du travailleur sur NOTRE tâche seulement : on la place en tête de file (échéance
-    // d'origine du temps) et le travailleur n'en prend qu'une ; la file est globale à l'instance.
+    // La file `tache` est globale à l'instance : d'autres tests (d'autres fichiers, d'autres
+    // travailleurs, des horloges avancées de plusieurs jours) y passent. Nos tâches sont donc
+    // repoussées loin dans le futur dès leur création (hors de portée de tout autre travailleur) ;
+    // notre travailleur, restreint à NOTRE dossier, tourne avec une horloge avancée de 3 700 jours,
+    // qui n'atteint que la tâche de verrouillage (échéance à 3 650 jours ; le jeton quotidien est
+    // à 5 000 jours). Il ne prend jamais la tâche d'un autre.
+    m.cacher_taches(dossier).await;
     let autorite = Arc::new(autorite::AutoriteLocale::nouvelle(Arc::new(
         m.horloge.clone(),
     )));
-    sqlx::query(
-        "UPDATE tache SET prochaine_tentative = to_timestamp(0) \
-         WHERE dossier_cible = $1 AND nature = 'horodatage' AND sujet = 'verrouillage'",
-    )
-    .bind(dossier)
-    .execute(&m.env.admin)
-    .await
-    .unwrap();
+    let horloge_du_travailleur = HorlogeTest::default();
+    horloge_du_travailleur.fixer(m.horloge.maintenant() + Duration::days(3_700));
     let travailleur = Travailleur::new(
         m.env.application.clone(),
         autorite.clone(),
-        Arc::new(m.horloge.clone()),
+        Arc::new(horloge_du_travailleur),
         ReglagesTache {
-            lot: 1,
+            lot: 10,
             delai_alerte: Duration::days(36_500),
             conservation: Duration::days(36_500),
             ..ReglagesTache::default()
         },
-    );
+    )
+    .restreint_au_dossier(IdDossier::depuis_uuid(dossier));
     let bilan = travailleur.passer().await.unwrap();
-    assert_eq!(bilan.prises, 1);
-    assert_eq!(bilan.jetons, 1, "{bilan:?}");
+    assert_eq!((bilan.prises, bilan.jetons), (1, 1), "{bilan:?}");
+    let etat_tache: String = sqlx::query_scalar(
+        "SELECT etat FROM tache WHERE dossier_cible = $1 AND sujet = 'verrouillage'",
+    )
+    .bind(dossier)
+    .fetch_one(&m.env.admin)
+    .await
+    .unwrap();
+    assert_ne!(
+        etat_tache, "en_attente",
+        "la tâche de verrouillage est traitée"
+    );
     let temoins = autorite.temoins();
     assert_eq!(temoins.len(), 1);
     assert!(
@@ -963,6 +1311,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         )
         .await;
     assert_eq!(attendre(&r, StatusCode::OK)["statut"], "cloturee");
+    m.cacher_taches(dossier).await;
     // Une saisie datée de la période close est refusée.
     let r = m
         .poster(
@@ -1147,17 +1496,72 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         String::from_utf8_lossy(&sortie.stderr)
     );
     assert_eq!(sortie.status.code(), Some(0), "{rapport}");
-    // Le test n'est pas vacueux : une écriture altérée dans l'export est détectée (code 1).
+    // Le test n'est pas vacueux : chaque défaut d'un export est détecté, et nommé. Une seule
+    // ligne change (le montant d'un débit de la deuxième écriture), l'export reste bien formé.
+    let sortie_texte = |sortie: &std::process::Output| {
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&sortie.stdout),
+            String::from_utf8_lossy(&sortie.stderr)
+        )
+    };
+    let lignes: Vec<&str> = texte.lines().collect();
+    let rang_ligne = lignes
+        .iter()
+        .position(|l| *l == "montant=260000")
+        .expect("montant à altérer");
+    let numero_altere = lignes[..rang_ligne]
+        .iter()
+        .rev()
+        .find_map(|l| l.strip_prefix("numero="))
+        .unwrap()
+        .to_owned();
+    let mut modifie: Vec<String> = lignes.iter().map(|l| (*l).to_owned()).collect();
+    modifie[rang_ligne] = "montant=260001".to_owned();
     let altere = repertoire.join(format!("demonstration-{sigle}-altere.txt"));
-    std::fs::write(&altere, texte.replacen("260000", "260001", 1)).unwrap();
+    std::fs::write(&altere, modifie.join("\n") + "\n").unwrap();
+    let differences = lignes
+        .iter()
+        .zip(&modifie)
+        .filter(|(avant, apres)| *avant != apres)
+        .count();
+    assert_eq!(differences, 1, "une seule ligne altérée");
     let sortie = verifier(&altere);
-    assert_eq!(
-        sortie.status.code(),
-        Some(1),
-        "{}",
-        String::from_utf8_lossy(&sortie.stdout)
+    let rapport = sortie_texte(&sortie);
+    assert_eq!(sortie.status.code(), Some(1), "{rapport}");
+    assert!(
+        rapport.contains(&format!("- {numero_altere} (ligne")),
+        "l'anomalie désigne l'écriture altérée {numero_altere} : {rapport}"
     );
-    for f in [&chemin_export, &chemin_ancre, &altere] {
+    assert!(
+        rapport.contains("empreinte différente du contenu"),
+        "{rapport}"
+    );
+    // Seule l'écriture altérée est désignée parmi les écritures.
+    for l in rapport
+        .lines()
+        .filter(|l| l.trim_start().starts_with("- AC-"))
+    {
+        assert!(l.contains(&numero_altere), "écriture saine désignée : {l}");
+    }
+    // Export tronqué (dernière ligne coupée) : refusé comme illisible, sans plus de détail.
+    let tronque = repertoire.join(format!("demonstration-{sigle}-tronque.txt"));
+    std::fs::write(&tronque, lignes[..lignes.len() - 4].join("\n")).unwrap();
+    let sortie = verifier(&tronque);
+    let rapport = sortie_texte(&sortie);
+    assert_eq!(sortie.status.code(), Some(1), "{rapport}");
+    assert!(rapport.contains("export illisible"), "{rapport}");
+    // Ce qui n'est pas un export : même code de sortie, motif distinct (en-tête attendu).
+    let informe = repertoire.join(format!("demonstration-{sigle}-informe.txt"));
+    std::fs::write(&informe, "pas un export\n").unwrap();
+    let sortie = verifier(&informe);
+    let rapport = sortie_texte(&sortie);
+    assert_eq!(sortie.status.code(), Some(1), "{rapport}");
+    assert!(
+        rapport.contains("export v4") && rapport.contains("attendu"),
+        "{rapport}"
+    );
+    for f in [&chemin_export, &chemin_ancre, &altere, &tronque, &informe] {
         let _ = std::fs::remove_file(f);
     }
     isoler(&m, &b, &a, "9 export d'intégrité").await;
@@ -1259,6 +1663,13 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         .unwrap();
     assert_eq!(n, 1);
     isoler(&m, &b, &a, "10 audit").await;
+    // Nettoyage : les tâches de nos deux cabinets (alertes, témoin, jetons) ne restent pas dans la
+    // file globale de l'instance.
+    sqlx::query("DELETE FROM tache WHERE cabinet_cible = ANY($1)")
+        .bind(vec![cabinet_a, cabinet_b])
+        .execute(&m.env.admin)
+        .await
+        .unwrap();
     let _ = fevrier;
 }
 

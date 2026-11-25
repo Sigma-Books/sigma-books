@@ -409,6 +409,8 @@ impl TransactionTravailleur {
     /// dont le bail est passé), les marque en cours jusqu'à `maintenant + bail` avec un jeton de
     /// prise neuf. `SKIP LOCKED` : deux travailleurs ne prennent jamais la même tâche. Le
     /// travailleur en prend **une à la fois** : le bail ne couvre que la tâche en cours.
+    /// `dossier` : ne prend que les tâches de ce dossier (test ou reprise ciblée d'un dossier) ;
+    /// `None` : toutes, comme en production.
     ///
     /// # Errors
     /// Erreur de PostgreSQL ou ligne incohérente.
@@ -417,6 +419,7 @@ impl TransactionTravailleur {
         maintenant: OffsetDateTime,
         bail: time::Duration,
         limite: i64,
+        dossier: Option<Uuid>,
     ) -> Result<Vec<TachePrise>, ErreurBase> {
         let jusqua = maintenant + bail;
         let prise = Uuid::new_v4();
@@ -426,6 +429,7 @@ impl TransactionTravailleur {
                  WHERE nature = 'horodatage' \
                    AND ((etat = 'en_attente' AND prochaine_tentative <= $1) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
+                   AND ($5::uuid IS NULL OR dossier_cible = $5) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
              UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
                               tentatives = tache.tentatives + 1 \
@@ -436,6 +440,7 @@ impl TransactionTravailleur {
             jusqua,
             limite,
             prise,
+            dossier,
         )
         .fetch_all(self.connexion())
         .await?;
