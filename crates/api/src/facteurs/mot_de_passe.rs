@@ -14,7 +14,8 @@
 //! Le hachage coûte du temps de calcul et de la mémoire : l'appelant le fait hors de la
 //! boucle asynchrone (`spawn_blocking`) et en borne le nombre simultané.
 
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::phc::PasswordHash;
+use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 use argon2::{Algorithm, Argon2, Params, Version};
 
 use super::compromis;
@@ -86,9 +87,8 @@ impl From<ErreurAlea> for ErreurHachage {
 pub fn hacher(mot_de_passe: &str) -> Result<String, ErreurHachage> {
     let mut sel = [0u8; 16];
     tirer(&mut sel)?;
-    let sel = SaltString::encode_b64(&sel).map_err(|_| ErreurHachage)?;
     let empreinte = argon2()?
-        .hash_password(mot_de_passe.as_bytes(), &sel)
+        .hash_password_with_salt(mot_de_passe.as_bytes(), &sel)
         .map_err(|_| ErreurHachage)?;
     Ok(empreinte.to_string())
 }
@@ -189,9 +189,9 @@ mod tests {
             Version::V0x13,
             Params::new(8 * 1024, 1, 1, None).unwrap(),
         );
-        let sel = SaltString::encode_b64(&[1; 16]).unwrap();
+        let sel = [1u8; 16];
         let phc = faible
-            .hash_password(b"ancien mot de passe", &sel)
+            .hash_password_with_salt(b"ancien mot de passe", &sel)
             .unwrap()
             .to_string();
         assert_eq!(
@@ -204,9 +204,35 @@ mod tests {
             Params::new(MEMOIRE_KIO, PASSES, VOIES, None).unwrap(),
         );
         let phc = argon2i
-            .hash_password(b"ancien mot de passe", &sel)
+            .hash_password_with_salt(b"ancien mot de passe", &sel)
             .unwrap()
             .to_string();
         assert_eq!(verifier(&phc, "ancien mot de passe"), Verification::Refuse);
+    }
+
+    /// Vecteur de référence public Argon2id (m=256, t=2, p=1, `password`/`somesalt`), format PHC
+    /// inchangé entre 0.5 et 0.6 ; aucun hachage de production (m=19456) figé ici.
+    ///
+    /// Vecteur de référence public, cité tel quel : implémentation de référence d'Argon2
+    /// (P-H-C/phc-winner-argon2, `src/test.c`, cas Argon2id v=19, t=2, m=2^8 Kio, p=1, mot de
+    /// passe « password », sel « somesalt »), repris dans les tests de connaissance de la crate
+    /// `argon2` (`tests/kat.rs`) et dans le brouillon IRTF/RFC 9106. Ce n'est ni un secret ni
+    /// une valeur de l'application.
+    #[test]
+    fn une_chaine_phc_de_reference_publique_reste_verifiable() {
+        const REFERENCE: &str =
+            "$argon2id$v=19$m=256,t=2,p=1$c29tZXNhbHQ$nf65EOgLrQMR/uIPnA4rEsF5h7TKyQwu9U1bMCHGi/4";
+        // Paramètres plus faibles que les courants : admis, à re-hacher.
+        assert_eq!(
+            verifier(REFERENCE, "password"),
+            Verification::Admis { a_rehacher: true }
+        );
+        assert_eq!(verifier(REFERENCE, "passwore"), Verification::Refuse);
+        // Le format produit aujourd'hui se relit : mêmes champs que la référence.
+        let phc = hacher("cheval agrafe pile correcte").unwrap();
+        let relu = PasswordHash::new(&phc).unwrap();
+        assert_eq!(relu.algorithm, Algorithm::Argon2id.ident());
+        assert_eq!(relu.version, Some(Version::V0x13.into()));
+        assert_eq!(relu.to_string(), phc);
     }
 }

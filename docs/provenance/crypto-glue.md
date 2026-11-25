@@ -9,7 +9,7 @@
 | Auteurs / titulaires | William Brown et contributeurs du projet kanidm |
 | Nature de la reprise | Copie en dépendance corrigée (`[patch.crates-io]`), fichiers sous MPL-2.0 |
 | Destination | `vendor/crypto-glue/` |
-| Modifications | `Cargo.toml` (`rsa` 0.10.0, `pkcs1v15`) et ligne `use` de `src/lib.rs` ; détail dans `vendor/crypto-glue/MODIFICATIONS.md` |
+| Modifications | `Cargo.toml` (`rsa` 0.10.0, `pkcs1v15` ; `argon2` 0.6.0) et ligne `use` de `src/lib.rs` ; détail dans `vendor/crypto-glue/MODIFICATIONS.md` |
 | Raison | `webauthn-rs-core` 0.6.2 exige `rsa` 0.10.0-rc.18, visée par RUSTSEC-2023-0071 (ADR 0018) |
 | Sortie | Version 0.2.3 de `crypto-glue` publiée : supprimer `vendor/` et le `[patch]` (#162) |
 | PR | PR 8c du lot L2 |
