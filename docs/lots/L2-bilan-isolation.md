@@ -75,7 +75,7 @@ Relevé de `ROUTES` :
 
 ## 4. Démonstration de bout en bout (`demonstration.rs`)
 
-Le test du critère de fin du lot rejoue l'isolation à **chacune de ses dix étapes** (cabinet créé, membres invités, dossier créé, brouillard, validations, contre-passations, période close avec horodatage, éditions, export d'intégrité, audit) : l'administrateur du cabinet B tente 25 lectures et 6 mutations sur les ressources du cabinet A (cabinet, membres, invitations, audit, et, dès que le dossier existe, brouillard, écritures, référentiel, pièces, éditions, intégrité, audit, verrouillage de période, dépôt de pièce). Chacune doit répondre **404 ou 403 sans jamais révéler** un identifiant ni un nom du cabinet A ; ses propres listes (cabinets, dossiers) ne contiennent rien de A.
+Le test du critère de fin du lot (sur sa **propre base**, créée, migrée puis supprimée par le test) rejoue l'isolation à **chacune de ses dix étapes** : l'administrateur du cabinet B tente 25 lectures et 6 mutations sur les ressources du cabinet A, puis, pour chaque famille de ressources connue à l'étape (brouillon, écriture validée, pièce, période, compte, membre, invitation ; 19 requêtes en tout), présente les **vrais identifiants de A**, chez A et dans son propre cabinet. Le refus (404 ou 403) doit être **indiscernable** de celui d'un identifiant inexistant (même statut, même corps) et ne révéler aucun identifiant ni nom de A ; l'état de A (écritures, brouillons, périodes, chaîne, audit, droits) est relu avant et après et doit être inchangé. Les listes de B (cabinets, dossiers) ne contiennent rien de A.
 
 ## 5. Ce que ces tests ne couvrent pas (résidus, voir le modèle de menaces v0.4)
 
