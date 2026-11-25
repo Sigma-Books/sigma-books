@@ -34,3 +34,18 @@ export const libelleNature = (nature: string): string => libelle(NATURES, nature
  * Simple masquage : le serveur décide (Cedar, puis la requête), et son refus est affiché.
  */
 export const ROLES_CREATION_DOSSIER: readonly string[] = ['administrateur', 'valideur'];
+
+/** Secret TOTP en groupes de quatre caractères, plus lisible à recopier. */
+export function grouperSecret(secret: string): string {
+	return (
+		secret
+			.replace(/\s+/g, '')
+			.match(/.{1,4}/g)
+			?.join(' ') ?? ''
+	);
+}
+
+/** L'URI `otpauth` du serveur, si c'en est bien une (seul schéma admis pour le lien). */
+export function uriOtpauthSure(uri: string): string | null {
+	return uri.startsWith('otpauth://totp/') && !/[\s<>"']/.test(uri) ? uri : null;
+}

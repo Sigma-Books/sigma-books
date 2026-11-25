@@ -140,7 +140,9 @@ describe('session et jeton anti-CSRF', () => {
 			'lire',
 			'muter',
 			'muterSansReponse',
+			'muterSansSession',
 			'ouvrirSession',
+			'renouveler',
 			'tourner'
 		]);
 		assert.ok(Object.values(api).every((v) => typeof v === 'function'));
@@ -534,5 +536,47 @@ describe('chemins', () => {
 		await assert.rejects(api.lire('https://exemple.invalid/api/x', estDossier), TypeError);
 		await assert.rejects(api.lire('/api/../connexion', estDossier), TypeError);
 		assert.equal(serveur.appels.length, 0);
+	});
+});
+
+describe('mutations sans session et ré-authentification', () => {
+	it('connexion : en-tête factice, 401 ordinaire sans renvoi vers la connexion', async () => {
+		let renvois = 0;
+		const appels: Appel[] = [];
+		const { fetch } = fauxServeur((appel) => {
+			appels.push(appel);
+			return json(401, { erreur: 'non_authentifie' });
+		});
+		const client = creerClient({ fetch, surNonAuthentifie: () => (renvois += 1) });
+		await assert.rejects(
+			() => client.muterSansSession('/api/connexion/secours', estDossier, { courriel: 'a@b.sn' }),
+			(e: unknown) => e instanceof ErreurApi && e.code === 'non_authentifie'
+		);
+		assert.equal(renvois, 0);
+		assert.equal(appels.length, 1);
+		assert.ok(appels[0]?.csrf);
+	});
+
+	it('refuse les chemins hors connexion et lien', async () => {
+		const { fetch } = fauxServeur();
+		const client = creerClient({ fetch });
+		await assert.rejects(
+			() => client.muterSansSession('/api/moi/facteurs', estDossier, {}),
+			TypeError
+		);
+	});
+
+	it('renouveler : le jeton anti-CSRF de la réponse sert aux mutations suivantes', async () => {
+		const { fetch, appels } = fauxServeur((appel) => {
+			if (appel.chemin === '/api/session/reauthentification') {
+				return json(200, { csrf: 'csrf-neuf', fraiche_jusqu_a: '2026-11-19T08:10:00.000000Z' });
+			}
+			return undefined;
+		});
+		const client = creerClient({ fetch });
+		await client.ouvrirSession();
+		await client.renouveler('/api/session/reauthentification', { mot_de_passe: 'x', code: '1' });
+		await client.muterSansReponse('DELETE', `/api/moi/sessions/${SESSION_1}`).catch(() => {});
+		assert.equal(appels.find((a) => a.methode === 'DELETE')?.csrf, 'csrf-neuf');
 	});
 });
