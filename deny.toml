@@ -31,6 +31,9 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Zlib",
+    # 0BSD (BSD Zero Clause) : permissive, sans obligation d'attribution, compatible avec l'AGPL-3.0.
+    # Seule dépendance concernée : `quoted_printable`, entraînée par `lettre` (courriels, ADR 0024).
+    "0BSD",
     "Unicode-3.0",
     "MPL-2.0",
     "AGPL-3.0-only",

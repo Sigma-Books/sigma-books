@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"n!\" FROM tache t JOIN invitation i ON i.cabinet_id = t.cabinet_cible AND i.id = t.objet WHERE t.cabinet_cible = $1 AND t.nature = 'courriel' AND t.sujet = 'invitation' AND lower(i.courriel) = $2 AND t.cree_le > now() - interval '24 hours'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "eae3d9eb7acd4d170ecc2d111a7f3e11bb3e7634bcbf05e5538ee80ab31b404d"
+}

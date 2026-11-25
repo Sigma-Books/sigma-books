@@ -38,6 +38,7 @@ ctutils.workspace = true
 getrandom.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
+lettre.workspace = true
 http-body-util.workspace = true
 # Client HTTP/1.1 de l'horodatage (ADR 0010) : connexion unique par requête, sans redirection.
 hyper = { workspace = true, features = ["client"] }

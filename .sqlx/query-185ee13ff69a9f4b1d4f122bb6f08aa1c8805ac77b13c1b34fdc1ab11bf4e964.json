@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE reinitialisation SET etat = 'expiree', traitee_le = $3 WHERE cabinet_id = $1 AND utilisateur_id = $2 AND etat = 'en_attente' AND echeance < $3::timestamptz - interval '24 hours'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "185ee13ff69a9f4b1d4f122bb6f08aa1c8805ac77b13c1b34fdc1ab11bf4e964"
+}

@@ -824,6 +824,8 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let membre = commun::ajouter_affecte(&env.admin, &c, "auditeur")
         .await
         .uuid();
+    // `{invitation}` : celle que crée la route d'invitation, qui précède celle du renvoi.
+    let mut invitation = uuid::Uuid::nil();
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -845,6 +847,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "piece" => piece,
                 "brouillon" => brouillon,
                 "membre" => membre,
+                "invitation" => invitation,
                 "ecriture" => validee,
                 autre => fixtures.sous_ressource(autre),
             },
@@ -988,6 +991,10 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 }
                 _ => {}
             }
+        } else if route.cas_usage
+            == CasUsage::Administration(api::serveur::routes::administration::Cas::Inviter)
+        {
+            invitation = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         } else if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
             piece = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         }

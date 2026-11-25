@@ -57,10 +57,16 @@ async fn commande(commande: api::instance::Commande) -> Result<(), String> {
     let pool = ouvrir_pool_application(&url, ReglagesPool::default())
         .await
         .map_err(|e| format!("base de données : {e}"))?;
-    let sortie =
-        api::instance::executer(&pool, &commande, &origine, time::OffsetDateTime::now_utc())
-            .await
-            .map_err(|e| e.to_string())?;
+    let par_courriel = env("SIGMA_SMTP_HOTE").is_some();
+    let sortie = api::instance::executer(
+        &pool,
+        &commande,
+        &origine,
+        time::OffsetDateTime::now_utc(),
+        par_courriel,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     for ligne in sortie.lignes {
         println!("{ligne}");
     }
@@ -97,6 +103,7 @@ async fn demarrer() -> Result<(), String> {
         api::horodatage::Limites::default(),
     )
     .map_err(|e| e.to_string())?;
+    let pool_expediteur = pool.clone();
     let travailleur = Travailleur::new(
         pool.clone(),
         Arc::new(client),
@@ -138,6 +145,26 @@ async fn demarrer() -> Result<(), String> {
         "serveur démarré"
     );
     let boucle = tokio::spawn(async move { travailleur.superviser().await });
+    // Voie authentification (PR 9b) : envoi des liens par courriel, si un relais SMTP est
+    // configuré (TLS obligatoire). Sans relais, les envois attendent : avertissement.
+    let boucle_courriels = if let Some(smtp) = &config.smtp {
+        let transport = api::envoi::transport::TransportSmtp::new(smtp)
+            .map_err(|_| "relais SMTP : configuration inutilisable".to_owned())?;
+        let expediteur = api::envoi::tache::Expediteur::new(
+            pool_expediteur,
+            Arc::new(transport),
+            Arc::new(HorlogeSysteme),
+            config.reglages.origine.clone(),
+            api::envoi::tache::Reglages::default(),
+        );
+        Some(tokio::spawn(async move { expediteur.superviser().await }))
+    } else {
+        tracing::warn!(
+            target: journal::CIBLE,
+            "aucun relais SMTP (SIGMA_SMTP_HOTE) : les invitations et liens de réinitialisation ne partent pas"
+        );
+        None
+    };
     let service = servir(ecouteur, routeur, &config.reglages, async {
         // Sans gestionnaire de signal, on ne s'arrête que sur fermeture du processus.
         if tokio::signal::ctrl_c().await.is_err() {
@@ -146,5 +173,8 @@ async fn demarrer() -> Result<(), String> {
     })
     .await;
     boucle.abort();
+    if let Some(b) = boucle_courriels {
+        b.abort();
+    }
     service.map_err(|e| format!("service interrompu : {e}"))
 }

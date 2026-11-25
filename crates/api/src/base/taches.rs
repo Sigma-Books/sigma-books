@@ -144,6 +144,132 @@ pub async fn notifier(
     Ok(())
 }
 
+/// Sujet d'un courriel de la file : le lien à remettre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SujetCourriel {
+    /// Lien d'invitation (24 h).
+    Invitation,
+    /// Lien de réinitialisation d'accès (1 h), émis au terme du délai de 24 h.
+    Reinitialisation,
+}
+
+impl SujetCourriel {
+    /// Nom stocké.
+    #[must_use]
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Self::Invitation => "invitation",
+            Self::Reinitialisation => "reinitialisation",
+        }
+    }
+
+    /// Relit un nom stocké.
+    #[must_use]
+    pub fn depuis_nom(nom: &str) -> Option<Self> {
+        [Self::Invitation, Self::Reinitialisation]
+            .into_iter()
+            .find(|s| s.nom() == nom)
+    }
+}
+
+/// Planifie l'envoi du lien d'une invitation ou d'une réinitialisation du cabinet du contexte,
+/// dans la transaction de l'action : le courriel n'existe que si l'action est validée. `echeance` :
+/// instant de l'envoi (`None` : tout de suite). Un envoi non terminé du même objet existe déjà :
+/// rien n'est ajouté (`false`). Aucun courriel, aucun nom, aucun lien n'est écrit ici.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn planifier_courriel(
+    tx: &mut TransactionTenant,
+    sujet: SujetCourriel,
+    objet: Uuid,
+    echeance: Option<OffsetDateTime>,
+) -> Result<bool, ErreurBase> {
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let n = sqlx::query!(
+        "INSERT INTO tache (id, nature, sujet, cabinet_cible, objet, etat, cree_le, \
+                            prochaine_tentative) \
+         VALUES ($1, 'courriel', $2, $3, $4, 'en_attente', now(), COALESCE($5, now())) \
+         ON CONFLICT DO NOTHING",
+        Uuid::new_v4(),
+        sujet.nom(),
+        cabinet,
+        objet,
+        echeance,
+    )
+    .execute(tx.connexion())
+    .await?
+    .rows_affected();
+    Ok(n == 1)
+}
+
+/// Plafond d'envois de lien d'invitation par adresse et par cabinet sur 24 heures (création et
+/// renvois) : un administrateur, ou un compte détourné, ne fait pas de la messagerie de
+/// l'instance un relais de harcèlement (ADR 0024, §7).
+pub const INVITATIONS_MAX_PAR_ADRESSE_24H: i64 = 3;
+/// Plafond d'envois de lien d'invitation par cabinet sur 24 heures.
+pub const INVITATIONS_MAX_PAR_CABINET_24H: i64 = 100;
+
+/// Plafonds atteints pour une invitation : par adresse, ou par cabinet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlafondInvitation {
+    /// Trop d'envois vers cette adresse.
+    Adresse,
+    /// Trop d'envois depuis ce cabinet.
+    Cabinet,
+}
+
+/// Vérifie les plafonds d'envoi de lien d'invitation du cabinet du contexte sur 24 heures, pour
+/// l'adresse (déjà normalisée) donnée. Compte les tâches d'envoi, quel que soit leur état.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn plafond_invitation(
+    tx: &mut TransactionTenant,
+    courriel: &str,
+) -> Result<Option<PlafondInvitation>, ErreurBase> {
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let par_cabinet = sqlx::query_scalar!(
+        "SELECT count(*) AS \"n!\" FROM tache \
+         WHERE cabinet_cible = $1 AND nature = 'courriel' AND sujet = 'invitation' \
+           AND cree_le > now() - interval '24 hours'",
+        cabinet,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    if par_cabinet >= INVITATIONS_MAX_PAR_CABINET_24H {
+        return Ok(Some(PlafondInvitation::Cabinet));
+    }
+    let par_adresse = sqlx::query_scalar!(
+        "SELECT count(*) AS \"n!\" FROM tache t \
+         JOIN invitation i ON i.cabinet_id = t.cabinet_cible AND i.id = t.objet \
+         WHERE t.cabinet_cible = $1 AND t.nature = 'courriel' AND t.sujet = 'invitation' \
+           AND lower(i.courriel) = $2 AND t.cree_le > now() - interval '24 hours'",
+        cabinet,
+        courriel,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    Ok((par_adresse >= INVITATIONS_MAX_PAR_ADRESSE_24H).then_some(PlafondInvitation::Adresse))
+}
+
+/// Envoi de courriel pris par le travailleur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CourrielPris {
+    /// Identifiant de la tâche.
+    pub id: Uuid,
+    /// Cabinet.
+    pub cabinet: Uuid,
+    /// Sujet.
+    pub sujet: SujetCourriel,
+    /// Invitation ou réinitialisation visée.
+    pub objet: Uuid,
+    /// Tentatives déjà faites (celle-ci non comprise).
+    pub tentatives: i32,
+    /// Jeton de cette prise : lui seul termine ou reporte la tâche.
+    pub prise: Uuid,
+}
+
 /// Tâche d'horodatage prise par le travailleur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TachePrise {
@@ -243,6 +369,53 @@ impl TransactionTravailleur {
                     dossier: l.dossier_cible,
                     sujet: SujetHorodatage::depuis_nom(&l.sujet)
                         .ok_or(ErreurBase::Donnee("sujet de tâche inconnu"))?,
+                    tentatives: l.avant,
+                    prise,
+                })
+            })
+            .collect()
+    }
+
+    /// Prend au plus `limite` envois de courriel échus, comme [`Self::prendre_echues`] : bail,
+    /// jeton de prise, `SKIP LOCKED`.
+    ///
+    /// # Errors
+    /// Erreur de PostgreSQL ou ligne incohérente.
+    pub async fn prendre_courriels(
+        &mut self,
+        maintenant: OffsetDateTime,
+        bail: time::Duration,
+        limite: i64,
+    ) -> Result<Vec<CourrielPris>, ErreurBase> {
+        let jusqua = maintenant + bail;
+        let prise = Uuid::new_v4();
+        let lignes = sqlx::query!(
+            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tentatives + 1 \
+             WHERE id IN ( \
+                 SELECT id FROM tache \
+                 WHERE nature = 'courriel' \
+                   AND ((etat = 'en_attente' AND prochaine_tentative <= $1) \
+                        OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
+                 ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
+             RETURNING id, cabinet_cible, sujet, objet AS \"objet!\", \
+                       tentatives - 1 AS \"avant!\"",
+            maintenant,
+            jusqua,
+            limite,
+            prise,
+        )
+        .fetch_all(self.connexion())
+        .await?;
+        lignes
+            .into_iter()
+            .map(|l| {
+                Ok(CourrielPris {
+                    id: l.id,
+                    cabinet: l.cabinet_cible,
+                    sujet: SujetCourriel::depuis_nom(&l.sujet)
+                        .ok_or(ErreurBase::Donnee("sujet de courriel inconnu"))?,
+                    objet: l.objet,
                     tentatives: l.avant,
                     prise,
                 })
@@ -360,14 +533,15 @@ impl TransactionTravailleur {
             .collect())
     }
 
-    /// Supprime les tâches d'horodatage terminées avant `avant`. Rend leur nombre.
+    /// Supprime les tâches d'horodatage et d'envoi de courriel terminées avant `avant`. Rend leur
+    /// nombre.
     ///
     /// # Errors
     /// Erreur de PostgreSQL.
     pub async fn purger(&mut self, avant: OffsetDateTime) -> Result<u64, ErreurBase> {
         Ok(sqlx::query!(
-            "DELETE FROM tache WHERE nature = 'horodatage' AND etat = 'terminee' \
-                                 AND termine_le < $1",
+            "DELETE FROM tache WHERE nature IN ('horodatage', 'courriel') \
+                                 AND etat = 'terminee' AND termine_le < $1",
             avant,
         )
         .execute(self.connexion())

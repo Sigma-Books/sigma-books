@@ -20,15 +20,17 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::base::administration::{
-    CreationReinitialisation, MOTIFS_REINITIALISATION, NouvelleInvitation,
+    CreationReinitialisation, DELAI_REINITIALISATION, MOTIFS_REINITIALISATION, NouvelleInvitation,
     appartient_a_d_autres_cabinets, creer_invitation, creer_reinitialisation, lister_membres,
 };
 use crate::base::audit::{PorteeAudit, inscrire};
 use crate::base::liens::{self, NatureLien};
+use crate::base::taches::{SujetCourriel, planifier_courriel};
 use crate::base::{
     ContexteTenant, ErreurBase, IdCabinet, IdUtilisateur, TransactionTenant, ouvrir_transaction,
 };
 use crate::courriel;
+use crate::envoi::modele;
 
 /// Commande d'administration de l'instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +190,8 @@ pub struct Sortie {
 }
 
 /// Exécute une commande sur le pool du rôle applicatif ; `origine` sert à composer le lien.
+/// `par_courriel` : un relais SMTP est configuré, le serveur envoie le lien par courriel et la
+/// commande n'écrit **aucun** lien ; sinon le lien d'invitation est écrit une fois sur la sortie.
 ///
 /// # Errors
 /// [`ErreurCommande`].
@@ -196,13 +200,25 @@ pub async fn executer(
     commande: &Commande,
     origine: &str,
     instant: OffsetDateTime,
+    par_courriel: bool,
 ) -> Result<Sortie, ErreurCommande> {
     match commande {
         Commande::CreerCabinet {
             nom,
             courriel,
             nom_administrateur,
-        } => creer_cabinet(pool, nom, courriel, nom_administrateur, origine, instant).await,
+        } => {
+            creer_cabinet(
+                pool,
+                nom,
+                courriel,
+                nom_administrateur,
+                origine,
+                instant,
+                par_courriel,
+            )
+            .await
+        }
         Commande::ReinitialiserAcces {
             cabinet,
             courriel,
@@ -219,6 +235,7 @@ async fn creer_cabinet(
     nom_administrateur: &str,
     origine: &str,
     instant: OffsetDateTime,
+    par_courriel: bool,
 ) -> Result<Sortie, ErreurCommande> {
     let cabinet = IdCabinet::nouveau();
     // Acteur fictif pour le contexte : l'action est celle de l'instance, sans utilisateur.
@@ -260,16 +277,24 @@ async fn creer_cabinet(
         )?,
     )
     .await?;
-    let jeton = liens::emettre(&mut tx, NatureLien::Invitation, invitation, instant).await?;
+    let mut lignes = vec![
+        format!("cabinet : {cabinet}"),
+        format!("invitation : {invitation}"),
+    ];
+    if par_courriel {
+        // Le serveur émet le lien et l'envoie : rien à transmettre ici.
+        planifier_courriel(&mut tx, SujetCourriel::Invitation, invitation, None).await?;
+        lignes.push("invitation envoyée par courriel par le serveur".to_owned());
+    } else {
+        let jeton = liens::emettre(&mut tx, NatureLien::Invitation, invitation, instant).await?;
+        lignes.push(
+            "lien d'invitation (valable 24 h, usage unique, affiché une seule fois ; à transmettre hors bande) :"
+                .to_owned(),
+        );
+        lignes.push(modele::adresse_du_lien(origine, &jeton.texte()));
+    }
     tx.confirmer().await?;
-    Ok(Sortie {
-        lignes: vec![
-            format!("cabinet : {cabinet}"),
-            format!("invitation : {invitation}"),
-            "lien d'invitation (valable 24 h, usage unique, affiché une seule fois ; à transmettre hors bande) :".to_owned(),
-            format!("{}/lien#{}", origine.trim_end_matches('/'), jeton.texte()),
-        ],
-    })
+    Ok(Sortie { lignes })
 }
 
 async fn reinitialiser(
@@ -315,6 +340,14 @@ async fn reinitialiser(
             "une réinitialisation est déjà en attente",
         ));
     }
+    // Le lien (1 h) est émis et envoyé au terme du délai par le serveur.
+    planifier_courriel(
+        &mut tx,
+        SujetCourriel::Reinitialisation,
+        id,
+        Some(instant + DELAI_REINITIALISATION),
+    )
+    .await?;
     let evenement = evenement(
         "ReinitialiserAcces",
         "reinitialisation",

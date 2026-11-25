@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, tentatives = tentatives + 1 WHERE id IN ( SELECT id FROM tache WHERE nature = 'courriel' AND ((etat = 'en_attente' AND prochaine_tentative <= $1) OR (etat = 'en_cours' AND reserve_jusqua <= $1)) ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) RETURNING id, cabinet_cible, sujet, objet AS \"objet!\", tentatives - 1 AS \"avant!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tache",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "cabinet_cible",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tache",
+            "name": "cabinet_cible"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sujet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tache",
+            "name": "sujet"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "objet!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tache",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "avant!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "d108072a978defb2b3899279d89afbb8bc8f24c1b95a58a1fe8b51cc57a0ff5d"
+}

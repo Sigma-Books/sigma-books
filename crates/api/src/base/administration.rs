@@ -617,6 +617,18 @@ pub async fn creer_reinitialisation(
     instant: OffsetDateTime,
 ) -> Result<CreationReinitialisation, ErreurBase> {
     let cabinet = tx.contexte().id_cabinet().uuid();
+    // Une réinitialisation dont le délai est écoulé depuis plus de 24 heures sans que son lien
+    // (1 heure) ait servi est périmée : elle ne bloque pas une nouvelle demande.
+    sqlx::query!(
+        "UPDATE reinitialisation SET etat = 'expiree', traitee_le = $3 \
+         WHERE cabinet_id = $1 AND utilisateur_id = $2 AND etat = 'en_attente' \
+           AND echeance < $3::timestamptz - interval '24 hours'",
+        cabinet,
+        utilisateur.uuid(),
+        instant,
+    )
+    .execute(tx.connexion())
+    .await?;
     let n = sqlx::query!(
         "INSERT INTO reinitialisation (cabinet_id, id, utilisateur_id, demandee_par, motif_code, \
                                        motif, verification_hors_bande, cree_le, echeance, etat) \

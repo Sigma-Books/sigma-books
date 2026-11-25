@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"n!\" FROM tache WHERE cabinet_cible = $1 AND nature = 'courriel' AND sujet = 'invitation' AND cree_le > now() - interval '24 hours'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1a05f5e029ab907c2267b0e91280e8f96b0905f2c2298ebb1ffa5600fa17a3bc"
+}

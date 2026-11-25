@@ -1070,6 +1070,7 @@ async fn la_commande_cree_un_cabinet_et_invite_son_premier_administrateur() {
         &commande,
         ORIGINE,
         b.horloge.maintenant(),
+        false,
     )
     .await
     .unwrap();
@@ -1125,6 +1126,7 @@ async fn la_commande_de_reinitialisation_suit_le_meme_delai_et_s_audite() {
         &commande,
         ORIGINE,
         b.horloge.maintenant(),
+        false,
     )
     .await
     .unwrap();
@@ -1145,7 +1147,8 @@ async fn la_commande_de_reinitialisation_suit_le_meme_delai_et_s_audite() {
             &b.env.application,
             &commande,
             ORIGINE,
-            b.horloge.maintenant()
+            b.horloge.maintenant(),
+            false,
         )
         .await
         .is_err()
@@ -1161,7 +1164,8 @@ async fn la_commande_de_reinitialisation_suit_le_meme_delai_et_s_audite() {
             &b.env.application,
             &inconnu,
             ORIGINE,
-            b.horloge.maintenant()
+            b.horloge.maintenant(),
+            false,
         )
         .await
         .is_err()

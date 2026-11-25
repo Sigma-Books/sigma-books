@@ -78,6 +78,7 @@ supérieur à celui de la voie dont elle dépend, hors de sa plage. Même cas po
 `0351_ecriture_validee_pieces.sql` (PR 13b), qui lie les écritures validées (`0203_validation.sql`,
 dans la plage) aux pièces ; `0352_piece_liee_non_ecartee.sql` (déclencheur sur `piece`) en dépend aussi.
 `0204_contre_passation.sql` (PR 13c) ne dépend que de `0203` : contraintes d'une contre-passation (et, à l'origine, un index unique sur l'origine). `0205_contre_passations_multiples.sql` lève cette unicité (ADR 0021 point 4, révisé le 2026-11-25) : une écriture validée peut être contre-passée plusieurs fois ; l'index sur l'origine devient non unique.
+`0450_taches_courriel.sql` (PR 9b, voie authentification) ajoute la nature `courriel` à la table `tache` de `0400` : numéro supérieur à celui de la voie dont elle dépend, hors de sa plage.
 
 `sqlx migrate` accepte des versions non contiguës et les applique dans l'ordre croissant sur une
 base neuve (vérifié avec `sqlx-cli` 0.9.1). Limites :
@@ -149,6 +150,7 @@ Chaque module lit ses variables et les documente dans une table de sa documentat
 | `SIGMA_URL_BASE_APPLICATION` | oui | base, rôle **applicatif** (`src/base/config.rs`) |
 | `SIGMA_URL_BASE_LECTURE_AUDIT` | oui | base, rôle de **lecture d'audit**, pool distinct (`src/base/config.rs`) |
 | `SIGMA_AUTORITES_HORODATAGE` | non | horodatage (`src/horodatage/config.rs`) |
+| `SIGMA_SMTP_HOTE`, `SIGMA_SMTP_EXPEDITEUR`, `SIGMA_SMTP_PORT`, `SIGMA_SMTP_TLS`, `SIGMA_SMTP_UTILISATEUR`, `SIGMA_SMTP_FICHIER_MOT_DE_PASSE`, `SIGMA_SMTP_NOM_EXPEDITEUR`, `SIGMA_SMTP_NOM_HELO`, `SIGMA_SMTP_DELAI` | non (sans hôte, aucun envoi) | courriels (`src/envoi/config.rs`) |
 | `SIGMA_CONSERVATION_SESSIONS_JOURS` | non | sessions (`src/serveur/session.rs`) |
 | `SIGMA_FICHIER_CLE_INSTANCE` | oui | facteurs : fichier de la clé de l'instance (`src/serveur/facteurs.rs`) |
 | `SIGMA_PIECES_S3_POINT_ACCES`, `SIGMA_PIECES_S3_COMPARTIMENT`, `SIGMA_PIECES_S3_CLE`, `SIGMA_PIECES_S3_SECRET` | oui | pièces (`src/pieces/config.rs`) |
@@ -600,6 +602,21 @@ Code : `src/serveur/routes/administration.rs` (routes), `src/serveur/liens.rs` (
   api reinitialiser-acces --cabinet <uuid> --courriel awa@cabinet.example --motif-code compte_compromis --motif "Identité vérifiée par appel"
   ```
   La première écrit le lien d'invitation une seule fois sur la sortie standard.
+
+## Courriels (PR 9b ; ADR 0012, 0024)
+
+Code : `src/envoi/` (`config`, `modele`, `transport`, `tache`), migration `0450_taches_courriel.sql`.
+
+- **Relais SMTP, TLS obligatoire** (`STARTTLS` exigé ou TLS implicite ; aucun mode sans TLS). Mot de
+  passe lu dans un **fichier** de droits 0600 ou 0400 (`SIGMA_SMTP_FICHIER_MOT_DE_PASSE`), jamais
+  dans l'environnement. Sans `SIGMA_SMTP_HOTE`, aucun courriel ne part : les envois attendent dans
+  la file et le serveur avertit au démarrage.
+- **Envoi par la file de tâches** : l'invitation est planifiée à la demande, la réinitialisation à
+  l'échéance du délai de 24 h ; le lien est émis **au moment de l'envoi** (jamais stocké en clair),
+  un échec provisoire est rejoué avec un lien neuf (délai doublé, 8 tentatives au plus).
+- **Tests** : `tests/envoi.rs` (transport en mémoire, PostgreSQL réel), `tests/envoi_smtp.rs` (faux
+  relais en clair : rien n'est envoyé sans TLS). Les tests de `tests/envoi.rs` se sérialisent
+  (la file est unique pour l'instance) et closent les envois laissés par les autres binaires.
 
 ## Travailler en voies parallèles
 
