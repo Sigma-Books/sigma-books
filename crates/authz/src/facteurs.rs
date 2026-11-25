@@ -71,6 +71,8 @@ actions_facteur! {
     EnrolerPasskey,
     /// Suppression d'une de ses passkeys.
     SupprimerPasskey,
+    /// Acceptation, par un utilisateur connecté, d'une invitation à un autre cabinet (ADR 0012).
+    AccepterInvitation,
 }
 
 /// Nature d'une session, telle que la voit Cedar (ADR 0012).

@@ -515,6 +515,9 @@ async fn connecter_sans_plancher(
         CasUsage::Passkeys(PasskeysCas::ConnexionPasskey) => {
             super::passkeys::connecter_passkey(etat, &client, parts, corps).await
         }
+        CasUsage::Administration(super::routes::administration::Cas::UtiliserLien) => {
+            super::liens::utiliser_lien(etat, &client, corps).await
+        }
         _ => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }
 }
@@ -813,6 +816,9 @@ pub(crate) async fn executer(
     let cas = match route.cas_usage {
         CasUsage::Facteurs(cas) => cas,
         CasUsage::Passkeys(cas) => return super::passkeys::executer(&soi, cas, parts, corps).await,
+        CasUsage::Administration(super::routes::administration::Cas::AccepterInvitation) => {
+            return super::liens::accepter_invitation(&soi, corps).await;
+        }
         _ => return Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     };
     match cas {

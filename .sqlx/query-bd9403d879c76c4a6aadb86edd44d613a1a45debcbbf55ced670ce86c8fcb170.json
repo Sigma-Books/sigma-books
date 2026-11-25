@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO acces_dossier (cabinet_id, dossier_id, utilisateur_id, id, validation_deleguee) VALUES ($1, $2, $3, $4, $5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bd9403d879c76c4a6aadb86edd44d613a1a45debcbbf55ced670ce86c8fcb170"
+}

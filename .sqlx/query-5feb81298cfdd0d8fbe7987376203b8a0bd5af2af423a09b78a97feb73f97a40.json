@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, nature, cabinet_cible, cible FROM lien_acces WHERE ferme_le IS NULL AND expire_le > $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "lien_acces",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nature",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lien_acces",
+            "name": "nature"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "cabinet_cible",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "lien_acces",
+            "name": "cabinet_cible"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "cible",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "lien_acces",
+            "name": "cible"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5feb81298cfdd0d8fbe7987376203b8a0bd5af2af423a09b78a97feb73f97a40"
+}

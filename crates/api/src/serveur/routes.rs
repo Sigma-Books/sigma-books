@@ -189,7 +189,12 @@ impl CasUsage {
     /// passkeys), exécuté hors cabinet par `serveur::facteurs`.
     #[must_use]
     pub const fn est_facteur(self) -> bool {
-        matches!(self, Self::Facteurs(_) | Self::Passkeys(_))
+        matches!(
+            self,
+            Self::Facteurs(_)
+                | Self::Passkeys(_)
+                | Self::Administration(administration::Cas::AccepterInvitation)
+        )
     }
 
     /// Nom du module du cas d'usage ([`Module::nom`]).
@@ -376,7 +381,10 @@ pub(crate) async fn executer(
             Err(ErreurApi::Interne(CategorieErreur::Donnee))
         }
         // Voie authentification (PR 9).
-        CasUsage::Administration(cas) => match cas {},
+        CasUsage::Administration(cas) if cas.hors_cabinet() => {
+            Err(ErreurApi::Interne(CategorieErreur::Donnee))
+        }
+        CasUsage::Administration(cas) => administration::executer(cas, tx, garde, requete).await,
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => referentiel::executer(cas, tx, garde, requete).await,
         CasUsage::Brouillard(cas) => brouillard::executer(cas, tx, garde, requete).await,

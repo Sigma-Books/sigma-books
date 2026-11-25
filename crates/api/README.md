@@ -67,7 +67,7 @@ prennent jamais le même numéro.
 | Plage | Voie |
 |---|---|
 | `0001` à `0099` | Socle déjà fusionné (organisation, identifiants, audit, sessions) |
-| `0100` à `0199` | Authentification (PR 8b `0100`, 8c `0101`, 9) |
+| `0100` à `0199` | Authentification (PR 8b `0100`, 8c `0101`, 9a `0102`) |
 | `0200` à `0299` | Comptabilité (PR 11, 13, 14) |
 | `0300` à `0399` | Pièces (PR 12) |
 | `0400` à `0499` | Intégrité et horodatage (PR 15) |
@@ -579,6 +579,27 @@ requêtes à plat par nature d'écriture (`src/base/editions.rs`), et ne calcule
 - Alertes : brouillard non validé par (période, journal) dès le lendemain de la fin de la période
   (AUDCIF art. 22 2°), et échéance de clôture des périodes terminées non clôturées, à 30 jours ou
   dépassée (point 15). La date du jour est celle de l'horloge de la requête.
+
+## Administration du cabinet (PR 9a ; ADR 0012, 0023)
+
+Code : `src/serveur/routes/administration.rs` (routes), `src/serveur/liens.rs` (usage d'un lien),
+`src/base/administration.rs` et `src/base/liens.rs` (base), `src/courriel.rs` (saisies),
+`src/instance.rs` (commandes), migration `0102_administration.sql`.
+
+- **Routes d'un cabinet** (`/api/cabinets/{cabinet}/…`, administrateur actif, session fraîche pour
+  les mutations) : `membres` (liste ; `…/{membre}/role`, `suspension`, `acces`, `sessions`),
+  `invitations`, `reinitialisations`, `membres/{membre}/reinitialisation`, `separation-taches`.
+  Hors cabinet : `POST /api/liens/utilisation` (anonyme) et `POST /api/moi/invitations/acceptation`.
+- **Liens** : 256 bits, empreinte seule en base (table `lien_acces`), un seul vivant par cible,
+  24 h (invitation) ou 1 h (réinitialisation). Jamais journalisés. `base::liens::emettre` les crée
+  (la file de tâches de la PR 9b les envoie par courriel).
+- **Commandes d'instance** (sur le serveur, `SIGMA_URL_BASE_APPLICATION` et `SIGMA_ORIGINE`
+  seules requises) :
+  ```sh
+  api creer-cabinet --nom "Cabinet Diop" --administrateur-courriel awa@cabinet.example --administrateur-nom "Awa Diop"
+  api reinitialiser-acces --cabinet <uuid> --courriel awa@cabinet.example --motif-code compte_compromis --motif "Identité vérifiée par appel"
+  ```
+  La première écrit le lien d'invitation une seule fois sur la sortie standard.
 
 ## Travailler en voies parallèles
 

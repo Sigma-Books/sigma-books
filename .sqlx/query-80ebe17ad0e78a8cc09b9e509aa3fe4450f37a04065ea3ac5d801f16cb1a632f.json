@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invitation SET etat = 'acceptee', traitee_le = $3, utilisateur_id = $4 WHERE cabinet_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "80ebe17ad0e78a8cc09b9e509aa3fe4450f37a04065ea3ac5d801f16cb1a632f"
+}

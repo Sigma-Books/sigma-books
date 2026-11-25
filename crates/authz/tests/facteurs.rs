@@ -60,14 +60,24 @@ fn attendue(action: ActionFacteur, c: ContexteFacteur) -> Decision {
     let admis = match action {
         ActionFacteur::OuvrirSession => matches!(
             (c.methode, c.nature),
-            (M::Passkey | M::Secours, N::Complete) | (M::CodeRecuperation, N::Restreinte)
+            (M::Passkey | M::Secours, N::Complete)
+                | (M::CodeRecuperation, N::Restreinte)
+                | (M::LienEnrolement, N::Enrolement)
         ),
         ActionFacteur::SeReauthentifier
+        | ActionFacteur::AccepterInvitation
         | ActionFacteur::ConsulterSesFacteurs
         | ActionFacteur::ConsulterSesEvenements => c.nature == N::Complete,
-        ActionFacteur::EnrolerSecours | ActionFacteur::EnrolerPasskey => {
+        ActionFacteur::EnrolerSecours => {
             (c.nature == N::Complete && fraiche)
                 || (c.nature == N::Restreinte && c.methode == M::CodeRecuperation)
+        }
+        // Une session d'enrôlement (lien d'invitation ou de réinitialisation) n'enrôle qu'une
+        // passkey, jamais le secours.
+        ActionFacteur::EnrolerPasskey => {
+            (c.nature == N::Complete && fraiche)
+                || (c.nature == N::Restreinte && c.methode == M::CodeRecuperation)
+                || (c.nature == N::Enrolement && c.methode == M::LienEnrolement)
         }
         ActionFacteur::RegenererCodesRecuperation | ActionFacteur::SupprimerPasskey => {
             c.nature == N::Complete && fraiche

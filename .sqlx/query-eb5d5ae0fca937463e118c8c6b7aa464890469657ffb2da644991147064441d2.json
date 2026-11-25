@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE reinitialisation SET etat = 'annulee', traitee_le = $3 WHERE cabinet_id = $1 AND id = $2 AND etat = 'en_attente'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eb5d5ae0fca937463e118c8c6b7aa464890469657ffb2da644991147064441d2"
+}

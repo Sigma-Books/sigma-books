@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE session SET revoquee_le = $2, motif_revocation = 'reinitialisation' WHERE utilisateur_id = $1 AND revoquee_le IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b8280f68d82ff65796e68f48c8b0bec10599a659d47de63ee65bdad3126e45ef"
+}

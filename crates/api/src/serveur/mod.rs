@@ -40,6 +40,7 @@ pub mod erreur;
 pub mod facteurs;
 pub mod integrite;
 pub mod journal;
+mod liens;
 pub mod limites;
 mod moi;
 mod passkeys;

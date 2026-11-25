@@ -86,6 +86,9 @@ pub enum MotifRefus {
     JetonEnrolementInvalide,
     /// Ré-authentification refusée (mot de passe ou code).
     FacteursRefuses,
+    /// Lien d'invitation ou de réinitialisation inconnu, expiré, fermé ou sans objet : une seule
+    /// réponse pour tous ces cas.
+    LienInvalide,
     /// Passkey demandée par un compte qui n'en a aucune (ré-authentification).
     AucunePasskey,
     /// Cérémonie d'enrôlement d'une passkey refusée : défi absent, expiré ou déjà utilisé,
@@ -111,6 +114,7 @@ impl MotifRefus {
             Self::CodeInvalide => "code_invalide",
             Self::JetonEnrolementInvalide => "jeton_enrolement_invalide",
             Self::FacteursRefuses => "facteurs_refuses",
+            Self::LienInvalide => "lien_invalide",
             Self::AucunePasskey => "aucune_passkey",
             Self::PasskeyRefusee => "passkey_refusee",
             Self::PasskeyDejaEnregistree => "passkey_deja_enregistree",
@@ -163,11 +167,30 @@ pub enum MotifConflit {
     LotSansEcritureAValider,
     /// Édition au-delà du nombre d'écritures traitables en une requête : restreindre la période.
     EditionTropVolumineuse,
+    /// Le courriel invité est déjà celui d'un membre du cabinet.
+    DejaMembre,
+    /// Une invitation est déjà en attente pour ce courriel.
+    InvitationEnCours,
+    /// L'invitation n'est plus en attente.
+    InvitationNonEnAttente,
+    /// Action refusée sur soi-même (rôle, suspension, réinitialisation).
+    ActionSurSoiMeme,
+    /// Ce serait retirer le dernier administrateur actif du cabinet.
+    DernierAdministrateur,
+    /// Une réinitialisation est déjà en attente pour ce membre.
+    ReinitialisationEnCours,
+    /// La réinitialisation n'est plus en attente.
+    ReinitialisationNonEnAttente,
+    /// Un compte existe déjà pour ce courriel : il accepte l'invitation une fois connecté.
+    CompteExistant,
+    /// Le membre appartient aussi à d'autres cabinets : sa réinitialisation retirerait ses accès
+    /// à des cabinets que l'administrateur n'administre pas (ADR 0023, §4).
+    MembreDUnAutreCabinet,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 20] = [
+    pub const TOUS: [Self; 29] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -188,6 +211,15 @@ impl MotifConflit {
         Self::TropDePieces,
         Self::LotSansEcritureAValider,
         Self::EditionTropVolumineuse,
+        Self::DejaMembre,
+        Self::InvitationEnCours,
+        Self::InvitationNonEnAttente,
+        Self::ActionSurSoiMeme,
+        Self::DernierAdministrateur,
+        Self::ReinitialisationEnCours,
+        Self::ReinitialisationNonEnAttente,
+        Self::CompteExistant,
+        Self::MembreDUnAutreCabinet,
     ];
 
     /// Code du corps de la réponse.
@@ -214,6 +246,15 @@ impl MotifConflit {
             Self::TropDePieces => "trop_de_pieces",
             Self::LotSansEcritureAValider => "lot_sans_ecriture_a_valider",
             Self::EditionTropVolumineuse => "edition_trop_volumineuse",
+            Self::DejaMembre => "deja_membre",
+            Self::InvitationEnCours => "invitation_en_cours",
+            Self::InvitationNonEnAttente => "invitation_non_en_attente",
+            Self::ActionSurSoiMeme => "action_sur_soi_meme",
+            Self::DernierAdministrateur => "dernier_administrateur",
+            Self::ReinitialisationEnCours => "reinitialisation_en_cours",
+            Self::ReinitialisationNonEnAttente => "reinitialisation_non_en_attente",
+            Self::CompteExistant => "compte_existant",
+            Self::MembreDUnAutreCabinet => "membre_d_un_autre_cabinet",
         }
     }
 }
@@ -588,6 +629,7 @@ mod tests {
             ErreurApi::Refus(MotifRefus::MotDePasseCompromis),
             ErreurApi::Refus(MotifRefus::CodeInvalide),
             ErreurApi::Refus(MotifRefus::JetonEnrolementInvalide),
+            ErreurApi::Refus(MotifRefus::LienInvalide),
             ErreurApi::Refus(MotifRefus::FacteursRefuses),
             ErreurApi::Refus(MotifRefus::AucunePasskey),
             ErreurApi::Refus(MotifRefus::PasskeyRefusee),

@@ -475,6 +475,8 @@ pub fn corps_de(route: &Route) -> &'static str {
             r#"{"date":"2026-11-19","motif":"Régularisation de test"}"#
         }
         CasUsage::Pieces(pieces::Cas::Ecarter) => r#"{"motif":"Dépôt erroné"}"#,
+        // Voie administration (PR 9a).
+        CasUsage::Administration(cas) => super::administration::corps(cas),
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => super::referentiel::corps(cas),
         CasUsage::Brouillard(cas) => super::brouillard::corps(cas),

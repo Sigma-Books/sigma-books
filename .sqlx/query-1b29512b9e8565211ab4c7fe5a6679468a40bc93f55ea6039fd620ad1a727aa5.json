@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM defi_webauthn WHERE utilisateur_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1b29512b9e8565211ab4c7fe5a6679468a40bc93f55ea6039fd620ad1a727aa5"
+}

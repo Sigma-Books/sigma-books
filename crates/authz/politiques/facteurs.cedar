@@ -30,8 +30,19 @@ when {
   resource == principal &&
   (((context.methode == "passkey" || context.methode == "secours") &&
     context.nature == "complete") ||
-   (context.methode == "code_recuperation" && context.nature == "restreinte"))
+   (context.methode == "code_recuperation" && context.nature == "restreinte") ||
+   (context.methode == "lien_enrolement" && context.nature == "enrolement"))
 };
+
+// Un lien d'invitation ou de réinitialisation n'ouvre jamais qu'une session d'enrôlement
+// (ADR 0012) : enrôler une passkey, rien d'autre.
+@id("invariant-lien-enrolement")
+forbid (
+  principal is Sigma::Utilisateur,
+  action == Sigma::Action::"OuvrirSession",
+  resource is Sigma::Utilisateur
+)
+when { context.methode == "lien_enrolement" && context.nature != "enrolement" };
 
 // Un code de récupération n'ouvre jamais qu'une session restreinte (ADR 0012, F1.12), quelles
 // que soient les autorisations ajoutées plus tard.
@@ -102,8 +113,19 @@ permit (
 when {
   resource == principal &&
   ((context.nature == "complete" && context.session_fraiche) ||
-   (context.nature == "restreinte" && context.methode == "code_recuperation"))
+   (context.nature == "restreinte" && context.methode == "code_recuperation") ||
+   (context.nature == "enrolement" && context.methode == "lien_enrolement"))
 };
+
+// Acceptation d'une invitation à un autre cabinet (ADR 0012) : session complète. Le lien, à
+// usage unique, et le courriel de l'invitation (égal à celui du compte) font la preuve.
+@id("adr0012-accepter-invitation")
+permit (
+  principal is Sigma::Utilisateur,
+  action == Sigma::Action::"AccepterInvitation",
+  resource is Sigma::Utilisateur
+)
+when { resource == principal && context.nature == "complete" };
 
 // Suppression d'une de ses passkeys : session complète et fraîche.
 @id("adr0012-suppression-passkey")

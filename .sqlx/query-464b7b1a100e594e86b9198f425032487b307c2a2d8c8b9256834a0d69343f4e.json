@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE session SET revoquee_le = $4, motif_revocation = 'revocation_administrateur' WHERE id = $3 AND utilisateur_id = $2 AND revoquee_le IS NULL AND EXISTS (SELECT 1 FROM appartenance a WHERE a.cabinet_id = $1 AND a.utilisateur_id = session.utilisateur_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "464b7b1a100e594e86b9198f425032487b307c2a2d8c8b9256834a0d69343f4e"
+}

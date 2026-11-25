@@ -94,6 +94,12 @@ pub enum MotifRevocation {
     /// Changement de facteur de l'utilisateur (enrôlement du secours, nouvelle série de
     /// codes) : ses autres sessions sont révoquées (ADR 0012).
     ChangementFacteur,
+    /// Révocation par un administrateur du cabinet, depuis la liste des sessions d'un membre.
+    RevocationAdministrateur,
+    /// Changement de droits ou suspension du membre : ses sessions sont révoquées (ADR 0012).
+    ChangementDroits,
+    /// Réinitialisation de l'accès par un administrateur (ADR 0012).
+    Reinitialisation,
 }
 
 impl MotifRevocation {
@@ -104,6 +110,9 @@ impl MotifRevocation {
             Self::Deconnexion => "deconnexion",
             Self::RevocationUtilisateur => "revocation_utilisateur",
             Self::ChangementFacteur => "changement_facteur",
+            Self::RevocationAdministrateur => "revocation_administrateur",
+            Self::ChangementDroits => "changement_droits",
+            Self::Reinitialisation => "reinitialisation",
         }
     }
 }

@@ -207,6 +207,9 @@ fn la_transaction_utilisateur_de_la_connexion_exige_un_facteur_verifie() {
         vec![
             "src/base/facteurs.rs",
             "src/base/facteurs.rs",
+            // Usage d'un lien (PR 9a) : preuve de possession, voir le test suivant.
+            "src/base/liens.rs",
+            "src/base/liens.rs",
             "src/base/mod.rs"
         ]
     );
@@ -234,6 +237,51 @@ fn la_transaction_utilisateur_de_la_connexion_exige_un_facteur_verifie() {
     assert!(base.contains("preuve: FacteurVerifie,"));
 }
 
+/// Usage d'un lien (PR 9a, ADR 0023) : `sigma.utilisateur` n'est posé, hors connexion, que dans
+/// `base/liens.rs`, après la **consommation** du lien (preuve de possession, ou utilisateur d'une
+/// session authentifiée pour l'invitation d'un compte existant). La transaction du porteur n'est
+/// ouverte que par la route d'usage et par l'acceptation connectée.
+#[test]
+fn le_lien_est_consomme_avant_de_poser_un_utilisateur() {
+    let sources = sources();
+    let liens = &sources
+        .iter()
+        .find(|(c, _)| c.ends_with("src/base/liens.rs"))
+        .expect("base/liens.rs")
+        .1;
+    assert_eq!(
+        liens.matches("set_config('sigma.utilisateur', $1").count(),
+        1
+    );
+    // Les deux usages consomment avant de poser un utilisateur.
+    for entree in [
+        "pub async fn utiliser(",
+        "pub(crate) async fn utiliser_connecte(",
+    ] {
+        let debut = liens.find(entree).expect(entree);
+        let corps = &liens[debut..];
+        let consomme = corps.find("self.consommer(").expect("consommer");
+        let pose = corps.find("self.poser_utilisateur(").expect("poser");
+        assert!(consomme < pose, "{entree}");
+    }
+    let appelants: Vec<String> = occurrences(&sources, "ouvrir_transaction_lien(")
+        .into_iter()
+        .filter(|(_, suite)| !suite.starts_with("pool: &sqlx::PgPool"))
+        .map(|(chemin, _)| {
+            chemin
+                .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                .unwrap()
+                .display()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        appelants,
+        vec!["src/serveur/liens.rs", "src/serveur/liens.rs"],
+        "{appelants:?}"
+    );
+}
+
 #[tokio::test]
 async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
     let routeur = routeur(&application_du_binaire(pool_sans_base()));
@@ -242,7 +290,11 @@ async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
             .chemin
             .replace("{cabinet}", &Uuid::new_v4().to_string())
             .replace("{dossier}", &Uuid::new_v4().to_string())
-            .replace("{session}", &Uuid::new_v4().to_string());
+            .replace("{session}", &Uuid::new_v4().to_string())
+            .replace("{membre}", &Uuid::new_v4().to_string())
+            .replace("{acces}", &Uuid::new_v4().to_string())
+            .replace("{invitation}", &Uuid::new_v4().to_string())
+            .replace("{reinitialisation}", &Uuid::new_v4().to_string());
         assert_eq!(
             appeler_route(&routeur, route, &chemin, None).await.statut,
             StatusCode::UNAUTHORIZED,

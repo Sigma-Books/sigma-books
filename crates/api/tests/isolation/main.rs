@@ -139,6 +139,16 @@ async fn monde(admin: &PgPool) -> Monde {
             fixtures.insert(dossier, f);
         }
     }
+    // Voie administration (PR 9a) : un membre jetable, une invitation en attente et une
+    // réinitialisation en attente de chaque cabinet, sous le premier dossier (`{membre}`,
+    // `{invitation}`, `{reinitialisation}`).
+    for c in [&a, &b] {
+        let (membre, invitation, reinitialisation) =
+            administration::doter(admin, c.cabinet, c.collaborateur).await;
+        inscrire_sous_ressource(c.dossier, "membre", membre);
+        inscrire_sous_ressource(c.dossier, "invitation", invitation);
+        inscrire_sous_ressource(c.dossier, "reinitialisation", reinitialisation);
+    }
     Monde {
         a,
         b,
@@ -211,6 +221,9 @@ enum Resultat {
         present: Uuid,
         absents: Vec<Uuid>,
     },
+    /// 200, tableau JSON dont un élément porte l'identifiant `present`, et aucun celui d'un des
+    /// `absents`.
+    Tableau { present: Uuid, absents: Vec<Uuid> },
     /// Refus (403) ou ressource d'autrui (404).
     Statut(StatusCode),
 }
@@ -391,6 +404,19 @@ async fn verifier_attendu(routeur: &Router, route: &Route, attendu: &Attendu, re
             present,
             absents,
         } => verifier_liste(&reponse, cle, *present, absents, &contexte),
+        Resultat::Tableau { present, absents } => {
+            assert_eq!(
+                reponse.statut,
+                StatusCode::OK,
+                "{contexte} : {}",
+                reponse.texte()
+            );
+            let ids = ids(&reponse);
+            assert!(ids.contains(&present.to_string()), "{contexte}");
+            for absent in absents {
+                assert!(!ids.contains(&absent.to_string()), "{contexte}");
+            }
+        }
         Resultat::Statut(statut) => {
             assert_eq!(reponse.statut, *statut, "{contexte} : {}", reponse.texte());
             if *statut == StatusCode::NOT_FOUND {
@@ -734,6 +760,7 @@ async fn la_requete_et_la_rls_tiennent_quand_cedar_se_trompe() {
     audit_refuse_quand_cedar_se_trompe(&routeur, &m, &reference).await;
     sessions_bornees_quand_cedar_se_trompe(&env, &m).await;
     cabinets_bornes_quand_cedar_se_trompe(&env, &m).await;
+    administration::quand_cedar_se_trompe(&routeur, &m).await;
 }
 
 /// Cedar forcé : la RLS et le filtre de la requête bornent toujours les routes de session à

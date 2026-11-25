@@ -35,6 +35,7 @@ const MATRICE: &[(Action, [bool; 5])] = &[
     // « Gérer cabinet, utilisateurs, facturation »
     (Action::GererCabinet, [OUI, NON, NON, NON, NON]),
     (Action::ModifierDroits, [OUI, NON, NON, NON, NON]),
+    (Action::ReinitialiserAcces, [OUI, NON, NON, NON, NON]),
     (
         Action::ActiverSeparationDesTaches,
         [OUI, NON, NON, NON, NON],
@@ -107,6 +108,7 @@ const SENSIBLES: &[Action] = &[
     Action::ExporterIntegrite,
     Action::ExporterAuditCabinet,
     Action::ModifierDroits,
+    Action::ReinitialiserAcces,
     Action::DesactiverSeparationDesTaches,
 ];
 

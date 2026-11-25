@@ -65,6 +65,10 @@ namespace Sigma {
   action EnrolerPasskey appliesTo {
     principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
   };
+  // Acceptation d'une invitation à un autre cabinet, par un utilisateur déjà connecté.
+  action AccepterInvitation appliesTo {
+    principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur
+  };
   // Suppression d'une de ses passkeys.
   action SupprimerPasskey appliesTo {
     principal: Utilisateur, resource: Utilisateur, context: ContexteFacteur

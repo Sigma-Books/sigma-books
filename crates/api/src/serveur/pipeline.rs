@@ -996,7 +996,7 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 28);
+        assert_eq!(mutations.len(), 34);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

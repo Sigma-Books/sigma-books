@@ -36,6 +36,7 @@
 //! lu par le rôle de lecture d'audit, sur un pool distinct ([`ouvrir_pool_lecture_audit`]),
 //! toujours sous RLS et contexte (ADR 0014).
 
+pub mod administration;
 pub mod audit;
 pub mod brouillard;
 pub mod config;
@@ -44,6 +45,7 @@ pub mod evenement;
 pub mod facteurs;
 pub mod integrite;
 pub mod jetons;
+pub mod liens;
 pub mod organisation;
 pub mod passkeys;
 pub mod referentiel;
