@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, tentatives = tentatives + 1 WHERE id IN ( SELECT id FROM tache WHERE nature = 'notification' AND ((etat = 'en_attente' AND prochaine_tentative <= $1) OR (etat = 'en_cours' AND reserve_jusqua <= $1)) ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) RETURNING id, cabinet_cible, dossier_cible, sujet, objet, tentatives - 1 AS \"avant!\"",
+  "query": "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, tentatives = tentatives + 1 WHERE id IN ( SELECT id FROM tache WHERE nature = 'notification' AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) OR (etat = 'en_cours' AND reserve_jusqua <= $1)) ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) RETURNING id, cabinet_cible, dossier_cible, sujet, objet, tentatives - 1 AS \"avant!\"",
   "describe": {
     "columns": [
       {
@@ -82,5 +82,5 @@
       null
     ]
   },
-  "hash": "63db85a9811ea3c1fe84da744c5e6b9f3edbeef185de971f2b41dd048f610d24"
+  "hash": "d0ac5d9ba5ec3dd2ae8bf113974f3ef5b1592c1d2bde94e880878ed170b05865"
 }

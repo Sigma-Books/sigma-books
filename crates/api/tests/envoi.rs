@@ -504,7 +504,7 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
     let autre = creer_cabinet(&b.env.admin, "Autre").await;
     let admin_autre = b.session(autre.administrateur).await;
     let admin = b.session(b.c.administrateur).await;
-    let (mon_id, mon_courriel) = b.inviter(&admin).await;
+    let (_, mon_courriel) = b.inviter(&admin).await;
     let courriel_autre = format!("autre.{}@cabinet.example", Uuid::new_v4().simple());
     let r = b
         .appel(
@@ -515,11 +515,29 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
         )
         .await;
     assert_eq!(r.statut, StatusCode::CREATED);
-    b.passer().await;
-    // Chaque courriel est parti vers l'adresse de **son** cabinet, et chacun de ses liens
-    // n'ouvre que son cabinet.
+    // La file est unique pour l'instance : un passage prend les tâches de tous les cabinets, une
+    // par une. Le test n'attend pas qu'un seul passage les prenne toutes (l'ordre et l'instant de
+    // prise ne sont pas garantis) ; il vide la file, et vérifie l'invariant d'isolation : chaque
+    // courriel part vers l'invité de **son** cabinet, jamais deux fois, et son lien n'ouvre que ce
+    // cabinet.
+    let mut bilans = Vec::new();
+    for _ in 0..20 {
+        bilans.push(b.passer().await);
+        if b.transport.remis().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     let remis = b.transport.remis();
-    assert_eq!(remis.len(), 2);
+    let taches: Vec<(Uuid, String, Option<String>, i32)> = sqlx::query_as(
+        "SELECT cabinet_cible, etat, derniere_issue, tentatives FROM tache \
+         WHERE nature = 'courriel' AND cabinet_cible = ANY($1)",
+    )
+    .bind(vec![b.c.cabinet.uuid(), autre.cabinet.uuid()])
+    .fetch_all(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(remis.len(), 2, "{bilans:?} {taches:?}");
     let a_moi = remis
         .iter()
         .find(|m| m.destinataire == mon_courriel)
@@ -552,7 +570,6 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
         };
         assert_eq!(cabinet, attendu, "{courriel}");
     }
-    let _ = mon_id;
     let _ = b.horloge.maintenant();
 }
 

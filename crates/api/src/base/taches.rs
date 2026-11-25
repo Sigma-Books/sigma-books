@@ -455,7 +455,10 @@ impl TransactionTravailleur {
     }
 
     /// Prend au plus `limite` envois de courriel échus, comme [`Self::prendre_echues`] : bail,
-    /// jeton de prise, `SKIP LOCKED`.
+    /// jeton de prise, `SKIP LOCKED`. L'échéance (`prochaine_tentative`) est posée par l'horloge de
+    /// **la base** (`now()`) ; elle est comparée à la plus avancée des deux horloges, celle de
+    /// l'application (`maintenant`, injectable) et celle de la base : un écart entre elles ne
+    /// retarde jamais une tâche déjà échue.
     ///
     /// # Errors
     /// Erreur de PostgreSQL ou ligne incohérente.
@@ -473,7 +476,7 @@ impl TransactionTravailleur {
              WHERE id IN ( \
                  SELECT id FROM tache \
                  WHERE nature = 'courriel' \
-                   AND ((etat = 'en_attente' AND prochaine_tentative <= $1) \
+                   AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
              RETURNING id, cabinet_cible, sujet, objet AS \"objet!\", \
@@ -519,7 +522,7 @@ impl TransactionTravailleur {
              WHERE id IN ( \
                  SELECT id FROM tache \
                  WHERE nature = 'notification' \
-                   AND ((etat = 'en_attente' AND prochaine_tentative <= $1) \
+                   AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
              RETURNING id, cabinet_cible, dossier_cible, sujet, objet, \
