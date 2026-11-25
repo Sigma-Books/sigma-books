@@ -74,7 +74,7 @@ describe('éditions en CSV', () => {
 		};
 		assert.equal(
 			csvBalance(b),
-			'﻿Compte;Solde débiteur;Solde créditeur\r\n411;100,25;0\r\nTotaux;100,25;100,25\r\n'
+			'\uFEFFMode;définitif\r\nExercice;2026\r\nPériode;2026-01-01;2026-12-31\r\n\r\nCompte;Solde débiteur;Solde créditeur\r\n411;100,25;0\r\nTotaux;100,25;100,25\r\n'
 		);
 	});
 
@@ -107,6 +107,23 @@ describe('éditions en CSV', () => {
 		const csv = csvGrandLivre(g);
 		assert.ok(csv.includes("'=cmd|"));
 		assert.ok(!/;=cmd/.test(csv));
+	});
+
+	it('en-tête : mode provisoire et brouillons exclus signalés', () => {
+		const csv = csvBalance({
+			...entete,
+			mode: 'provisoire',
+			brouillons_exclus: { desequilibres: 2, illisibles: 1 },
+			format: 2,
+			regroupement: 'compte',
+			colonnes: ['solde_debiteur', 'solde_crediteur'],
+			lignes: [{ cle: '411', valeurs: ['-0', '0'] }],
+			totaux: ['0', '0'],
+			equilibree: true
+		});
+		assert.ok(csv.startsWith('\uFEFFMode;provisoire\r\n'));
+		assert.ok(csv.includes('Brouillons exclus;3\r\n'));
+		assert.ok(csv.includes('411;0;0\r\n'), 'moins zéro normalisé');
 	});
 
 	it('nom de fichier sûr', () => {

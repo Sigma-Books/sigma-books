@@ -42,6 +42,8 @@ describe('montants', () => {
 		assert.equal(estMontantChaine('1500.5'), true);
 		assert.equal(estMontantChaine('-12'), true);
 		assert.equal(estMontantChaine(1500.5), false);
+		assert.equal(estMontantChaine('1'.repeat(60) + '.' + '5'.repeat(30)), true);
+		assert.equal(estMontantChaine('1'.repeat(61)), false);
 		assert.equal(estMontantChaine('1e5'), false);
 		assert.equal(estMontantChaine('1 500'), false);
 		assert.equal(estMontantChaine(''), false);

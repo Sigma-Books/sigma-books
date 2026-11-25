@@ -2,7 +2,7 @@
 <script lang="ts">
 	import type { GrandLivre } from '#lib/api/editions.ts';
 	import { afficherDate } from '#lib/dates.ts';
-	import { formaterMontant } from '#lib/montants.ts';
+	import { afficherMontant } from '#lib/editions-affichage.ts';
 	import '#lib/styles/editions.css';
 
 	let { grandLivre }: { grandLivre: GrandLivre } = $props();
@@ -27,7 +27,7 @@
 			<tbody>
 				<tr class="sous-total">
 					<th scope="row" colspan="7">Solde d’ouverture</th>
-					<td class="num">{formaterMontant(compte.solde_ouverture)}</td>
+					<td class="num">{afficherMontant(compte.solde_ouverture)}</td>
 				</tr>
 				{#each compte.lignes as l, i (i)}
 					<tr>
@@ -36,18 +36,18 @@
 						<td>{l.numero ?? 'Brouillon'}</td>
 						<td>{l.libelle}</td>
 						<td>{l.tiers ?? ''}</td>
-						<td class="num">{formaterMontant(l.debit)}</td>
-						<td class="num">{formaterMontant(l.credit)}</td>
-						<td class="num">{formaterMontant(l.solde)}</td>
+						<td class="num">{afficherMontant(l.debit)}</td>
+						<td class="num">{afficherMontant(l.credit)}</td>
+						<td class="num">{afficherMontant(l.solde)}</td>
 					</tr>
 				{/each}
 			</tbody>
 			<tfoot>
 				<tr>
 					<th scope="row" colspan="5">Totaux et solde final</th>
-					<td class="num">{formaterMontant(compte.total_debit)}</td>
-					<td class="num">{formaterMontant(compte.total_credit)}</td>
-					<td class="num">{formaterMontant(compte.solde_final)}</td>
+					<td class="num">{afficherMontant(compte.total_debit)}</td>
+					<td class="num">{afficherMontant(compte.total_credit)}</td>
+					<td class="num">{afficherMontant(compte.solde_final)}</td>
 				</tr>
 			</tfoot>
 		</table>

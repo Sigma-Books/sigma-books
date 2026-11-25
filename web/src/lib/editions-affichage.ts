@@ -1,10 +1,12 @@
 // Libellés et mises en forme des éditions : aucune logique comptable (les totaux, soldes et
 // l'équilibre viennent du serveur). Module pur, testé sous `node --test`.
 
+import { formaterMontant } from './montants.ts';
 import type {
 	AlerteBrouillard,
 	AlerteEcheance,
 	Balance,
+	Centralisateur,
 	FormatBalance,
 	MoisCentralisateur,
 	NatureEdition
@@ -103,3 +105,36 @@ export function messageAlerteEcheance(a: AlerteEcheance): string {
 	}
 	return `Échéance de clôture le ${a.echeance}, dans ${pluriel(a.jours_restants, 'jour')}, pour la ${periode}.`;
 }
+
+/** Montant à afficher ou exporter : « -0 » (ou « -0.00 ») devient « 0 ». Chaîne exacte, sans calcul. */
+export function normaliserZero(montant: string): string {
+	return /^-0(\.0+)?$/.test(montant) ? '0' : montant;
+}
+
+/** Vrai si l'édition reçue ne contient aucune ligne (rien à afficher ni à exporter). */
+export function editionVide(
+	a:
+		| { nature: 'balance'; edition: Pick<Balance, 'lignes'> }
+		| { nature: 'grand-livre'; edition: { comptes: unknown[] } }
+		| { nature: 'journaux'; edition: { journaux: unknown[] } }
+		| { nature: 'centralisateur'; edition: Pick<Centralisateur, 'mouvements' | 'a_nouveaux'> }
+): boolean {
+	switch (a.nature) {
+		case 'balance':
+			return a.edition.lignes.length === 0;
+		case 'grand-livre':
+			return a.edition.comptes.length === 0;
+		case 'journaux':
+			return a.edition.journaux.length === 0;
+		case 'centralisateur': {
+			const { mouvements, a_nouveaux: an } = a.edition;
+			return [mouvements, an].every(
+				(r) => r.par_journal.length === 0 && r.par_compte.length === 0 && r.par_mois.length === 0
+			);
+		}
+	}
+}
+
+/** Montant d'une édition pour l'affichage (groupes de milliers, « -0 » ramené à « 0 »). */
+export const afficherMontant = (montant: string): string =>
+	formaterMontant(normaliserZero(montant));

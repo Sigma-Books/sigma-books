@@ -33,7 +33,11 @@
 		nomFichierEdition
 	} from '#lib/csv.ts';
 	import { afficherDate } from '#lib/dates.ts';
-	import { LIBELLES_NATURE, messageBrouillonsExclus } from '#lib/editions-affichage.ts';
+	import {
+		editionVide,
+		LIBELLES_NATURE,
+		messageBrouillonsExclus
+	} from '#lib/editions-affichage.ts';
 	import { enregistrerFichier } from '#lib/telechargement.ts';
 	import '#lib/styles/editions.css';
 	import type { PageProps } from './$types';
@@ -57,6 +61,21 @@
 	let erreurExport = $state<string | null>(null);
 	/** Numéro de la dernière demande : une réponse tardive d'une demande périmée est ignorée. */
 	let demande = 0;
+
+	// Un autre dossier dans l'URL (retour arrière) : l'édition affichée est celle de l'ancien
+	// dossier. Elle est retirée, les réponses en vol sont périmées et le filtre est remis à zéro.
+	const cleDossier = $derived(
+		data.contenu?.ok
+			? `${data.contenu.valeur.contexte.cabinet}/${data.contenu.valeur.contexte.dossier}`
+			: ''
+	);
+	$effect.pre(() => {
+		void cleDossier;
+		demande += 1;
+		etat = { phase: 'repos' };
+		erreurExport = null;
+		filtre = { ...FILTRE_VIDE };
+	});
 
 	async function afficher(cabinet: Uuid, dossier: Uuid): Promise<void> {
 		const numero = ++demande;
@@ -85,22 +104,6 @@
 		} catch (erreur) {
 			if (!(erreur instanceof ErreurApi)) throw erreur;
 			if (numero === demande) etat = { phase: 'erreur', erreur };
-		}
-	}
-
-	function vide(a: Affichee): boolean {
-		switch (a.nature) {
-			case 'balance':
-				return a.edition.lignes.length === 0;
-			case 'grand-livre':
-				return a.edition.comptes.length === 0;
-			case 'journaux':
-				return a.edition.journaux.length === 0;
-			case 'centralisateur':
-				return (
-					a.edition.mouvements.par_journal.length === 0 &&
-					a.edition.a_nouveaux.par_journal.length === 0
-				);
 		}
 	}
 
@@ -192,7 +195,7 @@
 					<p>{exclus}</p>
 				</div>
 			{/if}
-			{#if vide(a)}
+			{#if editionVide(a)}
 				<p>Aucune écriture pour ces filtres.</p>
 			{:else}
 				<div class="barre-actions">

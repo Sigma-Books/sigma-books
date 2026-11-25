@@ -7,7 +7,8 @@
 
 import type { Balance, Centralisateur, GrandLivre, Journaux, Rubrique } from './api/editions.ts';
 import { estMontantChaine } from './api/editions.ts';
-import { libelleColonne, libelleMois } from './editions-affichage.ts';
+import type { EnteteEdition } from './api/editions.ts';
+import { libelleColonne, libelleMois, normaliserZero } from './editions-affichage.ts';
 
 /** Cellule : texte libre (neutralisé) ou montant décimal exact (reçu du serveur). */
 export type Cellule = string | { montant: string };
@@ -42,11 +43,24 @@ export function versCsv(lignes: readonly (readonly Cellule[])[]): string {
 	);
 }
 
-const m = (montant: string): Cellule => ({ montant });
+const m = (montant: string): Cellule => ({ montant: normaliserZero(montant) });
+
+/** Lignes d'en-tête du fichier : mode, exercice, période, brouillons exclus (si signalés), ligne vide. */
+export function enteteCsv(e: EnteteEdition): Cellule[][] {
+	const exclus = e.brouillons_exclus.desequilibres + e.brouillons_exclus.illisibles;
+	return [
+		['Mode', e.mode === 'provisoire' ? 'provisoire' : 'définitif'],
+		['Exercice', e.exercice],
+		['Période', e.du, e.au],
+		...(exclus > 0 ? [['Brouillons exclus', String(exclus)]] : []),
+		['']
+	];
+}
 
 export function csvBalance(b: Balance): string {
 	const cle = b.regroupement === 'tronc' ? 'Tronc' : 'Compte';
 	return versCsv([
+		...enteteCsv(b),
 		[cle, ...b.colonnes.map(libelleColonne)],
 		...b.lignes.map((l) => [l.cle, ...l.valeurs.map(m)]),
 		['Totaux', ...b.totaux.map(m)]
@@ -55,6 +69,7 @@ export function csvBalance(b: Balance): string {
 
 export function csvGrandLivre(g: GrandLivre): string {
 	const lignes: Cellule[][] = [
+		...enteteCsv(g),
 		[
 			'Compte',
 			'Date',
@@ -102,6 +117,7 @@ export function csvGrandLivre(g: GrandLivre): string {
 
 export function csvJournaux(j: Journaux): string {
 	const lignes: Cellule[][] = [
+		...enteteCsv(j),
 		['Journal', 'Numéro', 'Date', 'Date de valeur', 'Libellé', 'Compte', 'Tiers', 'Débit', 'Crédit']
 	];
 	for (const bloc of j.journaux) {
@@ -167,6 +183,7 @@ function rubrique(nom: string, r: Rubrique): Cellule[][] {
 
 export function csvCentralisateur(c: Centralisateur): string {
 	return versCsv([
+		...enteteCsv(c),
 		['Rubrique', 'Mois', 'Journal', 'Compte', 'Débit', 'Crédit'],
 		...rubrique('Mouvements', c.mouvements),
 		...rubrique('À-nouveaux', c.a_nouveaux)

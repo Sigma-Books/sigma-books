@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+	afficherMontant,
+	editionVide,
+	normaliserZero,
 	libelleColonne,
 	libelleMois,
 	messageAlerteBrouillard,
@@ -62,5 +65,35 @@ describe('nom de fichier', () => {
 		for (const n of ['../x.txt', 'a/b.txt', 'a..b.txt', '.txt', 'x.html', 'x.exe', 'a b.txt', '']) {
 			assert.equal(estNomFichierSur(n), false, n);
 		}
+	});
+});
+
+describe('édition vide et zéro', () => {
+	const rub = (n: number) => ({
+		par_journal: Array(n),
+		par_compte: [],
+		par_mois: [],
+		total_debit: '0',
+		total_credit: '0'
+	});
+	it('centralisateur : vide seulement si toutes les listes le sont', () => {
+		assert.equal(
+			editionVide({
+				nature: 'centralisateur',
+				edition: { mouvements: rub(0), a_nouveaux: rub(0) }
+			}),
+			true
+		);
+		const plein = { ...rub(0), par_compte: Array(1) };
+		assert.equal(
+			editionVide({ nature: 'centralisateur', edition: { mouvements: plein, a_nouveaux: rub(0) } }),
+			false
+		);
+	});
+	it('moins zéro', () => {
+		assert.equal(normaliserZero('-0'), '0');
+		assert.equal(normaliserZero('-0.000'), '0');
+		assert.equal(normaliserZero('-0.5'), '-0.5');
+		assert.equal(afficherMontant('-0'), '0');
 	});
 });

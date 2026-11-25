@@ -1,8 +1,7 @@
 <!-- Centralisateur des journaux (AUDCIF art. 19) : mouvements et à-nouveaux, totaux du serveur. -->
 <script lang="ts">
 	import type { Centralisateur, Rubrique } from '#lib/api/editions.ts';
-	import { libelleMois } from '#lib/editions-affichage.ts';
-	import { formaterMontant } from '#lib/montants.ts';
+	import { afficherMontant, libelleMois } from '#lib/editions-affichage.ts';
 	import '#lib/styles/editions.css';
 
 	let { centralisateur }: { centralisateur: Centralisateur } = $props();
@@ -27,23 +26,23 @@
 						<td>{libelleMois(l)}</td>
 						<td>{l.journal ?? ''}</td>
 						<td></td>
-						<td class="num">{formaterMontant(l.debit)}</td>
-						<td class="num">{formaterMontant(l.credit)}</td>
+						<td class="num">{afficherMontant(l.debit)}</td>
+						<td class="num">{afficherMontant(l.credit)}</td>
 					</tr>
 				{/each}
 				{#each r.par_mois as l, i (i)}
 					<tr class="sous-total">
 						<th scope="row" colspan="3">Total {libelleMois(l)}</th>
-						<td class="num">{formaterMontant(l.debit)}</td>
-						<td class="num">{formaterMontant(l.credit)}</td>
+						<td class="num">{afficherMontant(l.debit)}</td>
+						<td class="num">{afficherMontant(l.credit)}</td>
 					</tr>
 				{/each}
 			</tbody>
 			<tfoot>
 				<tr>
 					<th scope="row" colspan="3">Total</th>
-					<td class="num">{formaterMontant(r.total_debit)}</td>
-					<td class="num">{formaterMontant(r.total_credit)}</td>
+					<td class="num">{afficherMontant(r.total_debit)}</td>
+					<td class="num">{afficherMontant(r.total_credit)}</td>
 				</tr>
 			</tfoot>
 		</table>
@@ -73,8 +72,8 @@
 								<td>{libelleMois(l)}</td>
 								<td>{l.journal ?? ''}</td>
 								<td>{l.compte ?? ''}</td>
-								<td class="num">{formaterMontant(l.debit)}</td>
-								<td class="num">{formaterMontant(l.credit)}</td>
+								<td class="num">{afficherMontant(l.debit)}</td>
+								<td class="num">{afficherMontant(l.credit)}</td>
 							</tr>
 						{/each}
 					</tbody>

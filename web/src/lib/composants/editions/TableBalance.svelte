@@ -1,8 +1,7 @@
 <!-- Balance (6 colonnes générale, 2/4/8 de travail) : valeurs et totaux calculés par le serveur. -->
 <script lang="ts">
 	import type { Balance } from '#lib/api/editions.ts';
-	import { libelleColonne, titreBalance } from '#lib/editions-affichage.ts';
-	import { formaterMontant } from '#lib/montants.ts';
+	import { afficherMontant, libelleColonne, titreBalance } from '#lib/editions-affichage.ts';
 	import '#lib/styles/editions.css';
 
 	let { balance }: { balance: Balance } = $props();
@@ -24,7 +23,7 @@
 				<tr>
 					<th scope="row">{ligne.cle}</th>
 					{#each ligne.valeurs as valeur, i (i)}
-						<td class="num">{formaterMontant(valeur)}</td>
+						<td class="num">{afficherMontant(valeur)}</td>
 					{/each}
 				</tr>
 			{/each}
@@ -33,7 +32,7 @@
 			<tr>
 				<th scope="row">Totaux</th>
 				{#each balance.totaux as total, i (i)}
-					<td class="num">{formaterMontant(total)}</td>
+					<td class="num">{afficherMontant(total)}</td>
 				{/each}
 			</tr>
 		</tfoot>

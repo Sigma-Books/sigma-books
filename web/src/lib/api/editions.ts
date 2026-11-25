@@ -153,7 +153,7 @@ export interface Alertes {
 
 /** Montant décimal exact en chaîne (jamais un nombre JSON) : `-12`, `1500.5`. */
 export function estMontantChaine(valeur: unknown): valeur is string {
-	return typeof valeur === 'string' && /^-?\d{1,30}(\.\d{1,12})?$/.test(valeur);
+	return typeof valeur === 'string' && /^-?\d{1,60}(\.\d{1,30})?$/.test(valeur);
 }
 
 const montants = (o: Record<string, unknown>, champs: readonly string[]): boolean =>

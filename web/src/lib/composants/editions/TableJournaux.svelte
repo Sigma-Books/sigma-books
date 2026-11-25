@@ -2,7 +2,7 @@
 <script lang="ts">
 	import type { Journaux } from '#lib/api/editions.ts';
 	import { afficherDate } from '#lib/dates.ts';
-	import { formaterMontant } from '#lib/montants.ts';
+	import { afficherMontant } from '#lib/editions-affichage.ts';
 	import '#lib/styles/editions.css';
 
 	let { journaux }: { journaux: Journaux } = $props();
@@ -32,8 +32,8 @@
 							<td>{j === 0 ? e.libelle : ''}</td>
 							<td>{l.compte}</td>
 							<td>{l.tiers ?? ''}</td>
-							<td class="num">{formaterMontant(l.debit)}</td>
-							<td class="num">{formaterMontant(l.credit)}</td>
+							<td class="num">{afficherMontant(l.debit)}</td>
+							<td class="num">{afficherMontant(l.credit)}</td>
 						</tr>
 					{/each}
 				{/each}
@@ -41,8 +41,8 @@
 			<tfoot>
 				<tr>
 					<th scope="row" colspan="5">Totaux du journal</th>
-					<td class="num">{formaterMontant(bloc.total_debit)}</td>
-					<td class="num">{formaterMontant(bloc.total_credit)}</td>
+					<td class="num">{afficherMontant(bloc.total_debit)}</td>
+					<td class="num">{afficherMontant(bloc.total_credit)}</td>
 				</tr>
 			</tfoot>
 		</table>
