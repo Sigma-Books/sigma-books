@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use api::base::liens::{self, NatureLien};
-use api::base::{ContexteTenant, IdCabinet, IdDossier, IdUtilisateur, ouvrir_transaction};
+use api::base::{ContexteTenant, IdCabinet, IdUtilisateur, ouvrir_transaction};
 use api::horodatage::tache::{Reglages as ReglagesTache, Travailleur};
 use api::instance::{Commande, executer};
 use api::serveur::Horloge;
@@ -43,8 +43,11 @@ use commun::serveur::{
     HorlogeTest, ORIGINE, Reponse, appeler, appeler_session_corps, application_sessions_avec,
     brancher_pieces_memoire, reglages_de_test, routeur_de,
 };
-use commun::{Env, env};
+use commun::{Env, MIGRATEUR, env, variable, verifier_migrations};
 use serde_json::{Value, json};
+use sqlx::postgres::{PgConnectOptions, PgConnection, PgPoolOptions};
+use sqlx::{Connection, Executor};
+use std::str::FromStr;
 use time::Duration;
 use uuid::Uuid;
 use webauthn_authenticator_rs::WebauthnAuthenticator;
@@ -110,8 +113,7 @@ fn attendre(r: &Reponse, statut: StatusCode) -> Value {
 }
 
 impl Monde {
-    async fn nouveau() -> Self {
-        let env = env().await;
+    fn nouveau(env: Env) -> Self {
         let horloge = HorlogeTest::alignee_sur_un_pas();
         let mut reglages = reglages_de_test();
         // Débits larges : la démonstration enchaîne plus d'appels qu'un utilisateur réel.
@@ -154,20 +156,6 @@ impl Monde {
             &corps,
         )
         .await
-    }
-
-    /// Repousse les tâches d'horodatage du dossier hors de portée des travailleurs des autres
-    /// tests (voir l'étape 7) : verrouillage à 3 650 jours, les autres à 5 000.
-    async fn cacher_taches(&self, dossier: Uuid) {
-        sqlx::query(
-            "UPDATE tache SET prochaine_tentative = now() + CASE sujet \
-                 WHEN 'verrouillage' THEN interval '3650 days' ELSE interval '5000 days' END \
-             WHERE dossier_cible = $1 AND nature = 'horodatage' AND etat = 'en_attente'",
-        )
-        .bind(dossier)
-        .execute(&self.env.admin)
-        .await
-        .unwrap();
     }
 
     async fn lire(&self, s: &Session, chemin: &str) -> Reponse {
@@ -310,10 +298,13 @@ impl Monde {
 
     /// Utilise un lien à usage unique, enrôle une passkey avec la session d'enrôlement, puis se
     /// connecte par cette passkey : rend la personne avec sa session complète.
-    async fn integrer(&self, jeton: &str, courriel: &str) -> Personne {
+    async fn integrer(&self, jeton: &str, courriel: &str) -> Option<Personne> {
         let r = self
             .anonyme("/api/liens/utilisation", &json!({"jeton": jeton}), None)
             .await;
+        if r.statut == StatusCode::UNAUTHORIZED {
+            return None;
+        }
         assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
         assert_eq!(r.json()["nature"], "enrolement");
         let enrolement = Session {
@@ -328,13 +319,13 @@ impl Monde {
             .fetch_one(&self.env.admin)
             .await
             .unwrap();
-        Personne {
+        Some(Personne {
             courriel: courriel.to_owned(),
             id,
             auth,
             session,
             invitation: Uuid::nil(),
-        }
+        })
     }
 
     /// Crée un cabinet par la commande d'administration de l'instance et intègre son premier
@@ -366,7 +357,7 @@ impl Monde {
             .split_once("/lien#")
             .unwrap()
             .1;
-        (cabinet, self.integrer(jeton, &courriel).await)
+        (cabinet, self.integrer(jeton, &courriel).await.unwrap())
     }
 
     /// Invite un membre (route d'administration), émet le lien comme le fera la file de tâches,
@@ -403,7 +394,8 @@ impl Monde {
         .await
         .unwrap();
         tx.confirmer().await.unwrap();
-        let mut personne = self.integrer(&jeton.texte(), &courriel).await;
+        let personne = self.integrer(&jeton.texte(), &courriel).await;
+        let mut personne = personne.expect("lien d'invitation utilisable");
         personne.invitation = invitation;
         personne
     }
@@ -866,9 +858,100 @@ fn controle_absent(texte: &str, a: &Secrets, etape: &str, chemin: &str) {
 
 // --- La démonstration ------------------------------------------------------------------------------
 
+/// Base **dédiée** à la démonstration : créée, migrée et supprimée par le test. La file `tache`
+/// est globale à l'instance ; sur une base partagée, le travailleur d'un autre test pourrait
+/// prendre nos tâches (et nous les siennes), et nos alertes et courriels fausseraient les
+/// comptes des tests de la file. Ici, rien n'est partagé : ni tâches, ni lignes, ni compteurs.
+async fn base_dediee() -> (Env, String) {
+    let racine = env().await;
+    let nom = format!("sigma_test_demo_{}", Uuid::new_v4().simple());
+    racine
+        .admin
+        .execute(sqlx::AssertSqlSafe(format!(
+            "CREATE DATABASE {nom} OWNER sigma_migration"
+        )))
+        .await
+        .unwrap();
+    racine
+        .admin
+        .execute(sqlx::AssertSqlSafe(format!(
+            "REVOKE ALL ON DATABASE {nom} FROM PUBLIC; \
+             GRANT CONNECT ON DATABASE {nom} TO sigma_migration, sigma_application, sigma_lecture_audit"
+        )))
+        .await
+        .unwrap();
+    let options = |url: &str| PgConnectOptions::from_str(url).unwrap().database(&nom);
+    let url_admin = variable("SIGMA_TEST_ADMIN_URL");
+    // Migrations sous le rôle de migration, comme `sqlx migrate run`.
+    let mut migration = PgConnection::connect_with(&options(&url_admin))
+        .await
+        .unwrap();
+    migration.execute("SET ROLE sigma_migration").await.unwrap();
+    MIGRATEUR.run(&mut migration).await.unwrap();
+    migration.close().await.unwrap();
+    let admin = PgPoolOptions::new()
+        .max_connections(8)
+        .connect_with(options(&url_admin))
+        .await
+        .unwrap();
+    let application = PgPoolOptions::new()
+        .max_connections(8)
+        .connect_with(options(&variable("SIGMA_TEST_APPLICATION_URL")))
+        .await
+        .unwrap();
+    let lecture_audit = PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|connexion, _| {
+            Box::pin(async move {
+                connexion.execute("SET ROLE sigma_lecture_audit").await?;
+                Ok(())
+            })
+        })
+        .connect_with(options(&url_admin))
+        .await
+        .unwrap();
+    verifier_migrations(&admin).await;
+    (
+        Env {
+            admin,
+            application,
+            lecture_audit,
+        },
+        nom,
+    )
+}
+
 #[tokio::test]
 async fn demonstration_de_bout_en_bout_du_lot_l2() {
-    let m = Monde::nouveau().await;
+    let (env, nom) = base_dediee().await;
+    let racine = commun::env().await;
+    let pools = (
+        env.admin.clone(),
+        env.application.clone(),
+        env.lecture_audit.clone(),
+    );
+    // Le scénario tourne dans une tâche locale : un échec ne laisse pas la base dédiée derrière
+    // lui (supprimée dans tous les cas), et l'échec est ensuite rejoué tel quel.
+    let local = tokio::task::LocalSet::new();
+    let issue = local
+        .run_until(async { tokio::task::spawn_local(scenario(Monde::nouveau(env))).await })
+        .await;
+    for pool in [pools.0, pools.1, pools.2] {
+        pool.close().await;
+    }
+    racine
+        .admin
+        .execute(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE IF EXISTS {nom} WITH (FORCE)"
+        )))
+        .await
+        .unwrap();
+    if let Err(erreur) = issue {
+        std::panic::resume_unwind(erreur.into_panic());
+    }
+}
+
+async fn scenario(m: Monde) {
     let c = comptes();
     let (caisse, banque, base) = (
         c.caisse.as_str().to_owned(),
@@ -1173,7 +1256,6 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     for (_, _, l) in &brouillons[1..3] {
         attendues.extend(l.iter().cloned());
     }
-    m.cacher_taches(dossier).await;
     isoler(&m, &b, &a, "5 écritures validées").await;
 
     // Étape 6 : contre-passation de la première écriture, puis une seconde (ADR 0021 : plusieurs
@@ -1200,7 +1282,6 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         .await;
     let liste = attendre(&r, StatusCode::OK);
     assert_eq!(liste["ecritures"].as_array().unwrap().len(), 5, "{liste}");
-    m.cacher_taches(dossier).await;
     isoler(&m, &b, &a, "6 contre-passations").await;
 
     // Étape 7 : verrouillage de la première période (celle du mois courant ; qui déclenche l'horodatage), le jeton est
@@ -1241,30 +1322,17 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         ],
         "la validation planifie le jeton quotidien, le verrouillage le jeton immédiat"
     );
-    // La file `tache` est globale à l'instance : d'autres tests (d'autres fichiers, d'autres
-    // travailleurs, des horloges avancées de plusieurs jours) y passent. Nos tâches sont donc
-    // repoussées loin dans le futur dès leur création (hors de portée de tout autre travailleur) ;
-    // notre travailleur, restreint à NOTRE dossier, tourne avec une horloge avancée de 3 700 jours,
-    // qui n'atteint que la tâche de verrouillage (échéance à 3 650 jours ; le jeton quotidien est
-    // à 5 000 jours). Il ne prend jamais la tâche d'un autre.
-    m.cacher_taches(dossier).await;
+    // La démonstration a SA base : la file `tache` n'a que nos tâches, aucun travailleur d'un
+    // autre test ne peut en prendre une, et nous n'en prenons aucune d'autrui.
     let autorite = Arc::new(autorite::AutoriteLocale::nouvelle(Arc::new(
         m.horloge.clone(),
     )));
-    let horloge_du_travailleur = HorlogeTest::default();
-    horloge_du_travailleur.fixer(m.horloge.maintenant() + Duration::days(3_700));
     let travailleur = Travailleur::new(
         m.env.application.clone(),
         autorite.clone(),
-        Arc::new(horloge_du_travailleur),
-        ReglagesTache {
-            lot: 10,
-            delai_alerte: Duration::days(36_500),
-            conservation: Duration::days(36_500),
-            ..ReglagesTache::default()
-        },
-    )
-    .restreint_au_dossier(IdDossier::depuis_uuid(dossier));
+        Arc::new(m.horloge.clone()),
+        ReglagesTache::default(),
+    );
     let bilan = travailleur.passer().await.unwrap();
     assert_eq!((bilan.prises, bilan.jetons), (1, 1), "{bilan:?}");
     let etat_tache: String = sqlx::query_scalar(
@@ -1311,7 +1379,6 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         )
         .await;
     assert_eq!(attendre(&r, StatusCode::OK)["statut"], "cloturee");
-    m.cacher_taches(dossier).await;
     // Une saisie datée de la période close est refusée.
     let r = m
         .poster(
@@ -1517,7 +1584,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         .unwrap()
         .to_owned();
     let mut modifie: Vec<String> = lignes.iter().map(|l| (*l).to_owned()).collect();
-    modifie[rang_ligne] = "montant=260001".to_owned();
+    "montant=260001".clone_into(&mut modifie[rang_ligne]);
     let altere = repertoire.join(format!("demonstration-{sigle}-altere.txt"));
     std::fs::write(&altere, modifie.join("\n") + "\n").unwrap();
     let differences = lignes
@@ -1663,13 +1730,6 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         .unwrap();
     assert_eq!(n, 1);
     isoler(&m, &b, &a, "10 audit").await;
-    // Nettoyage : les tâches de nos deux cabinets (alertes, témoin, jetons) ne restent pas dans la
-    // file globale de l'instance.
-    sqlx::query("DELETE FROM tache WHERE cabinet_cible = ANY($1)")
-        .bind(vec![cabinet_a, cabinet_b])
-        .execute(&m.env.admin)
-        .await
-        .unwrap();
     let _ = fevrier;
 }
 
