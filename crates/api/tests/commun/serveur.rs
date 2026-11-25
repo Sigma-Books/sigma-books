@@ -238,6 +238,22 @@ pub struct HorlogeTest {
 }
 
 impl HorlogeTest {
+    /// Horloge **figée** au milieu d'un pas TOTP de 30 secondes, près de l'instant du système.
+    ///
+    /// Pour tout test qui calcule un code TOTP à `maintenant()` puis le fait vérifier plus tard :
+    /// avec l'instant du système, le test peut chevaucher deux pas (un code calculé avant la
+    /// frontière, vérifié après ; deux codes « du même pas » en réalité de pas voisins), d'où
+    /// des échecs rares et non reproductibles. Figée, l'horloge ne change qu'avec
+    /// [`HorlogeTest::avancer`], dont les multiples de 30 s gardent le milieu du pas.
+    pub fn alignee_sur_un_pas() -> Self {
+        let horloge = Self::default();
+        let pas = api::facteurs::totp::PAS_SECONDES;
+        let maintenant = OffsetDateTime::now_utc().unix_timestamp();
+        let milieu = maintenant - maintenant.rem_euclid(pas) + pas / 2;
+        horloge.fixer(OffsetDateTime::from_unix_timestamp(milieu).expect("instant valide"));
+        horloge
+    }
+
     /// Avance l'horloge.
     pub fn avancer(&self, duree: time::Duration) {
         self.decalage

@@ -19,6 +19,7 @@ use api::base::IdUtilisateur;
 use api::base::session::NatureSession;
 use api::facteurs::totp::SecretTotp;
 use api::serveur::Horloge;
+use api::serveur::plancher::{AttentePlancher, AttenteTokio, FuturAttente, Plancher};
 use authz::Autorisation;
 use axum::Router;
 use axum::http::StatusCode;
@@ -303,7 +304,7 @@ async fn enrolement_du_secours_puis_connexion_et_anti_rejeu() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let u = c.administrateur;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let routeur = routeur_s(&env, &horloge);
     // Session complète fraîche (passkey, fixture) et une autre session du même utilisateur.
     let ouverte = ouvrir(&env, &horloge, u, NatureSession::Complete).await;
@@ -391,7 +392,7 @@ async fn deux_connexions_concurrentes_sur_le_meme_pas_une_seule_passe() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let secret = installer_secours(&env.admin, c.administrateur, MOT_DE_PASSE).await;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let routeur = routeur_s(&env, &horloge);
     for _ in 0..3 {
         horloge.avancer(Duration::seconds(90));
@@ -453,7 +454,7 @@ async fn code_de_recuperation_usage_unique_et_session_restreinte() {
         .unwrap();
     tx.commit().await.unwrap();
     let codes = installer_codes(&env.admin, u).await;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let routeur = routeur_s(&env, &horloge);
 
     // Saisie tolérante : minuscules, sans tirets.
@@ -534,17 +535,20 @@ async fn code_de_recuperation_usage_unique_et_session_restreinte() {
 }
 
 /// Application aux débits en mémoire relâchés (le plafond par compte reste celui donné), avec
-/// une durée plancher des échecs de connexion donnée.
+/// une durée plancher des échecs de connexion donnée et l'attente donnée (réelle, ou enregistrée
+/// sans délai).
 fn routeur_plancher(
     env: &commun::Env,
     horloge: &HorlogeTest,
     plancher: DureeStd,
     echecs_max: i64,
+    attente: Arc<dyn AttentePlancher>,
 ) -> Router {
     let mut reglages = reglages_de_test();
     reglages.facteurs.debit_connexion_courriel.capacite = 1000;
     reglages.facteurs.debit_connexion_adresse.capacite = 1000;
     reglages.facteurs.duree_plancher_connexion = plancher;
+    reglages.facteurs.attente_plancher = Plancher::new(attente);
     reglages.facteurs.echecs_max_par_compte = echecs_max;
     routeur_de(&application_sessions_avec(
         env,
@@ -554,42 +558,54 @@ fn routeur_plancher(
     ))
 }
 
-/// Médiane d'une série de durées.
-fn mediane(mut durees: Vec<DureeStd>) -> DureeStd {
-    durees.sort();
-    durees[durees.len() / 2]
+/// Attente qui note la durée plancher demandée et rend la main aussitôt : les tests de structure
+/// du plancher ne mesurent aucun temps (déterministes sous toute charge).
+#[derive(Debug, Default)]
+struct AttenteEnregistree {
+    demandes: std::sync::Mutex<Vec<DureeStd>>,
 }
 
-#[tokio::test]
-async fn chaque_echec_de_connexion_dure_le_plancher_quel_que_soit_le_compte() {
-    const PLANCHER: DureeStd = DureeStd::from_millis(300);
-    const TOLERANCE: DureeStd = DureeStd::from_millis(30);
-    const ESSAIS: usize = 5;
-    let env = env().await;
+impl AttenteEnregistree {
+    fn nombre(&self) -> usize {
+        self.demandes.lock().unwrap().len()
+    }
+    fn demandes(&self) -> Vec<DureeStd> {
+        self.demandes.lock().unwrap().clone()
+    }
+}
+
+impl AttentePlancher for AttenteEnregistree {
+    fn attendre(&self, _debut: tokio::time::Instant, plancher: DureeStd) -> FuturAttente<'_> {
+        self.demandes.lock().unwrap().push(plancher);
+        Box::pin(async {})
+    }
+}
+
+/// Un cas d'échec de connexion : (nom, route, corps).
+type CasEchec = (&'static str, &'static str, String);
+
+/// Tous les chemins d'échec d'une connexion, pour chaque route : courriel inconnu, compte sans
+/// facteur, mot de passe faux, code faux, compte plafonné (ses échecs déjà inscrits).
+async fn cas_d_echec(
+    env: &commun::Env,
+    horloge: &HorlogeTest,
+    routeur: &Router,
+    echecs_max: i64,
+) -> Vec<CasEchec> {
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let avec = c.administrateur;
     let sans = c.collaborateur;
     let secret = installer_secours(&env.admin, avec, MOT_DE_PASSE).await;
     installer_codes(&env.admin, avec).await;
-    // Plafond : un compte qui l'a atteint (ses échecs déjà inscrits).
     let plafonne = commun::ajouter_affecte(&env.admin, &c, "valideur").await;
     installer_secours(&env.admin, plafonne, MOT_DE_PASSE).await;
-    let horloge = HorlogeTest::default();
-    let routeur = routeur_plancher(&env, &horloge, PLANCHER, 3);
-    for _ in 0..3 {
-        connecter(
-            &routeur,
-            CODE,
-            &corps_code(&courriel(plafonne), "x"),
-            "test",
-        )
-        .await;
+    for _ in 0..echecs_max {
+        connecter(routeur, CODE, &corps_code(&courriel(plafonne), "x"), "test").await;
     }
     let inconnu = format!("{}@exemple.invalid", Uuid::new_v4());
     let code_faux = code(&secret, horloge.maintenant() + Duration::hours(1));
     let code_recup_faux = "0000-0000-0000-0000-0000-0000";
-    // Pour chaque route, chaque cas d'échec : (nom, corps).
-    let cas: Vec<(&str, &str, String)> = vec![
+    vec![
         (
             "secours, inconnu",
             SECOURS,
@@ -631,48 +647,64 @@ async fn chaque_echec_de_connexion_dure_le_plancher_quel_que_soit_le_compte() {
             CODE,
             corps_code(&courriel(plafonne), code_recup_faux),
         ),
-    ];
-    let medianes = medianes_des_echecs(&routeur, &cas, ESSAIS, PLANCHER).await;
-    let (min, max) = (
-        *medianes.iter().min().unwrap(),
-        *medianes.iter().max().unwrap(),
-    );
-    let ecart = max.saturating_sub(min);
+    ]
+}
+
+/// Propriété de sécurité, déterministe : chaque chemin d'échec passe **une seule fois** par
+/// l'attente du plancher, avec la même durée ; la réponse est la même 401, sans cookie. Aucun
+/// temps n'est mesuré : la durée observable de tous les échecs est alors celle du plancher dès
+/// que celui-ci dépasse le chemin le plus long (réglage d'exploitation, `ReglagesFacteurs`).
+#[tokio::test]
+async fn chaque_echec_de_connexion_passe_par_le_plancher_quel_que_soit_le_compte() {
+    const PLANCHER: DureeStd = DureeStd::from_millis(300);
+    let env = env().await;
+    let horloge = HorlogeTest::alignee_sur_un_pas();
+    let attente = Arc::new(AttenteEnregistree::default());
+    let routeur = routeur_plancher(&env, &horloge, PLANCHER, 3, attente.clone());
+    let cas = cas_d_echec(&env, &horloge, &routeur, 3).await;
+    // Les trois échecs de préparation du compte plafonné ont déjà passé par le plancher.
+    assert_eq!(attente.nombre(), 3);
+    let mut reference: Option<Vec<u8>> = None;
+    for (nom, chemin, corps) in &cas {
+        let avant = attente.nombre();
+        let r = connecter(&routeur, chemin, corps, "test").await;
+        assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{nom} : {}", r.texte());
+        assert!(r.entetes.get("set-cookie").is_none(), "{nom}");
+        assert_eq!(
+            &r.corps,
+            reference.get_or_insert_with(|| r.corps.clone()),
+            "{nom}"
+        );
+        assert_eq!(
+            attente.nombre(),
+            avant + 1,
+            "{nom} : une attente exactement"
+        );
+    }
     assert!(
-        ecart < TOLERANCE,
-        "écart des médianes {ecart:?} : {:?}",
-        cas.iter().map(|c| c.0).zip(&medianes).collect::<Vec<_>>()
+        attente.demandes().iter().all(|d| *d == PLANCHER),
+        "même durée plancher pour tous les chemins : {:?}",
+        attente.demandes()
     );
 }
 
-/// Durée médiane de chaque cas d'échec, sur des essais entrelacés (une dérive de la charge
-/// touche tous les cas pareillement) ; chaque réponse est un 401 identique, sans cookie, qui
-/// dure au moins le plancher.
-async fn medianes_des_echecs(
-    routeur: &Router,
-    cas: &[(&str, &str, String)],
-    essais: usize,
-    plancher: DureeStd,
-) -> Vec<DureeStd> {
-    let mut durees: Vec<Vec<DureeStd>> = vec![Vec::new(); cas.len()];
-    let mut reference: Option<Vec<u8>> = None;
-    for _ in 0..essais {
-        for (rang, (nom, chemin, corps)) in cas.iter().enumerate() {
-            let debut = Instant::now();
-            let r = connecter(routeur, chemin, corps, "test").await;
-            let duree = debut.elapsed();
-            assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{nom} : {}", r.texte());
-            assert!(r.entetes.get("set-cookie").is_none(), "{nom}");
-            assert_eq!(
-                &r.corps,
-                reference.get_or_insert_with(|| r.corps.clone()),
-                "{nom}"
-            );
-            assert!(duree >= plancher, "{nom} : {duree:?} sous le plancher");
-            durees[rang].push(duree);
-        }
+/// Propriété de sécurité avec l'attente réelle : aucune réponse d'échec ne part avant le
+/// plancher, pour aucun chemin. Borne basse seulement (jamais « au plus » : une charge élevée
+/// allonge une durée, elle ne peut pas la raccourcir), donc sans aléa sous charge.
+#[tokio::test]
+async fn aucun_echec_de_connexion_ne_part_avant_le_plancher() {
+    const PLANCHER: DureeStd = DureeStd::from_millis(300);
+    let env = env().await;
+    let horloge = HorlogeTest::alignee_sur_un_pas();
+    let routeur = routeur_plancher(&env, &horloge, PLANCHER, 3, Arc::new(AttenteTokio));
+    let cas = cas_d_echec(&env, &horloge, &routeur, 3).await;
+    for (nom, chemin, corps) in &cas {
+        let debut = Instant::now();
+        let r = connecter(&routeur, chemin, corps, "test").await;
+        let duree = debut.elapsed();
+        assert_eq!(r.statut, StatusCode::UNAUTHORIZED, "{nom} : {}", r.texte());
+        assert!(duree >= PLANCHER, "{nom} : {duree:?} sous le plancher");
     }
-    durees.into_iter().map(mediane).collect()
 }
 
 #[tokio::test]
@@ -682,8 +714,14 @@ async fn le_plafond_par_compte_refuse_les_bons_facteurs_sans_le_dire() {
     let u = c.administrateur;
     let secret = installer_secours(&env.admin, u, MOT_DE_PASSE).await;
     let codes = installer_codes(&env.admin, u).await;
-    let horloge = HorlogeTest::default();
-    let routeur = routeur_plancher(&env, &horloge, DureeStd::from_millis(10), 3);
+    let horloge = HorlogeTest::alignee_sur_un_pas();
+    let routeur = routeur_plancher(
+        &env,
+        &horloge,
+        DureeStd::from_millis(10),
+        3,
+        Arc::new(AttenteTokio),
+    );
     let faux = connecter(
         &routeur,
         SECOURS,
@@ -721,8 +759,14 @@ async fn le_plafond_par_compte_refuse_les_bons_facteurs_sans_le_dire() {
 async fn rien_n_est_inscrit_pour_un_courriel_inconnu() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
-    let horloge = HorlogeTest::default();
-    let routeur = routeur_plancher(&env, &horloge, DureeStd::from_millis(10), 10);
+    let horloge = HorlogeTest::alignee_sur_un_pas();
+    let routeur = routeur_plancher(
+        &env,
+        &horloge,
+        DureeStd::from_millis(10),
+        10,
+        Arc::new(AttenteTokio),
+    );
     let appareil = format!("appareil-{}", Uuid::new_v4());
     let inconnu = format!("{}@exemple.invalid", Uuid::new_v4());
     for (chemin, corps) in [
@@ -752,7 +796,7 @@ async fn reauthentification_par_le_secours() {
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let u = c.administrateur;
     let secret = installer_secours(&env.admin, u, MOT_DE_PASSE).await;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let routeur = routeur_s(&env, &horloge);
     let r = connexion_secours(&routeur, &horloge, u, &secret).await;
     let (cookie, csrf) = session_de(&r);
@@ -862,7 +906,7 @@ async fn reauthentification_par_le_secours() {
 async fn les_tentatives_de_connexion_sont_limitees() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let mut reglages = reglages_de_test();
     reglages.facteurs.debit_connexion_courriel.capacite = 3;
     reglages.facteurs.debit_connexion_adresse.capacite = 5;
@@ -919,7 +963,7 @@ async fn la_rls_de_la_connexion_ne_voit_que_le_compte_du_courriel() {
     installer_secours(&env.admin, b.administrateur, MOT_DE_PASSE).await;
     installer_codes(&env.admin, a.administrateur).await;
     installer_codes(&env.admin, b.administrateur).await;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     // Une session ouverte de A : invisible depuis la connexion.
     ouvrir(&env, &horloge, a.administrateur, NatureSession::Complete).await;
 
@@ -1063,7 +1107,7 @@ async fn les_evenements_ne_portent_aucun_secret() {
 async fn deconnexion_et_revocation_sont_des_evenements_d_authentification() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let routeur = routeur_s(&env, &horloge);
     let courante = ouvrir(&env, &horloge, c.administrateur, NatureSession::Complete).await;
     let autre = ouvrir(&env, &horloge, c.administrateur, NatureSession::Complete).await;
@@ -1189,7 +1233,7 @@ async fn reenroler_avec_un_pas_anterieur_ne_rouvre_pas_un_code_consomme() {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let u = c.administrateur;
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let routeur = routeur_s(&env, &horloge);
     let ouverte = ouvrir(&env, &horloge, u, NatureSession::Complete).await;
     let (cookie, csrf) = (cookie_de(&ouverte), ouverte.jeton.csrf());

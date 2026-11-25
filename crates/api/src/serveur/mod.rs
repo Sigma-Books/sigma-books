@@ -45,6 +45,7 @@ pub mod limites;
 mod moi;
 mod passkeys;
 pub mod pipeline;
+pub mod plancher;
 pub mod routes;
 pub mod session;
 mod statique;
