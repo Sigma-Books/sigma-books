@@ -101,7 +101,11 @@ async fn le_binaire_refuse_toute_requete_non_authentifiee() {
             .replace("{session}", &Uuid::new_v4().to_string())
             .replace("{compte}", &Uuid::new_v4().to_string())
             .replace("{tiers}", &Uuid::new_v4().to_string())
-            .replace("{periode}", &Uuid::new_v4().to_string());
+            .replace("{periode}", &Uuid::new_v4().to_string())
+            .replace("{membre}", &Uuid::new_v4().to_string())
+            .replace("{acces}", &Uuid::new_v4().to_string())
+            .replace("{invitation}", &Uuid::new_v4().to_string())
+            .replace("{reinitialisation}", &Uuid::new_v4().to_string());
         // Même un en-tête de l'authentification de test ne vaut rien pour le binaire.
         let reponse = appeler_route(&routeur, route, &chemin, Some(IdUtilisateur::nouveau())).await;
         verifier_erreur(&reponse, StatusCode::UNAUTHORIZED, "non_authentifie");

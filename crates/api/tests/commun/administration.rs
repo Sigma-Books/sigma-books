@@ -13,9 +13,8 @@ pub fn corps(cas: api::serveur::routes::administration::Cas) -> &'static str {
         Cas::Reinitialiser => {
             r#"{"motif":"Vérification par un appel au titulaire","verification_hors_bande":true}"#
         }
-        Cas::UtiliserLien | Cas::AccepterInvitation => {
-            r#"{"jeton":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}"#
-        }
+        // Usage d'un lien : corps vide (refus avant toute lecture de la base) ; les scénarios
+        // d'isolation de ces deux routes fabriquent leurs propres liens.
         _ => "",
     }
 }
