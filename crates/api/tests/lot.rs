@@ -400,7 +400,10 @@ async fn contre_passation_nominale() {
         Some(b.auditeur),
     )
     .await;
-    assert_eq!(o.json()["contre_passee_par"], j["numero"]);
+    assert_eq!(
+        o.json()["contre_passations"],
+        serde_json::json!([j["numero"]])
+    );
     let n = lire(
         &b.routeur,
         &format!("{}/{nouveau}", b.ecritures()),
@@ -415,14 +418,39 @@ async fn contre_passation_nominale() {
     assert!(derniere.contains("contre_passation"));
     assert!(derniere.contains("Erreur de saisie"));
     assert!(!derniere.contains("Contre-passation de test") && !derniere.contains("1000"));
-    // Contre-passer une contre-passation est admis ; l'origine d'origine ne l'est plus.
+    // Contre-passer une contre-passation est admis, comme contre-passer deux fois la même
+    // origine (ADR 0021 point 4, révisé le 2026-11-25).
     let encore = b.contre_passer(nouveau).await;
     assert_eq!(encore.statut, StatusCode::CREATED, "{}", encore.texte());
-    let double = b.contre_passer(id).await;
-    assert_eq!(double.statut, StatusCode::CONFLICT);
-    assert_eq!(code(&double), "deja_contre_passee");
+    let seconde = b.contre_passer(id).await;
+    assert_eq!(seconde.statut, StatusCode::CREATED, "{}", seconde.texte());
+    assert_eq!(seconde.json()["origine"], id.to_string());
+    assert_eq!(seconde.json()["rang"], 4);
+    assert_ne!(seconde.json()["numero"], j["numero"]);
     assert!(b.chaine_valide().await);
-    assert_eq!(b.compter("ecriture_validee").await, 3);
+    assert_eq!(b.compter("ecriture_validee").await, 4);
+    assert_eq!(b.compteur().await, vec![4]);
+    let o = lire(
+        &b.routeur,
+        &format!("{}/{id}", b.ecritures()),
+        Some(b.auditeur),
+    )
+    .await;
+    assert_eq!(
+        o.json()["contre_passations"],
+        serde_json::json!([j["numero"], seconde.json()["numero"]])
+    );
+    // Chaque contre-passation a sa trace d'audit, avec son numéro.
+    let audits = b.audits().await;
+    let numero_seconde = seconde.json()["numero"].as_str().unwrap().to_owned();
+    assert_eq!(
+        audits
+            .iter()
+            .filter(|a| a.contains("contre_passation"))
+            .count(),
+        3
+    );
+    assert!(audits.last().unwrap().contains(&numero_seconde));
 }
 
 #[tokio::test]
@@ -462,7 +490,7 @@ async fn contre_passation_refus() {
 }
 
 #[tokio::test]
-async fn deux_contre_passations_simultanees_une_seule_aboutit() {
+async fn deux_contre_passations_simultanees_aboutissent_toutes_deux() {
     let b = banc().await;
     let (id, v, _) = b.pret("Origine").await;
     assert_eq!(b.valider(id, v).await.statut, StatusCode::OK);
@@ -481,59 +509,50 @@ async fn deux_contre_passations_simultanees_une_seule_aboutit() {
             envoyer(&routeur, &chemin, Some(u), &corps, None).await
         }));
     }
-    let mut statuts = Vec::new();
+    let mut numeros = std::collections::BTreeSet::new();
+    let mut rangs = std::collections::BTreeSet::new();
     for t in taches {
         let r = t.await.unwrap();
-        if r.statut == StatusCode::CONFLICT {
-            assert_eq!(code(&r), "deja_contre_passee");
-        }
-        statuts.push(r.statut);
+        assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+        numeros.insert(r.json()["numero"].as_str().unwrap().to_owned());
+        rangs.insert(r.json()["rang"].as_i64().unwrap());
     }
-    assert_eq!(
-        statuts
-            .iter()
-            .filter(|s| **s == StatusCode::CREATED)
-            .count(),
-        1,
-        "{statuts:?}"
-    );
-    assert_eq!(b.compter("ecriture_validee").await, 2);
-    assert_eq!(b.compteur().await, vec![2]);
+    // Aucun doublon de numéro ni de rang de chaîne.
+    assert_eq!(numeros.len(), 4);
+    assert_eq!(rangs, (2..=5).collect());
+    assert_eq!(b.compter("ecriture_validee").await, 5);
+    assert_eq!(b.compteur().await, vec![5]);
     assert!(b.chaine_valide().await);
+    let audits = b.audits().await;
+    assert_eq!(
+        audits
+            .iter()
+            .filter(|a| a.contains("contre_passation"))
+            .count(),
+        4
+    );
 }
 
 // --- Base ------------------------------------------------------------------------------------
 
 #[tokio::test]
-async fn l_index_unique_de_l_origine_est_le_filet() {
+async fn l_unicite_de_l_origine_est_levee_et_les_garde_fous_restent() {
     let b = banc().await;
     let (id, v, _) = b.pret("Origine").await;
     assert_eq!(b.valider(id, v).await.statut, StatusCode::OK);
-    let r = b.contre_passer(id).await;
-    assert_eq!(r.statut, StatusCode::CREATED);
-    let index: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_indexes WHERE indexname = 'ecriture_validee_origine_unique'",
+    assert_eq!(b.contre_passer(id).await.statut, StatusCode::CREATED);
+    // `0205` : plus d'index unique, un index non unique sur l'origine.
+    let (unique, simple): (i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE indexname = 'ecriture_validee_origine_unique'), \
+                count(*) FILTER (WHERE indexname = 'ecriture_validee_origine_idx' \
+                                   AND indexdef NOT LIKE '%UNIQUE%') \
+         FROM pg_indexes",
     )
     .fetch_one(&b.env.admin)
     .await
     .unwrap();
-    assert_eq!(index, 1);
-    // Même par SQL direct (propriétaire), une seconde contre-passation de la même origine est
-    // refusée par l'index ; une écriture ne se cite pas elle-même ; la date de valeur est exclue.
-    let copie = sqlx::query(
-        "INSERT INTO ecriture_validee (cabinet_id, dossier_id, id, journal_id, exercice_id, \
-         sequence, numero, date_comptable, libelle, format, contenu_canonique, empreinte, \
-         empreinte_precedente, rang, valide_par, date_validation, valide_le, origine_id) \
-         SELECT cabinet_id, dossier_id, gen_random_uuid(), journal_id, exercice_id, 99, \
-                regexp_replace(numero, '[0-9]{6}$', '000099'), date_comptable, libelle, format, \
-                contenu_canonique, empreinte, empreinte_precedente, 99, valide_par, \
-                date_validation, valide_le, origine_id \
-         FROM ecriture_validee WHERE dossier_id = $1 AND origine_id IS NOT NULL",
-    )
-    .bind(b.c.dossier.uuid())
-    .execute(&b.env.admin)
-    .await;
-    assert!(copie.is_err());
+    assert_eq!((unique, simple), (0, 1));
+    // Une écriture ne se cite pas elle-même ; la date de valeur est exclue d'une contre-passation.
     let auto = sqlx::query(
         "UPDATE ecriture_validee SET origine_id = id WHERE dossier_id = $1 AND origine_id IS NULL",
     )

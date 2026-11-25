@@ -4,17 +4,16 @@
 //! # Ce qui est dans `compta-core`, ce qui est ici
 //! L'écriture miroir (sens inversés ; mêmes comptes, montants, devises, tiers, **justification**,
 //! **étiquette fiscale** copiée telle quelle par `Ligne::miroir`, version de paramètres), la date
-//! minimale (pas avant l'origine), la double contre-passation et les contrôles de la validation
+//! minimale (pas avant l'origine) et les contrôles de la validation
 //! sont ceux de [`compta_core::contre_passer`]. `api` fournit les **faits** : l'origine relue
-//! (`reconstituer`), l'état de sa contre-passation, le compteur du journal pour l'exercice de la
+//! (`reconstituer`), le compteur du journal pour l'exercice de la
 //! **nouvelle date**, la tête de chaîne.
 //!
-//! # Sérialisation et filet
+//! # Sérialisation
 //! Aucun verrou de ligne n'est possible sur une écriture validée (ajout seul). La tête de chaîne
-//! du dossier, prise **avant** de relire l'origine et son état, sérialise deux contre-passations
-//! de la même origine : la seconde voit la première (409 `deja_contre_passee`). L'index unique
-//! partiel `ecriture_validee_origine_unique` (`0204`) est le filet : sa violation donne le même
-//! 409.
+//! du dossier, prise **avant** de relire l'origine, sérialise les contre-passations concurrentes,
+//! y compris de la même origine : une origine peut être contre-passée plusieurs fois (ADR 0021
+//! point 4, révisé le 2026-11-25), chacune avec son numéro et son rang. Aucun filet d'unicité.
 //!
 //! # Intégrité de l'origine
 //! L'origine relue est **vérifiée** : son contenu canonique recalculé depuis les colonnes doit
@@ -25,15 +24,14 @@
 //! Administrateur et valideur (§20), rôle relu en base. Pas de ré-authentification (liste de
 //! l'invariant Cedar) ni de séparation des tâches : la contre-passation est validée aussitôt
 //! (spec §6.1, risque F1.16 accepté, question 10 a). Un motif est obligatoire, au journal d'audit.
-//! Contre-passer une contre-passation reste possible (nouvelle origine), jamais deux fois la
-//! même.
+//! Une origine, contre-passation comprise, peut être contre-passée plusieurs fois.
 
 use authz::Role;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use compta_core::{
-    CodeExercice, Compteur, Contexte, EcritureValidee, ErreurValidation, NumeroEcriture, TexteCourt,
+    CodeExercice, Compteur, Contexte, EcritureValidee, ErreurValidation, TexteCourt,
 };
 use integrite::{EcritureCanonique, chainer};
 use serde::{Deserialize, Serialize};
@@ -42,7 +40,7 @@ use uuid::Uuid;
 
 use super::saisie::date_lue;
 use super::validation::{Decision, donnee, finaliser, motif_validation, reconstituer, refus};
-use super::{conflit, corps, referentiel_tva, sans_parametres};
+use super::{corps, referentiel_tva, sans_parametres};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::brouillard::RolePiece;
@@ -51,7 +49,7 @@ use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, Tete};
 use crate::pieces::interne;
 use crate::serveur::audit::Trace;
-use crate::serveur::erreur::{ErreurApi, MotifConflit, MotifValidation};
+use crate::serveur::erreur::{ErreurApi, MotifValidation};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
 use crate::serveur::routes::{Requete, Resultat};
 
@@ -104,7 +102,6 @@ async fn exiger_contre_passeur(tx: &mut TransactionTenant) -> Result<(), ErreurA
 /// Traduit un refus de `compta-core` propre à la contre-passation, ou le motif de validation.
 pub(super) fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -> ErreurApi {
     match e {
-        ErreurValidation::DejaContrePassee { .. } => conflit(MotifConflit::DejaContrePassee),
         ErreurValidation::DateAnterieureAOrigine { .. } => {
             refus(MotifValidation::DateAnterieureAOrigine, None)
         }
@@ -117,16 +114,15 @@ pub(super) fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -
 }
 
 /// Fonction d'application pure de la contre-passation, sur des faits fournis : l'origine relue,
-/// l'état de sa contre-passation (`par`), la dernière séquence du journal pour l'exercice de la
+/// la dernière séquence du journal pour l'exercice de la
 /// **nouvelle** date (`dernier`), la tête de chaîne. Même résultat que
 /// [`compta_core::Livre::contre_passer`] (propriété des tests).
 ///
 /// # Errors
-/// 409 (déjà contre-passée, période, exercice…), 422 (date avant l'origine, écriture invalide).
+/// 409 (période, exercice…), 422 (date avant l'origine, écriture invalide).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn decider_contre_passation(
     origine: &EcritureValidee,
-    par: Option<&NumeroEcriture>,
     date: Date,
     libelle: TexteCourt,
     contexte: &Contexte<'_>,
@@ -141,16 +137,9 @@ pub(super) fn decider_contre_passation(
     };
     let compteur = Compteur::reprendre(origine.journal().clone(), exercice, dernier)
         .map_err(|_| refus(MotifValidation::SequenceEpuisee, None))?;
-    let validation = compta_core::contre_passer(
-        origine,
-        par,
-        date,
-        libelle,
-        contexte,
-        &compteur,
-        date_validation,
-    )
-    .map_err(|e| erreur(&e, contexte.exercices))?;
+    let validation =
+        compta_core::contre_passer(origine, date, libelle, contexte, &compteur, date_validation)
+            .map_err(|e| erreur(&e, contexte.exercices))?;
     finaliser(validation, tete)
 }
 
@@ -210,7 +199,7 @@ pub(super) async fn contre_passer(
     let instant = requete.horloge.maintenant();
     let dernier = base::verrouiller_compteur(tx, journal_id, exercice_id).await?;
 
-    // 2. Faits relus **après** la tête : l'origine, son intégrité, l'état de sa contre-passation.
+    // 2. Faits relus **après** la tête : l'origine et son intégrité.
     let stockee = base::lire(tx, id).await?.ok_or(ErreurApi::Introuvable)?;
     let origine = reconstituer(&stockee, tva)?;
     let recalcule = EcritureCanonique::depuis(&origine).serialiser();
@@ -220,11 +209,6 @@ pub(super) async fn contre_passer(
         // Origine altérée en base : jamais contre-passée (erreur interne, journal technique).
         return Err(donnee());
     }
-    let par: Option<NumeroEcriture> = base::contre_passee_par(tx, id)
-        .await?
-        .map(|n| NumeroEcriture::parse(&n))
-        .transpose()
-        .map_err(|_| donnee())?;
     let contexte = Contexte {
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
@@ -233,7 +217,6 @@ pub(super) async fn contre_passer(
     let date_validation = instant.date();
     let decision = decider_contre_passation(
         &origine,
-        par.as_ref(),
         date,
         libelle,
         &contexte,
@@ -263,13 +246,7 @@ pub(super) async fn contre_passer(
             origine: Some(id),
         },
     )?;
-    if let Err(e) = base::inserer(tx, &inscription).await {
-        return Err(if base::est_double_contre_passation(&e) {
-            conflit(MotifConflit::DejaContrePassee)
-        } else {
-            e.into()
-        });
-    }
+    base::inserer(tx, &inscription).await?;
     base::mettre_a_jour_tete(tx, decision.rang, &decision.empreinte).await?;
     base::mettre_a_jour_compteur(
         tx,

@@ -339,7 +339,10 @@ fn contre_passation_liee_dans_les_deux_sens_et_repetable() {
     let origine = d.valider(achat()).unwrap();
     let cp = d.contre_passer(&origine, date!(2026 - 04 - 02)).unwrap();
     assert_eq!(cp.to_string(), "AC-2026-000002");
-    assert_eq!(d.livre.contre_passations(&origine), [cp.clone()]);
+    assert_eq!(
+        d.livre.contre_passations(&origine),
+        std::slice::from_ref(&cp)
+    );
     let miroir = d.livre.ecriture(&cp).unwrap();
     assert_eq!(miroir.origine(), Some(&origine));
     let source = d.livre.ecriture(&origine).unwrap();
@@ -384,7 +387,7 @@ fn contre_passation_refusee_avant_l_origine_ou_inconnue() {
         d.contre_passer(&origine, date!(2026 - 05 - 15)),
         Err(ErreurValidation::PeriodeFermee(date!(2026 - 05 - 15)))
     );
-    assert!(d.livre.contre_passations(&origine).is_empty());
+    assert_eq!(d.livre.contre_passations(&origine), []);
 }
 
 #[test]
