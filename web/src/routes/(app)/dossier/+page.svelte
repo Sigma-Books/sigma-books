@@ -30,9 +30,17 @@
 		<li>
 			<a href={resolve(`saisie/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Saisie manuelle</a>
 		</li>
+		<li>
+			<a href={resolve(`brouillard/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Brouillard</a>
+		</li>
+		<li>
+			<a href={resolve(`ecritures/?cabinet=${membre.id}&dossier=${dossier.id}`)}>
+				Écritures validées
+			</a>
+		</li>
 	</ul>
 	<p class="aide">
-		Le brouillard, les éditions et l’écran Intégrité de ce dossier seront disponibles prochainement.
+		Les éditions et l’écran Intégrité de ce dossier seront disponibles prochainement.
 	</p>
 {/if}
 
