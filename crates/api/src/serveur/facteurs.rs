@@ -106,6 +106,7 @@ use crate::facteurs::codes::{self, CodeRecuperation};
 use crate::facteurs::mot_de_passe::{self, RefusMotDePasse, Verification};
 use crate::facteurs::passkey::Passkeys;
 use crate::facteurs::totp::{self, SecretTotp};
+use crate::serveur::plancher::Plancher;
 
 /// Émetteur affiché par l'application d'authentification.
 const EMETTEUR: &str = "Sigma Books";
@@ -134,6 +135,8 @@ pub struct ReglagesFacteurs {
     /// (courriel inconnu, compte sans facteur, facteur faux, compte plafonné). Elle doit
     /// dépasser le pire cas mesuré du chemin le plus long.
     pub duree_plancher_connexion: std::time::Duration,
+    /// Attente de ce plancher : réelle en production, enregistrée par les tests (sans délai).
+    pub attente_plancher: Plancher,
     /// Plafond persistant d'échecs de connexion par compte (10), sur [`Self::fenetre_echecs`] :
     /// au-delà, le facteur n'est plus vérifié, avec la même réponse 401 (jamais un 429, qui
     /// dirait que le compte existe). Tiré des échecs inscrits aux événements : une éviction de
@@ -165,6 +168,7 @@ impl Default for ReglagesFacteurs {
             },
             hachages_simultanes: 4,
             duree_plancher_connexion: std::time::Duration::from_millis(500),
+            attente_plancher: Plancher::default(),
             echecs_max_par_compte: 10,
             fenetre_echecs: time::Duration::minutes(15),
         }
@@ -480,15 +484,18 @@ pub(crate) async fn connecter(
     corps: &[u8],
 ) -> Result<Response, ErreurApi> {
     // Durée plancher de tout échec : la durée ne dit rien du chemin suivi (anti-énumération).
-    let fin_au_plus_tot =
-        tokio::time::Instant::now() + etat.reglages.facteurs.duree_plancher_connexion;
+    let arrivee = tokio::time::Instant::now();
     let resultat = connecter_sans_plancher(etat, route, parts, corps).await;
     // Le défi d'une connexion par passkey reçoit la même durée plancher en cas de succès :
     // un compte sans passkey (faux défi, rien d'écrit) ne s'y distingue pas par la durée.
     let plancher_aussi_en_succes =
         route.cas_usage == CasUsage::Passkeys(PasskeysCas::DefiConnexion);
     if resultat.is_err() || plancher_aussi_en_succes {
-        tokio::time::sleep_until(fin_au_plus_tot).await;
+        let facteurs = &etat.reglages.facteurs;
+        facteurs
+            .attente_plancher
+            .attendre(arrivee, facteurs.duree_plancher_connexion)
+            .await;
     }
     resultat
 }

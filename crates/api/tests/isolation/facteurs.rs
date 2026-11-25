@@ -385,7 +385,7 @@ async fn les_facteurs_restent_bornes_quand_cedar_se_trompe() {
     let env = super::commun::env().await;
     let m = monde(&env.admin).await;
     let (a, b) = (m.a.administrateur, m.b.administrateur);
-    let horloge = HorlogeTest::default();
+    let horloge = HorlogeTest::alignee_sur_un_pas();
     let routeur = api::serveur::routeur(&application_sessions(
         &env,
         &horloge,

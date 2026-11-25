@@ -111,6 +111,14 @@ Les tests écrivent des cabinets aux identifiants aléatoires, créent le rôle 
 test à part (`SIGMA_PG_BASE=sigma_books_test scripts/preparer-base.sh`) et y pointer les deux URL
 de test.
 
+**Tests déterministes sous charge.** Un test ne compare jamais une durée mesurée à une tolérance et
+ne dépend jamais de l'instant du système pour un code TOTP :
+- tout test qui calcule un code TOTP prend `HorlogeTest::alignee_sur_un_pas()` (horloge figée au
+  milieu d'un pas de 30 s ; `avancer` par multiples de 30 s) : sinon il peut chevaucher deux pas ;
+- la durée plancher des échecs de connexion (`ReglagesFacteurs::attente_plancher`) s'injecte : les
+  tests de structure enregistrent l'attente demandée (une par chemin d'échec, même durée) sans
+  mesurer de temps, et le test en attente réelle n'affirme qu'une borne basse (jamais « au plus »).
+
 ## Nouvelle table
 
 1. Migration : `cabinet_id` (et `dossier_id` pour une table de dossier), clés étrangères
