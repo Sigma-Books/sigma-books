@@ -1,11 +1,11 @@
 //! Comptes de TVA désignés dans la liste officielle (issue #189, ADR 0026).
 //!
-//! `compta-core` ne connaît aucun numéro de compte (règle absolue 9) : le rapprochement d'une
-//! ligne étiquetée « taxe » avec son compte ([`compta_core::rapprocher_etiquettes_et_comptes`])
-//! reçoit en paramètre la désignation donnée ici, lue de `data/comptes-tva.toml`, qui cite pour
-//! chaque entrée sa source (documents et pages PDF).
+//! `compta-core` ne connaît aucun numéro de compte (règle absolue 9) : la désignation des comptes
+//! de TVA, lue de `data/comptes-tva.toml`, qui cite pour chaque entrée sa source (documents et
+//! pages PDF), sert la déclaration de TVA (L5) et la répartition par étiquette. Elle ne bloque
+//! aucune validation (ADR 0026).
 
-use compta_core::{NumeroCompte, RoleCompteTva};
+use compta_core::NumeroCompte;
 use serde::Deserialize;
 
 use crate::{
@@ -14,6 +14,21 @@ use crate::{
 
 /// Données embarquées : comptes de TVA désignés.
 const COMPTES_TVA_TOML: &str = include_str!("../data/comptes-tva.toml");
+
+/// Rôle d'un compte de TVA.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoleCompteTva {
+    /// TVA facturée (famille 443) : taxe collectée.
+    Facturee,
+    /// TVA due ou crédit de TVA (famille 444) : solde de la période, où sont virés les comptes
+    /// de TVA facturée et récupérable.
+    Due,
+    /// TVA récupérable (famille 445) : taxe déductible.
+    Recuperable,
+    /// TVA « probable » des factures à établir (4435) et non parvenues (4455) : provision de fin
+    /// de période, ni exigible ni déductible tant que la facture n'existe pas.
+    Provision,
+}
 
 /// Un compte de TVA désigné, avec sa source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,14 +79,15 @@ impl CompteTva {
     }
 }
 
-/// Désignation des comptes de TVA : un compte par rôle, subdivisions comprises.
+/// Désignation des comptes de TVA, subdivisions comprises (la plus précise l'emporte : 4435 et
+/// 4455 sont des provisions au sein de 443 et 445).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComptesTva {
     entrees: Vec<CompteTva>,
 }
 
 impl ComptesTva {
-    /// Les trois comptes désignés, avec leur source.
+    /// Les comptes désignés, avec leur source.
     #[must_use]
     pub fn entrees(&self) -> &[CompteTva] {
         &self.entrees
@@ -125,7 +141,8 @@ impl Referentiel {
 
     /// Comptes de TVA au format de `data/comptes-tva.toml` : chaque numéro est un compte de la
     /// liste officielle, d'intitulé, de page et de sens normal identiques ; un seul compte par
-    /// rôle, les trois rôles présents, aucun compte ascendant d'un autre ; page de la fiche de
+    /// rôle de base, les quatre rôles présents, un compte imbriqué d'un autre rôle que son
+    /// ascendant ; page de la fiche de
     /// fonctionnement dans la plage des fiches ; source renseignée.
     ///
     /// # Errors
@@ -162,6 +179,8 @@ impl Referentiel {
                 ("facturee", "crediteur") => (RoleCompteTva::Facturee, SensNormal::Crediteur),
                 ("due", "crediteur") => (RoleCompteTva::Due, SensNormal::Crediteur),
                 ("recuperable", "debiteur") => (RoleCompteTva::Recuperable, SensNormal::Debiteur),
+                ("provision", "crediteur") => (RoleCompteTva::Provision, SensNormal::Crediteur),
+                ("provision", "debiteur") => (RoleCompteTva::Provision, SensNormal::Debiteur),
                 _ => {
                     return Err(invalide(
                         &e.numero,
@@ -179,11 +198,17 @@ impl Referentiel {
             if e.source.trim().is_empty() {
                 return Err(invalide(&e.numero, "source manquante"));
             }
-            if entrees.iter().any(|x| {
-                x.role == role
-                    || x.numero.est_ascendant_ou_egal(&numero)
-                    || numero.est_ascendant_ou_egal(&x.numero)
-            }) {
+            // Un compte n'est désigné qu'une fois ; un rôle de base (facturée, due, récupérable)
+            // n'a qu'un compte ; un compte imbriqué dans un autre doit avoir un autre rôle (4435
+            // provision dans le 443 facturée).
+            let doublon = entrees.iter().any(|x| {
+                x.numero == numero
+                    || (role != RoleCompteTva::Provision && x.role == role)
+                    || ((x.numero.est_ascendant_ou_egal(&numero)
+                        || numero.est_ascendant_ou_egal(&x.numero))
+                        && x.role == role)
+            });
+            if doublon {
                 return Err(invalide(&e.numero, "rôle en double ou compte imbriqué"));
             }
             entrees.push(CompteTva {
@@ -199,6 +224,7 @@ impl Referentiel {
             RoleCompteTva::Facturee,
             RoleCompteTva::Due,
             RoleCompteTva::Recuperable,
+            RoleCompteTva::Provision,
         ] {
             if !entrees.iter().any(|e| e.role == role) {
                 return Err(ErreurReferentiel::ComptesTva(format!(

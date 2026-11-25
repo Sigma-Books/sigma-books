@@ -40,7 +40,7 @@ use super::validation::{
     Decision, Preparee, VueValidation, controler_pieces, decider, donnee, preparer,
     roles_des_pieces,
 };
-use super::{comptes_tva, conflit, corps, referentiel_tva, sans_parametres, trace_de};
+use super::{conflit, corps, referentiel_tva, sans_parametres, trace_de};
 use crate::base::TransactionTenant;
 use crate::base::brouillard::{self, BrouillonStocke};
 use crate::base::organisation::{lire_appartenance, lire_cabinet};
@@ -142,7 +142,6 @@ pub(super) async fn valider_par_lot(
     sans_parametres(requete)?;
     let demandees = elements(requete)?;
     let tva = referentiel_tva()?;
-    let comptes_tva = comptes_tva()?;
     let utilisateur = tx.contexte().id_utilisateur().uuid();
 
     // Ré-authentification : recontrôlée ici, même si Cedar se trompait.
@@ -225,7 +224,7 @@ pub(super) async fn valider_par_lot(
             .collect();
         let controle = controler_pieces(&b, &pieces).and_then(|()| {
             let empreintes: Vec<String> = pieces.iter().map(|p| p.empreinte.clone()).collect();
-            let preparee = preparer(&b, &empreintes, tva, comptes_tva, referentiel.exercices())?;
+            let preparee = preparer(&b, &empreintes, tva, referentiel.exercices())?;
             let journal_id = referentiel
                 .id_journal(preparee.journal())
                 .ok_or_else(donnee)?;

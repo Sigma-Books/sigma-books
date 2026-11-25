@@ -35,10 +35,9 @@ pub use editions::{
     FormatBalance, LigneBalance, LigneGrandLivre, Mode, Regroupement, grand_livre, journaux,
 };
 pub use etiquette::{
-    CodeMotif, CodeRegime, EcartTaxe, ErreurEtiquette, ErreurRapprochementTva, EtiquetteFiscale,
-    EtiquetteRelue, Exigibilite, NatureEtiquette, ProfilRegime, ReferentielFiscal, RoleCompteTva,
-    SensTva, TauxTva, TotauxTaxe, controler_taxes_et_comptes, rapprocher_etiquettes_et_comptes,
-    totaux_taxe,
+    CodeMotif, CodeRegime, EcartTaxe, ErreurEtiquette, EtiquetteFiscale, EtiquetteRelue,
+    Exigibilite, NatureEtiquette, ProfilRegime, ReferentielFiscal, SensTva, TauxTva, TotauxTaxe,
+    controler_taxes_et_comptes, totaux_taxe,
 };
 pub use exercice::{
     CodeExercice, Deverrouillage, EcheanceCloture, ErreurExercice, ErreurReconstitutionExercices,

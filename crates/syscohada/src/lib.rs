@@ -27,7 +27,7 @@ mod journaux;
 mod tva;
 
 pub use journaux::CompteDeJournal;
-pub use tva::{CompteTva, ComptesTva};
+pub use tva::{CompteTva, ComptesTva, RoleCompteTva};
 
 /// Données embarquées : liste officielle des comptes.
 const COMPTES_TOML: &str = include_str!("../data/comptes.toml");

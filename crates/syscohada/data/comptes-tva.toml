@@ -1,7 +1,8 @@
 # Comptes de TVA désignés dans la liste officielle (issue #189, ADR 0026).
 #
-# `compta-core` ne connaît aucun numéro de compte (règle absolue 9) : le rapprochement d'une ligne
-# étiquetée « taxe » avec son compte (ADR 0019, ADR 0026) lit cette désignation. Chaque entrée
+# `compta-core` ne connaît aucun numéro de compte (règle absolue 9) : cette désignation sert la
+# déclaration de TVA (L5) et la répartition par étiquette (ADR 0019). Elle ne bloque aucune
+# validation (ADR 0026). Chaque entrée
 # désigne un compte **et ses subdivisions** (4431 à 4435 pour 443 ; les subdivisions libres
 # `4431-01`, et les subdivisions par période d'imposition du Guide, suivent leur ascendant).
 #
@@ -9,7 +10,8 @@
 # - numero, intitule, page_liste : le compte tel qu'il figure dans `comptes.toml` (validé à
 #   chaque chargement : numéro officiel, intitulé et page identiques) ;
 # - role : `facturee` (TVA collectée, famille 443), `due` (solde de la période, famille 444),
-#   `recuperable` (TVA déductible, famille 445) ;
+#   `recuperable` (TVA déductible, famille 445), `provision` (4435 et 4455, « TVA probable » de fin
+#   de période, dans le 443 et le 445 : la désignation la plus précise l'emporte) ;
 # - sens_normal : sens normal du solde, identique à `comptes.toml` (validé) ;
 # - page_fonctionnement : page PDF de la fiche « Contenu et fonctionnement des comptes » du
 #   compte 44, dans la plage 274 à 539 (validé) ;
@@ -27,8 +29,9 @@
 #   445 sont virés au 444, créditeur (4441 TVA due) ou débiteur (4449 crédit de TVA à reporter) ;
 # - le Guide ne fixe pas le sens débit ou crédit d'une ligne de TVA : une régularisation ou un
 #   avoir débite le 443 et crédite le 445 (p. PDF 89 et 94 : 4455 crédité pour l'avoir attendu du
-#   fournisseur, 4435 crédité pour la facture à établir). Le rapprochement ne contraint donc que
-#   le compte (la famille), jamais le sens débit ou crédit.
+#   fournisseur, 4435 crédité pour la facture à établir) ;
+# - 4435 et 4455 : à la clôture, « il est tenu compte de la T.V.A. probable » au crédit du 4435
+#   (facture à adresser au client) et au débit du 4455 (facture non parvenue) (p. PDF 89 et 94).
 
 [[compte_tva]]
 numero = "443"
@@ -56,3 +59,21 @@ role = "recuperable"
 sens_normal = "debiteur"
 page_fonctionnement = 395
 source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 244 (445, 4451 à 4456) ; fiche du compte 44, p. PDF 394-395 ; Guide d'application du SYSCOHADA révisé (1er mai 2017), §4.4 p. PDF 31 (TVA récupérable des achats : créance sur l'État, au 445) et §2.2 p. PDF 35 (TVA déductible au débit du 445), p. PDF 89 et 94 (4455 pour la facture non parvenue)"
+
+[[compte_tva]]
+numero = "4435"
+intitule = "T.V.A. sur factures à établir"
+page_liste = 243
+role = "provision"
+sens_normal = "crediteur"
+page_fonctionnement = 395
+source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 243 (4435) ; Guide d'application du SYSCOHADA révisé (1er mai 2017), p. PDF 94 (TVA facturée probable : au crédit du 4435 pour la facture à adresser au client) et p. PDF 89 (au débit du 4435 dans le dernier cas)"
+
+[[compte_tva]]
+numero = "4455"
+intitule = "T.V.A. récupérable sur factures non parvenues"
+page_liste = 244
+role = "provision"
+sens_normal = "debiteur"
+page_fonctionnement = 395
+source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 244 (4455) ; Guide d'application du SYSCOHADA révisé (1er mai 2017), p. PDF 89 (TVA probable : au débit du 4455 en général) et p. PDF 94 (au crédit du 4455 pour l'avoir attendu du fournisseur)"

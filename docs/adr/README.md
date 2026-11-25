@@ -29,6 +29,6 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0023 | Administration du cabinet, liens à usage unique et réinitialisation d'accès | Proposée |
 | 0024 | Courriels : relais SMTP en TLS obligatoire, envoi par la file de tâches | Proposée |
 | 0025 | Alertes par courriel aux administrateurs du cabinet | Proposée |
-| 0026 | Comptes de TVA désignés et rapprochement des étiquettes fiscales à la validation | Proposée |
+| 0026 | Comptes de TVA désignés ; pas de contrôle bloquant étiquettes et comptes à la validation (rapport d'écarts en L5) | Proposée |
 
 Modèle : copier `0000-modele.md`.
