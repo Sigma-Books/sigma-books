@@ -1,6 +1,6 @@
 # 0022 — File de tâches de l'instance : table d'instance, travailleur sans cabinet
 
-- **Statut :** proposée
+- **Statut :** acceptée
 - **Date :** 2026-11-24
 
 ## Contexte
