@@ -203,6 +203,56 @@ pub async fn planifier_courriel(
     Ok(n == 1)
 }
 
+/// Plafond d'envois de lien d'invitation par adresse et par cabinet sur 24 heures (création et
+/// renvois) : un administrateur, ou un compte détourné, ne fait pas de la messagerie de
+/// l'instance un relais de harcèlement (ADR 0024, §7).
+pub const INVITATIONS_MAX_PAR_ADRESSE_24H: i64 = 3;
+/// Plafond d'envois de lien d'invitation par cabinet sur 24 heures.
+pub const INVITATIONS_MAX_PAR_CABINET_24H: i64 = 100;
+
+/// Plafonds atteints pour une invitation : par adresse, ou par cabinet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlafondInvitation {
+    /// Trop d'envois vers cette adresse.
+    Adresse,
+    /// Trop d'envois depuis ce cabinet.
+    Cabinet,
+}
+
+/// Vérifie les plafonds d'envoi de lien d'invitation du cabinet du contexte sur 24 heures, pour
+/// l'adresse (déjà normalisée) donnée. Compte les tâches d'envoi, quel que soit leur état.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn plafond_invitation(
+    tx: &mut TransactionTenant,
+    courriel: &str,
+) -> Result<Option<PlafondInvitation>, ErreurBase> {
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let par_cabinet = sqlx::query_scalar!(
+        "SELECT count(*) AS \"n!\" FROM tache \
+         WHERE cabinet_cible = $1 AND nature = 'courriel' AND sujet = 'invitation' \
+           AND cree_le > now() - interval '24 hours'",
+        cabinet,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    if par_cabinet >= INVITATIONS_MAX_PAR_CABINET_24H {
+        return Ok(Some(PlafondInvitation::Cabinet));
+    }
+    let par_adresse = sqlx::query_scalar!(
+        "SELECT count(*) AS \"n!\" FROM tache t \
+         JOIN invitation i ON i.cabinet_id = t.cabinet_cible AND i.id = t.objet \
+         WHERE t.cabinet_cible = $1 AND t.nature = 'courriel' AND t.sujet = 'invitation' \
+           AND lower(i.courriel) = $2 AND t.cree_le > now() - interval '24 hours'",
+        cabinet,
+        courriel,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    Ok((par_adresse >= INVITATIONS_MAX_PAR_ADRESSE_24H).then_some(PlafondInvitation::Adresse))
+}
+
 /// Envoi de courriel pris par le travailleur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CourrielPris {

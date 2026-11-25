@@ -141,6 +141,13 @@ impl Expediteur {
             tx.confirmer().await?;
             let Some(tache) = prises.pop() else { break };
             bilan.prises += 1;
+            // Plafond de tentatives **avant** le traitement : une tâche en erreur interne (base)
+            // est reprise au bail, elle ne l'est pas indéfiniment.
+            if tache.tentatives >= self.reglages.tentatives_max {
+                self.abandonner(tache.id, tache.prise).await?;
+                bilan.clos += 1;
+                continue;
+            }
             match self.traiter(tache).await {
                 Ok(Sortie::Envoye) => bilan.envoyes += 1,
                 Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
@@ -149,6 +156,16 @@ impl Expediteur {
             }
         }
         Ok(bilan)
+    }
+
+    /// Termine une tâche qui a épuisé ses tentatives.
+    async fn abandonner(&self, id: uuid::Uuid, prise: uuid::Uuid) -> Result<(), ErreurBase> {
+        let maintenant = self.horloge.maintenant();
+        let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
+        tx.terminer(id, prise, "abandon", maintenant).await?;
+        tx.confirmer().await?;
+        tracing::warn!(target: CIBLE, issue = "abandon", "envoi de courriel abandonné");
+        Ok(())
     }
 
     /// Boucle **supervisée** : une panique est journalisée (sans détail) et la boucle relancée.

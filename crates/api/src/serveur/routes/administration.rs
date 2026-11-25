@@ -30,7 +30,7 @@ use crate::base::administration::{
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier};
 use crate::base::session::MotifRevocation;
-use crate::base::taches::{SujetCourriel, planifier_courriel};
+use crate::base::taches::{SujetCourriel, plafond_invitation, planifier_courriel};
 use crate::base::{IdDossier, IdUtilisateur, TransactionTenant};
 use crate::courriel;
 use crate::serveur::audit::Trace;
@@ -637,6 +637,11 @@ async fn inviter(
     let courriel = courriel::adresse(&corps.courriel).ok_or(ErreurApi::RequeteInvalide)?;
     let nom = courriel::nom(&corps.nom).ok_or(ErreurApi::RequeteInvalide)?;
     let role = role_valide(&corps.role)?;
+    if plafond_invitation(tx, &courriel).await?.is_some() {
+        return Err(ErreurApi::TropDeRequetes {
+            reessayer_dans: 3600,
+        });
+    }
     let id = Uuid::new_v4();
     let issue = adm::creer_invitation(
         tx,
@@ -682,6 +687,14 @@ async fn renvoyer_invitation(
         .ok_or(ErreurApi::Introuvable)?;
     if invitation.etat != "en_attente" {
         return Err(conflit(MotifConflit::InvitationNonEnAttente));
+    }
+    if plafond_invitation(tx, &invitation.courriel)
+        .await?
+        .is_some()
+    {
+        return Err(ErreurApi::TropDeRequetes {
+            reessayer_dans: 3600,
+        });
     }
     // Un envoi déjà en file (non terminé) vaut renvoi : la demande est idempotente.
     let planifie = planifier_courriel(tx, SujetCourriel::Invitation, id, None).await?;

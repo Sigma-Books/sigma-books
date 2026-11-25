@@ -10,7 +10,7 @@
 //! | `SIGMA_SMTP_FICHIER_MOT_DE_PASSE` | avec l'utilisateur | **Chemin d'un fichier** de droits 0600 ou 0400 contenant le mot de passe (secret d'exécution : jamais dans l'environnement, jamais dans le dépôt). |
 //! | `SIGMA_SMTP_NOM_EXPEDITEUR` | non | Nom d'affichage de l'expéditeur (« Sigma Books » par défaut). |
 //! | `SIGMA_SMTP_NOM_HELO` | non | Nom annoncé à `EHLO` (par défaut, l'hôte de l'origine de l'instance). |
-//! | `SIGMA_SMTP_DELAI` | non | Délai de chaque échange, en secondes (30 par défaut, 1 à 300). |
+//! | `SIGMA_SMTP_DELAI` | non | Délai de chaque échange, en secondes (30 par défaut, 1 à 60 : le bail d'une tâche d'envoi est de 5 minutes). |
 //!
 //! Le mot de passe est effacé de la mémoire à la libération ; `Debug` ne montre aucun secret.
 
@@ -159,7 +159,7 @@ pub fn depuis(env: &Environnement<'_>) -> Result<Option<ConfigurationSmtp>, Erre
             .trim()
             .parse::<u64>()
             .ok()
-            .filter(|d| (1..=300).contains(d))
+            .filter(|d| (1..=60).contains(d))
             .ok_or(ErreurConfiguration::Invalide("SIGMA_SMTP_DELAI"))?,
     };
     let identifiants = match env.facultative("SIGMA_SMTP_UTILISATEUR") {
@@ -271,7 +271,7 @@ mod tests {
         assert!(avec(("SIGMA_SMTP_PORT", "0")).is_err());
         assert!(avec(("SIGMA_SMTP_PORT", "70000")).is_err());
         assert!(avec(("SIGMA_SMTP_DELAI", "0")).is_err());
-        assert!(avec(("SIGMA_SMTP_DELAI", "301")).is_err());
+        assert!(avec(("SIGMA_SMTP_DELAI", "61")).is_err());
         assert!(avec(("SIGMA_SMTP_NOM_EXPEDITEUR", "A\r\nBcc: x@y.sn")).is_err());
         assert!(avec(("SIGMA_SMTP_NOM_HELO", "mauvais nom")).is_err());
         assert!(
@@ -289,11 +289,9 @@ mod tests {
             ])
             .is_err()
         );
-        let erreur = format!(
-            "{:?}",
-            avec(("SIGMA_SMTP_PORT", "secret-valeur")).unwrap_err()
-        );
-        assert!(!erreur.contains("secret-valeur"));
+        let invalide = uuid::Uuid::new_v4().simple().to_string();
+        let erreur = format!("{:?}", avec(("SIGMA_SMTP_PORT", &invalide)).unwrap_err());
+        assert!(!erreur.contains(&invalide));
     }
 
     #[test]
@@ -315,17 +313,18 @@ mod tests {
             ])
         };
         let chemin = fichier.to_str().unwrap().to_owned();
-        ecrire(0o600, "valeur-de-test\n");
+        let secret = uuid::Uuid::new_v4().simple().to_string();
+        ecrire(0o600, &format!("{secret}\n"));
         let c = vars(&chemin).unwrap().unwrap();
         assert_eq!(
             c.identifiants.as_ref().unwrap().mot_de_passe.as_str(),
-            "valeur-de-test"
+            secret
         );
         // Jamais affiché.
         let debug = format!("{c:?}");
-        assert!(!debug.contains("valeur-de-test"), "{debug}");
+        assert!(!debug.contains(&secret), "{debug}");
         // Lisible par d'autres, vide, ou absent : refusé.
-        ecrire(0o644, "valeur-de-test");
+        ecrire(0o644, &secret);
         assert!(vars(&chemin).is_err());
         ecrire(0o600, "\n");
         assert!(vars(&chemin).is_err());

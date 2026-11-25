@@ -384,7 +384,7 @@ async fn la_reinitialisation_ne_part_qu_apres_le_delai_de_contestation() {
             "POST",
             &b.chemin(&format!("/membres/{cible}/reinitialisation")),
             &admin,
-            &json!({"motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
+            &json!({"motif_code": "autre", "motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
         )
         .await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
@@ -439,7 +439,7 @@ async fn une_reinitialisation_annulee_ne_part_pas() {
             "POST",
             &b.chemin(&format!("/membres/{cible}/reinitialisation")),
             &admin,
-            &json!({"motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
+            &json!({"motif_code": "autre", "motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
         )
         .await;
     let id = r.json()["id"].as_str().unwrap().to_owned();
@@ -463,7 +463,7 @@ async fn une_reinitialisation_perimee_ne_bloque_pas_une_nouvelle_demande() {
     let b = banc().await;
     let cible = b.c.collaborateur;
     let corps =
-        json!({"motif": "Appel de vérification", "verification_hors_bande": true}).to_string();
+        json!({"motif_code": "autre", "motif": "Appel de vérification", "verification_hors_bande": true}).to_string();
     let chemin = b.chemin(&format!("/membres/{cible}/reinitialisation"));
     let admin = b.session(b.c.administrateur).await;
     let r = b.appel("POST", &chemin, &admin, &corps).await;
@@ -541,4 +541,94 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
     }
     let _ = mon_id;
     let _ = b.horloge.maintenant();
+}
+
+#[tokio::test]
+async fn les_envois_a_une_meme_adresse_sont_plafonnes_sur_24_heures() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    let (id, _) = b.inviter(&admin).await;
+    let renvoi = b.chemin(&format!("/invitations/{id}/renvoi"));
+    // Création + deux renvois = trois envois vers l'adresse ; chaque envoi est traité avant le
+    // suivant (un envoi en file vaut déjà renvoi).
+    b.expediteur.passer().await.unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            b.appel("POST", &renvoi, &admin, "").await.statut,
+            StatusCode::OK
+        );
+        b.expediteur.passer().await.unwrap();
+    }
+    assert_eq!(b.transport.remis().len(), 3);
+    // Le quatrième est refusé (429), sans tâche ni courriel de plus.
+    let r = b.appel("POST", &renvoi, &admin, "").await;
+    assert_eq!(r.statut, StatusCode::TOO_MANY_REQUESTS, "{}", r.texte());
+    assert!(r.entetes.contains_key("retry-after"));
+    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    // Une invitation à une autre adresse n'est pas touchée par le plafond de la première.
+    b.inviter(&admin).await;
+}
+
+#[tokio::test]
+async fn les_envois_d_un_cabinet_sont_plafonnes_sur_24_heures() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    // Cent envois déjà faits aujourd'hui par ce cabinet.
+    for _ in 0..api::base::taches::INVITATIONS_MAX_PAR_CABINET_24H {
+        sqlx::query(
+            "INSERT INTO tache (id, nature, sujet, cabinet_cible, objet, etat, cree_le, \
+                                prochaine_tentative, termine_le, derniere_issue) \
+             VALUES ($1, 'courriel', 'invitation', $2, $3, 'terminee', now(), now(), now(), 'envoye')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(b.c.cabinet.uuid())
+        .bind(Uuid::new_v4())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    }
+    let r = b
+        .appel(
+            "POST",
+            &b.chemin("/invitations"),
+            &admin,
+            &json!({"courriel": format!("x.{}@cabinet.example", Uuid::new_v4().simple()), "nom": "X", "role": "auditeur"})
+                .to_string(),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::TOO_MANY_REQUESTS, "{}", r.texte());
+    // Le plafond est celui du cabinet : un autre cabinet n'est pas gêné.
+    let autre = creer_cabinet(&b.env.admin, "Autre").await;
+    let sa = b.session(autre.administrateur).await;
+    let r = b
+        .appel(
+            "POST",
+            &format!("/api/cabinets/{}/invitations", autre.cabinet),
+            &sa,
+            &json!({"courriel": format!("y.{}@cabinet.example", Uuid::new_v4().simple()), "nom": "Y", "role": "auditeur"})
+                .to_string(),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+}
+
+#[tokio::test]
+async fn une_tache_qui_a_epuise_ses_tentatives_est_abandonnee_sans_traitement() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    let (id, _) = b.inviter(&admin).await;
+    // Huit prises déjà faites (par exemple huit erreurs internes reprises au bail).
+    sqlx::query("UPDATE tache SET tentatives = 8 WHERE objet = $1")
+        .bind(id)
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    let bilan = b.expediteur.passer().await.unwrap();
+    assert_eq!((bilan.prises, bilan.clos, bilan.envoyes), (1, 1, 0));
+    assert!(b.transport.vide());
+    let (etat, issue, _) = b.tache(id).await;
+    assert_eq!(
+        (etat.as_str(), issue.as_deref()),
+        ("terminee", Some("abandon"))
+    );
 }

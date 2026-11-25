@@ -51,6 +51,11 @@ async fn faux_relais() -> (u16, Arc<Mutex<Vec<u8>>>) {
     (port, recu)
 }
 
+/// Valeur tirée à chaque appel : aucun secret, même factice, n'est écrit dans le dépôt.
+fn secret_jetable() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
 fn configuration(port: u16, tls: ModeTls, avec_identifiants: bool) -> ConfigurationSmtp {
     ConfigurationSmtp {
         hote: "127.0.0.1".to_owned(),
@@ -58,7 +63,7 @@ fn configuration(port: u16, tls: ModeTls, avec_identifiants: bool) -> Configurat
         tls,
         identifiants: avec_identifiants.then(|| Identifiants {
             utilisateur: "envoi".to_owned(),
-            mot_de_passe: Zeroizing::new("valeur-de-test-jetable".to_owned()),
+            mot_de_passe: Zeroizing::new(secret_jetable()),
         }),
         expediteur: "noreply@exemple.sn".to_owned(),
         nom_expediteur: "Sigma Books".to_owned(),
@@ -68,15 +73,16 @@ fn configuration(port: u16, tls: ModeTls, avec_identifiants: bool) -> Configurat
 }
 
 fn message() -> api::envoi::modele::Message {
+    let jeton = api::base::liens::JetonLien::tirer().unwrap().texte();
     invitation(
         "awa@cabinet.example",
         "Awa Diop",
-        "https://compta.exemple.sn/lien#AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        &api::envoi::modele::adresse_du_lien("https://compta.exemple.sn", &jeton),
     )
     .unwrap()
 }
 
-fn rien_de_sensible(recu: &[u8]) {
+fn rien_de_sensible(recu: &[u8], secret: &str) {
     let texte = String::from_utf8_lossy(recu).to_ascii_uppercase();
     for interdit in [
         "AUTH",
@@ -85,21 +91,28 @@ fn rien_de_sensible(recu: &[u8]) {
         "DATA",
         "AWA@CABINET",
         "LIEN#",
-        "VALEUR-DE-TEST",
     ] {
         assert!(
             !texte.contains(interdit),
             "{interdit} reçu en clair : {texte}"
         );
     }
+    assert!(
+        !texte.contains(&secret.to_ascii_uppercase()),
+        "secret reçu en clair"
+    );
 }
 
 #[tokio::test]
 async fn un_relais_sans_starttls_ne_recoit_rien() {
     let (port, recu) = faux_relais().await;
+    let mut secret = String::new();
     for identifiants in [false, true] {
-        let transport =
-            TransportSmtp::new(&configuration(port, ModeTls::Starttls, identifiants)).unwrap();
+        let config = configuration(port, ModeTls::Starttls, identifiants);
+        if let Some(i) = &config.identifiants {
+            secret = i.mot_de_passe.to_string();
+        }
+        let transport = TransportSmtp::new(&config).unwrap();
         let resultat = transport.envoyer(&message()).await;
         assert_eq!(
             resultat,
@@ -114,17 +127,24 @@ async fn un_relais_sans_starttls_ne_recoit_rien() {
             .to_ascii_uppercase()
             .contains("EHLO")
     );
-    rien_de_sensible(&recu);
+    rien_de_sensible(&recu, &secret);
 }
 
 #[tokio::test]
 async fn le_tls_implicite_n_envoie_rien_en_clair() {
     let (port, recu) = faux_relais().await;
-    let transport = TransportSmtp::new(&configuration(port, ModeTls::Implicite, true)).unwrap();
+    let config = configuration(port, ModeTls::Implicite, true);
+    let secret = config
+        .identifiants
+        .as_ref()
+        .unwrap()
+        .mot_de_passe
+        .to_string();
+    let transport = TransportSmtp::new(&config).unwrap();
     let resultat = transport.envoyer(&message()).await;
     assert!(resultat.is_err(), "{resultat:?}");
     // Le TLS échoue avant tout échange SMTP : seules des octets de poignée de main ont circulé.
-    rien_de_sensible(&recu.lock().unwrap());
+    rien_de_sensible(&recu.lock().unwrap(), &secret);
 }
 
 #[tokio::test]
@@ -154,5 +174,11 @@ async fn un_relais_injoignable_est_un_echec_provisoire_sans_texte() {
 fn le_debug_du_transport_et_de_la_configuration_ne_montre_aucun_secret() {
     let config = configuration(2525, ModeTls::Starttls, true);
     let texte = format!("{config:?} {:?}", TransportSmtp::new(&config).unwrap());
-    assert!(!texte.contains("valeur-de-test-jetable"), "{texte}");
+    let secret = config
+        .identifiants
+        .as_ref()
+        .unwrap()
+        .mot_de_passe
+        .to_string();
+    assert!(!texte.contains(&secret), "{texte}");
 }

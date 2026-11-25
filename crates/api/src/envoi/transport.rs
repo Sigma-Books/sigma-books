@@ -98,6 +98,9 @@ impl TransportSmtp {
         if let Some(helo) = &config.nom_helo {
             constructeur = constructeur.hello_name(ClientId::Domain(helo.clone()));
         }
+        // Limite connue : `Credentials::new` prend des `String` que `lettre` conserve pour la
+        // durée du processus, sans les effacer. La copie de `ConfigurationSmtp` est, elle,
+        // effacée à la libération ; la copie de la bibliothèque ne peut pas l'être (ADR 0024).
         if let Some(i) = &config.identifiants {
             constructeur = constructeur.credentials(Credentials::new(
                 i.utilisateur.clone(),

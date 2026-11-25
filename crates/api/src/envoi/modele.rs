@@ -92,7 +92,11 @@ pub fn reinitialisation(destinataire: &str, nom: &str, lien: &str) -> Option<Mes
 mod tests {
     use super::*;
 
-    const LIEN: &str = "https://compta.exemple.sn/lien#AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    /// Lien jamais écrit en dur : un jeton tiré à chaque appel.
+    fn lien() -> String {
+        let jeton = crate::base::liens::JetonLien::tirer().unwrap().texte();
+        adresse_du_lien("https://compta.exemple.sn", &jeton)
+    }
 
     #[test]
     fn le_lien_est_dans_le_fragment_de_l_origine() {
@@ -104,10 +108,11 @@ mod tests {
 
     #[test]
     fn l_invitation_ne_contient_que_le_necessaire() {
-        let m = invitation("Awa@Cabinet.SN", "Awa Diop", LIEN).unwrap();
+        let lien = lien();
+        let m = invitation("Awa@Cabinet.SN", "Awa Diop", &lien).unwrap();
         assert_eq!(m.destinataire, "awa@cabinet.sn");
         assert_eq!(m.sujet, SUJET_INVITATION);
-        assert!(m.texte.contains(LIEN) && m.texte.contains("Awa Diop"));
+        assert!(m.texte.contains(&lien) && m.texte.contains("Awa Diop"));
         assert!(m.texte.contains("24 heures") && m.texte.contains("ignorez ce message"));
         // Ni mot de passe, ni montant, ni cabinet.
         for interdit in ["mot de passe :", "FCFA", "XOF", "dossier", "cabinet X"] {
@@ -117,32 +122,36 @@ mod tests {
 
     #[test]
     fn la_reinitialisation_annonce_une_heure_et_le_retrait_des_anciens_facteurs() {
-        let m = reinitialisation("awa@cabinet.sn", "Awa Diop", LIEN).unwrap();
+        let lien = lien();
+        let m = reinitialisation("awa@cabinet.sn", "Awa Diop", &lien).unwrap();
         assert_eq!(m.sujet, SUJET_REINITIALISATION);
         assert!(m.texte.contains("une heure") && m.texte.contains("retirés"));
     }
 
     #[test]
     fn une_adresse_ou_un_nom_douteux_ne_produit_aucun_message() {
-        assert!(invitation("a@b.sn\nBcc: x@y.sn", "Nom", LIEN).is_none());
-        assert!(invitation("a@cabinet.sn", "Nom\r\nSubject: faux", LIEN).is_none());
-        assert!(reinitialisation("pas une adresse", "Nom", LIEN).is_none());
+        let lien = lien();
+        assert!(invitation("a@b.sn\nBcc: x@y.sn", "Nom", &lien).is_none());
+        assert!(invitation("a@cabinet.sn", "Nom\r\nSubject: faux", &lien).is_none());
+        assert!(reinitialisation("pas une adresse", "Nom", &lien).is_none());
     }
 
     #[test]
     fn le_debug_ne_montre_pas_le_lien() {
-        let m = invitation("awa@cabinet.sn", "Awa", LIEN).unwrap();
+        let lien = lien();
+        let m = invitation("awa@cabinet.sn", "Awa", &lien).unwrap();
         let debug = format!("{m:?}");
         assert!(
-            !debug.contains("AAAA") && !debug.contains("awa@cabinet.sn"),
+            !debug.contains("lien#") && !debug.contains("awa@cabinet.sn"),
             "{debug}"
         );
     }
 
     #[test]
     fn le_sujet_est_constant_quel_que_soit_le_destinataire() {
-        let a = invitation("a@cabinet.sn", "Un", LIEN).unwrap();
-        let b = invitation("b@cabinet.sn", "Deux", LIEN).unwrap();
+        let lien = lien();
+        let a = invitation("a@cabinet.sn", "Un", &lien).unwrap();
+        let b = invitation("b@cabinet.sn", "Deux", &lien).unwrap();
         assert_eq!(a.sujet, b.sujet);
     }
 }
