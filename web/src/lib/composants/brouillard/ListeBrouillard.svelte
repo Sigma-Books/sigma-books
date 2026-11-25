@@ -24,12 +24,12 @@
 	import type { Exercice, Journal } from '#lib/api/referentiel.ts';
 	import { lireUuid, type Uuid } from '#lib/api/types.ts';
 	import { api } from '#lib/application.ts';
+	import { executerSensible } from '#lib/reauthentification.svelte.ts';
 	import { ROLES_SAISIE, ROLES_VALIDATION_LOT } from '#lib/contexte-dossier.ts';
 	import { afficherDate } from '#lib/dates.ts';
 	import { ecart, formaterMontant } from '#lib/montants.ts';
 	import MessageErreur from '../MessageErreur.svelte';
 	import MessageMetier from '../MessageMetier.svelte';
-	import Reauthentification from '../Reauthentification.svelte';
 
 	interface Props {
 		cabinet: Uuid;
@@ -57,7 +57,7 @@
 	let erreurListe = $state<ErreurApi | null>(null);
 	let aSupprimer = $state<string | null>(null);
 
-	type PhaseLot = 'aucune' | 'confirmation' | 'reauth';
+	type PhaseLot = 'aucune' | 'confirmation';
 	let phase = $state<PhaseLot>('aucune');
 	let enCoursLot = $state(false);
 	let erreurLot = $state<ErreurApi | null>(null);
@@ -198,42 +198,15 @@
 		phase = 'aucune';
 	}
 
-	/** Le serveur exige une session fraîche : on la contrôle avant, et après un 403. */
-	async function sessionFraiche(): Promise<boolean> {
-		return (await api.ouvrirSession()).fraiche;
-	}
-
+	/**
+	 * Valide le lot : la session doit être fraîche (le dialogue de ré-authentification de la
+	 * coquille s'ouvre sinon) et la requête est rejouée une fois si la fraîcheur expire entre-temps
+	 * (`executerSensible`). Un lot refusé (409 `lot_refuse`) ne valide rien.
+	 */
 	async function confirmerLot(): Promise<void> {
 		erreurLot = null;
+		refusLot = [];
 		enCoursLot = true;
-		try {
-			if (!(await sessionFraiche())) {
-				phase = 'reauth';
-				return;
-			}
-			await executerLot();
-		} catch (e) {
-			if (!(e instanceof ErreurApi)) throw e;
-			erreurLot = e;
-		} finally {
-			enCoursLot = false;
-		}
-	}
-
-	async function apresReauth(): Promise<void> {
-		phase = 'confirmation';
-		enCoursLot = true;
-		try {
-			await executerLot();
-		} catch (e) {
-			if (!(e instanceof ErreurApi)) throw e;
-			erreurLot = e;
-		} finally {
-			enCoursLot = false;
-		}
-	}
-
-	async function executerLot(): Promise<void> {
 		const elements: ElementLot[] = [];
 		for (const id of selectionVisible) {
 			const uuid = lireUuid(id);
@@ -241,9 +214,14 @@
 			if (uuid !== null && l !== undefined) elements.push({ ecriture: uuid, version: l.version });
 		}
 		try {
-			const lot = await validerParLot(api, cabinet, dossier, elements);
-			const faits = lot.ecritures.map((e) => e.id);
-			retirerDeLaListe(faits);
+			const issue = await executerSensible(() => validerParLot(api, cabinet, dossier, elements));
+			if (!issue.fait) {
+				info = 'Validation annulée : la ré-authentification n’a pas eu lieu.';
+				phase = 'aucune';
+				return;
+			}
+			const lot = issue.valeur;
+			retirerDeLaListe(lot.ecritures.map((e) => e.id));
 			validees = lot.ecritures.map((e) => ({ id: e.id, numero: e.numero }));
 			const exclues =
 				lot.exclues_a_revoir > 0
@@ -253,15 +231,11 @@
 			phase = 'aucune';
 		} catch (e) {
 			if (!(e instanceof ErreurApi)) throw e;
-			if (e.detail?.motif === 'lot_refuse') {
-				refusLot = [...e.detail.refus];
-				erreurLot = e;
-				phase = 'aucune';
-			} else if (e.statut === 403 && !(await sessionFraiche())) {
-				phase = 'reauth';
-			} else {
-				throw e;
-			}
+			erreurLot = e;
+			if (e.detail?.motif === 'lot_refuse') refusLot = [...e.detail.refus];
+			phase = 'aucune';
+		} finally {
+			enCoursLot = false;
 		}
 	}
 
@@ -378,8 +352,6 @@
 				<button type="button" class="bouton bouton-secondaire" onclick={annulerLot}>Annuler</button>
 			</p>
 		</div>
-	{:else if phase === 'reauth'}
-		<Reauthentification surReussite={apresReauth} surAnnulation={annulerLot} />
 	{/if}
 	{#if erreurLot && refusLot.length === 0}
 		<MessageMetier erreur={erreurLot} contexte="La validation par lot a échoué." />
