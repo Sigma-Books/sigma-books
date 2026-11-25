@@ -13,7 +13,8 @@ const MESSAGES: Readonly<Record<string, string>> = {
 	trop_de_lignes: 'L’écriture comporte trop de lignes.',
 	compte_inconnu: 'Ce compte n’existe pas dans le plan du dossier.',
 	compte_inactif: 'Ce compte est désactivé.',
-	compte_de_regroupement: 'Ce compte est un compte de regroupement : choisissez un compte de détail.',
+	compte_de_regroupement:
+		'Ce compte est un compte de regroupement : choisissez un compte de détail.',
 	montant_invalide: 'Ce montant est refusé (il doit être strictement positif et dans les bornes).',
 	tiers_inconnu: 'Ce tiers n’existe pas dans le dossier.',
 	tiers_inactif: 'Ce tiers est désactivé.',
@@ -42,19 +43,24 @@ const MESSAGES: Readonly<Record<string, string>> = {
 	exercice_en_cloture: 'L’exercice est en clôture : ce journal n’est pas admis.',
 	date_valeur_dans_periode_ouverte: 'La date de valeur tombe dans une période encore ouverte.',
 	date_valeur_dans_periode_verrouillee: 'La date de valeur tombe dans une période verrouillée.',
-	date_valeur_dans_periode_echue: 'La date de valeur tombe dans une période dont l’échéance est passée.',
-	periode_accueil_verrouillee: 'La période qui doit accueillir l’opération tardive est verrouillée.',
+	date_valeur_dans_periode_echue:
+		'La date de valeur tombe dans une période dont l’échéance est passée.',
+	periode_accueil_verrouillee:
+		'La période qui doit accueillir l’opération tardive est verrouillée.',
 	operation_tardive_mal_datee: 'L’opération tardive est mal datée.',
 	sequence_epuisee: 'La numérotation du journal est épuisée.',
-	ecriture_desequilibree: 'L’écriture n’est pas équilibrée : total des débits différent du total des crédits.',
+	ecriture_desequilibree:
+		'L’écriture n’est pas équilibrée : total des débits différent du total des crédits.',
 	ecriture_une_seule_ligne: 'Une écriture doit comporter au moins deux lignes.',
 	ecriture_vide: 'L’écriture ne comporte aucune ligne.',
 	validation_compte_inconnu: 'Un compte de l’écriture n’existe pas dans le plan.',
 	validation_compte_inactif: 'Un compte de l’écriture est désactivé.',
 	validation_compte_de_regroupement: 'Un compte de l’écriture est un compte de regroupement.',
 	tiers_manquant: 'Une ligne sur un compte collectif n’a pas de tiers.',
-	justification_manquante: 'Aucune pièce justificative n’est jointe : joignez-en une avant de valider.',
-	compte_tresorerie_absent: 'Ce journal de trésorerie exige un mouvement sur son compte de trésorerie.',
+	justification_manquante:
+		'Aucune pièce justificative n’est jointe : joignez-en une avant de valider.',
+	compte_tresorerie_absent:
+		'Ce journal de trésorerie exige un mouvement sur son compte de trésorerie.',
 	validation_journal_inconnu: 'Le journal de l’écriture n’existe pas.',
 	validation_journal_sans_saisie: 'Le journal de l’écriture n’accepte pas la saisie.',
 	validation_date_hors_exercice: 'La date de l’écriture n’appartient à aucun exercice.',
@@ -62,8 +68,10 @@ const MESSAGES: Readonly<Record<string, string>> = {
 		'La date de valeur doit être antérieure à la date comptable.',
 	montant_echelle_excessive: 'Un montant a trop de décimales.',
 	ecriture_invalide: 'L’écriture est invalide (montant ou texte refusé).',
-	ecriture_non_representable: 'L’écriture ne peut pas être enregistrée sous la forme figée requise.',
-	date_anterieure_a_l_origine: 'La contre-passation ne peut pas être datée avant l’écriture d’origine.',
+	ecriture_non_representable:
+		'L’écriture ne peut pas être enregistrée sous la forme figée requise.',
+	date_anterieure_a_l_origine:
+		'La contre-passation ne peut pas être datée avant l’écriture d’origine.',
 	// Pièces.
 	type_non_admis: 'Ce type de fichier n’est pas admis (PDF, JPEG ou PNG seulement).',
 	// Ré-authentification (422).

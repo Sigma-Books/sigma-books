@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { actionClavier, normaliser, rechercherComptes, type EvenementClavier } from './raccourcis.ts';
+import {
+	actionClavier,
+	normaliser,
+	rechercherComptes,
+	type EvenementClavier
+} from './raccourcis.ts';
 
 const touche = (key: string, plus: Partial<EvenementClavier> = {}): EvenementClavier => ({
 	key,
@@ -48,9 +53,18 @@ test('F2 ouvre la recherche de compte dans le champ compte', () => {
 });
 
 test('les combinaisons avec Alt ou Méta sont laissées au navigateur', () => {
-	assert.equal(actionClavier(touche('Enter', { altKey: true }), { champ: 'debit', vide: true }), null);
-	assert.equal(actionClavier(touche('Enter', { metaKey: true }), { champ: 'debit', vide: true }), null);
-	assert.equal(actionClavier(touche('Enter', { shiftKey: true }), { champ: 'debit', vide: true }), null);
+	assert.equal(
+		actionClavier(touche('Enter', { altKey: true }), { champ: 'debit', vide: true }),
+		null
+	);
+	assert.equal(
+		actionClavier(touche('Enter', { metaKey: true }), { champ: 'debit', vide: true }),
+		null
+	);
+	assert.equal(
+		actionClavier(touche('Enter', { shiftKey: true }), { champ: 'debit', vide: true }),
+		null
+	);
 });
 
 const COMPTES = [

@@ -30,8 +30,14 @@ const brouillon = {
 
 test('garde du brouillon : montant en chaîne, sens fermé', () => {
 	assert.equal(estBrouillon(brouillon), true);
-	assert.equal(estBrouillon({ ...brouillon, lignes: [{ ...brouillon.lignes[0], montant: 150000.5 }] }), false);
-	assert.equal(estBrouillon({ ...brouillon, lignes: [{ ...brouillon.lignes[0], sens: 'D' }] }), false);
+	assert.equal(
+		estBrouillon({ ...brouillon, lignes: [{ ...brouillon.lignes[0], montant: 150000.5 }] }),
+		false
+	);
+	assert.equal(
+		estBrouillon({ ...brouillon, lignes: [{ ...brouillon.lignes[0], sens: 'D' }] }),
+		false
+	);
 	assert.equal(estBrouillon({ ...brouillon, id: 'pas-un-uuid' }), false);
 	assert.equal(estBrouillon({ ...brouillon, version: 1.5 }), false);
 });
@@ -87,7 +93,10 @@ test('paramètres du brouillard : formes invalides ignorées, pas d’injection'
 	assert.equal(parametresBrouillard({ journal: 'OD' }), `journal=OD&limite=50`);
 	assert.equal(parametresBrouillard({ journal: 'od&x=1' }), 'limite=50');
 	const periode = lireUuid(ID);
-	assert.equal(parametresBrouillard({ periode, apres: `2026-03-15_${ID}` }, 20), `periode=${ID}&apres=2026-03-15_${ID}&limite=20`);
+	assert.equal(
+		parametresBrouillard({ periode, apres: `2026-03-15_${ID}` }, 20),
+		`periode=${ID}&apres=2026-03-15_${ID}&limite=20`
+	);
 });
 
 test('nom de pièce sûr : sans chemin, sans contrôle, borné en octets', () => {

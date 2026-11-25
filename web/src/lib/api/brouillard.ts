@@ -199,9 +199,7 @@ function estResumeBrouillon(v: unknown): v is ResumeBrouillon {
 }
 
 export const estPageBrouillard: Garde<PageBrouillard> = (v): v is PageBrouillard =>
-	estObjet(v) &&
-	tableauDe(v.brouillons, estResumeBrouillon) &&
-	curseurOuNul(v.suivant);
+	estObjet(v) && tableauDe(v.brouillons, estResumeBrouillon) && curseurOuNul(v.suivant);
 
 export const estValidation: Garde<Validation> = (v): v is Validation =>
 	estObjet(v) &&
@@ -246,9 +244,7 @@ function estResumeEcriture(v: unknown): v is ResumeEcriture {
 }
 
 export const estPageEcritures: Garde<PageEcritures> = (v): v is PageEcritures =>
-	estObjet(v) &&
-	tableauDe(v.ecritures, estResumeEcriture) &&
-	curseurOuNul(v.suivant);
+	estObjet(v) && tableauDe(v.ecritures, estResumeEcriture) && curseurOuNul(v.suivant);
 
 export const estContrePassation: Garde<ContrePassation> = (v): v is ContrePassation =>
 	estObjet(v) &&
@@ -276,7 +272,8 @@ const CODE_JOURNAL = /^[A-Z0-9]{1,8}$/;
 /** Paramètres de la liste ; une valeur de forme invalide est ignorée plutôt que d'être envoyée. */
 export function parametresBrouillard(filtre: FiltreBrouillard, limite = 50): string {
 	const p = new URLSearchParams();
-	if (filtre.journal !== undefined && CODE_JOURNAL.test(filtre.journal)) p.set('journal', filtre.journal);
+	if (filtre.journal !== undefined && CODE_JOURNAL.test(filtre.journal))
+		p.set('journal', filtre.journal);
 	if (filtre.periode) p.set('periode', filtre.periode);
 	if (filtre.apres) p.set('apres', filtre.apres);
 	p.set('limite', String(limite));

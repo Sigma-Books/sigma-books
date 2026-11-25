@@ -51,12 +51,7 @@ export interface CompteRecherchable {
 
 /** Minuscules sans accents ni espaces superflus, pour comparer des libellés. */
 export function normaliser(texte: string): string {
-	return texte
-		.normalize('NFD')
-		.replace(/\p{M}/gu, '')
-		.toLowerCase()
-		.replace(/\s+/g, ' ')
-		.trim();
+	return texte.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 /**

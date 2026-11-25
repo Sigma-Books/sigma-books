@@ -70,7 +70,11 @@ function liste<T, K extends string>(cle: K, garde: (v: unknown) => v is T): Gard
 
 const base = (cabinet: Uuid, dossier: Uuid) => `/api/cabinets/${cabinet}/dossiers/${dossier}`;
 
-export async function listerComptes(api: ClientApi, cabinet: Uuid, dossier: Uuid): Promise<Compte[]> {
+export async function listerComptes(
+	api: ClientApi,
+	cabinet: Uuid,
+	dossier: Uuid
+): Promise<Compte[]> {
 	return (await api.lire(`${base(cabinet, dossier)}/comptes`, liste('comptes', estCompte))).comptes;
 }
 
@@ -103,7 +107,10 @@ export async function listerTiers(api: ClientApi, cabinet: Uuid, dossier: Uuid):
 	let apres: string | null = null;
 	for (let page = 0; page < 20; page += 1) {
 		const suffixe: string = apres === null ? '' : `&apres=${encodeURIComponent(apres)}`;
-		const lue = await api.lire(`${base(cabinet, dossier)}/tiers?limite=200${suffixe}`, estPageTiers);
+		const lue = await api.lire(
+			`${base(cabinet, dossier)}/tiers?limite=200${suffixe}`,
+			estPageTiers
+		);
 		tous.push(...lue.tiers);
 		if (lue.suite === null || lue.suite === undefined) break;
 		apres = lue.suite;

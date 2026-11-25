@@ -31,7 +31,9 @@ export function ligneVide(): LigneSaisie {
 
 /** Vrai si rien n'a été saisi sur la ligne. */
 export function estLigneVide(l: LigneSaisie): boolean {
-	return l.compte.trim() === '' && l.tiers === '' && l.debit.trim() === '' && l.credit.trim() === '';
+	return (
+		l.compte.trim() === '' && l.tiers === '' && l.debit.trim() === '' && l.credit.trim() === ''
+	);
 }
 
 export interface CorpsLigne {
@@ -50,7 +52,8 @@ export interface CorpsEcriture {
 	lignes: CorpsLigne[];
 }
 
-export type ProblemeLocal = 'montant_illisible' | 'debit_et_credit' | 'montant_absent' | 'compte_absent';
+export type ProblemeLocal =
+	'montant_illisible' | 'debit_et_credit' | 'montant_absent' | 'compte_absent';
 
 export type Construction =
 	| {
@@ -128,6 +131,9 @@ export function soldePropose(lignes: readonly LigneSaisie[], index: number): Sol
 }
 
 /** Une ligne de la grille à partir de la position (à partir de 1) citée par le serveur. */
-export function indexDepuisPosition(positions: readonly number[], positionServeur: number): number | null {
+export function indexDepuisPosition(
+	positions: readonly number[],
+	positionServeur: number
+): number | null {
 	return positions[positionServeur - 1] ?? null;
 }

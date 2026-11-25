@@ -19,9 +19,7 @@ export interface Piece {
 	ecartee: boolean;
 }
 
-export type ResultatDepot =
-	| { doublon: false; piece: Piece }
-	| { doublon: true; pieces: Piece[] };
+export type ResultatDepot = { doublon: false; piece: Piece } | { doublon: true; pieces: Piece[] };
 
 /** Taille maximale d'un fichier déposé (le serveur refuse au-delà : 413). */
 export const TAILLE_MAX_PIECE = 20 * 1024 * 1024;
@@ -43,12 +41,19 @@ const estDepot = (v: unknown): v is Piece | { doublon: true; pieces: Piece[] } =
 const estPagePieces = (v: unknown): v is { pieces: Piece[]; suivant?: string | null } =>
 	estObjet(v) && tableauDe(v.pieces, estPiece) && curseurOuNul(v.suivant);
 
-const base = (cabinet: Uuid, dossier: Uuid) => `/api/cabinets/${cabinet}/dossiers/${dossier}/pieces`;
+const base = (cabinet: Uuid, dossier: Uuid) =>
+	`/api/cabinets/${cabinet}/dossiers/${dossier}/pieces`;
 
 /** Nom de fichier sûr pour le paramètre `nom` : sans chemin ni caractère de contrôle, borné. */
 export function nomPieceSur(nom: string): string {
-	// eslint-disable-next-line no-control-regex
-	const net = nom.replace(/[\u0000-\u001f\u007f]/g, '').replace(/[\\/]/g, '_').trim();
+	const net = [...nom]
+		.filter((c) => {
+			const code = c.codePointAt(0) ?? 0;
+			return code >= 0x20 && code !== 0x7f;
+		})
+		.join('')
+		.replace(/[\\/]/g, '_')
+		.trim();
 	let borne = net;
 	// Le serveur limite le nom à 255 octets UTF-8.
 	while (new TextEncoder().encode(borne).length > 255) borne = borne.slice(0, -1);
@@ -73,8 +78,15 @@ export async function deposerPiece(
 	const nom = nomPieceSur(fichier.name);
 	if (nom !== '') p.set('nom', nom);
 	if (confirmerDoublon) p.set('doublon', 'confirme');
-	const reponse = await api.muter('POST', `${base(cabinet, dossier)}?${p.toString()}`, estDepot, fichier);
-	return 'doublon' in reponse ? { doublon: true, pieces: reponse.pieces } : { doublon: false, piece: reponse };
+	const reponse = await api.muter(
+		'POST',
+		`${base(cabinet, dossier)}?${p.toString()}`,
+		estDepot,
+		fichier
+	);
+	return 'doublon' in reponse
+		? { doublon: true, pieces: reponse.pieces }
+		: { doublon: false, piece: reponse };
 }
 
 /** Note d'opérations diverses (pièce interne) : date de l'opération, motif, lignes d'explication. */

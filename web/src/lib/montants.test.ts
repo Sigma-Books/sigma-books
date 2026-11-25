@@ -22,7 +22,19 @@ test('lireMontant normalise les saisies valides en chaîne canonique', () => {
 });
 
 test('lireMontant refuse ce qui n’est pas un décimal positif borné', () => {
-	for (const mauvais of ['', ' ', '-5', '+5', '1e3', '1,2,3', '12a', '.5', '5.', '0x10', '1.1234567']) {
+	for (const mauvais of [
+		'',
+		' ',
+		'-5',
+		'+5',
+		'1e3',
+		'1,2,3',
+		'12a',
+		'.5',
+		'5.',
+		'0x10',
+		'1.1234567'
+	]) {
 		assert.equal(lireMontant(mauvais), null, mauvais);
 	}
 	assert.equal(lireMontant('9'.repeat(20)), '9'.repeat(20));

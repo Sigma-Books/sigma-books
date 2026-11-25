@@ -10,7 +10,12 @@ import {
 	type LigneSaisie
 } from './saisie.ts';
 
-const entete: EnteteSaisie = { journal: 'OD', date: '2026-03-15', libelle: ' Loyer ', dateValeur: '' };
+const entete: EnteteSaisie = {
+	journal: 'OD',
+	date: '2026-03-15',
+	libelle: ' Loyer ',
+	dateValeur: ''
+};
 const l = (compte: string, debit: string, credit: string, tiers = ''): LigneSaisie => ({
 	compte,
 	tiers,
@@ -19,7 +24,11 @@ const l = (compte: string, debit: string, credit: string, tiers = ''): LigneSais
 });
 
 test('le corps ne contient que des chaînes pour les montants', () => {
-	const r = corpsEcriture(entete, [l('6222', '150 000,50', ''), ligneVide(), l('521', '', '150000.5')], 3);
+	const r = corpsEcriture(
+		entete,
+		[l('6222', '150 000,50', ''), ligneVide(), l('521', '', '150000.5')],
+		3
+	);
 	assert.ok(r.ok);
 	assert.deepEqual(r.corps, {
 		version: 3,
@@ -36,7 +45,9 @@ test('le corps ne contient que des chaînes pour les montants', () => {
 });
 
 test('tiers et date de valeur sont transmis quand ils sont saisis', () => {
-	const r = corpsEcriture({ ...entete, dateValeur: '2026-03-10' }, [l('401', '', '10', 'id-tiers')]);
+	const r = corpsEcriture({ ...entete, dateValeur: '2026-03-10' }, [
+		l('401', '', '10', 'id-tiers')
+	]);
 	assert.ok(r.ok);
 	assert.equal(r.corps.date_valeur_comptable, '2026-03-10');
 	assert.equal(r.corps.lignes[0]?.tiers, 'id-tiers');
@@ -54,11 +65,17 @@ test('les formes illisibles sont signalées avec la ligne de la grille', () => {
 		probleme: 'montant_illisible',
 		ligne: 1
 	});
-	assert.deepEqual(corpsEcriture(entete, [l('521', '', '')].map((x) => ({ ...x, tiers: 't' }))), {
-		ok: false,
-		probleme: 'montant_absent',
-		ligne: 0
-	});
+	assert.deepEqual(
+		corpsEcriture(
+			entete,
+			[l('521', '', '')].map((x) => ({ ...x, tiers: 't' }))
+		),
+		{
+			ok: false,
+			probleme: 'montant_absent',
+			ligne: 0
+		}
+	);
 	assert.deepEqual(corpsEcriture(entete, [l('', '5', '')]), {
 		ok: false,
 		probleme: 'compte_absent',
@@ -71,7 +88,10 @@ test('équilibre indicatif et solde proposé par =', () => {
 	assert.equal(equilibreIndicatif(grille).sens, 'credit');
 	assert.deepEqual(soldePropose(grille, 2), { champ: 'credit', montant: '118' });
 	assert.equal(soldePropose([l('1', '5', ''), l('2', '', '5'), l('3', '', '')], 2), null);
-	assert.deepEqual(soldePropose([l('1', '', '7'), l('2', '', '')], 1), { champ: 'debit', montant: '7' });
+	assert.deepEqual(soldePropose([l('1', '', '7'), l('2', '', '')], 1), {
+		champ: 'debit',
+		montant: '7'
+	});
 });
 
 test('position du serveur → ligne de la grille', () => {

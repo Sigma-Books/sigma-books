@@ -11,8 +11,8 @@ export const ECHELLE = 6;
 export const CHIFFRES_ENTIERS_MAX = 20;
 
 const FACTEUR = 10n ** BigInt(ECHELLE);
-// Espaces de groupement admis à la saisie : espace, insécable, fine insécable.
-const ESPACES = /[   ]/g;
+// Espaces de groupement admis à la saisie : espace, U+00A0 (insécable), U+202F (fine insécable).
+const ESPACES = /[ \u00a0\u202f]/g;
 const FORME = new RegExp(`^(\\d{1,${CHIFFRES_ENTIERS_MAX}})(?:[.,](\\d{1,${ECHELLE}}))?$`);
 
 /**
