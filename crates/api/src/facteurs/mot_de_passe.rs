@@ -210,8 +210,8 @@ mod tests {
         assert_eq!(verifier(&phc, "ancien mot de passe"), Verification::Refuse);
     }
 
-    /// Compatibilité de format : une chaîne PHC produite avant la montée en `argon2` 0.6
-    /// (`password-hash` 0.5) se vérifie toujours.
+    /// Vecteur de référence public Argon2id (m=256, t=2, p=1, `password`/`somesalt`), format PHC
+    /// inchangé entre 0.5 et 0.6 ; aucun hachage de production (m=19456) figé ici.
     ///
     /// Vecteur de référence public, cité tel quel : implémentation de référence d'Argon2
     /// (P-H-C/phc-winner-argon2, `src/test.c`, cas Argon2id v=19, t=2, m=2^8 Kio, p=1, mot de
