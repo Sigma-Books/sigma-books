@@ -596,3 +596,243 @@ sens = "crediteur"
             .is_ok()
     );
 }
+
+// --- Comptes de TVA désignés (issue #189, ADR 0026) -----------------------------------------
+
+mod comptes_tva {
+    use super::*;
+    use crate::RoleCompteTva::{Due, Facturee, Provision, Recuperable};
+
+    fn tva() -> ComptesTva {
+        officiel().comptes_de_tva().expect("désignation valide")
+    }
+
+    #[test]
+    fn cinq_comptes_designes_avec_leur_source() {
+        let t = tva();
+        let r = officiel();
+        let vus: Vec<_> = t
+            .entrees()
+            .iter()
+            .map(|e| (e.numero().as_str(), e.role(), e.page_liste()))
+            .collect();
+        assert_eq!(
+            vus,
+            [
+                ("443", Facturee, 243),
+                ("444", Due, 244),
+                ("445", Recuperable, 244),
+                ("4435", Provision, 243),
+                ("4455", Provision, 244),
+            ]
+        );
+        for e in t.entrees() {
+            assert!(e.source().contains("p. PDF"), "{}", e.numero());
+            assert!(e.source().contains("Guide"), "{}", e.numero());
+            assert_eq!(e.page_fonctionnement(), 395);
+            // Intitulé et page identiques à la liste officielle.
+            let c = r.compte(e.numero()).unwrap();
+            assert_eq!(c.intitule().as_str(), e.intitule());
+            assert_eq!(c.page(), e.page_liste());
+        }
+        // Les provisions citent la page du Guide qui les fonde (p. PDF 94).
+        for e in t.entrees().iter().filter(|e| e.role() == Provision) {
+            assert!(e.source().contains("p. PDF 94"), "{}", e.numero());
+        }
+    }
+
+    #[test]
+    fn le_role_suit_la_famille_pour_tous_les_comptes_officiels() {
+        let (r, t) = (officiel(), tva());
+        let mut vus = 0;
+        for c in r.comptes() {
+            let attendu = match c.numero().tronc() {
+                "4435" | "4455" => Some(Provision),
+                tronc => match tronc.get(..3) {
+                    Some("443") => Some(Facturee),
+                    Some("444") => Some(Due),
+                    Some("445") => Some(Recuperable),
+                    _ => None,
+                },
+            };
+            assert_eq!(t.role(c.numero()), attendu, "{}", c.numero());
+            vus += usize::from(attendu.is_some());
+        }
+        // 443 (+5), 444 (+2), 445 (+6) : 3 + 13 comptes.
+        assert_eq!(vus, 16);
+        // Sous-comptes libres et subdivisions par période (Guide, application 7).
+        assert_eq!(t.role(&n("4431-01")), Some(Facturee));
+        assert_eq!(t.role(&n("4441-12")), Some(Due));
+        assert_eq!(t.role(&n("4452-A")), Some(Recuperable));
+        assert_eq!(t.role(&n("4455-01")), Some(Provision));
+        assert_eq!(t.role(&n("4435-3")), Some(Provision));
+        // 446 (autres taxes sur le chiffre d'affaires) et 441 ne sont pas de la TVA.
+        assert_eq!(t.role(&n("446")), None);
+        assert_eq!(t.role(&n("441")), None);
+        assert_eq!(t.role(&n("4426")), None);
+        assert_eq!(t.role(&n("645")), None);
+    }
+
+    #[test]
+    fn le_sens_normal_est_celui_du_plan() {
+        let r = officiel();
+        for (e, sens) in tva().entrees().iter().zip([
+            SensNormal::Crediteur,
+            SensNormal::Crediteur,
+            SensNormal::Debiteur,
+            SensNormal::Crediteur,
+            SensNormal::Debiteur,
+        ]) {
+            assert_eq!(r.compte(e.numero()).unwrap().sens(), sens, "{}", e.numero());
+        }
+    }
+
+    fn bloc(numero: &str, intitule: &str, page: u16, role: &str, sens: &str) -> String {
+        format!(
+            "[[compte_tva]]\nnumero = \"{numero}\"\nintitule = \"{intitule}\"\npage_liste = {page}\n\
+             role = \"{role}\"\nsens_normal = \"{sens}\"\npage_fonctionnement = 395\nsource = \"s\"\n"
+        )
+    }
+
+    fn blocs() -> [String; 5] {
+        [
+            bloc("443", "ÉTAT, T.V.A. FACTURÉE", 243, "facturee", "crediteur"),
+            bloc(
+                "444",
+                "ÉTAT, T.V.A. DUE OU CRÉDIT DE T.V.A.",
+                244,
+                "due",
+                "crediteur",
+            ),
+            bloc(
+                "445",
+                "ÉTAT, T.V.A. RÉCUPÉRABLE",
+                244,
+                "recuperable",
+                "debiteur",
+            ),
+            bloc(
+                "4435",
+                "T.V.A. sur factures à établir",
+                243,
+                "provision",
+                "crediteur",
+            ),
+            bloc(
+                "4455",
+                "T.V.A. récupérable sur factures non parvenues",
+                244,
+                "provision",
+                "debiteur",
+            ),
+        ]
+    }
+
+    #[test]
+    fn donnees_invalides_refusees() {
+        let r = officiel();
+        let bon = blocs().concat();
+        assert!(r.comptes_de_tva_depuis_toml(&bon).is_ok());
+        let refus = |texte: String, nom: &str| {
+            assert!(
+                r.comptes_de_tva_depuis_toml(&texte).is_err(),
+                "{nom} aurait dû être refusé"
+            );
+        };
+        // Chaque champ invalide, un à la fois.
+        refus(bon.replacen("ÉTAT, T.V.A. FACTURÉE", "TVA", 1), "intitulé");
+        refus(
+            bon.replacen("page_liste = 243", "page_liste = 244", 1),
+            "page de la liste",
+        );
+        refus(
+            bon.replacen(
+                "sens_normal = \"crediteur\"",
+                "sens_normal = \"debiteur\"",
+                1,
+            ),
+            "sens",
+        );
+        refus(
+            bon.replacen("source = \"s\"", "source = \" \"", 1),
+            "source",
+        );
+        refus(
+            bon.replacen("page_fonctionnement = 395", "page_fonctionnement = 100", 1),
+            "fonctionnement",
+        );
+        refus(
+            bon.replacen("role = \"facturee\"", "role = \"inconnu\"", 1),
+            "rôle inconnu",
+        );
+        refus(
+            bon.replacen("numero = \"443\"", "numero = \"4431x\"", 1),
+            "numéro mal formé",
+        );
+        refus(
+            bon.replacen("numero = \"443\"", "numero = \"449\"", 1),
+            "numéro d'un autre intitulé",
+        );
+        refus(
+            bon.replacen("role = \"due\"", "role = \"facturee\"", 1),
+            "rôle de base en double",
+        );
+        // Un rôle absent : sans le 443, plus de TVA facturée ; sans provision, plus de provision.
+        let b = blocs();
+        refus(
+            [&b[1], &b[2], &b[3], &b[4]].map(String::as_str).concat(),
+            "sans facturée",
+        );
+        refus(
+            [&b[0], &b[1], &b[2]].map(String::as_str).concat(),
+            "sans provision",
+        );
+        // Même compte désigné deux fois.
+        refus(format!("{bon}{}", b[3]), "doublon");
+        // Compte imbriqué du même rôle que son ascendant : 4431 facturée dans le 443 facturée.
+        let imbrique = bloc(
+            "4431",
+            "T.V.A. facturée sur ventes",
+            243,
+            "facturee",
+            "crediteur",
+        );
+        let Err(ErreurReferentiel::ComptesTva(m)) =
+            r.comptes_de_tva_depuis_toml(&format!("{bon}{imbrique}"))
+        else {
+            panic!("refus attendu");
+        };
+        assert!(m.contains("en double"), "{m}");
+        assert!(
+            r.comptes_de_tva_depuis_toml("[[compte_tva]]\nx = 1")
+                .is_err()
+        );
+    }
+}
+
+proptest! {
+    /// Le rôle d'un compte ne dépend que de sa famille à trois chiffres, sauf les provisions
+    /// 4435 et 4455 (subdivisions officielles ou libres comprises).
+    #[test]
+    fn le_role_d_un_compte_ne_depend_que_de_sa_famille(
+        famille in 100u16..1000,
+        suite in "[0-9]{0,1}",
+        libre in proptest::option::of("[A-Z0-9]{1,3}"),
+    ) {
+        use crate::RoleCompteTva::{Due, Facturee, Provision, Recuperable};
+        let t = officiel().comptes_de_tva().unwrap();
+        let mut numero = format!("{famille}{suite}");
+        if let Some(l) = libre {
+            numero = format!("{numero}-{l}");
+        }
+        let compte = NumeroCompte::parse(&numero).unwrap();
+        let attendu = match (famille, suite.as_str()) {
+            (443 | 445, "5") => Some(Provision),
+            (443, _) => Some(Facturee),
+            (444, _) => Some(Due),
+            (445, _) => Some(Recuperable),
+            _ => None,
+        };
+        prop_assert_eq!(t.role(&compte), attendu);
+    }
+}

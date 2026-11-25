@@ -81,6 +81,19 @@ Les journaux par défaut d'un dossier (spec §5.2) sont décrits sans compte dan
 
 Le chargement refuse un compte absent de la liste officielle ou subdivisé. Les journaux BQx et MMx ne sont pas des journaux par défaut : leur compte est fourni à leur création. `Referentiel::journaux_par_defaut(plan)` instancie les journaux d'un nouveau dossier.
 
+## Comptes de TVA désignés (`data/comptes-tva.toml`, issue #189, ADR 0026)
+`compta-core` ne connaît aucun numéro de compte : cette désignation, `Referentiel::comptes_de_tva()`, sert la déclaration de TVA (L5) et la répartition par étiquette. Elle ne bloque aucune validation (ADR 0026). Un compte désigné vaut pour **ses subdivisions** (officielles, libres `4431-01`, ou par période d'imposition du Guide) ; la désignation la plus précise l'emporte.
+
+| Compte | Rôle | Sens normal | Liste des comptes | Textes du rôle |
+|---|---|---|---|---|
+| 443 « ÉTAT, T.V.A. FACTURÉE » (4431 à 4434) | `facturee` (taxe collectée) | créditeur | p. PDF 243 | Guide §4.4 p. PDF 31, §2.2 p. PDF 35 |
+| 444 « ÉTAT, T.V.A. DUE OU CRÉDIT DE T.V.A. » (4441, 4449) | `due` (solde de la période) | créditeur | p. PDF 244 | Guide §2.2 p. PDF 35, application 7 p. PDF 36 |
+| 445 « ÉTAT, T.V.A. RÉCUPÉRABLE » (4451 à 4454, 4456) | `recuperable` (taxe déductible) | débiteur | p. PDF 244 | Guide §4.4 p. PDF 31, §2.2 p. PDF 35 |
+| 4435 « T.V.A. sur factures à établir » | `provision` | créditeur | p. PDF 243 | Guide p. PDF 94 (et 89) |
+| 4455 « T.V.A. récupérable sur factures non parvenues » | `provision` | débiteur | p. PDF 244 | Guide p. PDF 89 et 94 |
+
+La fiche du compte 44 (p. PDF 394-395) est générale : elle ne distingue pas la TVA. C'est le Guide d'application qui pose le rôle des comptes ; les pages PDF 243-244 de l'AUDCIF (liste des comptes) sont lues sur le PDF, scanné sans texte exploitable. 446 (autres taxes sur le chiffre d'affaires) n'est pas de la TVA. Le chargement refuse un compte absent de la liste, d'intitulé, de page ou de sens normal différents de `comptes.toml`, un rôle manquant, un rôle de base en double, un compte désigné deux fois, un compte imbriqué du même rôle que son ascendant, une page de fiche hors plage ou une source vide.
+
 ## Comparaison avec Tryton et Odoo
 | | Tryton `account_syscohada` (2016, `f5354cc`) | Odoo 19.0 `l10n_syscohada` (`fa175fb`) |
 |---|---|---|
