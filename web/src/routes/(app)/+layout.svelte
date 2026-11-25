@@ -9,12 +9,16 @@
 	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import { seDeconnecter } from '#lib/application.ts';
 	import Echeances from '#lib/composants/Echeances.svelte';
+	import DialogueReauthentification from '#lib/composants/DialogueReauthentification.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
 
 	const fil = $derived(page.data.fil);
+	// Une session restreinte ou d'enrôlement ne voit que l'écran des méthodes de connexion ; le
+	// serveur refuse de toute façon le reste (masquage seulement).
+	const complete = $derived(data.session.ok && data.session.valeur.nature === 'complete');
 	let erreurDeconnexion = $state<ErreurApi | null>(null);
 	let deconnexionEnCours = $state(false);
 
@@ -45,6 +49,14 @@
 		<a class="marque" href={resolve('/(app)')}>Sigma Books</a>
 		<nav aria-label="Compte">
 			<ul>
+				<li>
+					<a
+						href={resolve('compte/')}
+						aria-current={page.route.id === '/(app)/compte' ? 'page' : undefined}
+					>
+						Méthodes de connexion
+					</a>
+				</li>
 				<li>
 					<a
 						href={resolve('sessions/')}
@@ -83,26 +95,28 @@
 	{/if}
 </header>
 
-<nav class="conteneur fil" aria-label="Fil d’Ariane">
-	<ol>
-		<li><a href={resolve('/(app)')}>Cabinets</a></li>
-		{#if fil?.cabinet}
-			<li>
-				<a href={resolve(`dossiers/?cabinet=${fil.cabinet.id}`)}>{fil.cabinet.nom}</a>
-			</li>
-		{/if}
-		{#if fil?.cabinet && fil.dossier}
-			<li>
-				<a
-					href={resolve(`dossier/?cabinet=${fil.cabinet.id}&dossier=${fil.dossier.id}`)}
-					aria-current="page"
-				>
-					{fil.dossier.nom}
-				</a>
-			</li>
-		{/if}
-	</ol>
-</nav>
+{#if complete}
+	<nav class="conteneur fil" aria-label="Fil d’Ariane">
+		<ol>
+			<li><a href={resolve('/(app)')}>Cabinets</a></li>
+			{#if fil?.cabinet}
+				<li>
+					<a href={resolve(`dossiers/?cabinet=${fil.cabinet.id}`)}>{fil.cabinet.nom}</a>
+				</li>
+			{/if}
+			{#if fil?.cabinet && fil.dossier}
+				<li>
+					<a
+						href={resolve(`dossier/?cabinet=${fil.cabinet.id}&dossier=${fil.dossier.id}`)}
+						aria-current="page"
+					>
+						{fil.dossier.nom}
+					</a>
+				</li>
+			{/if}
+		</ol>
+	</nav>
+{/if}
 
 <main id="contenu" class="conteneur" tabindex="-1">
 	{#if erreurDeconnexion}
@@ -112,16 +126,20 @@
 		{#if data.session.erreur.code !== 'non_authentifie'}
 			<MessageErreur erreur={data.session.erreur} contexte="La session n’a pas pu être lue." />
 		{/if}
-	{:else if data.session.valeur.nature !== 'complete'}
+	{:else if !complete && page.route.id !== '/(app)/compte'}
 		<div class="message message-avertissement" role="status">
 			<p>
-				Cette session ne permet que l’enrôlement d’une passkey. Elle ne donne accès à aucun dossier.
+				Cette session ne permet que l’enregistrement d’une méthode de connexion. Elle ne donne accès
+				à aucun dossier.
 			</p>
+			<p><a href={resolve('compte/')}>Enregistrer une méthode de connexion</a></p>
 		</div>
 	{:else}
 		{@render children()}
 	{/if}
 </main>
+
+<DialogueReauthentification />
 
 <style>
 	.entete {

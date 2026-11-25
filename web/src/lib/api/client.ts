@@ -31,6 +31,12 @@ export const CHEMIN_SESSION = '/api/session';
 export const CHEMIN_ROTATION = '/api/session/rotation';
 export const CHEMIN_DECONNEXION = '/api/session/deconnexion';
 
+/** En-tête anti-CSRF d'une mutation sans session : le serveur exige sa présence, non sa valeur. */
+const CSRF_SANS_SESSION = 'sans-session';
+
+/** Chemins qu'une mutation sans session (connexion, usage d'un lien) peut viser. */
+const CHEMINS_SANS_SESSION = ['/api/connexion/', '/api/liens/utilisation'];
+
 export type Mutation = 'POST' | 'DELETE';
 type Methode = 'GET' | Mutation;
 
@@ -48,8 +54,20 @@ export interface ClientApi {
 	muter<T>(methode: Mutation, chemin: string, garde: Garde<T>, corps?: unknown): Promise<T>;
 	/** Mutation sans corps de réponse (204). */
 	muterSansReponse(methode: Mutation, chemin: string, corps?: unknown): Promise<void>;
+	/**
+	 * `POST` sans session (connexion, usage d'un lien) : aucun jeton anti-CSRF connu, aucune lecture
+	 * de session, et un 401 est une erreur ordinaire (identifiants refusés), jamais un renvoi vers
+	 * la page de connexion. Le jeton de l'ancienne session est oublié : la session ouverte est à
+	 * relire (`ouvrirSession`).
+	 */
+	muterSansSession<T>(chemin: string, garde: Garde<T>, corps: unknown): Promise<T>;
+	/**
+	 * Ré-authentification : `POST` qui tourne le cookie de session et rend le nouveau jeton
+	 * anti-CSRF. Comme une rotation, elle attend les requêtes en cours et retient les suivantes.
+	 */
+	renouveler(chemin: string, corps: unknown): Promise<void>;
 	/** Lit la session courante et retient son jeton anti-CSRF ; rend l'état sans le jeton. */
-	ouvrirSession(): Promise<EtatSession>;
+	ouvrirSession(silencieux?: boolean): Promise<EtatSession>;
 	/**
 	 * Tourne le jeton de session pour entrer dans le cabinet `cible`, et renouvelle le jeton
 	 * anti-CSRF. Une rotation en cours vers la même cible est partagée ; vers une autre, une
@@ -225,12 +243,46 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 			});
 		},
 
-		ouvrirSession(): Promise<EtatSession> {
+		async muterSansSession<T>(chemin: string, garde: Garde<T>, corps: unknown): Promise<T> {
+			verifierChemin(chemin);
+			if (!CHEMINS_SANS_SESSION.some((debut) => chemin.startsWith(debut))) {
+				throw new TypeError('chemin non admis sans session');
+			}
+			const reponse = await envoyer('POST', chemin, corps, CSRF_SANS_SESSION);
+			if (!reponse.ok) throw await traduireReponse(reponse);
+			// Une session s'est peut-être ouverte : celle d'avant n'existe plus pour ce client.
+			oublier();
+			return lireJson(reponse, garde);
+		},
+
+		renouveler(chemin: string, corps: unknown): Promise<void> {
+			const precedente = rotation;
+			const courante = (async () => {
+				if (precedente !== null) await precedente.catch(() => {});
+				await Promise.allSettled([...enCours]);
+				const reponse = await executer('POST', chemin, corps);
+				csrf = (await lireJson(reponse, estReponseRotation)).csrf;
+			})();
+			rotation = courante;
+			cibleRotation = null;
+			const liberer = () => {
+				if (rotation === courante) {
+					rotation = null;
+					cibleRotation = null;
+				}
+			};
+			courante.then(liberer, liberer);
+			return courante;
+		},
+
+		ouvrirSession(silencieux = false): Promise<EtatSession> {
 			return suivre(async () => {
 				try {
 					return await chargerSession();
 				} catch (erreur) {
-					if (erreur instanceof ErreurApi && erreur.statut === 401) surNonAuthentifie();
+					if (!silencieux && erreur instanceof ErreurApi && erreur.statut === 401) {
+						surNonAuthentifie();
+					}
 					throw erreur;
 				}
 			});

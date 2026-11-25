@@ -15,16 +15,17 @@ import type { CabinetMembre, Uuid } from './api/types.ts';
 
 let cabinetActif: Uuid | null = null;
 
-function allerALaConnexion(): void {
+function allerALaConnexion(expiree: boolean): void {
 	cabinetActif = null;
 	const connexion = resolve('connexion/');
 	if (window.location.pathname === connexion) return;
+	const cible = expiree ? resolve('connexion/?session=expiree') : connexion;
 	// Une navigation interrompue (par exemple pendant le tout premier chargement) se rabat sur un
 	// chargement complet de la page.
-	goto(connexion, { replace: true }).catch(() => window.location.replace(connexion));
+	goto(cible, { replace: true }).catch(() => window.location.replace(cible));
 }
 
-export const api = creerClient({ surNonAuthentifie: allerALaConnexion });
+export const api = creerClient({ surNonAuthentifie: () => allerALaConnexion(true) });
 
 /**
  * À appeler avant tout appel à un cabinet : si l'utilisateur change de cabinet, la session tourne
@@ -44,10 +45,18 @@ export async function activerCabinet(cabinet: Uuid): Promise<void> {
 	}
 }
 
+/**
+ * À appeler après l'ouverture d'une session (connexion, lien) : le cabinet « actif » de la session
+ * précédente n'a plus de sens, la prochaine entrée dans un cabinet tourne le jeton.
+ */
+export function sessionOuverte(): void {
+	cabinetActif = null;
+}
+
 /** Déconnexion : la session est révoquée, puis la page de connexion s'affiche. */
 export async function seDeconnecter(): Promise<void> {
 	await api.deconnecter();
-	allerALaConnexion();
+	allerALaConnexion(false);
 }
 
 /**

@@ -127,3 +127,103 @@ export function estSessionListee(valeur: unknown): valeur is SessionListee {
 export function listeDe<T>(garde: Garde<T>): Garde<T[]> {
 	return (valeur: unknown): valeur is T[] => Array.isArray(valeur) && valeur.every(garde);
 }
+
+/** Une passkey de l'utilisateur (`GET /api/moi/facteurs` : ni clé ni compteur). */
+export interface PasskeyListee {
+	id: Uuid;
+	nom: string;
+	cree_le: string;
+	derniere_utilisation: string | null;
+}
+
+/** Les méthodes de connexion de l'utilisateur (`GET /api/moi/facteurs`). */
+export interface FacteursMoi {
+	/** Méthode de secours ; `utilisable` faux : à réenrôler (clé de l'instance changée). */
+	secours: { modifie_le: string; utilisable: boolean } | null;
+	codes_restants: number;
+	passkeys: PasskeyListee[];
+}
+
+/** Préparation de l'enrôlement du secours (`POST /api/moi/facteurs/secours/preparation`). */
+export interface PreparationSecours {
+	secret: string;
+	uri: string;
+	jeton_enrolement: string;
+	expire_le: string;
+}
+
+/** Série de codes de récupération, rendue une seule fois. */
+export interface CodesRecuperation {
+	codes_recuperation: string[];
+}
+
+/** Défi WebAuthn (`{"defi": …}`) : la forme des options est vérifiée par `lib/webauthn.ts`. */
+export interface Defi {
+	defi: unknown;
+}
+
+/** Session ouverte par une connexion ou l'usage d'un lien (le jeton anti-CSRF est relu ensuite). */
+export interface Connexion {
+	nature: string;
+}
+
+/** Passkey enrôlée. */
+export interface PasskeyEnrolee {
+	id: Uuid;
+	nom: string;
+}
+
+export function estPasskeyListee(valeur: unknown): valeur is PasskeyListee {
+	return (
+		estObjet(valeur) &&
+		estId(valeur.id) &&
+		chaines(valeur, ['nom', 'cree_le']) &&
+		chaineOuNul(valeur.derniere_utilisation)
+	);
+}
+
+export function estFacteursMoi(valeur: unknown): valeur is FacteursMoi {
+	if (!estObjet(valeur)) return false;
+	const { secours } = valeur;
+	const secoursValide =
+		secours === null ||
+		(estObjet(secours) &&
+			typeof secours.modifie_le === 'string' &&
+			typeof secours.utilisable === 'boolean');
+	return (
+		secoursValide &&
+		typeof valeur.codes_restants === 'number' &&
+		Number.isInteger(valeur.codes_restants) &&
+		Array.isArray(valeur.passkeys) &&
+		valeur.passkeys.every(estPasskeyListee)
+	);
+}
+
+export function estPreparationSecours(valeur: unknown): valeur is PreparationSecours {
+	return estObjet(valeur) && chaines(valeur, ['secret', 'uri', 'jeton_enrolement', 'expire_le']);
+}
+
+export function estCodesRecuperation(valeur: unknown): valeur is CodesRecuperation {
+	return (
+		estObjet(valeur) &&
+		Array.isArray(valeur.codes_recuperation) &&
+		valeur.codes_recuperation.every((c) => typeof c === 'string')
+	);
+}
+
+export function estDefi(valeur: unknown): valeur is Defi {
+	return estObjet(valeur) && 'defi' in valeur;
+}
+
+export function estConnexion(valeur: unknown): valeur is Connexion {
+	return estObjet(valeur) && typeof valeur.nature === 'string';
+}
+
+export function estPasskeyEnrolee(valeur: unknown): valeur is PasskeyEnrolee {
+	return estObjet(valeur) && estId(valeur.id) && typeof valeur.nom === 'string';
+}
+
+/** Réponse sans contenu utile (le corps n'est pas lu plus loin) : un objet JSON quelconque. */
+export function estObjetJson(valeur: unknown): valeur is Record<string, unknown> {
+	return estObjet(valeur);
+}
