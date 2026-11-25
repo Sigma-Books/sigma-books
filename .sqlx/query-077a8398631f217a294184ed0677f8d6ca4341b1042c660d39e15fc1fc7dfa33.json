@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tache SET etat = 'en_attente', prochaine_tentative = $4, reserve_jusqua = NULL, prise = NULL, derniere_issue = $3 WHERE id = $1 AND etat = 'en_cours' AND prise = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "077a8398631f217a294184ed0677f8d6ca4341b1042c660d39e15fc1fc7dfa33"
+}

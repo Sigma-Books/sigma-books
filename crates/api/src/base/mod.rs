@@ -42,10 +42,13 @@ pub mod config;
 pub mod editions;
 pub mod evenement;
 pub mod facteurs;
+pub mod integrite;
+pub mod jetons;
 pub mod organisation;
 pub mod passkeys;
 pub mod referentiel;
 pub mod session;
+pub mod taches;
 pub mod validation;
 
 use std::time::Duration;
@@ -172,6 +175,17 @@ impl ContexteTenant {
             cabinet,
             dossier: Some(dossier),
             utilisateur,
+        }
+    }
+
+    /// Contexte d'une tâche de la file (aucun utilisateur : l'identifiant nul ne désigne
+    /// personne). Réservé au travailleur, qui le tire d'une ligne de la file.
+    #[must_use]
+    pub(crate) const fn systeme(cabinet: IdCabinet, dossier: IdDossier) -> Self {
+        Self {
+            cabinet,
+            dossier: Some(dossier),
+            utilisateur: IdUtilisateur(Uuid::nil()),
         }
     }
 

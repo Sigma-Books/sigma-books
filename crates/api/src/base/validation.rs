@@ -456,11 +456,13 @@ pub async fn mettre_a_jour_tete(
     .execute(tx.connexion())
     .await?
     .rows_affected();
-    if n == 1 {
-        Ok(())
-    } else {
-        Err(ErreurBase::Donnee("tête de chaîne absente"))
+    if n != 1 {
+        return Err(ErreurBase::Donnee("tête de chaîne absente"));
     }
+    // Horodatage quotidien (ADR 0010) : la chaîne a changé, un jeton sera demandé au début du
+    // jour suivant. Même transaction que la validation : la tâche n'existe que si elle aboutit.
+    super::taches::planifier_horodatage(tx, super::taches::SujetHorodatage::Quotidien).await?;
+    Ok(())
 }
 
 /// Écrit le nouveau compteur (verrouillé par [`verrouiller_compteur`]).

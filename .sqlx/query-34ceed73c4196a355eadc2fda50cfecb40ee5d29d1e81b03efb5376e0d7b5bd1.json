@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, nombre, tete, autorite, date_jeton, obtenu_le, declencheur FROM jeton_horodatage WHERE cabinet_id = $1 AND dossier_id = $2 ORDER BY nombre DESC, obtenu_le DESC, id DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "jeton_horodatage",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nombre",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "jeton_horodatage",
+            "name": "nombre"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tete",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "jeton_horodatage",
+            "name": "tete"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "autorite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jeton_horodatage",
+            "name": "autorite"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "date_jeton",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jeton_horodatage",
+            "name": "date_jeton"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "obtenu_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "jeton_horodatage",
+            "name": "obtenu_le"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "declencheur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "jeton_horodatage",
+            "name": "declencheur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "34ceed73c4196a355eadc2fda50cfecb40ee5d29d1e81b03efb5376e0d7b5bd1"
+}

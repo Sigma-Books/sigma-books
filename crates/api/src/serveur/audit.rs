@@ -34,6 +34,7 @@ use super::pipeline::Garde;
 use super::routes::Requete;
 use crate::base::audit::{PorteeAudit, inscrire, lire_page, lire_tete, verrouiller_tete};
 use crate::base::organisation::{lire_appartenance, lire_dossier_visible, lire_noms_membres};
+use crate::base::taches::{SujetNotification, notifier};
 use crate::base::{IdUtilisateur, TransactionTenant, ouvrir_transaction_lecture};
 
 /// Taille d'une page de consultation par défaut.
@@ -498,8 +499,8 @@ pub async fn verifier(
 /// ne s'ajoute pendant l'export.
 ///
 /// Limites acceptées en L2 (`crates/api/README.md`) : l'export est construit en mémoire, et le
-/// verrou de la tête dure tout l'export ; l'alerte à l'administrateur (spec §21) arrive avec la
-/// PR 9.
+/// verrou de la tête dure tout l'export. L'alerte à l'administrateur (spec §21) est une tâche de
+/// la file ([`notifier`]) ; son courriel arrive avec la PR 9.
 ///
 /// # Errors
 /// Entrée enregistrée illisible (l'export est refusé : la vérification la localise), erreur de
@@ -541,6 +542,14 @@ pub async fn exporter(
             format!("audit-dossier-{dossier}.txt"),
         ),
     };
+    // Alerte à l'administrateur (spec §21, ADR 0014, #157) : une tâche de la file, créée dans la
+    // transaction de l'export, donc seulement si l'export est validé. Le courriel est celui de la
+    // PR 9 ; la tâche n'emporte aucune donnée du dossier.
+    let sujet = match portee {
+        PorteeAudit::Cabinet => SujetNotification::ExportAuditCabinet,
+        PorteeAudit::Dossier(_) => SujetNotification::ExportAuditDossier,
+    };
+    notifier(tx, sujet, Some(garde.utilisateur().uuid())).await?;
     let mut trace = Trace::new(portee, genre, id);
     if genre == "dossier" {
         // `ExporterComplet` couvre aussi les livres et le FEC : l'objet de l'export est précisé.

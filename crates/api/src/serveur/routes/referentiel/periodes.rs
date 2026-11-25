@@ -24,6 +24,7 @@ use crate::base::referentiel::{
     ErreurPeriode, RefusPeriode, Transition, changer_statut, nom_statut_exercice,
     nom_statut_periode, ouvrir_exercice_suivant,
 };
+use crate::base::taches::{SujetHorodatage, planifier_horodatage};
 use crate::base::{IdDossier, TransactionTenant};
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
@@ -151,6 +152,16 @@ pub(super) async fn executer(
     .await
     .map_err(erreur)?;
 
+    // Horodatage le jour même d'un verrouillage et d'une clôture (ADR 0010) : la tâche est créée
+    // avec la transition, dans sa transaction ; elle n'existe que si la transition est validée.
+    let sujet = match cas {
+        Cas::VerrouillerPeriode => Some(SujetHorodatage::Verrouillage),
+        Cas::CloturerPeriode => Some(SujetHorodatage::Cloture),
+        _ => None,
+    };
+    if let Some(sujet) = sujet {
+        planifier_horodatage(tx, sujet).await?;
+    }
     let interne = ErreurApi::Interne(CategorieErreur::Donnee);
     let exercice = changement
         .exercices

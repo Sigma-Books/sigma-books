@@ -384,7 +384,7 @@ pub(crate) async fn executer(
         // Voie pièces (PR 12).
         CasUsage::Pieces(cas) => pieces::executer(cas, tx, garde, requete).await,
         // Voie intégrité et horodatage (PR 15).
-        CasUsage::Integrite(cas) => match cas {},
+        CasUsage::Integrite(cas) => integrite::executer(cas, tx, garde, requete).await,
     }
 }
 

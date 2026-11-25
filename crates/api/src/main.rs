@@ -12,6 +12,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use api::base::{ReglagesPool, ouvrir_pool_application, ouvrir_pool_lecture_audit};
+use api::horodatage::ClientHorodatage;
+use api::horodatage::tache::Travailleur;
 use api::pieces::Pieces;
 use api::pieces::s3::StockageS3;
 use api::serveur::config::Configuration;
@@ -62,6 +64,22 @@ async fn demarrer() -> Result<(), String> {
         ouvrir_pool_lecture_audit(&config.base.url_lecture_audit, ReglagesPool::default())
             .await
             .map_err(|e| format!("base de données (lecture d'audit) : {e}"))?;
+    // Voie intégrité et horodatage (PR 15) : tâche quotidienne de la file, dans ce processus
+    // (ADR 0010). Les ancres de confiance sont intégrées ; refus de démarrer si elles sont
+    // illisibles ou si aucune autorité n'est configurée.
+    let ancres = integrite::horodatage::ancres_par_defaut().map_err(|e| e.to_string())?;
+    let client = ClientHorodatage::new(
+        config.autorites_horodatage.clone(),
+        ancres,
+        api::horodatage::Limites::default(),
+    )
+    .map_err(|e| e.to_string())?;
+    let travailleur = Travailleur::new(
+        pool.clone(),
+        Arc::new(client),
+        Arc::new(HorlogeSysteme),
+        api::horodatage::tache::Reglages::default(),
+    );
     let authentification = AuthentificationSession::new(
         pool.clone(),
         Arc::new(HorlogeSysteme),
@@ -96,12 +114,14 @@ async fn demarrer() -> Result<(), String> {
         adresse_ecoute = %config.adresse_ecoute,
         "serveur démarré"
     );
-    servir(ecouteur, routeur, &config.reglages, async {
+    let boucle = tokio::spawn(async move { travailleur.superviser().await });
+    let service = servir(ecouteur, routeur, &config.reglages, async {
         // Sans gestionnaire de signal, on ne s'arrête que sur fermeture du processus.
         if tokio::signal::ctrl_c().await.is_err() {
             std::future::pending::<()>().await;
         }
     })
-    .await
-    .map_err(|e| format!("service interrompu : {e}"))
+    .await;
+    boucle.abort();
+    service.map_err(|e| format!("service interrompu : {e}"))
 }
