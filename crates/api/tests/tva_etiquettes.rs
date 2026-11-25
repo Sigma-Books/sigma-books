@@ -63,7 +63,7 @@ async fn brouillon(b: &Banc, lignes: &[String]) -> (Uuid, i32) {
 async fn rien_n_est_ecrit(b: &Banc) {
     assert_eq!(b.compter("ecriture_validee").await, 0);
     assert!(b.compteur().await.iter().all(|d| *d == 0));
-    assert!(b.chaine().await.is_empty());
+    assert_eq!(b.chaine().await.len(), 0);
 }
 
 #[tokio::test]
