@@ -86,11 +86,14 @@ export function optionsDemande(defi: unknown): PublicKeyCredentialRequestOptions
 	const challenge = octets(p.challenge);
 	const allowCredentials = descripteurs(p.allowCredentials);
 	if (challenge === null || allowCredentials === null || typeof p.rpId !== 'string') return null;
+	// Aucune valeur n'est inventée : un champ obligatoire absent ou inconnu refuse le défi.
+	const userVerification = parmi(EXIGENCES_VERIFICATION, p.userVerification);
+	if (userVerification === undefined) return null;
 	const options: PublicKeyCredentialRequestOptions = {
 		challenge,
 		rpId: p.rpId,
 		allowCredentials,
-		userVerification: parmi(EXIGENCES_VERIFICATION, p.userVerification) ?? 'required'
+		userVerification
 	};
 	const timeout = delai(p.timeout);
 	if (timeout !== undefined) options.timeout = timeout;
@@ -132,16 +135,18 @@ export function optionsCreation(defi: unknown): PublicKeyCredentialCreationOptio
 		user: { id: idUtilisateur, name: p.user.name, displayName: p.user.displayName },
 		challenge,
 		pubKeyCredParams,
-		excludeCredentials,
-		attestation: parmi(ATTESTATIONS, p.attestation) ?? 'none'
+		excludeCredentials
 	};
+	// Facultatif côté serveur : repris seulement s'il est présent et connu.
+	const attestation = parmi(ATTESTATIONS, p.attestation);
+	if (attestation !== undefined) options.attestation = attestation;
 	const timeout = delai(p.timeout);
 	if (timeout !== undefined) options.timeout = timeout;
 	if (estObjet(p.authenticatorSelection)) {
 		const s = p.authenticatorSelection;
-		const selection: AuthenticatorSelectionCriteria = {
-			userVerification: parmi(EXIGENCES_VERIFICATION, s.userVerification) ?? 'required'
-		};
+		const userVerification = parmi(EXIGENCES_VERIFICATION, s.userVerification);
+		if (userVerification === undefined) return null;
+		const selection: AuthenticatorSelectionCriteria = { userVerification };
 		const rattachement = parmi(RATTACHEMENTS, s.authenticatorAttachment);
 		if (rattachement !== undefined) selection.authenticatorAttachment = rattachement;
 		const residente = parmi(CLES_RESIDENTES, s.residentKey);

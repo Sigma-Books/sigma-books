@@ -12,6 +12,8 @@ import {
 } from './webauthn.ts';
 
 const tampon = (...o: number[]): ArrayBuffer => new Uint8Array(o).buffer;
+/** Texte base64url des octets donnés : aucune valeur encodée n'est écrite en dur. */
+const b64 = (...o: number[]): string => octetsVersBase64url(new Uint8Array(o));
 
 describe('base64url', () => {
 	it('aller-retour sans remplissage, alphabet URL', () => {
@@ -32,10 +34,10 @@ describe('base64url', () => {
 describe('options', () => {
 	const demande = {
 		publicKey: {
-			challenge: 'AQID',
+			challenge: b64(1, 2, 3),
 			timeout: 300000,
 			rpId: 'compta.exemple.sn',
-			allowCredentials: [{ type: 'public-key', id: 'BAUG', transports: ['usb', 'inconnu'] }],
+			allowCredentials: [{ type: 'public-key', id: b64(4, 5, 6), transports: ['usb', 'inconnu'] }],
 			userVerification: 'required',
 			extensions: { inattendu: true }
 		}
@@ -67,10 +69,10 @@ describe('options', () => {
 	const creation = {
 		publicKey: {
 			rp: { name: 'Sigma Books', id: 'compta.exemple.sn' },
-			user: { id: 'AQID', name: 'awa@cabinet.sn', displayName: 'Awa' },
-			challenge: 'BAUG',
+			user: { id: b64(1, 2, 3), name: 'awa@cabinet.sn', displayName: 'Awa' },
+			challenge: b64(4, 5, 6),
 			pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
-			excludeCredentials: [{ type: 'public-key', id: 'BwgJ' }],
+			excludeCredentials: [{ type: 'public-key', id: b64(7, 8, 9) }],
 			authenticatorSelection: {
 				residentKey: 'discouraged',
 				requireResidentKey: false,
@@ -94,6 +96,21 @@ describe('options', () => {
 		assert.equal(o.attestation, 'none');
 	});
 
+	it('aucune valeur inventée : champ obligatoire absent refusé, facultatif laissé absent', () => {
+		assert.equal(
+			optionsDemande({ publicKey: { ...demande.publicKey, userVerification: undefined } }),
+			null
+		);
+		const o = optionsCreation({ publicKey: { ...creation.publicKey, attestation: undefined } });
+		assert.ok(o);
+		assert.ok(!('attestation' in o));
+		const selection = { ...creation.publicKey.authenticatorSelection, userVerification: undefined };
+		assert.equal(
+			optionsCreation({ publicKey: { ...creation.publicKey, authenticatorSelection: selection } }),
+			null
+		);
+	});
+
 	it('enrôlement : forme invalide', () => {
 		const p = creation.publicKey;
 		assert.equal(optionsCreation({ publicKey: { ...p, user: { ...p.user, id: '*' } } }), null);
@@ -105,7 +122,7 @@ describe('options', () => {
 describe('credentials', () => {
 	it('authentification : octets en base64url, userHandle facultatif', () => {
 		const j = credentialDemande({
-			id: 'AQ',
+			id: b64(1),
 			rawId: tampon(1),
 			type: 'public-key',
 			response: {
@@ -116,31 +133,31 @@ describe('credentials', () => {
 			}
 		});
 		assert.deepEqual(j, {
-			id: 'AQ',
-			rawId: 'AQ',
+			id: b64(1),
+			rawId: b64(1),
 			type: 'public-key',
-			response: { authenticatorData: 'Aw', clientDataJSON: 'Ag', signature: 'BA' }
+			response: { authenticatorData: b64(3), clientDataJSON: b64(2), signature: b64(4) }
 		});
 	});
 
 	it('réponse incomplète : null', () => {
-		const base = { id: 'AQ', rawId: tampon(1), type: 'public-key' };
+		const base = { id: b64(1), rawId: tampon(1), type: 'public-key' };
 		assert.equal(credentialDemande({ ...base, response: { clientDataJSON: tampon(2) } }), null);
 		assert.equal(credentialCree({ ...base, response: { clientDataJSON: tampon(2) } }), null);
 	});
 
 	it('enrôlement', () => {
 		const j = credentialCree({
-			id: 'AQ',
+			id: b64(1),
 			rawId: tampon(1),
 			type: 'public-key',
 			response: { clientDataJSON: tampon(2), attestationObject: tampon(5) }
 		});
 		assert.deepEqual(j, {
-			id: 'AQ',
-			rawId: 'AQ',
+			id: b64(1),
+			rawId: b64(1),
 			type: 'public-key',
-			response: { attestationObject: 'BQ', clientDataJSON: 'Ag' }
+			response: { attestationObject: b64(5), clientDataJSON: b64(2) }
 		});
 	});
 });
