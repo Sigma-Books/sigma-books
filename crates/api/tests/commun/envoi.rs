@@ -9,6 +9,7 @@ use api::envoi::transport::{ErreurEnvoi, FuturEnvoi, Transport};
 
 #[derive(Debug, Default)]
 struct Etat {
+    lenteur: Option<std::time::Duration>,
     remis: Vec<Message>,
     /// Résultats programmés, consommés dans l'ordre ; vide : succès.
     resultats: VecDeque<Result<(), ErreurEnvoi>>,
@@ -30,6 +31,12 @@ impl TransportMemoire {
         self.0.lock().unwrap().remis.clone()
     }
 
+    /// Même mémoire, avec une lenteur simulée à chaque envoi (budget de temps).
+    pub fn avec_lenteur(&self, duree: std::time::Duration) -> Self {
+        self.0.lock().unwrap().lenteur = Some(duree);
+        self.clone()
+    }
+
     /// Vrai si aucun message n'a été remis.
     pub fn vide(&self) -> bool {
         self.0.lock().unwrap().remis.is_empty()
@@ -44,6 +51,10 @@ impl TransportMemoire {
 impl Transport for TransportMemoire {
     fn envoyer<'a>(&'a self, message: &'a Message) -> FuturEnvoi<'a> {
         Box::pin(async move {
+            let lenteur = self.0.lock().unwrap().lenteur;
+            if let Some(d) = lenteur {
+                tokio::time::sleep(d).await;
+            }
             let mut etat = self.0.lock().unwrap();
             etat.tentatives += 1;
             match etat.resultats.pop_front().unwrap_or(Ok(())) {

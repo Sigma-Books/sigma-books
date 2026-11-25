@@ -51,7 +51,7 @@ async fn banc() -> Banc {
     let env = env().await;
     sqlx::query(
         "UPDATE tache SET etat = 'terminee', termine_le = now(), reserve_jusqua = NULL, prise = NULL \
-         WHERE nature = 'courriel' AND etat <> 'terminee'",
+         WHERE nature IN ('courriel', 'notification') AND etat <> 'terminee'",
     )
     .execute(&env.admin)
     .await
@@ -94,6 +94,19 @@ async fn banc() -> Banc {
 }
 
 impl Banc {
+    /// Passage de la file **des liens seulement** : les alertes (PR 9c, `alertes.rs`) que
+    /// produisent les mêmes actions sont closes avant, pour ne compter que les liens.
+    async fn passer(&self) -> api::envoi::tache::Bilan {
+        sqlx::query(
+            "UPDATE tache SET etat = 'terminee', termine_le = now(), reserve_jusqua = NULL, \
+                              prise = NULL WHERE nature = 'notification' AND etat <> 'terminee'",
+        )
+        .execute(&self.env.admin)
+        .await
+        .unwrap();
+        self.expediteur.passer().await.unwrap()
+    }
+
     async fn session(&self, u: IdUtilisateur) -> Session {
         let o = ouvrir(&self.env, &self.horloge, u, NatureSession::Complete).await;
         (cookie_de(&o), o.jeton.csrf())
@@ -176,7 +189,7 @@ async fn l_invitation_part_par_courriel_avec_un_lien_qui_fonctionne() {
     // Rien n'est parti avant le passage de la file ; la tâche attend, sans lien ni courriel.
     assert!(b.transport.vide());
     assert_eq!(b.tache(id).await.0, "en_attente");
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.envoyes), (1, 1));
     let remis = b.transport.remis();
     assert_eq!(remis.len(), 1);
@@ -203,7 +216,7 @@ async fn l_invitation_part_par_courriel_avec_un_lien_qui_fonctionne() {
     assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
     assert_eq!(r.json()["nature"], "enrolement");
     // Un second passage n'envoie plus rien.
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     assert_eq!(b.transport.remis().len(), 1);
 }
 
@@ -212,7 +225,7 @@ async fn le_renvoi_remplace_le_lien() {
     let b = banc().await;
     let admin = b.session(b.c.administrateur).await;
     let (id, _) = b.inviter(&admin).await;
-    b.expediteur.passer().await.unwrap();
+    b.passer().await;
     let premier = jeton_du_message(&b.transport.remis()[0]);
     let r = b
         .appel(
@@ -234,7 +247,7 @@ async fn le_renvoi_remplace_le_lien() {
         )
         .await;
     assert_eq!(r.json()["envoi_planifie"], false);
-    b.expediteur.passer().await.unwrap();
+    b.passer().await;
     let remis = b.transport.remis();
     assert_eq!(remis.len(), 2);
     let second = jeton_du_message(&remis[1]);
@@ -285,7 +298,7 @@ async fn un_echec_provisoire_est_rejoue_avec_un_lien_neuf() {
     let (id, _) = b.inviter(&admin).await;
     b.transport
         .programmer([Err(ErreurEnvoi::Temporaire), Err(ErreurEnvoi::Tls)]);
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.reportes, bilan.envoyes), (1, 1, 0));
     let (etat, issue, _) = b.tache(id).await;
     assert_eq!(
@@ -293,16 +306,16 @@ async fn un_echec_provisoire_est_rejoue_avec_un_lien_neuf() {
         ("en_attente", Some("smtp_temporaire"))
     );
     // Pas de rejeu avant le délai (une minute).
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     b.horloge.avancer(Duration::seconds(61));
-    b.expediteur.passer().await.unwrap();
+    b.passer().await;
     let (_, issue, _) = b.tache(id).await;
     assert_eq!(issue.as_deref(), Some("smtp_tls"));
     // Délai doublé : deux minutes.
     b.horloge.avancer(Duration::seconds(100));
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     b.horloge.avancer(Duration::seconds(30));
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!(bilan.envoyes, 1);
     assert_eq!(b.tache(id).await.0, "terminee");
     // Trois liens émis (deux jamais remis) : seul le dernier est vivant.
@@ -317,7 +330,7 @@ async fn un_refus_definitif_n_est_pas_rejoue_et_les_echecs_s_arretent() {
     let admin = b.session(b.c.administrateur).await;
     let (id, _) = b.inviter(&admin).await;
     b.transport.programmer([Err(ErreurEnvoi::Refus)]);
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.clos, bilan.envoyes), (1, 0));
     let (etat, issue, _) = b.tache(id).await;
     assert_eq!(
@@ -325,7 +338,7 @@ async fn un_refus_definitif_n_est_pas_rejoue_et_les_echecs_s_arretent() {
         ("terminee", Some("smtp_refus"))
     );
     b.horloge.avancer(Duration::hours(2));
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     assert_eq!(b.transport.tentatives(), 1);
     // Échecs provisoires répétés : abandon à la huitième tentative.
     let admin = b.session(b.c.administrateur).await;
@@ -333,7 +346,7 @@ async fn un_refus_definitif_n_est_pas_rejoue_et_les_echecs_s_arretent() {
     b.transport
         .programmer((0..20).map(|_| Err(ErreurEnvoi::Temporaire)));
     for _ in 0..12 {
-        b.expediteur.passer().await.unwrap();
+        b.passer().await;
         b.horloge.avancer(Duration::hours(2));
     }
     let (etat, issue, tentatives) = b.tache(id2).await;
@@ -357,7 +370,7 @@ async fn une_invitation_revoquee_avant_l_envoi_ne_part_pas() {
         )
         .await;
     assert_eq!(r.statut, StatusCode::OK);
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.clos, bilan.envoyes), (1, 1, 0));
     assert!(b.transport.vide());
     assert_eq!(b.tache(id).await.1.as_deref(), Some("sans_objet"));
@@ -390,9 +403,9 @@ async fn la_reinitialisation_ne_part_qu_apres_le_delai_de_contestation() {
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
     let id = Uuid::parse_str(r.json()["id"].as_str().unwrap()).unwrap();
     // Pendant le délai : aucune prise, aucun courriel, aucun lien.
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     b.horloge.avancer(Duration::hours(23));
-    assert_eq!(b.expediteur.passer().await.unwrap().prises, 0);
+    assert_eq!(b.passer().await.prises, 0);
     // Une tâche rendue échue trop tôt (horloge, rattrapage) ne part pas non plus.
     sqlx::query(
         "UPDATE tache SET prochaine_tentative = now() - interval '1 minute' WHERE objet = $1",
@@ -401,7 +414,7 @@ async fn la_reinitialisation_ne_part_qu_apres_le_delai_de_contestation() {
     .execute(&b.env.admin)
     .await
     .unwrap();
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.prises, bilan.reportes, bilan.envoyes), (1, 1, 0));
     assert!(b.transport.vide());
     assert_eq!(b.liens_fermes(id, "remplace").await, 0);
@@ -413,7 +426,7 @@ async fn la_reinitialisation_ne_part_qu_apres_le_delai_de_contestation() {
     assert_eq!(n, 0, "aucun lien émis avant le terme du délai");
     // Au terme du délai : le courriel part, le lien dure une heure.
     b.horloge.avancer(Duration::hours(1) + Duration::minutes(2));
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!(bilan.envoyes, 1, "{bilan:?}");
     let remis = b.transport.remis();
     assert_eq!(remis[0].sujet, api::envoi::modele::SUJET_REINITIALISATION);
@@ -453,7 +466,7 @@ async fn une_reinitialisation_annulee_ne_part_pas() {
         .await;
     assert_eq!(r.statut, StatusCode::OK);
     b.horloge.avancer(Duration::hours(25));
-    let bilan = b.expediteur.passer().await.unwrap();
+    let bilan = b.passer().await;
     assert_eq!((bilan.clos, bilan.envoyes), (1, 0));
     assert!(b.transport.vide());
 }
@@ -491,7 +504,7 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
     let autre = creer_cabinet(&b.env.admin, "Autre").await;
     let admin_autre = b.session(autre.administrateur).await;
     let admin = b.session(b.c.administrateur).await;
-    let (mon_id, mon_courriel) = b.inviter(&admin).await;
+    let (_, mon_courriel) = b.inviter(&admin).await;
     let courriel_autre = format!("autre.{}@cabinet.example", Uuid::new_v4().simple());
     let r = b
         .appel(
@@ -502,11 +515,29 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
         )
         .await;
     assert_eq!(r.statut, StatusCode::CREATED);
-    b.expediteur.passer().await.unwrap();
-    // Chaque courriel est parti vers l'adresse de **son** cabinet, et chacun de ses liens
-    // n'ouvre que son cabinet.
+    // La file est unique pour l'instance : un passage prend les tâches de tous les cabinets, une
+    // par une. Le test n'attend pas qu'un seul passage les prenne toutes (l'ordre et l'instant de
+    // prise ne sont pas garantis) ; il vide la file, et vérifie l'invariant d'isolation : chaque
+    // courriel part vers l'invité de **son** cabinet, jamais deux fois, et son lien n'ouvre que ce
+    // cabinet.
+    let mut bilans = Vec::new();
+    for _ in 0..20 {
+        bilans.push(b.passer().await);
+        if b.transport.remis().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     let remis = b.transport.remis();
-    assert_eq!(remis.len(), 2);
+    let taches: Vec<(Uuid, String, Option<String>, i32)> = sqlx::query_as(
+        "SELECT cabinet_cible, etat, derniere_issue, tentatives FROM tache \
+         WHERE nature = 'courriel' AND cabinet_cible = ANY($1)",
+    )
+    .bind(vec![b.c.cabinet.uuid(), autre.cabinet.uuid()])
+    .fetch_all(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(remis.len(), 2, "{bilans:?} {taches:?}");
     let a_moi = remis
         .iter()
         .find(|m| m.destinataire == mon_courriel)
@@ -539,7 +570,6 @@ async fn la_file_de_courriels_est_isolee_par_cabinet() {
         };
         assert_eq!(cabinet, attendu, "{courriel}");
     }
-    let _ = mon_id;
     let _ = b.horloge.maintenant();
 }
 
@@ -631,4 +661,128 @@ async fn une_tache_qui_a_epuise_ses_tentatives_est_abandonnee_sans_traitement() 
         (etat.as_str(), issue.as_deref()),
         ("terminee", Some("abandon"))
     );
+}
+
+#[tokio::test]
+async fn une_prise_ne_depasse_jamais_sa_limite() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    // Cinq envois en attente ; un expéditeur qui n'en traite qu'un par passage (`lot` = 1) : la
+    // prise (`LIMIT 1`) ne met « en cours » qu'une tâche, jamais plus. Une tâche rendue « en
+    // cours » en surplus resterait sans travailleur jusqu'à l'expiration de son bail.
+    for _ in 0..5 {
+        b.inviter(&admin).await;
+    }
+    // Pool dont chaque connexion **impose le plan** qui rescanne la sous-requête de la prise pour
+    // chaque ligne de la table (nested loop sans agrégat ni hachage) : avec l'ancienne écriture
+    // (`WHERE id IN (SELECT … LIMIT 1 FOR UPDATE SKIP LOCKED)`), toutes les lignes échues étaient
+    // mises « en cours » d'un seul coup (cause de l'échec observé en CI). Cause établie par
+    // 512 combinaisons de réglages du planificateur : 6 donnaient « UPDATE 4 » pour `LIMIT 1`.
+    let pool_plan_force = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|c, _| {
+            Box::pin(async move {
+                sqlx::raw_sql(
+                    "SET enable_hashagg = off; SET enable_hashjoin = off; SET enable_material = off; \
+                     SET enable_seqscan = off; SET enable_sort = off",
+                )
+                .execute(&mut *c)
+                .await?;
+                Ok(())
+            })
+        })
+        .connect(&commun::variable("SIGMA_TEST_APPLICATION_URL"))
+        .await
+        .unwrap();
+    let lent = Expediteur::new(
+        pool_plan_force,
+        Arc::new(b.transport.clone()),
+        Arc::new(b.horloge.clone()),
+        ORIGINE.to_owned(),
+        Reglages {
+            lot: 1,
+            ..Reglages::default()
+        },
+    );
+    for attendu in 1..=5_i64 {
+        let bilan = lent.passer().await.unwrap();
+        assert_eq!(bilan.prises, 1, "passage {attendu}");
+        let (terminees, en_cours, en_attente): (i64, i64, i64) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE etat = 'terminee'), \
+                    count(*) FILTER (WHERE etat = 'en_cours'), \
+                    count(*) FILTER (WHERE etat = 'en_attente') \
+             FROM tache WHERE nature = 'courriel' AND cabinet_cible = $1",
+        )
+        .bind(b.c.cabinet.uuid())
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+        assert_eq!(
+            (terminees, en_cours, en_attente),
+            (attendu, 0, 5 - attendu),
+            "passage {attendu}"
+        );
+    }
+    assert_eq!(b.transport.remis().len(), 5);
+}
+
+#[tokio::test]
+async fn les_taches_d_un_cabinet_ne_sont_ni_lues_ni_comptees_pour_un_autre() {
+    use api::base::{ContexteTenant, ouvrir_transaction};
+    let b = banc().await;
+    let autre = creer_cabinet(&b.env.admin, "Autre").await;
+    let (sa, sb) = (
+        b.session(b.c.administrateur).await,
+        b.session(autre.administrateur).await,
+    );
+    b.inviter(&sa).await;
+    for _ in 0..2 {
+        let r = b
+            .appel(
+                "POST",
+                &format!("/api/cabinets/{}/invitations", autre.cabinet),
+                &sb,
+                &json!({"courriel": format!("i.{}@cabinet.example", Uuid::new_v4().simple()), "nom": "I", "role": "auditeur"}).to_string(),
+            )
+            .await;
+        assert_eq!(r.statut, StatusCode::CREATED);
+    }
+    // Sous la RLS du rôle applicatif, chaque cabinet ne voit que les tâches de sa cible exacte :
+    // 1 pour le premier, 2 pour le second, jamais le total.
+    for (cabinet, utilisateur, attendu) in [
+        (b.c.cabinet, b.c.administrateur, 1_i64),
+        (autre.cabinet, autre.administrateur, 2),
+    ] {
+        let mut tx = ouvrir_transaction(
+            &b.env.application,
+            ContexteTenant::cabinet(cabinet, utilisateur),
+        )
+        .await
+        .unwrap();
+        let visibles: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM tache WHERE nature = 'courriel'")
+                .fetch_one(tx.connexion())
+                .await
+                .unwrap();
+        assert_eq!(visibles, attendu, "{cabinet}");
+        // Même en demandant explicitement le cabinet voisin : rien.
+        let voisin = if cabinet == b.c.cabinet {
+            autre.cabinet
+        } else {
+            b.c.cabinet
+        };
+        let voisines: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM tache WHERE cabinet_cible = $1")
+                .bind(voisin.uuid())
+                .fetch_one(tx.connexion())
+                .await
+                .unwrap();
+        assert_eq!(voisines, 0);
+        // Le plafond d'envoi d'un cabinet ne compte que ses propres tâches.
+        let plafond = api::base::taches::plafond_invitation(&mut tx, "inconnu@cabinet.example")
+            .await
+            .unwrap();
+        assert_eq!(plafond, None);
+        tx.confirmer().await.unwrap();
+    }
 }

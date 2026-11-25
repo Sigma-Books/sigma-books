@@ -433,6 +433,42 @@ async fn une_alerte_de_retard_apres_24_heures_une_seule_fois() {
 }
 
 #[tokio::test]
+async fn une_alerte_de_retard_envoyee_ne_se_repete_pas_a_chaque_passage() {
+    let _s = SERIE.lock().await;
+    let a = atelier().await;
+    a.valider_une("Première").await;
+    a.autorite.en_panne(true);
+    a.horloge.avancer(Duration::hours(25));
+    a.passer().await;
+    assert_eq!(a.notifications("retard_horodatage").await, 1);
+    // L'alerte est envoyée puis terminée (courriel de la PR 9) : la panne continue, la tâche
+    // d'horodatage reste en retard. Aucun passage (toutes les minutes) ne la recrée avant 24 h.
+    sqlx::query(
+        "UPDATE tache SET etat = 'terminee', termine_le = now(), derniere_issue = 'envoye' \
+         WHERE nature = 'notification' AND sujet = 'retard_horodatage' AND cabinet_cible = $1",
+    )
+    .bind(a.b.c.cabinet.uuid())
+    .execute(&a.b.env.admin)
+    .await
+    .unwrap();
+    for _ in 0..30 {
+        a.horloge.avancer(Duration::minutes(1));
+        a.passer().await;
+        a.passer().await;
+    }
+    assert_eq!(
+        a.notifications("retard_horodatage").await,
+        1,
+        "une alerte par période"
+    );
+    // Après 24 h de panne de plus, une nouvelle alerte rappelle la panne, une seule.
+    a.horloge.avancer(Duration::hours(24));
+    a.passer().await;
+    a.passer().await;
+    assert_eq!(a.notifications("retard_horodatage").await, 2);
+}
+
+#[tokio::test]
 async fn une_tache_prise_puis_abandonnee_est_reprise_apres_son_bail() {
     let _s = SERIE.lock().await;
     let a = atelier().await;

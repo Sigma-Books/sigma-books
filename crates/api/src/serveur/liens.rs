@@ -112,7 +112,7 @@ pub(super) async fn utiliser_lien(
         .map_err(|e| erreur_lien(e, false))?;
     // L'usage est inscrit à l'audit de chaque cabinet actif du compte (ADR 0017 §2), dans la
     // même transaction que la session d'enrôlement.
-    let (tx, _) = inscrire_dans_les_cabinets(tx, maintenant, |_| {
+    let (tx, _) = inscrire_dans_les_cabinets(tx, maintenant, None, |_| {
         evenement_lien(nature, cible, utilisateur)
     })
     .await?;

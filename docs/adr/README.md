@@ -28,5 +28,6 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0022 | File de tâches de l'instance : table d'instance, travailleur sans cabinet, horodatage planifié par la validation | Acceptée |
 | 0023 | Administration du cabinet, liens à usage unique et réinitialisation d'accès | Proposée |
 | 0024 | Courriels : relais SMTP en TLS obligatoire, envoi par la file de tâches | Proposée |
+| 0025 | Alertes par courriel aux administrateurs du cabinet | Proposée |
 
 Modèle : copier `0000-modele.md`.

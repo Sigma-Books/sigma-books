@@ -31,6 +31,7 @@ use uuid::Uuid;
 use super::audit::{PorteeAudit, inscrire as inscrire_audit};
 use super::evenement::{NouvelEvenement, inserer};
 use super::session::MethodeSession;
+use super::taches::{SujetNotification, alerter};
 use super::{
     ContexteTenant, ErreurBase, IdAppartenance, IdCabinet, IdUtilisateur, TransactionTenant,
     TransactionUtilisateur,
@@ -497,6 +498,8 @@ pub struct MembreActif {
     pub role: String,
 }
 
+/// `alerte` : sujet de l'alerte créée pour les administrateurs de chaque cabinet (PR 9c).
+///
 /// Inscrit un événement dans la chaîne d'audit de **chaque cabinet** où l'utilisateur du
 /// contexte a une appartenance active (ADR 0017 §2), dans la transaction de l'action : un
 /// échec l'annule. `evenement` construit l'entrée de chaque cabinet (acteur avec son rôle).
@@ -509,6 +512,7 @@ pub struct MembreActif {
 pub async fn inscrire_dans_les_cabinets(
     tx: TransactionUtilisateur,
     instant: OffsetDateTime,
+    alerte: Option<SujetNotification>,
     evenement: impl Fn(&MembreActif) -> Result<Evenement, ErreurBase>,
 ) -> Result<(TransactionUtilisateur, usize), ErreurBase> {
     let TransactionUtilisateur {
@@ -550,6 +554,17 @@ pub async fn inscrire_dans_les_cabinets(
             evenement(membre)?,
         )
         .await?;
+        // Alerte aux administrateurs du cabinet (connexion par le secours ou par un code de
+        // récupération, ADR 0012) : dans la même transaction, composée à l'envoi.
+        if let Some(sujet) = alerte {
+            alerter(
+                &mut tenant,
+                sujet,
+                Some(utilisateur.uuid()),
+                Some(utilisateur.uuid()),
+            )
+            .await?;
+        }
         tx = tenant.tx;
     }
     sqlx::query!("SELECT set_config('sigma.cabinet', '', true) AS cabinet")

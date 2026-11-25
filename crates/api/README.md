@@ -78,7 +78,7 @@ supérieur à celui de la voie dont elle dépend, hors de sa plage. Même cas po
 `0351_ecriture_validee_pieces.sql` (PR 13b), qui lie les écritures validées (`0203_validation.sql`,
 dans la plage) aux pièces ; `0352_piece_liee_non_ecartee.sql` (déclencheur sur `piece`) en dépend aussi.
 `0204_contre_passation.sql` (PR 13c) ne dépend que de `0203` : contraintes d'une contre-passation (et, à l'origine, un index unique sur l'origine). `0205_contre_passations_multiples.sql` lève cette unicité (ADR 0021 point 4, révisé le 2026-11-25) : une écriture validée peut être contre-passée plusieurs fois ; l'index sur l'origine devient non unique.
-`0450_taches_courriel.sql` (PR 9b, voie authentification) ajoute la nature `courriel` à la table `tache` de `0400` : numéro supérieur à celui de la voie dont elle dépend, hors de sa plage.
+`0450_taches_courriel.sql` (PR 9b) ajoute la nature `courriel` à la table `tache` de `0400`, `0451_alertes.sql` (PR 9c) ses sujets d'alerte : numéros supérieurs à celui de la voie dont elles dépendent, hors de sa plage.
 
 `sqlx migrate` accepte des versions non contiguës et les applique dans l'ordre croissant sur une
 base neuve (vérifié avec `sqlx-cli` 0.9.1). Limites :
@@ -617,6 +617,16 @@ Code : `src/envoi/` (`config`, `modele`, `transport`, `tache`), migration `0450_
 - **Tests** : `tests/envoi.rs` (transport en mémoire, PostgreSQL réel), `tests/envoi_smtp.rs` (faux
   relais en clair : rien n'est envoyé sans TLS). Les tests de `tests/envoi.rs` se sérialisent
   (la file est unique pour l'instance) et closent les envois laissés par les autres binaires.
+
+## Alertes (PR 9c ; ADR 0022, 0025)
+
+Les alertes sont des tâches `notification` créées dans la transaction de l'action (`base::taches::alerter`),
+envoyées par le même travailleur que les liens (`envoi::tache`) aux administrateurs actifs du
+cabinet de la tâche : exports d'audit et d'intégrité (#157), retard d'horodatage (F6.2), témoin
+(question 9b), réinitialisation demandée, annulée ou aboutie (le membre concerné aussi),
+changement de droits, séparation des tâches désactivée, connexion par le secours ou par un code de
+récupération. Le membre conteste sa propre réinitialisation par
+`POST /api/cabinets/{cabinet}/reinitialisations/{id}/contestation`. Tests : `tests/alertes.rs`.
 
 ## Travailler en voies parallèles
 

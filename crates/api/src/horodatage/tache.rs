@@ -150,17 +150,22 @@ impl Travailleur {
         // le travail tâche par tâche.
         for _ in 0..self.reglages.lot {
             let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
-            let mut prises = tx
+            let prises = tx
                 .prendre_echues(self.horloge.maintenant(), self.reglages.bail, 1)
                 .await?;
             tx.confirmer().await?;
-            let Some(tache) = prises.pop() else { break };
-            bilan.prises += 1;
-            match self.traiter(tache).await {
-                Ok(Issue::Jeton) => bilan.jetons += 1,
-                Ok(Issue::Reportee) => bilan.reportees += 1,
-                Ok(Issue::SansObjet) => bilan.sans_objet += 1,
-                Err(_) => bilan.erreurs += 1,
+            if prises.is_empty() {
+                break;
+            }
+            // Toute tâche rendue par la prise est traitée (aucune n'attend son bail en vain).
+            for tache in prises {
+                bilan.prises += 1;
+                match self.traiter(tache).await {
+                    Ok(Issue::Jeton) => bilan.jetons += 1,
+                    Ok(Issue::Reportee) => bilan.reportees += 1,
+                    Ok(Issue::SansObjet) => bilan.sans_objet += 1,
+                    Err(_) => bilan.erreurs += 1,
+                }
             }
         }
         let maintenant = self.horloge.maintenant();

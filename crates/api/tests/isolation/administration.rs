@@ -89,6 +89,27 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
     let multi_a = |resultat: Resultat| attendu(m.multi, a.cabinet, a.dossier, resultat);
     let base = "/api/cabinets/{cabinet}";
     let chemin = route.chemin.strip_prefix(base)?;
+    // Contestation par le membre concerné (le collaborateur de A, dont la réinitialisation est
+    // en attente) : elle aboutit une fois ; un autre membre, administrateur compris, ne voit pas
+    // cette réinitialisation (404) ; le membre des deux cabinets est dans la même situation.
+    if route.chemin.ends_with("/contestation") {
+        return Some(vec![
+            attendu(a.administrateur, a.cabinet, a.dossier, absent()),
+            attendu(m.multi, a.cabinet, a.dossier, absent()),
+            attendu(a.collaborateur, a.cabinet, a.dossier, ok()),
+            attendu(a.collaborateur, a.cabinet, a.dossier, conflit()),
+        ]);
+    }
+    // Annulation par un administrateur : la réinitialisation en attente a déjà été contestée.
+    if route.methode == Delete
+        && route
+            .chemin
+            .ends_with("/reinitialisations/{reinitialisation}")
+    {
+        let mut cas = vec![admin_a(conflit())];
+        cas.extend(refus(a));
+        return Some(cas);
+    }
     let mut cas = match (route.methode, chemin) {
         (Get, "/membres") => vec![admin_a(Tableau {
             present: a.administrateur.uuid(),
@@ -102,10 +123,7 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
         )
         | (
             Delete,
-            "/membres/{membre}/suspension"
-            | "/separation-taches"
-            | "/invitations/{invitation}"
-            | "/reinitialisations/{reinitialisation}",
+            "/membres/{membre}/suspension" | "/separation-taches" | "/invitations/{invitation}",
         ) => vec![admin_a(ok()), multi_a(conflit())],
         // Dossier inexistant dans le corps d'exemple, accès ou session inexistants : 404.
         (Post, "/membres/{membre}/acces")
@@ -282,19 +300,28 @@ pub(super) async fn quand_cedar_se_trompe(routeur: &Router, m: &Monde) {
         .iter()
         .filter(|r| r.cas_usage.module() == "administration" && r.portee.du_cabinet());
     for route in administration {
+        // La contestation est celle du membre concerné : le collaborateur, titulaire de la
+        // réinitialisation en attente, peut légitimement la contester (même Cedar forcé).
+        let contestation = route.chemin.ends_with("/contestation");
         let chemin = super::chemin(route, a.cabinet.uuid(), a.dossier.uuid());
         let reponse = super::appel(routeur, route, &chemin, Some(a.collaborateur)).await;
+        if contestation {
+            // Un autre membre (l'administrateur de A) ne la voit pas : 404, Cedar forcé ou non.
+            let r = super::appel(routeur, route, &chemin, Some(a.administrateur)).await;
+            assert_eq!(r.statut, StatusCode::NOT_FOUND, "{}", route.chemin);
+        }
         assert!(
-            matches!(
-                reponse.statut,
-                StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
-            ),
+            contestation
+                || matches!(
+                    reponse.statut,
+                    StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
+                ),
             "{} {} : {}",
             route.methode.nom(),
             route.chemin,
             reponse.statut
         );
-        assert_ne!(reponse.statut, StatusCode::OK);
+        assert!(contestation || reponse.statut != StatusCode::OK);
         let autrui = super::chemin(route, b.cabinet.uuid(), b.dossier.uuid());
         let reponse = super::appel(routeur, route, &autrui, Some(a.collaborateur)).await;
         assert_eq!(reponse.statut, StatusCode::NOT_FOUND, "{}", route.chemin);

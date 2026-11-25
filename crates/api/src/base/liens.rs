@@ -412,6 +412,7 @@ impl TransactionLien {
     ///
     /// # Errors
     /// [`ErreurLien::Invalide`], [`ErreurLien::CompteExistant`], erreur de base.
+    #[allow(clippy::too_many_lines)] // Deux natures de lien, une transaction : lecture linéaire.
     pub async fn utiliser(
         mut self,
         lien: LienLu,
@@ -468,6 +469,7 @@ impl TransactionLien {
                 )
                 .execute(&mut *self.tx)
                 .await?;
+                alerter_dans(&mut self.tx, lien.cabinet, "droits_modifies", nouveau).await?;
                 (nouveau, Some(i.role))
             }
             NatureLien::Reinitialisation => {
@@ -507,6 +509,13 @@ impl TransactionLien {
                     return Err(ErreurLien::Invalide);
                 }
                 retirer_les_facteurs(&mut self.tx, utilisateur, instant).await?;
+                alerter_dans(
+                    &mut self.tx,
+                    lien.cabinet,
+                    "reinitialisation_aboutie",
+                    utilisateur,
+                )
+                .await?;
                 (utilisateur, None)
             }
         };
@@ -585,6 +594,7 @@ impl TransactionLien {
         )
         .execute(&mut *self.tx)
         .await?;
+        alerter_dans(&mut self.tx, lien.cabinet, "droits_modifies", utilisateur).await?;
         let cabinet = lien.cabinet;
         let tx = self.sortir_du_cabinet().await?;
         Ok(Utilisation {
@@ -596,6 +606,28 @@ impl TransactionLien {
             role: Some(i.role),
         })
     }
+}
+
+/// Crée une alerte (`notification`) du cabinet du lien, dans la transaction de l'usage : le
+/// cabinet est déjà posé (politique d'insertion du tenant). `sujet` : un sujet sans dossier.
+async fn alerter_dans(
+    tx: &mut Transaction<'static, Postgres>,
+    cabinet: IdCabinet,
+    sujet: &'static str,
+    concerne: IdUtilisateur,
+) -> Result<(), ErreurLien> {
+    sqlx::query!(
+        "INSERT INTO tache (id, nature, sujet, cabinet_cible, objet, etat, cree_le, \
+                            prochaine_tentative) \
+         VALUES ($1, 'notification', $2, $3, $4, 'en_attente', now(), now())",
+        Uuid::new_v4(),
+        sujet,
+        cabinet.uuid(),
+        concerne.uuid(),
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 /// Retire les passkeys, le secours et les codes de récupération de l'utilisateur du contexte, et

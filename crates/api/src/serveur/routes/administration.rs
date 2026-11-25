@@ -30,7 +30,9 @@ use crate::base::administration::{
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier};
 use crate::base::session::MotifRevocation;
-use crate::base::taches::{SujetCourriel, plafond_invitation, planifier_courriel};
+use crate::base::taches::{
+    SujetCourriel, SujetNotification, alerter, plafond_invitation, planifier_courriel,
+};
 use crate::base::{IdDossier, IdUtilisateur, TransactionTenant};
 use crate::courriel;
 use crate::serveur::audit::Trace;
@@ -70,6 +72,8 @@ pub enum Cas {
     Reinitialiser,
     /// Annuler une réinitialisation en attente.
     AnnulerReinitialisation,
+    /// Contester, en tant que membre concerné, la réinitialisation de son propre accès.
+    ContesterReinitialisation,
     /// Activer la séparation des tâches.
     ActiverSeparation,
     /// Désactiver la séparation des tâches.
@@ -190,6 +194,12 @@ pub const ROUTES: &[Route] = &[
         "/api/cabinets/{cabinet}/membres/{membre}/reinitialisation",
         Action::ReinitialiserAcces,
         Cas::Reinitialiser,
+    ),
+    cabinet(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/reinitialisations/{reinitialisation}/contestation",
+        Action::AnnulerSaReinitialisation,
+        Cas::ContesterReinitialisation,
     ),
     cabinet(
         Methode::Delete,
@@ -347,6 +357,24 @@ async fn administrateurs_verrouilles(
     Ok(admins)
 }
 
+/// Alerte aux administrateurs (et au membre concerné pour une réinitialisation), créée dans la
+/// transaction de l'action : elle n'existe que si l'action est validée (ADR 0025).
+async fn alerte(
+    tx: &mut TransactionTenant,
+    garde: &Garde,
+    sujet: SujetNotification,
+    concerne: IdUtilisateur,
+) -> Result<(), ErreurApi> {
+    alerter(
+        tx,
+        sujet,
+        Some(garde.utilisateur().uuid()),
+        Some(concerne.uuid()),
+    )
+    .await?;
+    Ok(())
+}
+
 fn trace(genre: &'static str, ressource: Uuid) -> Trace {
     Trace::new(PorteeAudit::Cabinet, genre, ressource)
 }
@@ -394,6 +422,7 @@ pub(crate) async fn executer(
         Cas::ListerReinitialisations => lister_reinitialisations(tx, garde).await,
         Cas::Reinitialiser => reinitialiser(tx, garde, requete).await,
         Cas::AnnulerReinitialisation => annuler_reinitialisation(tx, garde, requete).await,
+        Cas::ContesterReinitialisation => contester_reinitialisation(tx, garde, requete).await,
         Cas::ActiverSeparation => separation(tx, garde, requete, true).await,
         Cas::DesactiverSeparation => separation(tx, garde, requete, false).await,
         Cas::UtiliserLien | Cas::AccepterInvitation => Err(ErreurApi::Interne(
@@ -448,6 +477,13 @@ async fn changer_role(
         MotifRevocation::ChangementDroits,
     )
     .await?;
+    alerte(
+        tx,
+        garde,
+        SujetNotification::DroitsModifies,
+        membre.utilisateur,
+    )
+    .await?;
     let mut t = trace("membre", membre.utilisateur.uuid());
     t.champs
         .push(("role", Some(membre.role.clone()), Some(role.to_owned())));
@@ -491,6 +527,13 @@ async fn changer_activite(
         )
         .await?;
     }
+    alerte(
+        tx,
+        garde,
+        SujetNotification::DroitsModifies,
+        membre.utilisateur,
+    )
+    .await?;
     let mut t = trace("membre", membre.utilisateur.uuid());
     t.champs.push((
         "actif",
@@ -523,6 +566,13 @@ async fn affecter(
     if avant == Some(corps.validation_deleguee) {
         return Err(conflit(MotifConflit::AucunChangement));
     }
+    alerte(
+        tx,
+        garde,
+        SujetNotification::DroitsModifies,
+        membre.utilisateur,
+    )
+    .await?;
     let mut t = trace("membre", membre.utilisateur.uuid());
     t.donnees.push(("dossier", dossier.to_string()));
     t.champs.push((
@@ -554,6 +604,13 @@ async fn retirer_affectation(
     let avant = adm::retirer_affectation(tx, membre.utilisateur, dossier)
         .await?
         .ok_or(ErreurApi::Introuvable)?;
+    alerte(
+        tx,
+        garde,
+        SujetNotification::DroitsModifies,
+        membre.utilisateur,
+    )
+    .await?;
     let mut t = trace("membre", membre.utilisateur.uuid());
     t.donnees.push(("dossier", dossier.to_string()));
     t.champs
@@ -805,6 +862,13 @@ async fn reinitialiser(
     let echeance = requete.maintenant + adm::DELAI_REINITIALISATION;
     // Le lien (1 h) est émis et envoyé au terme du délai de contestation, par la file de tâches.
     planifier_courriel(tx, SujetCourriel::Reinitialisation, id, Some(echeance)).await?;
+    alerte(
+        tx,
+        garde,
+        SujetNotification::ReinitialisationDemandee,
+        membre.utilisateur,
+    )
+    .await?;
     let mut t = trace("reinitialisation", id);
     // Le code seul : la chaîne d'audit est définitive, le texte libre reste dans la table.
     t.motif = Some(motif_code.to_owned());
@@ -841,8 +905,61 @@ async fn annuler_reinitialisation(
         "annule",
     )
     .await?;
+    alerte(
+        tx,
+        garde,
+        SujetNotification::ReinitialisationAnnulee,
+        r.utilisateur,
+    )
+    .await?;
     let mut t = trace("reinitialisation", id);
     t.donnees.push(("membre", r.utilisateur.to_string()));
+    t.champs
+        .push(("etat", Some(r.etat), Some("annulee".to_owned())));
+    Ok(rendre(
+        StatusCode::OK,
+        serde_json::json!({"id": id.hyphenated().to_string()}),
+        vec![t],
+    ))
+}
+
+/// Contestation par le membre concerné (ADR 0012) : tout membre actif du cabinet, mais seulement
+/// pour **sa** réinitialisation ; celle d'un autre est une ressource absente (404).
+async fn contester_reinitialisation(
+    tx: &mut TransactionTenant,
+    garde: &Garde,
+    requete: &Requete<'_>,
+) -> Result<Resultat, ErreurApi> {
+    lire_appartenance(tx)
+        .await?
+        .filter(|a| a.actif)
+        .ok_or(ErreurApi::Introuvable)?;
+    let id = id_chemin(requete.chemin, "reinitialisation")?;
+    let r = adm::lire_reinitialisation(tx, id)
+        .await?
+        .filter(|r| r.utilisateur == garde.utilisateur())
+        .ok_or(ErreurApi::Introuvable)?;
+    if !adm::annuler_reinitialisation(tx, id, requete.maintenant).await? {
+        return Err(conflit(MotifConflit::ReinitialisationNonEnAttente));
+    }
+    crate::base::liens::fermer(
+        tx,
+        crate::base::liens::NatureLien::Reinitialisation,
+        id,
+        requete.maintenant,
+        "annule",
+    )
+    .await?;
+    alerte(
+        tx,
+        garde,
+        SujetNotification::ReinitialisationAnnulee,
+        r.utilisateur,
+    )
+    .await?;
+    let mut t = trace("reinitialisation", id);
+    t.donnees.push(("membre", r.utilisateur.to_string()));
+    t.donnees.push(("contestation", "par_le_membre".to_owned()));
     t.champs
         .push(("etat", Some(r.etat), Some("annulee".to_owned())));
     Ok(rendre(
@@ -864,6 +981,15 @@ async fn separation(
         return Err(conflit(MotifConflit::AucunChangement));
     }
     let _ = requete;
+    if !active {
+        alerter(
+            tx,
+            SujetNotification::SeparationDesactivee,
+            Some(garde.utilisateur().uuid()),
+            None,
+        )
+        .await?;
+    }
     let cabinet = adm::cabinet_du_contexte(tx).uuid();
     let mut t = trace("cabinet", cabinet);
     t.champs.push((

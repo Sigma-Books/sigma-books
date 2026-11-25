@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM tache WHERE nature IN ('horodatage', 'courriel', 'notification') AND etat = 'terminee' AND termine_le < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f65231a0c84fa48c85e81f01a4b404c19974d17f9c333bd34ef8ecd246c8997"
+}

@@ -1,5 +1,14 @@
 //! Envoi des liens par la file de tâches (L2-19, PR 9b ; ADR 0012, 0022, 0024).
 //!
+//! Un [`Expediteur`] envoie aussi les **alertes** (nature `notification`, PR 9c, ADR 0025) aux
+//! administrateurs actifs du cabinet (et au membre concerné pour la réinitialisation de son
+//! accès) : exports d'audit et d'intégrité (#157), retard d'horodatage (F6.2), témoin remis au
+//! cabinet (question 9b), étapes d'une réinitialisation, changements de droits, séparation des
+//! tâches désactivée, connexion par le secours ou par un code de récupération. Les destinataires
+//! et le texte sont établis **à l'envoi**, en base, sous le contexte du cabinet : la tâche ne
+//! porte que des identifiants. Un échec provisoire rejoue l'envoi à tous les destinataires (un
+//! destinataire déjà servi peut recevoir un doublon : au moins une fois).
+//!
 //! Un [`Expediteur`] repasse périodiquement : il prend les envois de courriel échus
 //! ([`crate::base::taches`], nature `courriel`), **une tâche à la fois**, et pour chacune
 //! 1. dans une transaction **de tenant ordinaire** (cabinet de la tâche) : relit l'invitation ou
@@ -21,11 +30,16 @@ use std::time::Duration;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 
+use super::modele::{Destinataire, TemoinAlerte, alerte};
 use super::modele::{Message, adresse_du_lien, invitation, reinitialisation};
 use super::transport::Transport;
 use crate::base::administration::{lire_invitation, lire_membre, lire_reinitialisation};
+use crate::base::jetons::{dernier_jeton, lire_tete};
 use crate::base::liens::{NatureLien, emettre};
-use crate::base::taches::{CourrielPris, SujetCourriel, ouvrir_transaction_travailleur};
+use crate::base::taches::{
+    CourrielPris, NotificationPrise, SujetCourriel, SujetNotification,
+    ouvrir_transaction_travailleur,
+};
 use crate::base::{ContexteTenant, ErreurBase, IdCabinet, IdUtilisateur, ouvrir_transaction};
 use crate::serveur::journal::CIBLE;
 use crate::serveur::session::Horloge;
@@ -41,6 +55,12 @@ pub struct Reglages {
     pub lot: i64,
     /// Tentatives au plus avant abandon.
     pub tentatives_max: i32,
+    /// Budget de temps d'une tâche d'envoi (tous destinataires), **inférieur au bail** : la
+    /// tâche ne peut pas être reprise par un autre passage pendant qu'elle s'exécute.
+    pub budget: Duration,
+    /// Plafond d'alertes envoyées par cabinet et par sujet sur 24 heures : au-delà, l'alerte est
+    /// ignorée (issue `plafond`) plutôt que d'inonder les administrateurs.
+    pub alertes_max_par_sujet_24h: i64,
     /// Attente avant de relancer la boucle après son arrêt inattendu (panique).
     pub relance: Duration,
 }
@@ -52,6 +72,8 @@ impl Default for Reglages {
             bail: time::Duration::minutes(5),
             lot: 20,
             tentatives_max: 8,
+            budget: Duration::from_secs(240),
+            alertes_max_par_sujet_24h: 10,
             relance: Duration::from_secs(5),
         }
     }
@@ -135,24 +157,54 @@ impl Expediteur {
         let mut bilan = Bilan::default();
         for _ in 0..self.reglages.lot {
             let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
-            let mut prises = tx
+            let prises = tx
                 .prendre_courriels(self.horloge.maintenant(), self.reglages.bail, 1)
                 .await?;
             tx.confirmer().await?;
-            let Some(tache) = prises.pop() else { break };
-            bilan.prises += 1;
-            // Plafond de tentatives **avant** le traitement : une tâche en erreur interne (base)
-            // est reprise au bail, elle ne l'est pas indéfiniment.
-            if tache.tentatives >= self.reglages.tentatives_max {
-                self.abandonner(tache.id, tache.prise).await?;
-                bilan.clos += 1;
-                continue;
+            if prises.is_empty() {
+                break;
             }
-            match self.traiter(tache).await {
-                Ok(Sortie::Envoye) => bilan.envoyes += 1,
-                Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
-                Ok(Sortie::SansObjet | Sortie::Invalide | Sortie::Refus(_)) => bilan.clos += 1,
-                Err(_) => bilan.erreurs += 1,
+            // Toute tâche rendue par la prise est traitée : aucune n'est laissée « en cours »
+            // sans travailleur jusqu'à l'expiration de son bail.
+            for tache in prises {
+                bilan.prises += 1;
+                // Plafond de tentatives **avant** le traitement : une tâche en erreur interne
+                // (base) est reprise au bail, elle ne l'est pas indéfiniment.
+                if tache.tentatives >= self.reglages.tentatives_max {
+                    self.abandonner(tache.id, tache.prise).await?;
+                    bilan.clos += 1;
+                    continue;
+                }
+                match self.traiter(tache).await {
+                    Ok(Sortie::Envoye) => bilan.envoyes += 1,
+                    Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
+                    Ok(Sortie::SansObjet | Sortie::Invalide | Sortie::Refus(_)) => bilan.clos += 1,
+                    Err(_) => bilan.erreurs += 1,
+                }
+            }
+        }
+        for _ in 0..self.reglages.lot {
+            let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
+            let prises = tx
+                .prendre_notifications(self.horloge.maintenant(), self.reglages.bail, 1)
+                .await?;
+            tx.confirmer().await?;
+            if prises.is_empty() {
+                break;
+            }
+            for tache in prises {
+                bilan.prises += 1;
+                if tache.tentatives >= self.reglages.tentatives_max {
+                    self.abandonner(tache.id, tache.prise).await?;
+                    bilan.clos += 1;
+                    continue;
+                }
+                match self.traiter_notification(tache).await {
+                    Ok(Sortie::Envoye) => bilan.envoyes += 1,
+                    Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
+                    Ok(Sortie::SansObjet | Sortie::Invalide | Sortie::Refus(_)) => bilan.clos += 1,
+                    Err(_) => bilan.erreurs += 1,
+                }
             }
         }
         Ok(bilan)
@@ -166,6 +218,157 @@ impl Expediteur {
         tx.confirmer().await?;
         tracing::warn!(target: CIBLE, issue = "abandon", "envoi de courriel abandonné");
         Ok(())
+    }
+
+    /// Messages d'une alerte : un par administrateur actif, plus le membre concerné pour les
+    /// étapes d'une réinitialisation. Lus et composés sous le contexte du cabinet (et du dossier).
+    async fn preparer_alerte(&self, tache: &NotificationPrise) -> Result<Vec<Message>, ErreurBase> {
+        let cabinet = IdCabinet::depuis_uuid(tache.cabinet);
+        let acteur = IdUtilisateur::nouveau();
+        let contexte = match tache.dossier {
+            Some(d) => {
+                ContexteTenant::dossier(cabinet, crate::base::IdDossier::depuis_uuid(d), acteur)
+            }
+            None => ContexteTenant::cabinet(cabinet, acteur),
+        };
+        let mut tx = ouvrir_transaction(&self.pool, contexte).await?;
+        let membres = crate::base::administration::lister_membres(&mut tx).await?;
+        let temoin = if tache.sujet == SujetNotification::Temoin && tache.dossier.is_some() {
+            match lire_tete(&mut tx).await? {
+                Some(t) => {
+                    let jeton = dernier_jeton(&mut tx).await?.and_then(|j| {
+                        let quand = j
+                            .obtenu_le
+                            .to_offset(time::UtcOffset::UTC)
+                            .format(&time::format_description::well_known::Rfc3339)
+                            .ok()?;
+                        Some((j.nombre, quand))
+                    });
+                    Some(TemoinAlerte {
+                        nombre: t.rang,
+                        tete: t.empreinte.to_string(),
+                        jeton,
+                    })
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        tx.confirmer().await?;
+        let reinit = matches!(
+            tache.sujet,
+            SujetNotification::ReinitialisationDemandee
+                | SujetNotification::ReinitialisationAnnulee
+                | SujetNotification::ReinitialisationAboutie
+        );
+        let mut messages = Vec::new();
+        for m in membres.iter().filter(|m| m.actif) {
+            let admin = m.role == authz::Role::Administrateur.nom();
+            let concerne = reinit && Some(m.utilisateur.uuid()) == tache.concerne;
+            if !admin && !concerne {
+                continue;
+            }
+            // Le membre concerné est alerté en tant que tel (une seule fois), même s'il administre
+            // le cabinet.
+            let qui = if concerne {
+                Destinataire::Concerne
+            } else {
+                Destinataire::Administrateur
+            };
+            if let Some(message) = alerte(
+                tache.sujet,
+                &m.courriel,
+                &m.nom,
+                qui,
+                tache.dossier,
+                temoin.as_ref(),
+            ) {
+                messages.push(message);
+            }
+        }
+        Ok(messages)
+    }
+
+    async fn traiter_notification(&self, tache: NotificationPrise) -> Result<Sortie, ErreurBase> {
+        let maintenant = self.horloge.maintenant();
+        // Plafond par cabinet et par sujet sur 24 heures : au-delà, rien n'est envoyé.
+        let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
+        let deja = tx
+            .compter_alertes_envoyees(
+                tache.cabinet,
+                tache.sujet,
+                maintenant - time::Duration::hours(24),
+            )
+            .await?;
+        tx.confirmer().await?;
+        let messages = if deja >= self.reglages.alertes_max_par_sujet_24h {
+            Vec::new()
+        } else {
+            self.preparer_alerte(&tache).await?
+        };
+        let sortie = if deja >= self.reglages.alertes_max_par_sujet_24h {
+            Sortie::Refus("plafond")
+        } else if messages.is_empty() {
+            Sortie::SansObjet
+        } else {
+            let (mut envoyes, mut rejouable, mut refus) = (0, None, false);
+            // Budget de temps global, inférieur au bail : tous les destinataires, ou rien de plus.
+            let remise = tokio::time::timeout(self.reglages.budget, async {
+                for message in &messages {
+                    match self.transport.envoyer(message).await {
+                        Ok(()) => envoyes += 1,
+                        Err(e) if e.a_rejouer() => rejouable = Some(e),
+                        Err(_) => refus = true,
+                    }
+                }
+            })
+            .await;
+            let delai_depasse = remise.is_err();
+            match rejouable {
+                Some(e) if tache.tentatives + 1 < self.reglages.tentatives_max => {
+                    Sortie::Echec(e.code())
+                }
+                None if delai_depasse && tache.tentatives + 1 < self.reglages.tentatives_max => {
+                    Sortie::Echec("delai_depasse")
+                }
+                Some(_) => Sortie::Refus("abandon"),
+                None if delai_depasse => Sortie::Refus("abandon"),
+                None if envoyes > 0 => Sortie::Envoye,
+                None if refus => Sortie::Refus("smtp_refus"),
+                None => Sortie::SansObjet,
+            }
+        };
+        let maintenant = self.horloge.maintenant();
+        let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
+        match &sortie {
+            Sortie::Envoye => {
+                tx.terminer(tache.id, tache.prise, "envoye", maintenant)
+                    .await?;
+            }
+            Sortie::SansObjet | Sortie::Invalide | Sortie::Pas(_) => {
+                tx.terminer(tache.id, tache.prise, "sans_objet", maintenant)
+                    .await?;
+            }
+            Sortie::Refus(code) => {
+                tx.terminer(tache.id, tache.prise, code, maintenant).await?;
+            }
+            Sortie::Echec(code) => {
+                tx.reporter(
+                    tache.id,
+                    tache.prise,
+                    code,
+                    maintenant + delai_de_rejeu(tache.tentatives),
+                    maintenant,
+                )
+                .await?;
+            }
+        }
+        tx.confirmer().await?;
+        if let Sortie::Echec(code) | Sortie::Refus(code) = &sortie {
+            tracing::warn!(target: CIBLE, issue = *code, "envoi d'alerte non abouti");
+        }
+        Ok(sortie)
     }
 
     /// Boucle **supervisée** : une panique est journalisée (sans détail) et la boucle relancée.
@@ -280,8 +483,13 @@ impl Expediteur {
             Preparation::Invalide => Sortie::Invalide,
             Preparation::Pas(instant) => Sortie::Pas(instant),
             Preparation::Message(message) => {
-                // Hors de toute transaction : l'échange SMTP peut durer.
-                match self.transport.envoyer(&message).await {
+                // Hors de toute transaction : l'échange SMTP peut durer, mais pas plus que le
+                // budget de la tâche (inférieur au bail).
+                let envoi =
+                    tokio::time::timeout(self.reglages.budget, self.transport.envoyer(&message))
+                        .await
+                        .unwrap_or(Err(super::transport::ErreurEnvoi::Temporaire));
+                match envoi {
                     Ok(()) => Sortie::Envoye,
                     Err(e)
                         if e.a_rejouer() && tache.tentatives + 1 < self.reglages.tentatives_max =>

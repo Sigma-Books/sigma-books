@@ -826,6 +826,8 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
         .uuid();
     // `{invitation}` : celle que crée la route d'invitation, qui précède celle du renvoi.
     let mut invitation = uuid::Uuid::nil();
+    // `{reinitialisation}` : celle que crée la route de demande, contestée ensuite par le membre.
+    let mut reinitialisation = uuid::Uuid::nil();
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -848,6 +850,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "brouillon" => brouillon,
                 "membre" => membre,
                 "invitation" => invitation,
+                "reinitialisation" => reinitialisation,
                 "ecriture" => validee,
                 autre => fixtures.sous_ressource(autre),
             },
@@ -963,6 +966,26 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 .unwrap();
             appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await
         } else if route.cas_usage
+            == CasUsage::Administration(
+                api::serveur::routes::administration::Cas::ContesterReinitialisation,
+            )
+        {
+            // Contestation par le membre concerné, non par un administrateur ; la route de
+            // suspension qui précède l'a suspendu : on le rétablit.
+            sqlx::query("UPDATE appartenance SET actif = true WHERE utilisateur_id = $1")
+                .bind(membre)
+                .execute(&env.admin)
+                .await
+                .unwrap();
+            commun::serveur::envoyer(
+                &routeur,
+                &chemin,
+                Some(api::base::IdUtilisateur::depuis_uuid(membre)),
+                "",
+                None,
+            )
+            .await
+        } else if route.cas_usage
             == CasUsage::Administration(api::serveur::routes::administration::Cas::Affecter)
         {
             // Affectation d'un dossier réel du cabinet.
@@ -995,6 +1018,10 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             == CasUsage::Administration(api::serveur::routes::administration::Cas::Inviter)
         {
             invitation = reponse.json()["id"].as_str().unwrap().parse().unwrap();
+        } else if route.cas_usage
+            == CasUsage::Administration(api::serveur::routes::administration::Cas::Reinitialiser)
+        {
+            reinitialisation = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         } else if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
             piece = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         }

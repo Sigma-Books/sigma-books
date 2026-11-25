@@ -44,6 +44,20 @@ permit (
 )
 when { principal.role == Sigma::Role::"administrateur" };
 
+// Contester la réinitialisation de son propre accès (ADR 0012, F1.12) : tout rôle du cabinet
+// (l'utilisateur concerné peut être valideur, collaborateur ou auditeur). Que la
+// réinitialisation soit la sienne est vérifié par la requête, en base.
+@id("adr0012-contester-sa-reinitialisation")
+permit (principal, action == Sigma::Action::"AnnulerSaReinitialisation", resource)
+when {
+  [
+    Sigma::Role::"administrateur",
+    Sigma::Role::"valideur",
+    Sigma::Role::"collaborateur",
+    Sigma::Role::"auditeur"
+  ].contains(principal.role)
+};
+
 // Audit de portée cabinet (ADR 0014) : consultation, vérification et
 // export réservés à l'administrateur (ADR 0016). Cette chaîne inscrit tous
 // les dossiers, rôles et affectations du cabinet : l'ouvrir à un valideur

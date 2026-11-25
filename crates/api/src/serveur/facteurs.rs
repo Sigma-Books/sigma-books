@@ -97,6 +97,7 @@ use crate::base::passkeys as base_passkeys;
 use crate::base::session::{
     self, MethodeSession, MotifRevocation, NatureSession, NouvelleSession, Session,
 };
+use crate::base::taches::SujetNotification;
 use crate::base::{
     ErreurBase, IdSession, IdUtilisateur, TransactionUtilisateur, ouvrir_transaction_utilisateur,
 };
@@ -767,7 +768,12 @@ pub(super) async fn ouvrir(
         ),
     )
     .await?;
-    let (tx, _) = inscrire_dans_les_cabinets(tx, maintenant, |membre| {
+    let alerte = match methode {
+        MethodeSession::Secours => Some(SujetNotification::ConnexionSecours),
+        MethodeSession::CodeRecuperation => Some(SujetNotification::CodeRecuperationUtilise),
+        MethodeSession::Passkey | MethodeSession::LienEnrolement => None,
+    };
+    let (tx, _) = inscrire_dans_les_cabinets(tx, maintenant, alerte, |membre| {
         entree_audit(
             membre,
             utilisateur,
@@ -908,7 +914,7 @@ impl Soi<'_> {
         methode: MethodeSession,
     ) -> Result<(), ErreurApi> {
         let fraiche = SessionAuthz::depuis(session.derniere_verification, self.maintenant);
-        let (tx, _) = inscrire_dans_les_cabinets(tx, self.maintenant, |membre| {
+        let (tx, _) = inscrire_dans_les_cabinets(tx, self.maintenant, None, |membre| {
             entree_audit(
                 membre,
                 self.utilisateur(),

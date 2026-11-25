@@ -63,6 +63,20 @@ pub enum SujetNotification {
     RetardHorodatage,
     /// Témoin à remettre au cabinet après un verrouillage ou une clôture (question 9b).
     Temoin,
+    /// Réinitialisation de l'accès d'un membre demandée (ADR 0012) ; objet : le membre.
+    ReinitialisationDemandee,
+    /// Réinitialisation annulée par un administrateur ou par le membre ; objet : le membre.
+    ReinitialisationAnnulee,
+    /// Lien de réinitialisation utilisé : facteurs retirés ; objet : le membre.
+    ReinitialisationAboutie,
+    /// Droits modifiés ou membre arrivé dans le cabinet (question 10a) ; objet : le membre.
+    DroitsModifies,
+    /// Séparation des tâches désactivée (Q5.3).
+    SeparationDesactivee,
+    /// Connexion par la méthode de secours (ADR 0012) ; objet : l'utilisateur.
+    ConnexionSecours,
+    /// Code de récupération utilisé (ADR 0012, F1.12) ; objet : l'utilisateur.
+    CodeRecuperationUtilise,
 }
 
 impl SujetNotification {
@@ -75,7 +89,36 @@ impl SujetNotification {
             Self::ExportIntegrite => "export_integrite",
             Self::RetardHorodatage => "retard_horodatage",
             Self::Temoin => "temoin",
+            Self::ReinitialisationDemandee => "reinitialisation_demandee",
+            Self::ReinitialisationAnnulee => "reinitialisation_annulee",
+            Self::ReinitialisationAboutie => "reinitialisation_aboutie",
+            Self::DroitsModifies => "droits_modifies",
+            Self::SeparationDesactivee => "separation_desactivee",
+            Self::ConnexionSecours => "connexion_secours",
+            Self::CodeRecuperationUtilise => "code_recuperation_utilise",
         }
+    }
+
+    /// Tous les sujets.
+    pub const TOUS: [Self; 12] = [
+        Self::ExportAuditCabinet,
+        Self::ExportAuditDossier,
+        Self::ExportIntegrite,
+        Self::RetardHorodatage,
+        Self::Temoin,
+        Self::ReinitialisationDemandee,
+        Self::ReinitialisationAnnulee,
+        Self::ReinitialisationAboutie,
+        Self::DroitsModifies,
+        Self::SeparationDesactivee,
+        Self::ConnexionSecours,
+        Self::CodeRecuperationUtilise,
+    ];
+
+    /// Relit un nom stocké.
+    #[must_use]
+    pub fn depuis_nom(nom: &str) -> Option<Self> {
+        Self::TOUS.into_iter().find(|s| s.nom() == nom)
     }
 }
 
@@ -126,18 +169,34 @@ pub async fn notifier(
     sujet: SujetNotification,
     acteur: Option<Uuid>,
 ) -> Result<(), ErreurBase> {
+    alerter(tx, sujet, acteur, None).await
+}
+
+/// Comme [`notifier`], avec l'utilisateur **concerné** par l'alerte (`objet`) : le membre dont
+/// les droits changent, dont l'accès est réinitialisé, qui se connecte par le secours. Aucune
+/// autre donnée : le courriel est composé à l'envoi, par le travailleur.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn alerter(
+    tx: &mut TransactionTenant,
+    sujet: SujetNotification,
+    acteur: Option<Uuid>,
+    concerne: Option<Uuid>,
+) -> Result<(), ErreurBase> {
     let cabinet = tx.contexte().id_cabinet().uuid();
     let dossier = tx.contexte().id_dossier().map(super::IdDossier::uuid);
     sqlx::query!(
-        "INSERT INTO tache (id, nature, sujet, cabinet_cible, dossier_cible, acteur_cible, etat, \
-                            cree_le, prochaine_tentative) \
-         VALUES ($1, 'notification', $2, $3, $4, $5, 'en_attente', now(), now()) \
+        "INSERT INTO tache (id, nature, sujet, cabinet_cible, dossier_cible, acteur_cible, objet, \
+                            etat, cree_le, prochaine_tentative) \
+         VALUES ($1, 'notification', $2, $3, $4, $5, $6, 'en_attente', now(), now()) \
          ON CONFLICT DO NOTHING",
         Uuid::new_v4(),
         sujet.nom(),
         cabinet,
         dossier,
         acteur,
+        concerne,
     )
     .execute(tx.connexion())
     .await?;
@@ -270,6 +329,25 @@ pub struct CourrielPris {
     pub prise: Uuid,
 }
 
+/// Notification prise par le travailleur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotificationPrise {
+    /// Identifiant de la tâche.
+    pub id: Uuid,
+    /// Cabinet.
+    pub cabinet: Uuid,
+    /// Dossier concerné, s'il y en a un.
+    pub dossier: Option<Uuid>,
+    /// Sujet.
+    pub sujet: SujetNotification,
+    /// Utilisateur concerné par l'alerte, s'il y en a un.
+    pub concerne: Option<Uuid>,
+    /// Tentatives déjà faites (celle-ci non comprise).
+    pub tentatives: i32,
+    /// Jeton de cette prise : lui seul termine ou reporte la tâche.
+    pub prise: Uuid,
+}
+
 /// Tâche d'horodatage prise par le travailleur.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TachePrise {
@@ -343,16 +421,17 @@ impl TransactionTravailleur {
         let jusqua = maintenant + bail;
         let prise = Uuid::new_v4();
         let lignes = sqlx::query!(
-            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
-                              tentatives = tentatives + 1 \
-             WHERE id IN ( \
+            "WITH choisies AS MATERIALIZED ( \
                  SELECT id FROM tache \
                  WHERE nature = 'horodatage' \
                    AND ((etat = 'en_attente' AND prochaine_tentative <= $1) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
-             RETURNING id, cabinet_cible, dossier_cible AS \"dossier_cible!\", sujet, \
-                       tentatives - 1 AS \"avant!\"",
+             UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tache.tentatives + 1 \
+             FROM choisies WHERE tache.id = choisies.id \
+             RETURNING tache.id, tache.cabinet_cible, tache.dossier_cible AS \"dossier_cible!\", tache.sujet, \
+                       tache.tentatives - 1 AS \"avant!\"",
             maintenant,
             jusqua,
             limite,
@@ -377,7 +456,10 @@ impl TransactionTravailleur {
     }
 
     /// Prend au plus `limite` envois de courriel échus, comme [`Self::prendre_echues`] : bail,
-    /// jeton de prise, `SKIP LOCKED`.
+    /// jeton de prise, `SKIP LOCKED`. L'échéance (`prochaine_tentative`) est posée par l'horloge de
+    /// **la base** (`now()`) ; elle est comparée à la plus avancée des deux horloges, celle de
+    /// l'application (`maintenant`, injectable) et celle de la base : un écart entre elles ne
+    /// retarde jamais une tâche déjà échue.
     ///
     /// # Errors
     /// Erreur de PostgreSQL ou ligne incohérente.
@@ -390,16 +472,17 @@ impl TransactionTravailleur {
         let jusqua = maintenant + bail;
         let prise = Uuid::new_v4();
         let lignes = sqlx::query!(
-            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
-                              tentatives = tentatives + 1 \
-             WHERE id IN ( \
+            "WITH choisies AS MATERIALIZED ( \
                  SELECT id FROM tache \
                  WHERE nature = 'courriel' \
-                   AND ((etat = 'en_attente' AND prochaine_tentative <= $1) \
+                   AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
-             RETURNING id, cabinet_cible, sujet, objet AS \"objet!\", \
-                       tentatives - 1 AS \"avant!\"",
+             UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tache.tentatives + 1 \
+             FROM choisies WHERE tache.id = choisies.id \
+             RETURNING tache.id, tache.cabinet_cible, tache.sujet, tache.objet AS \"objet!\", \
+                       tache.tentatives - 1 AS \"avant!\"",
             maintenant,
             jusqua,
             limite,
@@ -416,6 +499,54 @@ impl TransactionTravailleur {
                     sujet: SujetCourriel::depuis_nom(&l.sujet)
                         .ok_or(ErreurBase::Donnee("sujet de courriel inconnu"))?,
                     objet: l.objet,
+                    tentatives: l.avant,
+                    prise,
+                })
+            })
+            .collect()
+    }
+
+    /// Prend au plus `limite` notifications échues, comme [`Self::prendre_echues`].
+    ///
+    /// # Errors
+    /// Erreur de PostgreSQL ou ligne incohérente.
+    pub async fn prendre_notifications(
+        &mut self,
+        maintenant: OffsetDateTime,
+        bail: time::Duration,
+        limite: i64,
+    ) -> Result<Vec<NotificationPrise>, ErreurBase> {
+        let jusqua = maintenant + bail;
+        let prise = Uuid::new_v4();
+        let lignes = sqlx::query!(
+            "WITH choisies AS MATERIALIZED ( \
+                 SELECT id FROM tache \
+                 WHERE nature = 'notification' \
+                   AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) \
+                        OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
+                 ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
+             UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tache.tentatives + 1 \
+             FROM choisies WHERE tache.id = choisies.id \
+             RETURNING tache.id, tache.cabinet_cible, tache.dossier_cible, tache.sujet, tache.objet, \
+                       tache.tentatives - 1 AS \"avant!\"",
+            maintenant,
+            jusqua,
+            limite,
+            prise,
+        )
+        .fetch_all(self.connexion())
+        .await?;
+        lignes
+            .into_iter()
+            .map(|l| {
+                Ok(NotificationPrise {
+                    id: l.id,
+                    cabinet: l.cabinet_cible,
+                    dossier: l.dossier_cible,
+                    sujet: SujetNotification::depuis_nom(&l.sujet)
+                        .ok_or(ErreurBase::Donnee("sujet de notification inconnu"))?,
+                    concerne: l.objet,
                     tentatives: l.avant,
                     prise,
                 })
@@ -499,6 +630,10 @@ impl TransactionTravailleur {
             == 1)
     }
 
+    /// **Une alerte par dossier et par période de `delai`**, quel que soit l'état de la précédente :
+    /// une alerte envoyée puis terminée n'en appelle pas une nouvelle à chaque passage (un courriel
+    /// par minute pendant une panne de l'autorité).
+    ///
     /// Crée l'alerte de retard (F6.2) de chaque dossier dont une tâche d'horodatage non
     /// terminée date de plus de `delai` : toute écriture non couverte a une tâche, créée à la
     /// première validation qui a suivi le dernier jeton. Une seule alerte non traitée par dossier.
@@ -515,11 +650,16 @@ impl TransactionTravailleur {
         let lignes = sqlx::query!(
             "INSERT INTO tache (id, nature, sujet, cabinet_cible, dossier_cible, etat, cree_le, \
                                 prochaine_tentative) \
-             SELECT gen_random_uuid(), 'notification', 'retard_horodatage', cabinet_cible, \
-                    dossier_cible, 'en_attente', $2, $2 \
-             FROM tache \
-             WHERE nature = 'horodatage' AND etat <> 'terminee' AND cree_le <= $1 \
-             GROUP BY cabinet_cible, dossier_cible \
+             SELECT gen_random_uuid(), 'notification', 'retard_horodatage', t.cabinet_cible, \
+                    t.dossier_cible, 'en_attente', $2, $2 \
+             FROM tache t \
+             WHERE t.nature = 'horodatage' AND t.etat <> 'terminee' AND t.cree_le <= $1 \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM tache n \
+                   WHERE n.sujet = 'retard_horodatage' \
+                     AND n.cabinet_cible = t.cabinet_cible AND n.dossier_cible = t.dossier_cible \
+                     AND n.cree_le > $1) \
+             GROUP BY t.cabinet_cible, t.dossier_cible \
              ON CONFLICT DO NOTHING \
              RETURNING cabinet_cible, dossier_cible AS \"dossier_cible!\"",
             seuil,
@@ -533,14 +673,37 @@ impl TransactionTravailleur {
             .collect())
     }
 
-    /// Supprime les tâches d'horodatage et d'envoi de courriel terminées avant `avant`. Rend leur
-    /// nombre.
+    /// Nombre d'alertes du sujet déjà **envoyées** pour ce cabinet depuis `depuis` : base du
+    /// plafond d'envoi par cabinet et par sujet (ADR 0025, §6).
+    ///
+    /// # Errors
+    /// Erreur de PostgreSQL.
+    pub async fn compter_alertes_envoyees(
+        &mut self,
+        cabinet: Uuid,
+        sujet: SujetNotification,
+        depuis: OffsetDateTime,
+    ) -> Result<i64, ErreurBase> {
+        Ok(sqlx::query_scalar!(
+            "SELECT count(*) AS \"n!\" FROM tache \
+             WHERE nature = 'notification' AND cabinet_cible = $1 AND sujet = $2 \
+               AND etat = 'terminee' AND derniere_issue = 'envoye' AND termine_le > $3",
+            cabinet,
+            sujet.nom(),
+            depuis,
+        )
+        .fetch_one(self.connexion())
+        .await?)
+    }
+
+    /// Supprime les tâches d'horodatage, d'envoi de courriel et de notification terminées avant
+    /// `avant`. Rend leur nombre.
     ///
     /// # Errors
     /// Erreur de PostgreSQL.
     pub async fn purger(&mut self, avant: OffsetDateTime) -> Result<u64, ErreurBase> {
         Ok(sqlx::query!(
-            "DELETE FROM tache WHERE nature IN ('horodatage', 'courriel') \
+            "DELETE FROM tache WHERE nature IN ('horodatage', 'courriel', 'notification') \
                                  AND etat = 'terminee' AND termine_le < $1",
             avant,
         )
