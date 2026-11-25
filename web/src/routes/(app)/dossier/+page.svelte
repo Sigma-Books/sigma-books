@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import { libelleRole } from '#lib/libelles.ts';
@@ -25,9 +26,13 @@
 		<dt>Votre rôle</dt>
 		<dd>{libelleRole(membre.role)}</dd>
 	</dl>
+	<ul class="ecrans">
+		<li>
+			<a href={resolve(`saisie/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Saisie manuelle</a>
+		</li>
+	</ul>
 	<p class="aide">
-		La saisie, le brouillard, les éditions et l’écran Intégrité de ce dossier seront disponibles
-		prochainement.
+		Le brouillard, les éditions et l’écran Intégrité de ce dossier seront disponibles prochainement.
 	</p>
 {/if}
 
