@@ -34,7 +34,7 @@ describe('messages des éditions', () => {
 	it('400 et 403 : messages propres, sans donnée de la requête', () => {
 		assert.match(messageEdition(new ErreurApi('requete_invalide', 400)), /filtre/);
 		assert.match(messageEdition(new ErreurApi('interdit', 403)), /rôle/);
-		assert.match(messageIntegrite(new ErreurApi('interdit', 403)), /session fraîche/);
+		assert.match(messageIntegrite(new ErreurApi('interdit', 403)), /Accès réservé/);
 		assert.equal(
 			messageEdition(new ErreurApi('reseau', null)),
 			'Serveur injoignable. Vérifiez votre connexion.'

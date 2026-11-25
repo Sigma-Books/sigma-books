@@ -124,8 +124,11 @@ export interface FichierIntegrite {
 	contenu: Blob;
 	/** Nom sûr, construit ici (jamais repris de l'en-tête du serveur). */
 	nom: string;
-	/** Vrai si l'export ne contient pas tous les jetons (les plus récents seulement). */
-	tronque: boolean;
+	/**
+	 * Vrai si l'export ne contient pas tous les jetons (les plus récents seulement) ; `null` si le
+	 * serveur ne l'a pas dit (en-tête absent ou mal formé) : la troncature est alors inconnue.
+	 */
+	tronque: boolean | null;
 	jetonsTotal: number | null;
 	jetonsExportes: number | null;
 }
@@ -134,12 +137,19 @@ function entierEntete(valeur: string | null): number | null {
 	return valeur !== null && /^\d{1,9}$/.test(valeur) ? Number.parseInt(valeur, 10) : null;
 }
 
+function booleenEntete(valeur: string | null): boolean | null {
+	return valeur === 'true' ? true : valeur === 'false' ? false : null;
+}
+
+/** Rôles auxquels l'interface propose l'intégrité (masquage seulement : le serveur décide, §20). */
+export const ROLES_INTEGRITE: readonly string[] = ['administrateur', 'valideur', 'auditeur'];
+
 /** Lecture des en-têtes `x-sigma-*` de l'export (toute forme inattendue est ignorée). */
 export function lireEntetesExport(
 	entetes: Pick<Headers, 'get'>
 ): Pick<FichierIntegrite, 'tronque' | 'jetonsTotal' | 'jetonsExportes'> {
 	return {
-		tronque: entetes.get('x-sigma-export-tronque') === 'true',
+		tronque: booleenEntete(entetes.get('x-sigma-export-tronque')),
 		jetonsTotal: entierEntete(entetes.get('x-sigma-jetons-total')),
 		jetonsExportes: entierEntete(entetes.get('x-sigma-jetons-exportes'))
 	};

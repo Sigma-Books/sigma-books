@@ -42,14 +42,32 @@
 	let exportEnCours = $state(false);
 	let exportFait = $state<FichierIntegrite | null>(null);
 	let temoinEnCours = $state(false);
+	/** Change avec le dossier de l'URL : une réponse d'un autre dossier est ignorée. */
+	let generation = 0;
+	const cleDossier = $derived(
+		data.contenu?.ok
+			? `${data.contenu.valeur.contexte.cabinet}/${data.contenu.valeur.contexte.dossier}`
+			: ''
+	);
+	$effect.pre(() => {
+		void cleDossier;
+		generation += 1;
+		rapport = null;
+		erreurVerification = null;
+		erreurAction = null;
+		messageAction = null;
+		exportFait = null;
+		verificationEnCours = false;
+		actualisationEnCours = false;
+		exportEnCours = false;
+		temoinEnCours = false;
+	});
 
 	$effect(() => {
 		if (data.contenu?.ok) {
 			etat = data.contenu.valeur.valeur.etat;
 			jetons = data.contenu.valeur.valeur.jetons;
 		}
-		rapport = null;
-		exportFait = null;
 	});
 
 	async function tenter<T>(travail: () => Promise<T>): Promise<Resultat<T>> {
@@ -62,46 +80,53 @@
 	}
 
 	async function actualiser(cabinet: Uuid, dossier: Uuid): Promise<void> {
+		const g = generation;
 		actualisationEnCours = true;
-		[etat, jetons] = await Promise.all([
+		const [e, j] = await Promise.all([
 			tenter(() => lireEtatIntegrite(api, cabinet, dossier)),
 			tenter(() => listerJetons(api, cabinet, dossier))
 		]);
+		if (g !== generation) return;
+		[etat, jetons] = [e, j];
 		actualisationEnCours = false;
 	}
 
 	async function verifier(cabinet: Uuid, dossier: Uuid): Promise<void> {
+		const g = generation;
 		verificationEnCours = true;
 		rapport = null;
 		erreurVerification = null;
 		const lu = await tenter(() => verifierChaine(api, cabinet, dossier));
+		if (g !== generation) return;
 		if (lu.ok) rapport = lu.valeur;
 		else erreurVerification = lu.erreur;
 		verificationEnCours = false;
 	}
 
 	async function exporter(cabinet: Uuid, dossier: Uuid): Promise<void> {
+		const g = generation;
 		exportEnCours = true;
 		erreurAction = null;
 		messageAction = null;
 		exportFait = null;
 		try {
 			const issue = await executerSensible(() => exporterIntegrite(api, cabinet, dossier));
-			if (!issue.fait) {
-				messageAction = MESSAGE_EXPORT_ANNULE;
-			} else {
-				enregistrerFichier(issue.valeur.contenu, issue.valeur.nom);
-				exportFait = issue.valeur;
-			}
+			// Le fichier demandé est enregistré (l'export est déjà audité) ; l'écran, lui, ne
+			// montre jamais le résultat d'un autre dossier.
+			if (issue.fait) enregistrerFichier(issue.valeur.contenu, issue.valeur.nom);
+			if (g !== generation) return;
+			if (!issue.fait) messageAction = MESSAGE_EXPORT_ANNULE;
+			else exportFait = issue.valeur;
 		} catch (erreur) {
 			if (!(erreur instanceof ErreurApi)) throw erreur;
-			erreurAction = erreur;
+			if (g === generation) erreurAction = erreur;
 		} finally {
-			exportEnCours = false;
+			if (g === generation) exportEnCours = false;
 		}
 	}
 
 	async function temoin(cabinet: Uuid, dossier: Uuid): Promise<void> {
+		const g = generation;
 		temoinEnCours = true;
 		erreurAction = null;
 		messageAction = null;
@@ -110,9 +135,9 @@
 			enregistrerFichier(fichier.contenu, fichier.nom);
 		} catch (erreur) {
 			if (!(erreur instanceof ErreurApi)) throw erreur;
-			erreurAction = erreur;
+			if (g === generation) erreurAction = erreur;
 		} finally {
-			temoinEnCours = false;
+			if (g === generation) temoinEnCours = false;
 		}
 	}
 </script>
@@ -129,14 +154,24 @@
 {:else}
 	{@const { contexte } = data.contenu.valeur}
 	<h1>Intégrité — {contexte.nomDossier.nom}</h1>
-	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="integrite" />
+	<NavigationDossier
+		cabinet={contexte.cabinet}
+		dossier={contexte.dossier}
+		actif="integrite"
+		role={contexte.membre.role}
+	/>
 
 	<section aria-labelledby="titre-etat">
 		<h2 id="titre-etat">État de la chaîne</h2>
 		{#if etat === null}
 			<p role="status">Chargement…</p>
 		{:else if !etat.ok}
-			<div class="message message-erreur" role="alert">
+			<div
+				class={etat.erreur.code === 'interdit'
+					? 'message message-avertissement'
+					: 'message message-erreur'}
+				role={etat.erreur.code === 'interdit' ? 'status' : 'alert'}
+			>
 				<p>{messageIntegrite(etat.erreur)}</p>
 			</div>
 		{:else}
@@ -319,7 +354,14 @@
 				<div class="message message-succes" role="status">
 					<p>Export enregistré sous {exportFait.nom}.</p>
 				</div>
-				{#if exportFait.tronque}
+				{#if exportFait.tronque === null}
+					<div class="message message-avertissement" role="alert">
+						<p>
+							<strong>Troncature inconnue</strong> : le serveur n’a pas indiqué si tous les jetons figurent
+							dans l’export. Vérifiez le fichier avec l’outil sigma-verifier avant de le conserver.
+						</p>
+					</div>
+				{:else if exportFait.tronque}
 					<div class="message message-avertissement" role="alert">
 						<p>
 							<strong>Export tronqué</strong> : seuls les jetons les plus récents y figurent
@@ -338,7 +380,12 @@
 		{#if jetons === null}
 			<p role="status">Chargement…</p>
 		{:else if !jetons.ok}
-			<div class="message message-erreur" role="alert">
+			<div
+				class={jetons.erreur.code === 'interdit'
+					? 'message message-avertissement'
+					: 'message message-erreur'}
+				role={jetons.erreur.code === 'interdit' ? 'status' : 'alert'}
+			>
 				<p>{messageIntegrite(jetons.erreur)}</p>
 			</div>
 		{:else if jetons.valeur.jetons.length === 0}

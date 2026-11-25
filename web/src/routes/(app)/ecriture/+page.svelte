@@ -94,7 +94,12 @@
 	{@const origine = e.origine ? lireUuid(e.origine) : null}
 	{@const peut = ROLES_VALIDATION_LOT.includes(contexte.membre.role)}
 	<h1>Écriture {e.numero}</h1>
-	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="ecritures" />
+	<NavigationDossier
+		cabinet={contexte.cabinet}
+		dossier={contexte.dossier}
+		actif="ecritures"
+		role={contexte.membre.role}
+	/>
 
 	<dl class="fiche">
 		<dt>Libellé</dt>

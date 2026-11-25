@@ -32,14 +32,6 @@
 			<a href={resolve(`saisie/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Saisie manuelle</a>
 		</li>
 		<li>
-			<a href={resolve(`brouillard/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Brouillard</a>
-		</li>
-		<li>
-			<a href={resolve(`ecritures/?cabinet=${membre.id}&dossier=${dossier.id}`)}>
-				Écritures validées
-			</a>
-		</li>
-		<li>
 			<a href={resolve(`editions/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Éditions</a>
 		</li>
 		{#if ROLES_INTEGRITE.includes(membre.role)}

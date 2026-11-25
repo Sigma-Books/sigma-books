@@ -10,6 +10,7 @@
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
+	import { integriteIndisponible, peutDireAucuneAlerte } from '#lib/alertes.ts';
 	import { afficherDate } from '#lib/dates.ts';
 	import { messageAlerteBrouillard, messageAlerteEcheance } from '#lib/editions-affichage.ts';
 	import { dateHeure } from '#lib/instants.ts';
@@ -21,6 +22,18 @@
 	let alertes = $state<Resultat<Alertes> | null>(null);
 	let integrite = $state<Resultat<EtatIntegrite> | null>(null);
 	let enCours = $state(false);
+	/** Change avec le dossier de l'URL : une réponse d'un autre dossier est ignorée. */
+	let generation = 0;
+	const cleDossier = $derived(
+		data.contenu?.ok
+			? `${data.contenu.valeur.contexte.cabinet}/${data.contenu.valeur.contexte.dossier}`
+			: ''
+	);
+	$effect.pre(() => {
+		void cleDossier;
+		generation += 1;
+		enCours = false;
+	});
 
 	$effect(() => {
 		if (data.contenu?.ok) {
@@ -39,11 +52,14 @@
 	}
 
 	async function actualiser(cabinet: Uuid, dossier: Uuid): Promise<void> {
+		const g = generation;
 		enCours = true;
-		[alertes, integrite] = await Promise.all([
+		const [a, i] = await Promise.all([
 			tenter(() => lireAlertes(api, cabinet, dossier)),
 			tenter(() => lireEtatIntegrite(api, cabinet, dossier))
 		]);
+		if (g !== generation) return;
+		[alertes, integrite] = [a, i];
 		enCours = false;
 	}
 
@@ -67,7 +83,12 @@
 {:else}
 	{@const { contexte } = data.contenu.valeur}
 	<h1>Alertes — {contexte.nomDossier.nom}</h1>
-	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="alertes" />
+	<NavigationDossier
+		cabinet={contexte.cabinet}
+		dossier={contexte.dossier}
+		actif="alertes"
+		role={contexte.membre.role}
+	/>
 
 	<p>
 		<button
@@ -81,12 +102,20 @@
 	</p>
 
 	<div aria-live="polite">
+		{#if integriteIndisponible(integrite)}
+			<div class="message message-avertissement" role="alert">
+				<p>
+					État d’intégrité indisponible : le retard d’horodatage n’a pas pu être vérifié. Actualisez
+					l’écran ou réessayez plus tard.
+				</p>
+			</div>
+		{/if}
 		{#if alertes?.ok === true}
-			{#if total === 0}
+			{#if peutDireAucuneAlerte(total, alertes, integrite)}
 				<div class="message message-succes" role="status">
 					<p>Aucune alerte au {afficherDate(alertes.valeur.date_du_jour)}.</p>
 				</div>
-			{:else}
+			{:else if total > 0}
 				<p role="status">
 					{total} alerte(s) au {afficherDate(alertes.valeur.date_du_jour)}.
 				</p>

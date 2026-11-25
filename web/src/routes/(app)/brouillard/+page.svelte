@@ -20,7 +20,12 @@
 {:else}
 	{@const { contexte, valeur } = data.contenu.valeur}
 	<h1>Brouillard — {contexte.nomDossier.nom}</h1>
-	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="brouillard" />
+	<NavigationDossier
+		cabinet={contexte.cabinet}
+		dossier={contexte.dossier}
+		actif="brouillard"
+		role={contexte.membre.role}
+	/>
 	{#key data.contenu}
 		<ListeBrouillard
 			cabinet={contexte.cabinet}

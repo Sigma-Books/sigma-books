@@ -77,8 +77,12 @@ describe('export', () => {
 			jetonsTotal: 12000,
 			jetonsExportes: 10000
 		});
+		assert.equal(
+			lireEntetesExport(new Headers({ 'x-sigma-export-tronque': 'false' })).tronque,
+			false
+		);
 		assert.deepEqual(lireEntetesExport(new Headers({ 'x-sigma-jetons-total': '-1' })), {
-			tronque: false,
+			tronque: null,
 			jetonsTotal: null,
 			jetonsExportes: null
 		});
@@ -101,6 +105,6 @@ describe('export', () => {
 		assert.equal(methode, 'POST');
 		assert.equal(chemin, `/api/cabinets/${C}/dossiers/${D}/integrite/export`);
 		assert.equal(f.nom, `integrite-dossier-${D}.txt`);
-		assert.equal(f.tronque, false);
+		assert.equal(f.tronque, null, 'en-tête absent : troncature inconnue');
 	});
 });

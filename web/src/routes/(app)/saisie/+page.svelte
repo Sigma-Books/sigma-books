@@ -62,7 +62,12 @@
 {:else}
 	{@const { contexte, valeur } = data.contenu.valeur}
 	<h1>Saisie manuelle — {contexte.nomDossier.nom}</h1>
-	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="saisie" />
+	<NavigationDossier
+		cabinet={contexte.cabinet}
+		dossier={contexte.dossier}
+		actif="saisie"
+		role={contexte.membre.role}
+	/>
 
 	{#if !ROLES_SAISIE.includes(contexte.membre.role)}
 		<div class="message message-avertissement" role="status">
