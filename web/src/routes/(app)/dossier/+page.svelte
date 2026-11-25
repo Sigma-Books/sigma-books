@@ -38,9 +38,12 @@
 				Écritures validées
 			</a>
 		</li>
+		<li>
+			<a href={resolve(`editions/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Éditions</a>
+		</li>
 	</ul>
 	<p class="aide">
-		Les éditions et l’écran Intégrité de ce dossier seront disponibles prochainement.
+		L’écran Intégrité et les alertes de ce dossier seront disponibles prochainement.
 	</p>
 {/if}
 

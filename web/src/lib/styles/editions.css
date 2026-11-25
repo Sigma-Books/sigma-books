@@ -1,0 +1,143 @@
+/* Tables des éditions, de l'intégrité et des alertes (importé par leurs écrans). */
+
+.defilement {
+	overflow-x: auto;
+	margin: 0 0 var(--espace-5);
+	border: 1px solid var(--couleur-separateur);
+	border-radius: var(--rayon);
+}
+
+.table-edition {
+	width: 100%;
+	border-collapse: collapse;
+	font-variant-numeric: tabular-nums;
+}
+
+.table-edition caption {
+	padding: var(--espace-2) var(--espace-3);
+	text-align: left;
+	font-weight: 600;
+}
+
+.table-edition th,
+.table-edition td {
+	padding: var(--espace-2) var(--espace-3);
+	border-bottom: 1px solid var(--couleur-separateur);
+	vertical-align: top;
+	text-align: left;
+}
+
+.table-edition thead th {
+	background: var(--couleur-surface);
+	white-space: nowrap;
+}
+
+.table-edition .num {
+	text-align: right;
+	white-space: nowrap;
+}
+
+.table-edition tfoot th,
+.table-edition tfoot td,
+.table-edition .total th,
+.table-edition .total td {
+	font-weight: 700;
+	border-top: 2px solid var(--couleur-bordure);
+}
+
+.table-edition .sous-total th,
+.table-edition .sous-total td {
+	font-weight: 600;
+	background: var(--couleur-surface);
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+}
+
+.barre-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--espace-3);
+	margin: 0 0 var(--espace-4);
+}
+
+.grille-filtre {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+	gap: var(--espace-2) var(--espace-4);
+}
+
+.grille-filtre select,
+.champ select {
+	min-height: var(--cible-min);
+	padding: var(--espace-2) var(--espace-3);
+	border: 1px solid var(--couleur-bordure);
+	border-radius: var(--rayon);
+	background: var(--couleur-fond);
+	color: var(--couleur-texte);
+	max-width: 32rem;
+}
+
+fieldset.groupe {
+	border: 1px solid var(--couleur-separateur);
+	border-radius: var(--rayon);
+	margin: 0 0 var(--espace-4);
+	padding: var(--espace-3) var(--espace-4);
+}
+
+fieldset.groupe legend {
+	font-weight: 600;
+	padding: 0 var(--espace-2);
+}
+
+.choix {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--espace-2) var(--espace-5);
+}
+
+.choix label {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--espace-2);
+	min-height: var(--cible-min);
+}
+
+.badge {
+	display: inline-block;
+	padding: 0 var(--espace-2);
+	border: 1px solid currentColor;
+	border-radius: var(--rayon);
+	font-size: var(--taille-petite);
+	font-weight: 600;
+}
+
+.mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	overflow-wrap: anywhere;
+}
+
+@media print {
+	header.entete,
+	nav.onglets,
+	.no-print,
+	.barre-actions,
+	form {
+		display: none !important;
+	}
+
+	.defilement {
+		overflow: visible;
+		border: 0;
+	}
+
+	.table-edition {
+		font-size: 0.8rem;
+	}
+}

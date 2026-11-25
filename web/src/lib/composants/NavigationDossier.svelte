@@ -1,4 +1,4 @@
-<!-- Navigation entre les écrans de saisie d'un dossier (saisie, brouillard, écritures validées). -->
+<!-- Navigation entre les écrans de saisie d'un dossier (saisie, brouillard, écritures validées, éditions ; intégrité et alertes : PR 18b). -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import type { Uuid } from '#lib/api/types.ts';
@@ -6,7 +6,7 @@
 	interface Props {
 		cabinet: Uuid;
 		dossier: Uuid;
-		actif: 'saisie' | 'brouillard' | 'ecritures';
+		actif: 'saisie' | 'brouillard' | 'ecritures' | 'editions';
 	}
 
 	let { cabinet, dossier, actif }: Props = $props();
@@ -37,6 +37,17 @@
 			>
 				Écritures validées
 			</a>
+		</li>
+		<li>
+			<a
+				href={resolve(`editions/?cabinet=${cabinet}&dossier=${dossier}`)}
+				aria-current={actif === 'editions' ? 'page' : undefined}
+			>
+				Éditions
+			</a>
+		</li>
+		<li>
+			<a href={resolve(`dossier/?cabinet=${cabinet}&dossier=${dossier}`)}>Retour au dossier</a>
 		</li>
 	</ul>
 </nav>
