@@ -636,11 +636,12 @@ async fn un_echec_partiel_rejoue_a_tous_et_les_doublons_sont_bornes() {
 
 #[tokio::test]
 async fn un_envoi_trop_lent_est_interrompu_avant_la_fin_du_bail() {
+    const LENTEUR: std::time::Duration = std::time::Duration::from_secs(30);
     let b = banc().await;
     let admin = b.session(b.c.administrateur).await;
     let lent = Expediteur::new(
         b.env.application.clone(),
-        Arc::new(b.transport.avec_lenteur(std::time::Duration::from_secs(30))),
+        Arc::new(b.transport.avec_lenteur(LENTEUR)),
         Arc::new(b.horloge.clone()),
         ORIGINE.to_owned(),
         Reglages {
@@ -652,7 +653,10 @@ async fn un_envoi_trop_lent_est_interrompu_avant_la_fin_du_bail() {
         .await;
     let debut = std::time::Instant::now();
     let bilan = lent.passer().await.unwrap();
-    assert!(debut.elapsed() < std::time::Duration::from_secs(5));
+    // Borne : la lenteur du transport. Un envoi non interrompu par le budget durerait au moins
+    // autant ; la marge (200 fois le budget) rend l'assertion indépendante de la charge. La
+    // propriété est aussi portée par l'issue ci-dessous (`delai_depasse`, jamais `envoye`).
+    assert!(debut.elapsed() < LENTEUR);
     assert_eq!((bilan.prises, bilan.reportes), (1, 1));
     let issue: Option<String> = sqlx::query_scalar(
         "SELECT derniere_issue FROM tache WHERE nature = 'notification' AND cabinet_cible = $1",
