@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, tentatives = tentatives + 1 WHERE id IN ( SELECT id FROM tache WHERE nature = 'courriel' AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) OR (etat = 'en_cours' AND reserve_jusqua <= $1)) ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) RETURNING id, cabinet_cible, sujet, objet AS \"objet!\", tentatives - 1 AS \"avant!\"",
+  "query": "WITH choisies AS MATERIALIZED ( SELECT id FROM tache WHERE nature = 'horodatage' AND ((etat = 'en_attente' AND prochaine_tentative <= $1) OR (etat = 'en_cours' AND reserve_jusqua <= $1)) ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, tentatives = tache.tentatives + 1 FROM choisies WHERE tache.id = choisies.id RETURNING tache.id, tache.cabinet_cible, tache.dossier_cible AS \"dossier_cible!\", tache.sujet, tache.tentatives - 1 AS \"avant!\"",
   "describe": {
     "columns": [
       {
@@ -27,23 +27,23 @@
       },
       {
         "ordinal": 2,
+        "name": "dossier_cible!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tache",
+            "name": "dossier_cible"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "sujet",
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "tache",
             "name": "sujet"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
-        "name": "objet!",
-        "type_info": "Uuid",
-        "origin": {
-          "Table": {
-            "table": "tache",
-            "name": "objet"
           }
         }
       },
@@ -65,10 +65,10 @@
     "nullable": [
       false,
       false,
-      false,
       true,
+      false,
       null
     ]
   },
-  "hash": "9bb6787166b0235ac162d91c37fe78c5d3d32318fd8ed103cfccc45f471f8964"
+  "hash": "e46662f4460fdd82f9caf4a2f7bb4c99c118122159049ce6e0da1981e1ecc754"
 }

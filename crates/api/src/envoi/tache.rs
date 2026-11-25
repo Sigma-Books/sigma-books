@@ -157,44 +157,54 @@ impl Expediteur {
         let mut bilan = Bilan::default();
         for _ in 0..self.reglages.lot {
             let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
-            let mut prises = tx
+            let prises = tx
                 .prendre_courriels(self.horloge.maintenant(), self.reglages.bail, 1)
                 .await?;
             tx.confirmer().await?;
-            let Some(tache) = prises.pop() else { break };
-            bilan.prises += 1;
-            // Plafond de tentatives **avant** le traitement : une tâche en erreur interne (base)
-            // est reprise au bail, elle ne l'est pas indéfiniment.
-            if tache.tentatives >= self.reglages.tentatives_max {
-                self.abandonner(tache.id, tache.prise).await?;
-                bilan.clos += 1;
-                continue;
+            if prises.is_empty() {
+                break;
             }
-            match self.traiter(tache).await {
-                Ok(Sortie::Envoye) => bilan.envoyes += 1,
-                Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
-                Ok(Sortie::SansObjet | Sortie::Invalide | Sortie::Refus(_)) => bilan.clos += 1,
-                Err(_) => bilan.erreurs += 1,
+            // Toute tâche rendue par la prise est traitée : aucune n'est laissée « en cours »
+            // sans travailleur jusqu'à l'expiration de son bail.
+            for tache in prises {
+                bilan.prises += 1;
+                // Plafond de tentatives **avant** le traitement : une tâche en erreur interne
+                // (base) est reprise au bail, elle ne l'est pas indéfiniment.
+                if tache.tentatives >= self.reglages.tentatives_max {
+                    self.abandonner(tache.id, tache.prise).await?;
+                    bilan.clos += 1;
+                    continue;
+                }
+                match self.traiter(tache).await {
+                    Ok(Sortie::Envoye) => bilan.envoyes += 1,
+                    Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
+                    Ok(Sortie::SansObjet | Sortie::Invalide | Sortie::Refus(_)) => bilan.clos += 1,
+                    Err(_) => bilan.erreurs += 1,
+                }
             }
         }
         for _ in 0..self.reglages.lot {
             let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
-            let mut prises = tx
+            let prises = tx
                 .prendre_notifications(self.horloge.maintenant(), self.reglages.bail, 1)
                 .await?;
             tx.confirmer().await?;
-            let Some(tache) = prises.pop() else { break };
-            bilan.prises += 1;
-            if tache.tentatives >= self.reglages.tentatives_max {
-                self.abandonner(tache.id, tache.prise).await?;
-                bilan.clos += 1;
-                continue;
+            if prises.is_empty() {
+                break;
             }
-            match self.traiter_notification(tache).await {
-                Ok(Sortie::Envoye) => bilan.envoyes += 1,
-                Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
-                Ok(Sortie::SansObjet | Sortie::Invalide | Sortie::Refus(_)) => bilan.clos += 1,
-                Err(_) => bilan.erreurs += 1,
+            for tache in prises {
+                bilan.prises += 1;
+                if tache.tentatives >= self.reglages.tentatives_max {
+                    self.abandonner(tache.id, tache.prise).await?;
+                    bilan.clos += 1;
+                    continue;
+                }
+                match self.traiter_notification(tache).await {
+                    Ok(Sortie::Envoye) => bilan.envoyes += 1,
+                    Ok(Sortie::Echec(_) | Sortie::Pas(_)) => bilan.reportes += 1,
+                    Ok(Sortie::SansObjet | Sortie::Invalide | Sortie::Refus(_)) => bilan.clos += 1,
+                    Err(_) => bilan.erreurs += 1,
+                }
             }
         }
         Ok(bilan)

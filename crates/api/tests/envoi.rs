@@ -662,3 +662,127 @@ async fn une_tache_qui_a_epuise_ses_tentatives_est_abandonnee_sans_traitement() 
         ("terminee", Some("abandon"))
     );
 }
+
+#[tokio::test]
+async fn une_prise_ne_depasse_jamais_sa_limite() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    // Cinq envois en attente ; un expéditeur qui n'en traite qu'un par passage (`lot` = 1) : la
+    // prise (`LIMIT 1`) ne met « en cours » qu'une tâche, jamais plus. Une tâche rendue « en
+    // cours » en surplus resterait sans travailleur jusqu'à l'expiration de son bail.
+    for _ in 0..5 {
+        b.inviter(&admin).await;
+    }
+    // Pool dont chaque connexion **impose le plan** qui rescanne la sous-requête de la prise pour
+    // chaque ligne de la table (nested loop sans agrégat ni hachage) : avec l'ancienne écriture
+    // (`WHERE id IN (SELECT … LIMIT 1 FOR UPDATE SKIP LOCKED)`), toutes les lignes échues étaient
+    // mises « en cours » d'un seul coup (cause de l'échec observé en CI). Cause établie par
+    // 512 combinaisons de réglages du planificateur : 6 donnaient « UPDATE 4 » pour `LIMIT 1`.
+    let pool_plan_force = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|c, _| {
+            Box::pin(async move {
+                sqlx::raw_sql(
+                    "SET enable_hashagg = off; SET enable_hashjoin = off; SET enable_material = off; \
+                     SET enable_seqscan = off; SET enable_sort = off",
+                )
+                .execute(&mut *c)
+                .await?;
+                Ok(())
+            })
+        })
+        .connect(&commun::variable("SIGMA_TEST_APPLICATION_URL"))
+        .await
+        .unwrap();
+    let lent = Expediteur::new(
+        pool_plan_force,
+        Arc::new(b.transport.clone()),
+        Arc::new(b.horloge.clone()),
+        ORIGINE.to_owned(),
+        Reglages {
+            lot: 1,
+            ..Reglages::default()
+        },
+    );
+    for attendu in 1..=5_i64 {
+        let bilan = lent.passer().await.unwrap();
+        assert_eq!(bilan.prises, 1, "passage {attendu}");
+        let (terminees, en_cours, en_attente): (i64, i64, i64) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE etat = 'terminee'), \
+                    count(*) FILTER (WHERE etat = 'en_cours'), \
+                    count(*) FILTER (WHERE etat = 'en_attente') \
+             FROM tache WHERE nature = 'courriel' AND cabinet_cible = $1",
+        )
+        .bind(b.c.cabinet.uuid())
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+        assert_eq!(
+            (terminees, en_cours, en_attente),
+            (attendu, 0, 5 - attendu),
+            "passage {attendu}"
+        );
+    }
+    assert_eq!(b.transport.remis().len(), 5);
+}
+
+#[tokio::test]
+async fn les_taches_d_un_cabinet_ne_sont_ni_lues_ni_comptees_pour_un_autre() {
+    use api::base::{ContexteTenant, ouvrir_transaction};
+    let b = banc().await;
+    let autre = creer_cabinet(&b.env.admin, "Autre").await;
+    let (sa, sb) = (
+        b.session(b.c.administrateur).await,
+        b.session(autre.administrateur).await,
+    );
+    b.inviter(&sa).await;
+    for _ in 0..2 {
+        let r = b
+            .appel(
+                "POST",
+                &format!("/api/cabinets/{}/invitations", autre.cabinet),
+                &sb,
+                &json!({"courriel": format!("i.{}@cabinet.example", Uuid::new_v4().simple()), "nom": "I", "role": "auditeur"}).to_string(),
+            )
+            .await;
+        assert_eq!(r.statut, StatusCode::CREATED);
+    }
+    // Sous la RLS du rôle applicatif, chaque cabinet ne voit que les tâches de sa cible exacte :
+    // 1 pour le premier, 2 pour le second, jamais le total.
+    for (cabinet, utilisateur, attendu) in [
+        (b.c.cabinet, b.c.administrateur, 1_i64),
+        (autre.cabinet, autre.administrateur, 2),
+    ] {
+        let mut tx = ouvrir_transaction(
+            &b.env.application,
+            ContexteTenant::cabinet(cabinet, utilisateur),
+        )
+        .await
+        .unwrap();
+        let visibles: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM tache WHERE nature = 'courriel'")
+                .fetch_one(tx.connexion())
+                .await
+                .unwrap();
+        assert_eq!(visibles, attendu, "{cabinet}");
+        // Même en demandant explicitement le cabinet voisin : rien.
+        let voisin = if cabinet == b.c.cabinet {
+            autre.cabinet
+        } else {
+            b.c.cabinet
+        };
+        let voisines: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM tache WHERE cabinet_cible = $1")
+                .bind(voisin.uuid())
+                .fetch_one(tx.connexion())
+                .await
+                .unwrap();
+        assert_eq!(voisines, 0);
+        // Le plafond d'envoi d'un cabinet ne compte que ses propres tâches.
+        let plafond = api::base::taches::plafond_invitation(&mut tx, "inconnu@cabinet.example")
+            .await
+            .unwrap();
+        assert_eq!(plafond, None);
+        tx.confirmer().await.unwrap();
+    }
+}

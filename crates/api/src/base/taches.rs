@@ -421,16 +421,17 @@ impl TransactionTravailleur {
         let jusqua = maintenant + bail;
         let prise = Uuid::new_v4();
         let lignes = sqlx::query!(
-            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
-                              tentatives = tentatives + 1 \
-             WHERE id IN ( \
+            "WITH choisies AS MATERIALIZED ( \
                  SELECT id FROM tache \
                  WHERE nature = 'horodatage' \
                    AND ((etat = 'en_attente' AND prochaine_tentative <= $1) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
-             RETURNING id, cabinet_cible, dossier_cible AS \"dossier_cible!\", sujet, \
-                       tentatives - 1 AS \"avant!\"",
+             UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tache.tentatives + 1 \
+             FROM choisies WHERE tache.id = choisies.id \
+             RETURNING tache.id, tache.cabinet_cible, tache.dossier_cible AS \"dossier_cible!\", tache.sujet, \
+                       tache.tentatives - 1 AS \"avant!\"",
             maintenant,
             jusqua,
             limite,
@@ -471,16 +472,17 @@ impl TransactionTravailleur {
         let jusqua = maintenant + bail;
         let prise = Uuid::new_v4();
         let lignes = sqlx::query!(
-            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
-                              tentatives = tentatives + 1 \
-             WHERE id IN ( \
+            "WITH choisies AS MATERIALIZED ( \
                  SELECT id FROM tache \
                  WHERE nature = 'courriel' \
                    AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
-             RETURNING id, cabinet_cible, sujet, objet AS \"objet!\", \
-                       tentatives - 1 AS \"avant!\"",
+             UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tache.tentatives + 1 \
+             FROM choisies WHERE tache.id = choisies.id \
+             RETURNING tache.id, tache.cabinet_cible, tache.sujet, tache.objet AS \"objet!\", \
+                       tache.tentatives - 1 AS \"avant!\"",
             maintenant,
             jusqua,
             limite,
@@ -517,16 +519,17 @@ impl TransactionTravailleur {
         let jusqua = maintenant + bail;
         let prise = Uuid::new_v4();
         let lignes = sqlx::query!(
-            "UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
-                              tentatives = tentatives + 1 \
-             WHERE id IN ( \
+            "WITH choisies AS MATERIALIZED ( \
                  SELECT id FROM tache \
                  WHERE nature = 'notification' \
                    AND ((etat = 'en_attente' AND prochaine_tentative <= GREATEST($1::timestamptz, now())) \
                         OR (etat = 'en_cours' AND reserve_jusqua <= $1)) \
                  ORDER BY prochaine_tentative, id LIMIT $3 FOR UPDATE SKIP LOCKED) \
-             RETURNING id, cabinet_cible, dossier_cible, sujet, objet, \
-                       tentatives - 1 AS \"avant!\"",
+             UPDATE tache SET etat = 'en_cours', reserve_jusqua = $2, prise = $4, \
+                              tentatives = tache.tentatives + 1 \
+             FROM choisies WHERE tache.id = choisies.id \
+             RETURNING tache.id, tache.cabinet_cible, tache.dossier_cible, tache.sujet, tache.objet, \
+                       tache.tentatives - 1 AS \"avant!\"",
             maintenant,
             jusqua,
             limite,
