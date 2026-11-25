@@ -36,7 +36,7 @@ test('un lot refusé liste les écritures et leur code', async () => {
 test('un code inconnu retombe sur le message général', async () => {
 	const e = await traduireReponse(reponse(422, { erreur: 'code_futur' }));
 	assert.equal(messageMotif('code_futur'), null);
-	assert.equal(messageMetier(e), 'La demande est invalide.');
+	assert.equal(messageMetier(e), 'La saisie a été refusée.');
 });
 
 test('le nombre cité par le serveur est lu, jamais une valeur douteuse', () => {
