@@ -121,6 +121,11 @@
 			brouillon={ouvert}
 			surChangement={(b) => (ouvert = b)}
 		/>
+		<p>
+			<a href={resolve(`brouillard/?cabinet=${contexte.cabinet}&dossier=${contexte.dossier}`)}>
+				Aller au brouillard pour valider
+			</a>
+		</p>
 	{/if}
 
 	{#if data.mode === 'kilometre' && enregistrees.length > 0}
