@@ -12,9 +12,12 @@ import {
 	estDefi,
 	estDossier,
 	estFacteursMoi,
+	estInvitation,
+	estMembre,
 	estObjetJson,
 	estPasskeyEnrolee,
 	estPreparationSecours,
+	estReinitialisation,
 	estSessionListee,
 	listeDe,
 	type CabinetMembre,
@@ -23,8 +26,11 @@ import {
 	type Defi,
 	type Dossier,
 	type FacteursMoi,
+	type Invitation,
+	type Membre,
 	type PasskeyEnrolee,
 	type PreparationSecours,
+	type Reinitialisation,
 	type SessionListee,
 	type Uuid
 } from './types.ts';
@@ -169,4 +175,127 @@ export function defiReauthentificationPasskey(api: ClientApi): Promise<Defi> {
 
 export function reauthentifierParPasskey(api: ClientApi, credential: unknown): Promise<void> {
 	return api.renouveler('/api/session/reauthentification/passkey', { credential });
+}
+
+// --- Administration du cabinet (PR 9a) ---------------------------------------------------------
+
+/** Motifs d'une réinitialisation (liste fermée du serveur, `MOTIFS_REINITIALISATION`). */
+export const MOTIFS_REINITIALISATION = [
+	'appareil_perdu',
+	'facteurs_perdus',
+	'compte_compromis',
+	'depart_reprise',
+	'autre'
+] as const;
+
+export type MotifReinitialisation = (typeof MOTIFS_REINITIALISATION)[number];
+
+const base = (cabinet: Uuid) => `/api/cabinets/${cabinet}`;
+
+export function listerMembres(api: ClientApi, cabinet: Uuid): Promise<Membre[]> {
+	return api.lire(`${base(cabinet)}/membres`, listeDe(estMembre));
+}
+
+export function changerRole(
+	api: ClientApi,
+	cabinet: Uuid,
+	membre: Uuid,
+	role: string
+): Promise<Membre> {
+	return api.muter('POST', `${base(cabinet)}/membres/${membre}/role`, estMembre, { role });
+}
+
+/** Suspension (`actif` faux) ou rétablissement (`actif` vrai) d'un membre. */
+export function changerActivite(
+	api: ClientApi,
+	cabinet: Uuid,
+	membre: Uuid,
+	actif: boolean
+): Promise<void> {
+	const chemin = `${base(cabinet)}/membres/${membre}/suspension`;
+	return actif
+		? api.muterSansReponse('DELETE', chemin)
+		: api.muter('POST', chemin, estMembre).then(() => undefined);
+}
+
+export function listerInvitations(api: ClientApi, cabinet: Uuid): Promise<Invitation[]> {
+	return api.lire(`${base(cabinet)}/invitations`, listeDe(estInvitation));
+}
+
+export function inviter(
+	api: ClientApi,
+	cabinet: Uuid,
+	invitation: { courriel: string; nom: string; role: string }
+): Promise<Invitation> {
+	return api.muter('POST', `${base(cabinet)}/invitations`, estInvitation, invitation);
+}
+
+export function renvoyerInvitation(api: ClientApi, cabinet: Uuid, invitation: Uuid): Promise<void> {
+	return api
+		.muter('POST', `${base(cabinet)}/invitations/${invitation}/renvoi`, estObjetJson)
+		.then(() => undefined);
+}
+
+export function revoquerInvitation(api: ClientApi, cabinet: Uuid, invitation: Uuid): Promise<void> {
+	return api
+		.muter('DELETE', `${base(cabinet)}/invitations/${invitation}`, estObjetJson)
+		.then(() => undefined);
+}
+
+export function listerReinitialisations(
+	api: ClientApi,
+	cabinet: Uuid
+): Promise<Reinitialisation[]> {
+	return api.lire(`${base(cabinet)}/reinitialisations`, listeDe(estReinitialisation));
+}
+
+export function reinitialiserAcces(
+	api: ClientApi,
+	cabinet: Uuid,
+	membre: Uuid,
+	demande: { motif_code: MotifReinitialisation; motif: string }
+): Promise<void> {
+	return api
+		.muter('POST', `${base(cabinet)}/membres/${membre}/reinitialisation`, estObjetJson, {
+			...demande,
+			verification_hors_bande: true
+		})
+		.then(() => undefined);
+}
+
+/** Annulation par un administrateur. */
+export function annulerReinitialisation(
+	api: ClientApi,
+	cabinet: Uuid,
+	reinitialisation: Uuid
+): Promise<void> {
+	return api
+		.muter('DELETE', `${base(cabinet)}/reinitialisations/${reinitialisation}`, estObjetJson)
+		.then(() => undefined);
+}
+
+/** Contestation par le membre concerné de la réinitialisation de son propre accès. */
+export function contesterReinitialisation(
+	api: ClientApi,
+	cabinet: Uuid,
+	reinitialisation: Uuid
+): Promise<void> {
+	return api
+		.muter(
+			'POST',
+			`${base(cabinet)}/reinitialisations/${reinitialisation}/contestation`,
+			estObjetJson
+		)
+		.then(() => undefined);
+}
+
+export function changerSeparationTaches(
+	api: ClientApi,
+	cabinet: Uuid,
+	active: boolean
+): Promise<void> {
+	const chemin = `${base(cabinet)}/separation-taches`;
+	return active
+		? api.muter('POST', chemin, estObjetJson).then(() => undefined)
+		: api.muter('DELETE', chemin, estObjetJson).then(() => undefined);
 }

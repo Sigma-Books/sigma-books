@@ -49,3 +49,22 @@ export function grouperSecret(secret: string): string {
 export function uriOtpauthSure(uri: string): string | null {
 	return uri.startsWith('otpauth://totp/') && !/[\s<>"']/.test(uri) ? uri : null;
 }
+
+/** Rôles proposés à la sélection (libellés seulement : le serveur valide le rôle). */
+export const ROLES_PROPOSES: readonly string[] = [
+	'administrateur',
+	'valideur',
+	'collaborateur',
+	'auditeur'
+];
+
+const MOTIFS_REINITIALISATION: Record<string, string> = {
+	appareil_perdu: 'Appareil perdu',
+	facteurs_perdus: 'Moyens de connexion perdus',
+	compte_compromis: 'Compte compromis',
+	depart_reprise: 'Départ ou reprise du poste',
+	autre: 'Autre motif'
+};
+
+export const libelleMotifReinitialisation = (motif: string): string =>
+	libelle(MOTIFS_REINITIALISATION, motif);
