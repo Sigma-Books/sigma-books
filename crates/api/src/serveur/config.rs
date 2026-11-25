@@ -88,6 +88,8 @@ pub struct Configuration {
     /// d'horodatage (ADR 0010 ; [`crate::horodatage::config`]).
     pub autorites_horodatage: Vec<Autorite>,
     // Voie authentification (PR 8b, 8c, 9) : configuration de ses modules.
+    /// Relais SMTP des courriels (PR 9b, [`crate::envoi::config`]) ; `None` : aucun envoi.
+    pub smtp: Option<crate::envoi::config::ConfigurationSmtp>,
     //
     // Voie comptabilité (PR 11, 13, 14) : configuration de ses modules.
     //
@@ -120,6 +122,7 @@ impl Configuration {
         super::session::configurer(&env, &mut reglages.sessions)?;
         // Voie authentification (PR 8b, 8c, 9).
         super::facteurs::configurer(&env, &mut reglages.facteurs)?;
+        let smtp = crate::envoi::config::depuis(&env)?;
         // Passkeys (PR 8c) : l'hôte de l'origine est la partie de confiance WebAuthn ; une origine
         // qui n'en est pas une (adresse IP) interdit toute connexion par passkey : refus de démarrer.
         crate::facteurs::passkey::Passkeys::depuis_origine(&reglages.origine)
@@ -135,6 +138,7 @@ impl Configuration {
             base,
             reglages,
             autorites_horodatage,
+            smtp,
             pieces,
         })
     }

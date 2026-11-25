@@ -282,6 +282,48 @@ fn le_lien_est_consomme_avant_de_poser_un_utilisateur() {
     );
 }
 
+/// Voie courriels (PR 9b, ADR 0024) : le binaire n'a qu'un transport, le relais SMTP, et aucun
+/// moyen d'envoyer sans TLS : ni `builder_dangerous` (connexion sans TLS de `lettre`), ni
+/// `Tls::None`, ni transport en mémoire dans les sources du crate.
+#[test]
+fn le_seul_transport_de_courriels_du_binaire_est_le_relais_smtp_en_tls() {
+    let sources = sources();
+    let implementations = occurrences(&sources, "impl Transport for");
+    assert_eq!(
+        implementations
+            .iter()
+            .map(|(_, suite)| suite.split_whitespace().next().unwrap_or(""))
+            .collect::<Vec<_>>(),
+        vec!["TransportSmtp"],
+        "{implementations:?}"
+    );
+    for interdit in [
+        "builder_dangerous",
+        "Tls::None",
+        "Tls::Opportunistic",
+        "dangerous_accept",
+        "accept_invalid",
+        "TransportMemoire",
+        "FileTransport",
+        "SendmailTransport",
+    ] {
+        assert!(
+            occurrences(&sources, interdit).is_empty(),
+            "{interdit} dans les sources du crate"
+        );
+    }
+    let transport = &sources
+        .iter()
+        .find(|(c, _)| c.ends_with("src/envoi/transport.rs"))
+        .expect("envoi/transport.rs")
+        .1;
+    assert!(transport.contains("starttls_relay("));
+    assert!(transport.contains("::relay("));
+    let main =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/main.rs")).unwrap();
+    assert!(main.contains("TransportSmtp::new("));
+}
+
 #[tokio::test]
 async fn chaque_entree_de_la_table_est_montee_sur_le_pipeline() {
     let routeur = routeur(&application_du_binaire(pool_sans_base()));

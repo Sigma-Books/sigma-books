@@ -1,0 +1,32 @@
+# 0024 — Courriels : relais SMTP en TLS obligatoire, envoi par la file de tâches
+
+- **Statut :** proposée
+- **Date :** 2026-11-25
+
+## Contexte
+L'ADR 0012 (question 8a du lot L2) retient un **relais SMTP configurable**, des modèles sobres sans donnée comptable (F12.2), un envoi par la file de tâches, des identifiants fournis par les secrets d'exécution, et renvoie SPF, DKIM et DMARC à l'exploitation (F12.1). L'ADR 0023 a posé les liens à usage unique ; la PR 9b les envoie. Aucun moteur de référence ne convient : tous envoient un mot de passe ou un jeton stocké en clair (Tryton, Dolibarr, Bigcapital).
+
+## Décision
+1. **Client SMTP : `lettre` 0.11** (licence MIT, maintenue : version 0.11.24, très utilisée), avec `tokio1`, `rustls` (fournisseur `ring`) et le magasin de certificats du système ; ni `native-tls` (OpenSSL), ni `webpki-roots` (licence CDLA-Permissive), ni `aws-lc-rs` (OpenSSL), ni transport de fichier ou `sendmail`. `quoted_printable`, entraînée par `lettre`, est sous licence **0BSD** (permissive, sans obligation, compatible AGPL) : elle est ajoutée à la liste blanche de `deny.toml`, avec sa justification ; c'est le seul changement de la politique de licences.
+2. **TLS obligatoire.** `STARTTLS` exigé (`starttls_relay` : un relais qui ne l'annonce pas ne reçoit **rien**, ni authentification ni adresse) ou TLS implicite (`relay`). Aucune valeur de configuration n'admet l'absence de TLS ; `builder_dangerous` est absent des sources (test de structure). Éprouvé contre un faux relais en clair.
+3. **Secrets d'exécution** : l'hôte, le port, le mode, l'expéditeur par variables d'environnement ; le mot de passe par **chemin d'un fichier** de droits 0600 ou 0400, jamais dans l'environnement ni le dépôt, effacé de la mémoire à la libération (`zeroize`), absent de tout `Debug`. Sans hôte configuré, aucun courriel ne part (les envois attendent) et le serveur avertit au démarrage ; avec un hôte, toute valeur invalide empêche le démarrage.
+4. **Envoi par la file de tâches** (ADR 0022) : nature `courriel`, sujets `invitation` et `reinitialisation`, objet = identifiant de la cible (migration `0450`, hors de la plage de la voie car dépendante de `tache`). L'invitation est planifiée dans la transaction de la demande (elle n'existe que si la demande est validée) ; la réinitialisation est planifiée **à l'échéance** du délai de 24 heures. Le **lien est émis au moment de l'envoi**, dans une transaction de tenant ordinaire, puis remis au transport **hors de toute transaction**. Il n'est stocké nulle part en clair, pas même dans la file. Un envoi qui échoue de façon provisoire (relais injoignable, 4xx, TLS) est rejoué avec un lien **neuf** qui ferme le précédent (délai doublé, 1 minute à 1 heure, huit tentatives) ; un refus définitif (5xx) n'est pas rejoué ; une cible qui n'est plus en attente (invitation révoquée ou acceptée, réinitialisation annulée) donne « sans objet ». Un travailleur par processus, `SKIP LOCKED` et bail de 5 minutes : plusieurs processus ne se doublent pas. Les issues sont des **codes stables**, jamais le texte d'un relais (qui peut citer l'adresse).
+5. **Modèles** constants (`envoi/modele.rs`) : sujet constant ; ni montant, ni pièce, ni nom de tiers ou de dossier, ni nom de cabinet ; le nom du destinataire n'apparaît que dans le corps, **jamais dans un en-tête**. Lien dans le fragment d'une adresse de l'instance. L'adresse et le nom sont revalidés à l'envoi (une ligne ancienne ou altérée ne produit pas de message).
+6. **Injection d'en-têtes** : adresses et noms passent par une liste blanche ASCII (ADR 0023, §9) à la saisie, à la configuration, à la ligne de commande et à l'envoi ; `lettre` encode et refuse en outre toute adresse mal formée.
+7. **Renvoi d'une invitation** : `POST …/invitations/{invitation}/renvoi` (`ModifierDroits`, ré-authentification) planifie un envoi ; un envoi déjà en file vaut renvoi (idempotent). Le lien précédent est fermé à l'émission du nouveau.
+8. **Réinitialisation périmée** : une réinitialisation dont l'échéance date de plus de 24 heures sans usage du lien (1 heure) passe à `expiree` à la demande suivante, qui n'est plus bloquée.
+9. **Commandes d'instance** : avec un relais configuré, `creer-cabinet` ne montre plus le lien et planifie l'envoi ; sans relais, le lien reste écrit une fois sur la sortie standard.
+
+## Conséquences
+- Un compte invité ne peut s'enrôler que si le relais fonctionne (ou si l'exploitant transmet le lien de la commande). L'exploitation configure SPF, DKIM et DMARC `p=reject` du domaine d'envoi ; l'application ne signe pas (F12.1).
+- Aucun traitement des rebonds ni des adresses qui n'existent pas : l'administrateur voit qu'une invitation reste en attente et la renvoie.
+- Pas d'adresse internationalisée (limite de l'ADR 0023, §9).
+- Le relais voit l'adresse du destinataire et le lien (c'est le canal choisi par la question 8a) ; le lien, à usage unique et valable 24 heures (invitation) ou 1 heure (réinitialisation), n'ouvre qu'une session d'enrôlement.
+- Dépendances : `lettre` et son arbre (`rustls`, `ring`, `rustls-native-certs`, `socket2`, `base64`, `quoted_printable`…). `ring` est la première bibliothèque cryptographique de TLS du crate `api`, dont les connexions à PostgreSQL et au stockage objet sont sans TLS (reporté au déploiement, L9).
+
+## Alternatives écartées
+- **Écrire le client SMTP** (STARTTLS, authentification, codage MIME) : surface d'attaque et de bogues sans gain.
+- **Notifications dans l'application seulement** (question 8b) : le lien circulerait par des canaux non maîtrisés.
+- **Envoi depuis la requête** : la requête attendrait le relais, et un échec ne serait pas rejoué.
+- **Mot de passe SMTP dans une variable d'environnement** : visible par les outils de processus et les sauvegardes de configuration.
+- **Stocker le lien chiffré pour pouvoir le rejouer** : une lecture de la base ne doit pas suffire à prendre un compte (ADR 0012).

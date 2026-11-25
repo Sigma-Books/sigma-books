@@ -115,6 +115,8 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
         (Get, "/membres/{membre}/sessions" | "/invitations" | "/reinitialisations") => {
             vec![admin_a(ok())]
         }
+        // Renvoi : idempotent tant qu'un envoi attend.
+        (Post, "/invitations/{invitation}/renvoi") => vec![admin_a(ok()), multi_a(ok())],
         (Post, "/invitations" | "/membres/{membre}/reinitialisation") => {
             vec![admin_a(Cree), multi_a(conflit())]
         }

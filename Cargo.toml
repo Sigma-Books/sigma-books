@@ -67,6 +67,11 @@ hmac = { version = "0.13.0", default-features = false }
 # Pièces justificatives (ADR 0015 ; L2 PR 12) : signature AWS v4 des requêtes au stockage objet
 # compatible S3, sans E/S (le transport est le client `hyper` déjà présent). Sans `full` : ni XML,
 # ni serde, ni MD5. BSD-2-Clause. `url` (déjà dans l'arbre) : point d'accès du compartiment.
+# Courriels (ADR 0024 ; L2 PR 9b) : client SMTP asynchrone, MIT. TLS obligatoire (STARTTLS exigé ou
+# TLS implicite) par rustls (fournisseur `ring`) et le magasin de certificats du système ; ni
+# `native-tls` (OpenSSL), ni `webpki-roots` (licence CDLA), ni `aws-lc-rs`, ni transport sans TLS
+# (aucune fonctionnalité `pool`, `file-transport`, `sendmail-transport`).
+lettre = { version = "0.11.24", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "rustls-native-certs"] }
 rusty-s3 = { version = "0.12.0", default-features = false, features = ["rustcrypto"] }
 url = { version = "2.5.8", default-features = false, features = ["std"] }
 # Passkeys (ADR 0006, ADR 0012, ADR 0018 ; L2 PR 8c) : vérification WebAuthn par `webauthn-rs`

@@ -14,6 +14,7 @@
 
 pub mod base;
 pub mod courriel;
+pub mod envoi;
 pub mod facteurs;
 pub mod horodatage;
 pub mod instance;

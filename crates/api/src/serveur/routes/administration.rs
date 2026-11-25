@@ -30,6 +30,7 @@ use crate::base::administration::{
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier};
 use crate::base::session::MotifRevocation;
+use crate::base::taches::{SujetCourriel, planifier_courriel};
 use crate::base::{IdDossier, IdUtilisateur, TransactionTenant};
 use crate::courriel;
 use crate::serveur::audit::Trace;
@@ -61,6 +62,8 @@ pub enum Cas {
     Inviter,
     /// Révoquer une invitation.
     RevoquerInvitation,
+    /// Renvoyer le lien d'une invitation en attente (lien neuf : le précédent est fermé).
+    RenvoyerInvitation,
     /// Réinitialisations en attente.
     ListerReinitialisations,
     /// Demander la réinitialisation de l'accès d'un membre.
@@ -163,6 +166,12 @@ pub const ROUTES: &[Route] = &[
         "/api/cabinets/{cabinet}/invitations",
         Action::ModifierDroits,
         Cas::Inviter,
+    ),
+    cabinet(
+        Methode::Post,
+        "/api/cabinets/{cabinet}/invitations/{invitation}/renvoi",
+        Action::ModifierDroits,
+        Cas::RenvoyerInvitation,
     ),
     cabinet(
         Methode::Delete,
@@ -380,6 +389,7 @@ pub(crate) async fn executer(
         Cas::RevoquerSession => revoquer_session(tx, garde, requete).await,
         Cas::ListerInvitations => lister_invitations(tx, garde).await,
         Cas::Inviter => inviter(tx, garde, requete).await,
+        Cas::RenvoyerInvitation => renvoyer_invitation(tx, garde, requete).await,
         Cas::RevoquerInvitation => revoquer_invitation(tx, garde, requete).await,
         Cas::ListerReinitialisations => lister_reinitialisations(tx, garde).await,
         Cas::Reinitialiser => reinitialiser(tx, garde, requete).await,
@@ -645,6 +655,8 @@ async fn inviter(
         CreationInvitation::DejaMembre => return Err(conflit(MotifConflit::DejaMembre)),
         CreationInvitation::EnCours => return Err(conflit(MotifConflit::InvitationEnCours)),
     }
+    // Le lien est émis et envoyé par la file de tâches, après la validation de cette transaction.
+    planifier_courriel(tx, SujetCourriel::Invitation, id, None).await?;
     // Ni courriel ni nom dans l'audit : le rôle proposé suffit.
     let mut t = trace("invitation", id);
     t.champs.push(("role", None, Some(role.to_owned())));
@@ -656,6 +668,30 @@ async fn inviter(
         cree_le: horodatage(requete.maintenant),
     };
     Ok(rendre(StatusCode::CREATED, vue, vec![t]))
+}
+
+async fn renvoyer_invitation(
+    tx: &mut TransactionTenant,
+    garde: &Garde,
+    requete: &Requete<'_>,
+) -> Result<Resultat, ErreurApi> {
+    administrateurs_verrouilles(tx, garde).await?;
+    let id = id_chemin(requete.chemin, "invitation")?;
+    let invitation = adm::lire_invitation(tx, id)
+        .await?
+        .ok_or(ErreurApi::Introuvable)?;
+    if invitation.etat != "en_attente" {
+        return Err(conflit(MotifConflit::InvitationNonEnAttente));
+    }
+    // Un envoi déjà en file (non terminé) vaut renvoi : la demande est idempotente.
+    let planifie = planifier_courriel(tx, SujetCourriel::Invitation, id, None).await?;
+    let mut t = trace("invitation", id);
+    t.donnees.push(("renvoi", "demande".to_owned()));
+    Ok(rendre(
+        StatusCode::OK,
+        serde_json::json!({"id": id.hyphenated().to_string(), "envoi_planifie": planifie}),
+        vec![t],
+    ))
 }
 
 async fn revoquer_invitation(
@@ -754,6 +790,8 @@ async fn reinitialiser(
         return Err(conflit(MotifConflit::ReinitialisationEnCours));
     }
     let echeance = requete.maintenant + adm::DELAI_REINITIALISATION;
+    // Le lien (1 h) est émis et envoyé au terme du délai de contestation, par la file de tâches.
+    planifier_courriel(tx, SujetCourriel::Reinitialisation, id, Some(echeance)).await?;
     let mut t = trace("reinitialisation", id);
     // Le code seul : la chaîne d'audit est définitive, le texte libre reste dans la table.
     t.motif = Some(motif_code.to_owned());
