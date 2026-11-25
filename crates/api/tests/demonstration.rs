@@ -16,7 +16,8 @@
     clippy::expect_used,
     clippy::unwrap_used,
     clippy::too_many_lines,
-    clippy::similar_names
+    clippy::similar_names,
+    clippy::many_single_char_names
 )]
 
 mod commun;
@@ -44,7 +45,7 @@ use commun::serveur::{
 };
 use commun::{Env, env};
 use serde_json::{Value, json};
-use time::{Duration, OffsetDateTime};
+use time::Duration;
 use uuid::Uuid;
 use webauthn_authenticator_rs::WebauthnAuthenticator;
 use webauthn_authenticator_rs::softpasskey::SoftPasskey;
@@ -394,8 +395,13 @@ fn annee(m: &Monde) -> i32 {
     m.horloge.maintenant().year()
 }
 
+/// Date du `jour` du mois courant de l'horloge (`mois` = 1) ou des suivants (2, 3…) : le dossier
+/// de A commence ce mois-ci, ses écritures sont dans sa première période, qu'une validation
+/// d'aujourd'hui peut encore atteindre (échéance de clôture).
 fn date(m: &Monde, mois: u8, jour: u8) -> String {
-    format!("{:04}-{mois:02}-{jour:02}", annee(m))
+    let d = m.horloge.maintenant().date();
+    let rang = i32::from(u8::from(d.month())) - 1 + i32::from(mois) - 1;
+    format!("{:04}-{:02}-{jour:02}", d.year() + rang / 12, rang % 12 + 1)
 }
 
 fn ligne(compte: &str, sens: &str, montant: i64) -> Value {
@@ -561,7 +567,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
 
     // Étape 1 : deux cabinets créés par la commande d'instance ; l'administrateur du premier
     // (A) a enrôlé une passkey et s'est connecté, l'autre (B) aussi.
-    let (cabinet_a, mut admin_a) = m.creer_cabinet("Cabinet A de la démonstration").await;
+    let (cabinet_a, admin_a) = m.creer_cabinet("Cabinet A de la démonstration").await;
     let (cabinet_b, admin_b) = m.creer_cabinet("Cabinet B de la démonstration").await;
     assert_ne!(cabinet_a, cabinet_b);
     let r = m.lire(&admin_a.session, "/api/moi/cabinets").await;
@@ -609,7 +615,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     // accepte son lien (usage unique), enrôle sa passkey et se connecte.
     let valideur = m.inviter(cabinet_a, &admin_a, "valideur").await;
     let collaborateur = m.inviter(cabinet_a, &admin_a, "collaborateur").await;
-    let auditeur = m.inviter(cabinet_a, &admin_a, "auditeur").await;
+    let mut auditeur = m.inviter(cabinet_a, &admin_a, "auditeur").await;
     a.noms = vec![valideur.courriel.clone(), collaborateur.courriel.clone()];
     isoler(&m, &b, &a, "2 membres invités").await;
 
@@ -619,7 +625,12 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
         .poster(
             &admin_a.session,
             &format!("/api/cabinets/{cabinet_a}/dossiers"),
-            &json!({"nom": "Dossier A de la démonstration", "nature": "reprise", "annee": annee(&m)}),
+            &json!({
+                "nom": "Dossier A de la démonstration",
+                "nature": "creation",
+                "debut_activite": date(&m, 1, 1),
+                "fin_premier_exercice": "annee_suivante"
+            }),
         )
         .await;
     let dossier: Uuid = attendre(&r, StatusCode::CREATED)["id"]
@@ -657,9 +668,9 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     let mut attendues: Vec<Mouvement> = Vec::new();
     let mut brouillons: Vec<(Uuid, i64, Vec<Mouvement>)> = Vec::new();
     for (jour, libelle, montant, contre) in [
-        ((1, 15), "Vente au comptant de janvier", 100_000, &caisse),
-        ((1, 20), "Encaissement bancaire", 250_000, &banque),
-        ((1, 25), "Dépôt de caisse", 40_000, &base),
+        ((1, 1), "Vente au comptant du mois", 100_000, &caisse),
+        ((1, 1), "Encaissement bancaire", 250_000, &banque),
+        ((1, 1), "Dépôt de caisse", 40_000, &base),
     ] {
         let lignes: Vec<Mouvement> = vec![
             (caisse.clone(), "debit", montant),
@@ -713,7 +724,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
             (caisse.clone(), "debit", 260_000),
             (banque.clone(), "credit", 260_000),
         ];
-        let mut corps = contenu(&m, (1, 20), "Encaissement bancaire corrigé", lignes);
+        let mut corps = contenu(&m, (1, 1), "Encaissement bancaire corrigé", lignes);
         corps["version"] = json!(*version);
         let r = m
             .poster(
@@ -751,7 +762,7 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
             &format!("{racine}/brouillard"),
             &contenu(
                 &m,
-                (2, 3),
+                (2, 1),
                 "Saisie de février",
                 &[
                     (caisse.clone(), "debit", 5_000),
@@ -769,8 +780,497 @@ async fn demonstration_de_bout_en_bout_du_lot_l2() {
     let r = m
         .lire(&collaborateur.session, &format!("{racine}/brouillard"))
         .await;
-    eprintln!("LISTE {}", &r.texte()[..r.texte().len().min(300)]);
+    assert_eq!(
+        attendre(&r, StatusCode::OK)["brouillons"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
     isoler(&m, &b, &a, "4 brouillard saisi").await;
-    let _ = (&auditeur, fevrier, &attendues);
-    attendues.clear();
+
+    // Étape 5 : validation unitaire par le valideur (la première), puis par lot (ré-authentifiée)
+    // des deux suivantes ; chaque validation numérote et chaîne.
+    let mut valideur = valideur;
+    let (id1, v1, l1) = brouillons[0].clone();
+    let r = m
+        .poster(
+            &valideur.session,
+            &format!("{racine}/brouillard/{id1}/validation"),
+            &json!({"version": v1}),
+        )
+        .await;
+    let validee1 = attendre(&r, StatusCode::OK);
+    assert_eq!(validee1["rang"], 1, "{validee1}");
+    attendues.extend(l1.iter().cloned());
+    let ecriture1: Uuid = validee1["id"].as_str().unwrap().parse().unwrap();
+    // La session du valideur vieillit : la validation par lot exige une session fraîche.
+    m.horloge.avancer(Duration::minutes(6));
+    let lot: Vec<Value> = brouillons[1..3]
+        .iter()
+        .map(|(id, v, _)| json!({"ecriture": id, "version": v}))
+        .collect();
+    let r = m
+        .poster(
+            &valideur.session,
+            &format!("{racine}/brouillard/validation-par-lot"),
+            &json!({"ecritures": lot}),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    m.reauthentifier(&mut valideur).await;
+    let r = m
+        .poster(
+            &valideur.session,
+            &format!("{racine}/brouillard/validation-par-lot"),
+            &json!({"ecritures": lot}),
+        )
+        .await;
+    let par_lot = attendre(&r, StatusCode::OK);
+    let rangs: Vec<i64> = par_lot["ecritures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["rang"].as_i64().unwrap())
+        .collect();
+    assert_eq!(rangs, [2, 3], "{par_lot}");
+    for (_, _, l) in &brouillons[1..3] {
+        attendues.extend(l.iter().cloned());
+    }
+    isoler(&m, &b, &a, "5 écritures validées").await;
+
+    // Étape 6 : contre-passation de la première écriture, puis une seconde (ADR 0021 : plusieurs
+    // contre-passations d'une même écriture sont permises, chacune double l'annulation).
+    for motif in ["Erreur de compte", "Doublon constaté"] {
+        let r = m
+            .poster(
+                &valideur.session,
+                &format!("{racine}/ecritures/{ecriture1}/contre-passation"),
+                &json!({"date": date(&m, 1, 1), "libelle": "Contre-passation de la vente", "motif": motif}),
+            )
+            .await;
+        attendre(&r, StatusCode::CREATED);
+        attendues.extend(l1.iter().map(|(c, s, x)| {
+            (
+                c.clone(),
+                if *s == "debit" { "credit" } else { "debit" },
+                *x,
+            )
+        }));
+    }
+    let r = m
+        .lire(&valideur.session, &format!("{racine}/ecritures"))
+        .await;
+    let liste = attendre(&r, StatusCode::OK);
+    assert_eq!(liste["ecritures"].as_array().unwrap().len(), 5, "{liste}");
+    isoler(&m, &b, &a, "6 contre-passations").await;
+
+    // Étape 7 : verrouillage de la première période (celle du mois courant ; qui déclenche l'horodatage), le jeton est
+    // obtenu auprès de l'autorité locale, puis clôture informatique (ré-authentifiée).
+    let r = m
+        .lire(&valideur.session, &format!("{racine}/exercices"))
+        .await;
+    let exercices = attendre(&r, StatusCode::OK);
+    let janvier = exercices["exercices"][0]["periodes"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        exercices["exercices"][0]["periodes"][0]["debut"],
+        date(&m, 1, 1)
+    );
+    let r = m
+        .poster(
+            &valideur.session,
+            &format!("{racine}/periodes/{janvier}/verrouillage"),
+            &json!({}),
+        )
+        .await;
+    assert_eq!(attendre(&r, StatusCode::OK)["statut"], "verrouillee");
+    let taches: Vec<(String, String)> = sqlx::query_as(
+        "SELECT nature, sujet FROM tache WHERE dossier_cible = $1 AND nature = 'horodatage' \
+         ORDER BY sujet",
+    )
+    .bind(dossier)
+    .fetch_all(&m.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        taches,
+        [
+            ("horodatage".to_owned(), "quotidien".to_owned()),
+            ("horodatage".to_owned(), "verrouillage".to_owned())
+        ],
+        "la validation planifie le jeton quotidien, le verrouillage le jeton immédiat"
+    );
+    // Passage du travailleur sur NOTRE tâche seulement : on la place en tête de file (échéance
+    // d'origine du temps) et le travailleur n'en prend qu'une ; la file est globale à l'instance.
+    let autorite = Arc::new(autorite::AutoriteLocale::nouvelle(Arc::new(
+        m.horloge.clone(),
+    )));
+    sqlx::query(
+        "UPDATE tache SET prochaine_tentative = to_timestamp(0) \
+         WHERE dossier_cible = $1 AND nature = 'horodatage' AND sujet = 'verrouillage'",
+    )
+    .bind(dossier)
+    .execute(&m.env.admin)
+    .await
+    .unwrap();
+    let travailleur = Travailleur::new(
+        m.env.application.clone(),
+        autorite.clone(),
+        Arc::new(m.horloge.clone()),
+        ReglagesTache {
+            lot: 1,
+            delai_alerte: Duration::days(36_500),
+            conservation: Duration::days(36_500),
+            ..ReglagesTache::default()
+        },
+    );
+    let bilan = travailleur.passer().await.unwrap();
+    assert_eq!(bilan.prises, 1);
+    assert_eq!(bilan.jetons, 1, "{bilan:?}");
+    let temoins = autorite.temoins();
+    assert_eq!(temoins.len(), 1);
+    assert!(
+        temoins[0].contenu().contains(&dossier.to_string()),
+        "témoin de notre dossier"
+    );
+    let jetons: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jeton_horodatage WHERE dossier_id = $1")
+            .bind(dossier)
+            .fetch_one(&m.env.admin)
+            .await
+            .unwrap();
+    assert_eq!(jetons, 1);
+    // Clôture : session vieillie, refusée ; ré-authentifiée, acceptée.
+    m.horloge.avancer(Duration::minutes(6));
+    let cloture = format!("{racine}/periodes/{janvier}/cloture");
+    let r = m
+        .poster(
+            &valideur.session,
+            &cloture,
+            &json!({"confirmation": "irreversible"}),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    m.reauthentifier(&mut valideur).await;
+    let r = m
+        .poster(
+            &valideur.session,
+            &cloture,
+            &json!({"confirmation": "irreversible"}),
+        )
+        .await;
+    assert_eq!(attendre(&r, StatusCode::OK)["statut"], "cloturee");
+    // Une saisie datée de la période close est refusée.
+    let r = m
+        .poster(
+            &collaborateur.session,
+            &format!("{racine}/brouillard"),
+            &contenu(
+                &m,
+                (1, 1),
+                "Saisie tardive",
+                &[(caisse.clone(), "debit", 1), (banque.clone(), "credit", 1)],
+            ),
+        )
+        .await;
+    assert!(
+        r.statut == StatusCode::CONFLICT,
+        "{} {}",
+        r.statut,
+        r.texte()
+    );
+    isoler(&m, &b, &a, "7 période close").await;
+
+    // Étape 8 : éditions, relues par l'auditeur ; la balance à 6 colonnes est équilibrée et
+    // égale à une somme **indépendante de l'API** (les mouvements que ce test a lui-même saisis).
+    let mut attendu: BTreeMap<String, (i128, i128)> = BTreeMap::new();
+    for (compte, sens, montant) in &attendues {
+        let e = attendu.entry(compte.clone()).or_default();
+        if *sens == "debit" {
+            e.0 += i128::from(*montant);
+        } else {
+            e.1 += i128::from(*montant);
+        }
+    }
+    let total_debit: i128 = attendu.values().map(|v| v.0).sum();
+    let total_credit: i128 = attendu.values().map(|v| v.1).sum();
+    assert_eq!(
+        total_debit, total_credit,
+        "les mouvements saisis s'équilibrent"
+    );
+    let r = m
+        .lire(&auditeur.session, &format!("{racine}/editions/balance"))
+        .await;
+    let balance = attendre(&r, StatusCode::OK);
+    assert_eq!(balance["format"], 6);
+    assert_eq!(balance["equilibree"], true, "{balance}");
+    let mut colonnes = [0i128; 6];
+    let mut vus = BTreeSet::new();
+    for l in balance["lignes"].as_array().unwrap() {
+        let valeurs: Vec<i128> = l["valeurs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(decimal)
+            .collect();
+        assert_eq!(valeurs.len(), 6);
+        for (c, v) in colonnes.iter_mut().zip(&valeurs) {
+            *c += v;
+        }
+        let compte = l["cle"].as_str().unwrap().to_owned();
+        let (d, c) = attendu
+            .get(&compte)
+            .copied()
+            .unwrap_or_else(|| panic!("compte {compte} inattendu"));
+        assert_eq!((valeurs[2], valeurs[3]), (d, c), "mouvements de {compte}");
+        assert_eq!(
+            (valeurs[4], valeurs[5]),
+            ((d - c).max(0), (c - d).max(0)),
+            "soldes de {compte}"
+        );
+        vus.insert(compte);
+    }
+    assert_eq!(vus, attendu.keys().cloned().collect::<BTreeSet<_>>());
+    // Somme indépendante : ouvertures, mouvements et soldes s'équilibrent deux à deux.
+    assert_eq!(colonnes[0], colonnes[1], "ouvertures");
+    assert_eq!(
+        (colonnes[2], colonnes[3]),
+        (total_debit, total_credit),
+        "mouvements"
+    );
+    assert_eq!(colonnes[4], colonnes[5], "soldes");
+    assert_eq!(decimal(&balance["totaux"][2]), total_debit);
+    // Provisoire : le brouillon de la période suivante s'ajoute.
+    let r = m
+        .lire(
+            &auditeur.session,
+            &format!("{racine}/editions/balance?mode=provisoire"),
+        )
+        .await;
+    let provisoire = attendre(&r, StatusCode::OK);
+    assert_eq!(decimal(&provisoire["totaux"][2]), total_debit + 5_000);
+    assert_eq!(provisoire["equilibree"], true);
+    // Grand livre, journaux, centralisateur : mêmes totaux.
+    let r = m
+        .lire(&auditeur.session, &format!("{racine}/editions/grand-livre"))
+        .await;
+    let grand_livre = attendre(&r, StatusCode::OK);
+    for bloc in grand_livre["comptes"].as_array().unwrap() {
+        let compte = bloc["compte"].as_str().unwrap();
+        let (d, c) = attendu[compte];
+        assert_eq!(
+            (
+                decimal(&bloc["total_debit"]),
+                decimal(&bloc["total_credit"])
+            ),
+            (d, c),
+            "grand livre de {compte}"
+        );
+    }
+    let r = m
+        .lire(&auditeur.session, &format!("{racine}/editions/journaux"))
+        .await;
+    let journaux = attendre(&r, StatusCode::OK);
+    let (mut jd, mut jc, mut nb) = (0, 0, 0);
+    for j in journaux["journaux"].as_array().unwrap() {
+        jd += decimal(&j["total_debit"]);
+        jc += decimal(&j["total_credit"]);
+        nb += j["ecritures"].as_array().unwrap().len();
+    }
+    assert_eq!((jd, jc, nb), (total_debit, total_credit, 5));
+    let r = m
+        .lire(
+            &auditeur.session,
+            &format!("{racine}/editions/centralisateur"),
+        )
+        .await;
+    let centralisateur = attendre(&r, StatusCode::OK);
+    assert_eq!(
+        decimal(&centralisateur["mouvements"]["total_debit"]),
+        total_debit
+    );
+    assert_eq!(
+        decimal(&centralisateur["mouvements"]["total_credit"]),
+        total_credit
+    );
+    isoler(&m, &b, &a, "8 éditions").await;
+
+    // Étape 9 : export d'intégrité (session fraîche exigée) puis `sigma-verifier`, jeton compris.
+    m.horloge.avancer(Duration::minutes(6));
+    let export = format!("{racine}/integrite/export");
+    let r = m.poster(&auditeur.session, &export, &Value::Null).await;
+    assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    m.reauthentifier(&mut auditeur).await;
+    let r = m.poster(&auditeur.session, &export, &Value::Null).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let texte = r.texte();
+    let (rang, tete): (i64, Vec<u8>) =
+        sqlx::query_as("SELECT rang, empreinte FROM ecriture_validee WHERE dossier_id = $1 ORDER BY rang DESC LIMIT 1")
+            .bind(dossier)
+            .fetch_one(&m.env.admin)
+            .await
+            .unwrap();
+    assert_eq!(rang, 5);
+    let tete = integrite::Empreinte::depuis_octets(tete.try_into().unwrap()).to_string();
+    let dossier_texte = dossier.to_string();
+    let repertoire = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
+    let sigle = Uuid::new_v4();
+    let chemin_export = repertoire.join(format!("demonstration-{sigle}.txt"));
+    let chemin_ancre = repertoire.join(format!("demonstration-{sigle}.ancre"));
+    std::fs::write(&chemin_export, &texte).unwrap();
+    std::fs::write(&chemin_ancre, autorite.certificat_der()).unwrap();
+    let verifier = |fichier: &std::path::Path| {
+        std::process::Command::new(env!("CARGO"))
+            .args([
+                "run",
+                "--quiet",
+                "--locked",
+                "-p",
+                "integrite",
+                "--bin",
+                "sigma-verifier",
+                "--",
+            ])
+            .args(["--dossier", &dossier_texte, "--tete", &tete, "--ancre"])
+            .arg(&chemin_ancre)
+            .arg(fichier)
+            .output()
+            .unwrap()
+    };
+    let sortie = verifier(&chemin_export);
+    let rapport = format!(
+        "{}{}",
+        String::from_utf8_lossy(&sortie.stdout),
+        String::from_utf8_lossy(&sortie.stderr)
+    );
+    assert_eq!(sortie.status.code(), Some(0), "{rapport}");
+    // Le test n'est pas vacueux : une écriture altérée dans l'export est détectée (code 1).
+    let altere = repertoire.join(format!("demonstration-{sigle}-altere.txt"));
+    std::fs::write(&altere, texte.replacen("260000", "260001", 1)).unwrap();
+    let sortie = verifier(&altere);
+    assert_eq!(
+        sortie.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&sortie.stdout)
+    );
+    for f in [&chemin_export, &chemin_ancre, &altere] {
+        let _ = std::fs::remove_file(f);
+    }
+    isoler(&m, &b, &a, "9 export d'intégrité").await;
+
+    // Étape 10 : journal d'audit complet, chaînes vérifiées, aucune donnée personnelle.
+    let r = m
+        .lire(
+            &admin_a.session,
+            &format!("/api/cabinets/{cabinet_a}/audit?limite=100"),
+        )
+        .await;
+    let audit_cabinet = attendre(&r, StatusCode::OK);
+    let r = m
+        .lire(&admin_a.session, &format!("{racine}/audit?limite=100"))
+        .await;
+    let audit_dossier = attendre(&r, StatusCode::OK);
+    let actions = |v: &Value| -> BTreeSet<String> {
+        v["entrees"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["action"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    for (portee, chemin, page) in [
+        (
+            "cabinet",
+            format!("/api/cabinets/{cabinet_a}/audit"),
+            &audit_cabinet,
+        ),
+        ("dossier", format!("{racine}/audit"), &audit_dossier),
+    ] {
+        let r = m
+            .lire(&admin_a.session, &format!("{chemin}/verification"))
+            .await;
+        let v = attendre(&r, StatusCode::OK);
+        assert_eq!(v["integre"], true, "{portee} : {v}");
+        assert_eq!(
+            v["nombre"].as_u64().unwrap(),
+            page["entrees"].as_array().unwrap().len() as u64,
+            "{portee} : toutes les entrées sont lues"
+        );
+    }
+    let attendues_cabinet = [
+        "CreerCabinet",
+        "UtiliserLienInvitation",
+        "EnrolerPasskey",
+        "OuvrirSession",
+        "CreerDossier",
+        "ModifierDroits",
+    ];
+    let attendues_dossier = [
+        "CreerDossier",
+        "ValiderEcriture",
+        "ValiderParLot",
+        "ContrePasser",
+        "VerrouillerPeriode",
+        "CloturerPeriode",
+        "ObtenirJetonHorodatage",
+        "ExporterIntegrite",
+        "SaisirBrouillard",
+        "CorrigerBrouillard",
+        "DeposerPiece",
+    ];
+    let (ac, ad) = (actions(&audit_cabinet), actions(&audit_dossier));
+    for action in attendues_cabinet {
+        assert!(
+            ac.contains(action),
+            "audit du cabinet : {action} manque dans {ac:?}"
+        );
+    }
+    for action in attendues_dossier {
+        assert!(
+            ad.contains(action),
+            "audit du dossier : {action} manque dans {ad:?}"
+        );
+    }
+    let contenus: Vec<String> = sqlx::query_scalar(
+        "SELECT contenu FROM audit_cabinet WHERE cabinet_id = $1 \
+         UNION ALL SELECT contenu FROM audit_dossier WHERE cabinet_id = $1",
+    )
+    .bind(cabinet_a)
+    .fetch_all(&m.env.admin)
+    .await
+    .unwrap();
+    let personnes = [&admin_a, &valideur, &collaborateur, &auditeur];
+    for contenu in &contenus {
+        assert!(!contenu.contains('@'), "courriel dans l'audit : {contenu}");
+        for p in personnes {
+            assert!(!contenu.contains(&p.courriel), "courriel dans l'audit");
+        }
+        assert!(!contenu.contains("Personne ") && !contenu.contains("Administrateur du test"));
+    }
+    // Rien n'a bougé chez B : son brouillon est intact et son audit ne cite rien de A.
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM brouillon WHERE cabinet_id = $1")
+        .bind(cabinet_b)
+        .fetch_one(&m.env.admin)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    isoler(&m, &b, &a, "10 audit").await;
+    let _ = fevrier;
+}
+
+/// Entier d'un montant décimal rendu par l'API (« 1500 », ou « 1500.00 » : fraction nulle).
+fn decimal(v: &Value) -> i128 {
+    let texte = v
+        .as_str()
+        .unwrap_or_else(|| panic!("montant attendu : {v}"));
+    let (entier, fraction) = texte.split_once('.').unwrap_or((texte, ""));
+    assert!(
+        fraction.chars().all(|c| c == '0'),
+        "montant non entier : {texte}"
+    );
+    entier.parse().unwrap()
 }

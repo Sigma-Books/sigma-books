@@ -5,7 +5,7 @@
 //!
 //! Le certificat est auto-signé (usage étendu unique et critique `id-kp-timeStamping`) : il sert
 //! d'ancre de confiance à `sigma-verifier` (option `--ancre`), comme le ferait une racine de
-//! DigiCert ou de Sectigo. La date des jetons est celle de l'horloge injectée.
+//! `DigiCert` ou de `Sectigo`. La date des jetons est celle de l'horloge injectée.
 //!
 //! Déclaré par `demonstration.rs` seulement (`#[path]`) : les autres tests n'en ont pas besoin.
 
@@ -106,7 +106,7 @@ fn entier(valeur: u64) -> Int {
 }
 
 fn temps(unix: Duration) -> Time {
-    Time::try_from(der::DateTime::from_unix_duration(unix).expect("date")).expect("temps X.509")
+    Time::from(der::DateTime::from_unix_duration(unix).expect("date"))
 }
 
 /// Autorité d'horodatage locale : clé et certificat tirés à la création.
