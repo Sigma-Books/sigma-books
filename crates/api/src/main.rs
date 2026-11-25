@@ -48,7 +48,30 @@ async fn main() -> ExitCode {
     }
 }
 
+/// Commande d'administration de l'instance (`api creer-cabinet`, `api reinitialiser-acces`) :
+/// elle ne lit que la base et l'origine publique, puis rend la main sans démarrer le serveur.
+async fn commande(commande: api::instance::Commande) -> Result<(), String> {
+    let env = |nom: &str| std::env::var(nom).ok().filter(|v| !v.trim().is_empty());
+    let url = env("SIGMA_URL_BASE_APPLICATION").ok_or("SIGMA_URL_BASE_APPLICATION absente")?;
+    let origine = env("SIGMA_ORIGINE").ok_or("SIGMA_ORIGINE absente")?;
+    let pool = ouvrir_pool_application(&url, ReglagesPool::default())
+        .await
+        .map_err(|e| format!("base de données : {e}"))?;
+    let sortie =
+        api::instance::executer(&pool, &commande, &origine, time::OffsetDateTime::now_utc())
+            .await
+            .map_err(|e| e.to_string())?;
+    for ligne in sortie.lignes {
+        println!("{ligne}");
+    }
+    Ok(())
+}
+
 async fn demarrer() -> Result<(), String> {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(c) = api::instance::lire_commande(&arguments).map_err(|e| e.to_string())? {
+        return commande(c).await;
+    }
     let config = Configuration::depuis_environnement().map_err(|e| e.to_string())?;
     let autorisation = Autorisation::charger().map_err(|e| e.to_string())?;
     // Référentiel officiel copié dans chaque nouveau dossier (voie comptabilité, PR 11) :

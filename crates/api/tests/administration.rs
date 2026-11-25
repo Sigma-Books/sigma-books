@@ -1048,3 +1048,118 @@ async fn la_rls_des_liens_ne_montre_que_le_lien_presente() {
             .is_err()
     );
 }
+
+// --- Commandes d'administration de l'instance --------------------------------------------------
+
+#[tokio::test]
+async fn la_commande_cree_un_cabinet_et_invite_son_premier_administrateur() {
+    use api::instance::{Commande, executer};
+    let b = banc().await;
+    let courriel = format!("premier.{}@cabinet.example", Uuid::new_v4().simple());
+    let commande = Commande::CreerCabinet {
+        nom: "Cabinet créé par commande".to_owned(),
+        courriel: courriel.clone(),
+        nom_administrateur: "Premier Administrateur".to_owned(),
+    };
+    let sortie = executer(
+        &b.env.application,
+        &commande,
+        ORIGINE,
+        b.horloge.maintenant(),
+    )
+    .await
+    .unwrap();
+    let cabinet: Uuid = sortie.lignes[0]
+        .strip_prefix("cabinet : ")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let lien = sortie.lignes.last().unwrap();
+    let jeton = lien.split_once("/lien#").unwrap().1;
+    // Le lien n'est écrit qu'à l'écran : ni en base, ni à l'audit.
+    let audit: Vec<(String,)> =
+        sqlx::query_as("SELECT contenu FROM audit_cabinet WHERE cabinet_id = $1")
+            .bind(cabinet)
+            .fetch_all(&b.env.admin)
+            .await
+            .unwrap();
+    assert_eq!(audit.len(), 1);
+    assert!(audit[0].0.contains("CreerCabinet") && !audit[0].0.contains(jeton));
+    assert!(!audit[0].0.contains(&courriel));
+    // Le lien crée l'administrateur du cabinet.
+    let r = b.utiliser_lien(jeton).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let role: String = sqlx::query_scalar(
+        "SELECT a.role FROM appartenance a JOIN utilisateur u ON u.id = a.utilisateur_id \
+         WHERE a.cabinet_id = $1 AND u.courriel = $2",
+    )
+    .bind(cabinet)
+    .bind(&courriel)
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(role, "administrateur");
+}
+
+#[tokio::test]
+async fn la_commande_de_reinitialisation_suit_le_meme_delai_et_s_audite() {
+    use api::instance::{Commande, executer};
+    let b = banc().await;
+    let courriel: String = sqlx::query_scalar("SELECT courriel FROM utilisateur WHERE id = $1")
+        .bind(b.c.administrateur.uuid())
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+    let commande = Commande::ReinitialiserAcces {
+        cabinet: b.c.cabinet,
+        courriel: courriel.clone(),
+        motif: "Identité vérifiée par visioconférence".to_owned(),
+    };
+    executer(
+        &b.env.application,
+        &commande,
+        ORIGINE,
+        b.horloge.maintenant(),
+    )
+    .await
+    .unwrap();
+    let (demandeur, delai): (Option<Uuid>, bool) = sqlx::query_as(
+        "SELECT demandee_par, echeance - cree_le = interval '24 hours' FROM reinitialisation \
+         WHERE cabinet_id = $1 AND utilisateur_id = $2",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.administrateur.uuid())
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(demandeur, None);
+    assert!(delai);
+    // Une seconde demande est refusée ; un membre inconnu aussi.
+    assert!(
+        executer(
+            &b.env.application,
+            &commande,
+            ORIGINE,
+            b.horloge.maintenant()
+        )
+        .await
+        .is_err()
+    );
+    let inconnu = Commande::ReinitialiserAcces {
+        cabinet: b.c.cabinet,
+        courriel: "inconnu@cabinet.example".to_owned(),
+        motif: "m".to_owned(),
+    };
+    assert!(
+        executer(
+            &b.env.application,
+            &inconnu,
+            ORIGINE,
+            b.horloge.maintenant()
+        )
+        .await
+        .is_err()
+    );
+    assert!(b.audit().await.join("\n").contains("ReinitialiserAcces"));
+    let _ = courriel;
+}
