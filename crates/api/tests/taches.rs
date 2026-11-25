@@ -241,7 +241,7 @@ async fn la_validation_planifie_une_seule_tache_quotidienne_pour_le_jour_suivant
         "SELECT prochaine_tentative <= now(), \
                 prochaine_tentative = ((now() AT TIME ZONE 'UTC')::date + 1)::timestamp \
                                       AT TIME ZONE 'UTC' \
-         FROM tache WHERE dossier_cible = $1",
+         FROM tache WHERE dossier_cible = $1 AND nature = 'horodatage'",
     )
     .bind(a.b.c.dossier.uuid())
     .fetch_one(&a.b.env.admin)
@@ -316,7 +316,8 @@ async fn un_echec_est_rejoue_avec_un_delai_croissant_sur_la_tete_du_moment() {
     assert!(bilan.reportees >= 1);
     assert!(a.jetons().await.is_empty());
     let (etat, tentatives, issue): (String, i32, Option<String>) = sqlx::query_as(
-        "SELECT etat, tentatives, derniere_issue FROM tache WHERE dossier_cible = $1",
+        "SELECT etat, tentatives, derniere_issue FROM tache \
+         WHERE dossier_cible = $1 AND nature = 'horodatage'",
     )
     .bind(a.b.c.dossier.uuid())
     .fetch_one(&a.b.env.admin)
@@ -485,12 +486,13 @@ async fn une_tache_prise_puis_abandonnee_est_reprise_apres_son_bail() {
     .unwrap();
     a.passer().await;
     assert_eq!(a.jetons().await.len(), 1);
-    let tentatives: i32 =
-        sqlx::query_scalar("SELECT tentatives FROM tache WHERE dossier_cible = $1")
-            .bind(a.b.c.dossier.uuid())
-            .fetch_one(&a.b.env.admin)
-            .await
-            .unwrap();
+    let tentatives: i32 = sqlx::query_scalar(
+        "SELECT tentatives FROM tache WHERE dossier_cible = $1 AND nature = 'horodatage'",
+    )
+    .bind(a.b.c.dossier.uuid())
+    .fetch_one(&a.b.env.admin)
+    .await
+    .unwrap();
     assert_eq!(tentatives, 2);
     // Une tâche dont le bail court encore n'est pas reprise.
     a.valider_une("Seconde").await;
@@ -819,7 +821,26 @@ async fn la_boucle_supervisee_survit_a_une_panique() {
     // suivant (`SKIP LOCKED`).
     boucle.0.abort();
     let _ = (&mut { boucle }.0).await;
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // Les verrous de la prise interrompue sont libérés quand sa connexion a annulé la
+    // transaction : on attend l'état de la base, pas une durée.
+    let attente_verrous = async {
+        loop {
+            let ouvertes: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() \
+                 AND pid <> pg_backend_pid() AND state LIKE 'idle in transaction%'",
+            )
+            .fetch_one(&a.b.env.admin)
+            .await
+            .unwrap();
+            if ouvertes == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), attente_verrous)
+        .await
+        .expect("la transaction de prise interrompue devait être annulée");
 }
 
 #[tokio::test]
