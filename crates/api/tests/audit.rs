@@ -820,6 +820,10 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let mut validee = uuid::Uuid::nil();
     let piece_liee =
         commun::pieces::doter(&env.admin, c.cabinet, c.dossier, c.administrateur).await;
+    // Voie administration (PR 9a) : `{membre}` est un membre jetable du cabinet.
+    let membre = commun::ajouter_affecte(&env.admin, &c, "auditeur")
+        .await
+        .uuid();
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -840,6 +844,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "piece" if matches!(route.cas_usage, CasUsage::Brouillard(_)) => piece_liee,
                 "piece" => piece,
                 "brouillon" => brouillon,
+                "membre" => membre,
                 "ecriture" => validee,
                 autre => fixtures.sous_ressource(autre),
             },
@@ -942,6 +947,24 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 c.administrateur
             };
             commun::serveur::envoyer(&routeur, &chemin, Some(acteur), &corps, None).await
+        } else if route.cas_usage
+            == CasUsage::Administration(
+                api::serveur::routes::administration::Cas::ActiverSeparation,
+            )
+        {
+            // Active par défaut : on la désactive d'abord pour que la route ait un effet.
+            sqlx::query("UPDATE cabinet SET separation_taches = false WHERE id = $1")
+                .bind(c.cabinet.uuid())
+                .execute(&env.admin)
+                .await
+                .unwrap();
+            appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await
+        } else if route.cas_usage
+            == CasUsage::Administration(api::serveur::routes::administration::Cas::Affecter)
+        {
+            // Affectation d'un dossier réel du cabinet.
+            let corps = format!(r#"{{"dossier":"{}"}}"#, c.autre_dossier);
+            commun::serveur::envoyer(&routeur, &chemin, Some(c.administrateur), &corps, None).await
         } else {
             appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await
         };

@@ -65,6 +65,7 @@ fn attendue(action: ActionFacteur, c: ContexteFacteur) -> Decision {
                 | (M::LienEnrolement, N::Enrolement)
         ),
         ActionFacteur::SeReauthentifier
+        | ActionFacteur::AccepterInvitation
         | ActionFacteur::ConsulterSesFacteurs
         | ActionFacteur::ConsulterSesEvenements => c.nature == N::Complete,
         ActionFacteur::EnrolerSecours => {

@@ -117,6 +117,16 @@ when {
    (context.nature == "enrolement" && context.methode == "lien_enrolement"))
 };
 
+// Acceptation d'une invitation à un autre cabinet (ADR 0012) : session complète. Le lien, à
+// usage unique, et le courriel de l'invitation (égal à celui du compte) font la preuve.
+@id("adr0012-accepter-invitation")
+permit (
+  principal is Sigma::Utilisateur,
+  action == Sigma::Action::"AccepterInvitation",
+  resource is Sigma::Utilisateur
+)
+when { resource == principal && context.nature == "complete" };
+
 // Suppression d'une de ses passkeys : session complète et fraîche.
 @id("adr0012-suppression-passkey")
 permit (

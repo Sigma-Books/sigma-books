@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 
 pub mod base;
+pub mod courriel;
 pub mod facteurs;
 pub mod horodatage;
 pub mod pieces;

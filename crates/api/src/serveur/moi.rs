@@ -99,9 +99,8 @@ pub(crate) async fn executer(
         | CasUsage::Pieces(_)
         | CasUsage::Brouillard(_)
         | CasUsage::Editions(_)
-        | CasUsage::Integrite(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
-        // Voie authentification (PR 9).
-        CasUsage::Administration(cas) => match cas {},
+        | CasUsage::Integrite(_)
+        | CasUsage::Administration(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }?;
     tx.confirmer().await?;
     Ok(reponse)
