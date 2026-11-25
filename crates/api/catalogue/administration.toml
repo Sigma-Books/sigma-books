@@ -1,0 +1,14 @@
+# Catalogue « administration » (PR 9a ; migration `0102_administration.sql`) : exceptions du test
+# de catalogue (ADR 0011 ; crates/api/tests/catalogue.rs). Voir `socle.toml` pour le format ;
+# toute modification passe par la revue de l'équipe core.
+
+[[instance]]
+nom = "lien_acces"
+rls = true
+justification = """
+Liens à usage unique d'invitation et de réinitialisation (ADR 0012) : le porteur d'un lien n'a \
+ni session ni cabinet en contexte, d'où une table d'instance dont les cibles (`cabinet_cible`, \
+`cible`) sont de simples identifiants sans clé étrangère. Seule l'empreinte SHA-256 du lien est \
+stockée. Sous RLS : un cabinet lit, émet et ferme les liens de ses cibles ; le porteur ne voit \
+que la ligne de l'empreinte qu'il présente (`sigma.jeton_lien`). Aucune donnée comptable, \
+aucun DELETE."""

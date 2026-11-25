@@ -65,6 +65,8 @@ namespace Sigma {
   // de rôle, suspension, affectation aux dossiers, délégation de validation).
   action ModifierDroits appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
   // Q5.3 : séparation des tâches.
+  // Réinitialisation de l'accès d'un membre par un administrateur (ADR 0012, F1.12).
+  action ReinitialiserAcces appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
   action ActiverSeparationDesTaches appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
   action DesactiverSeparationDesTaches appliesTo { principal: Appartenance, resource: Cabinet, context: Contexte };
   // ADR 0014 : audit de portée cabinet (administration et droits).

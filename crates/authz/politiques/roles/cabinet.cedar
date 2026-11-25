@@ -36,6 +36,7 @@ permit (
   action in [
     Sigma::Action::"GererCabinet",
     Sigma::Action::"ModifierDroits",
+    Sigma::Action::"ReinitialiserAcces",
     Sigma::Action::"ActiverSeparationDesTaches",
     Sigma::Action::"DesactiverSeparationDesTaches"
   ],

@@ -76,6 +76,7 @@ forbid (
     Sigma::Action::"ExporterIntegrite",
     Sigma::Action::"ExporterAuditCabinet",
     Sigma::Action::"ModifierDroits",
+    Sigma::Action::"ReinitialiserAcces",
     Sigma::Action::"DesactiverSeparationDesTaches"
   ],
   resource

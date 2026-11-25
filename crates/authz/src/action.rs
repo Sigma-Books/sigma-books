@@ -76,6 +76,8 @@ actions! {
     /// Changements de droits : invitation, rôle, suspension, affectation,
     /// délégation (§20 ; ré-authentification).
     ModifierDroits => Cabinet,
+    /// Réinitialiser l'accès d'un membre (ADR 0012, F1.12 ; ré-authentification).
+    ReinitialiserAcces => Cabinet,
     /// Activer la séparation des tâches (Q5.3).
     ActiverSeparationDesTaches => Cabinet,
     /// Désactiver la séparation des tâches (Q5.3 ; ré-authentification).
