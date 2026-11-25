@@ -557,8 +557,9 @@ pub struct EcritureStockee {
     pub origine: Option<Uuid>,
     /// Numéro de l'écriture d'origine (contre-passation), cité par le contenu haché.
     pub origine_numero: Option<String>,
-    /// Numéro de la contre-passation qui cite cette écriture, s'il y en a une.
-    pub contre_passee_par: Option<String>,
+    /// Numéros des contre-passations qui citent cette écriture, dans l'ordre de la chaîne
+    /// (une écriture peut être contre-passée plusieurs fois, ADR 0021).
+    pub contre_passations: Vec<String>,
     /// Lignes.
     pub lignes: Vec<LigneStockee>,
     /// Pièces, dans l'ordre de la justification hachée.
@@ -600,9 +601,9 @@ pub async fn lire(
                e.date_valeur_comptable, e.libelle, e.version_parametres, e.format,
                e.contenu_canonique, e.empreinte, e.empreinte_precedente, e.rang, e.valide_par,
                e.date_validation, e.valide_le, e.origine_id, o.numero AS "origine_numero?",
-               (SELECT c.numero FROM ecriture_validee c
-                 WHERE c.cabinet_id = e.cabinet_id AND c.dossier_id = e.dossier_id
-                   AND c.origine_id = e.id) AS "contre_passee_par?"
+               ARRAY(SELECT c.numero FROM ecriture_validee c
+                      WHERE c.cabinet_id = e.cabinet_id AND c.dossier_id = e.dossier_id
+                        AND c.origine_id = e.id ORDER BY c.rang) AS "contre_passations!"
         FROM ecriture_validee e
         LEFT JOIN ecriture_validee o ON o.cabinet_id = e.cabinet_id AND o.dossier_id = e.dossier_id
                                     AND o.id = e.origine_id
@@ -717,7 +718,7 @@ pub async fn lire(
         valide_le: e.valide_le,
         origine: e.origine_id,
         origine_numero: e.origine_numero,
-        contre_passee_par: e.contre_passee_par,
+        contre_passations: e.contre_passations,
         lignes: relues,
         pieces,
     }))
@@ -790,27 +791,6 @@ pub async fn existe(tx: &mut TransactionTenant, id: Uuid) -> Result<bool, Erreur
     .await?)
 }
 
-/// Numéro de la contre-passation qui cite `origine`, s'il y en a une. À lire **après** le verrou
-/// de la tête de chaîne : deux contre-passations de la même origine sont alors sérialisées.
-///
-/// # Errors
-/// Contexte sans dossier, erreur de PostgreSQL.
-pub async fn contre_passee_par(
-    tx: &mut TransactionTenant,
-    origine: Uuid,
-) -> Result<Option<String>, ErreurBase> {
-    let (cabinet, dossier) = tenant(tx)?;
-    Ok(sqlx::query_scalar!(
-        "SELECT numero FROM ecriture_validee \
-         WHERE cabinet_id = $1 AND dossier_id = $2 AND origine_id = $3",
-        cabinet.uuid(),
-        dossier.uuid(),
-        origine,
-    )
-    .fetch_optional(tx.connexion())
-    .await?)
-}
-
 /// Pièces liées à une écriture validée (identifiants), pour les verrouiller avant la tête de
 /// chaîne : les liens d'une écriture validée sont définitifs, leur lecture sans verrou est sûre.
 ///
@@ -827,15 +807,4 @@ pub async fn pieces_de(tx: &mut TransactionTenant, id: Uuid) -> Result<Vec<Uuid>
     )
     .fetch_all(tx.connexion())
     .await?)
-}
-
-/// Vrai si l'erreur est la violation de l'unicité de l'origine : l'origine est déjà contre-passée
-/// (filet de la sérialisation par la tête de chaîne, `0204_contre_passation.sql`).
-#[must_use]
-pub fn est_double_contre_passation(erreur: &ErreurBase) -> bool {
-    matches!(
-        erreur,
-        ErreurBase::Sqlx(sqlx::Error::Database(d))
-            if d.constraint() == Some("ecriture_validee_origine_unique")
-    )
 }

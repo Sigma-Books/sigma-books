@@ -749,8 +749,8 @@ struct VueEcriture {
     valide_le: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     origine: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    contre_passee_par: Option<String>,
+    /// Contre-passations de l'écriture, dans l'ordre de la chaîne (éventuellement plusieurs).
+    contre_passations: Vec<String>,
     lignes: Vec<VueLigne>,
     pieces: Vec<VueLien>,
 }
@@ -772,7 +772,7 @@ fn vue_ecriture(e: &EcritureStockee) -> VueEcriture {
         date_validation: interne::date(e.date_validation),
         valide_le: interne::instant(e.valide_le),
         origine: e.origine.map(|o| o.to_string()),
-        contre_passee_par: e.contre_passee_par.clone(),
+        contre_passations: e.contre_passations.clone(),
         lignes: e
             .lignes
             .iter()
@@ -1366,7 +1366,6 @@ mod tests {
         let libelle = TexteCourt::parse("Contre-passation").unwrap();
         let r = decider_contre_passation(
             &origine,
-            None,
             date!(2026 - 03 - 20),
             libelle.clone(),
             &contexte,
@@ -1384,10 +1383,10 @@ mod tests {
         );
         assert_eq!(r.validation.ecriture().origine(), Some(&numero));
         assert!(r.canonique.contains(&format!("origine={numero}\n")));
-        // Une origine déjà contre-passée, ou une date antérieure : refus stables.
-        let double = decider_contre_passation(
+        // Une seconde contre-passation de la même origine aboutit (ADR 0021 point 4, révisé) :
+        // numéro suivant du compteur.
+        let seconde = decider_contre_passation(
             &origine,
-            Some(r.validation.ecriture().numero()),
             date!(2026 - 03 - 21),
             libelle.clone(),
             &contexte,
@@ -1395,11 +1394,19 @@ mod tests {
             &tete,
             date!(2026 - 03 - 21),
         )
-        .unwrap_err();
-        assert_eq!(double, super::conflit(MotifConflit::DejaContrePassee));
+        .unwrap();
+        assert!(
+            seconde
+                .validation
+                .ecriture()
+                .numero()
+                .to_string()
+                .ends_with("-000003")
+        );
+        assert_eq!(seconde.validation.ecriture().origine(), Some(&numero));
+        // Une date antérieure à l'origine : refus stable.
         let avant = decider_contre_passation(
             &origine,
-            None,
             date!(2026 - 03 - 01),
             libelle,
             &contexte,
@@ -1412,7 +1419,7 @@ mod tests {
     }
 
     proptest! {
-        /// Pour toute suite de validations et de contre-passations (dont des doubles, des dates
+        /// Pour toute suite de validations et de contre-passations (dont des répétées, des dates
         /// avant l'origine, hors exercice ou en période clôturée), la fonction d'application de
         /// la contre-passation rend les mêmes numéros, contenus canoniques et refus que `Livre`
         /// de `compta-core`, et chaîne comme `integrite::Chaine`.
@@ -1459,13 +1466,11 @@ mod tests {
                 if contre && !numeros.is_empty() {
                     let numero = numeros[cible % numeros.len()].clone();
                     let origine = livre.ecriture(&numero).unwrap().clone();
-                    let par = livre.contre_passee_par(&numero).cloned();
                     let date_cp = DATES[date_cp];
                     let libelle = TexteCourt::parse("Contre-passation").unwrap();
                     let dernier = dernier_de(&derniers, origine.journal(), date_cp);
                     let resultat = decider_contre_passation(
                         &origine,
-                        par.as_ref(),
                         date_cp,
                         libelle.clone(),
                         &contexte,

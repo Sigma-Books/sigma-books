@@ -24,7 +24,7 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0018 | Passkeys : copie corrigée de `crypto-glue` en attendant sa version 0.2.3 | Acceptée |
 | 0019 | Étiquette fiscale de la ligne d'écriture : dans le contenu haché, régimes et motifs sourcés (écriture v3, export v4) | Proposée |
 | 0020 | Validation unitaire : ordre des verrous, séparation des tâches relue, échelle des montants du XOF | Proposée |
-| 0021 | Validation par lot et contre-passation : tout ou rien, une contre-passation par origine | Proposée |
-| 0022 | File de tâches de l'instance : table d'instance, travailleur sans cabinet, horodatage planifié par la validation | Proposée |
+| 0021 | Validation par lot et contre-passation : tout ou rien, contre-passations multiples d'une origine (point 4 révisé le 2026-11-25) | Acceptée |
+| 0022 | File de tâches de l'instance : table d'instance, travailleur sans cabinet, horodatage planifié par la validation | Acceptée |
 
 Modèle : copier `0000-modele.md`.

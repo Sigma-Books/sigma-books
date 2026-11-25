@@ -168,7 +168,6 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
     .decomposer();
     let (miroir, suivant) = contre_passer(
         &origine,
-        None,
         date!(2026 - 04 - 02),
         t("Annulation F-001"),
         &d.contexte(),
@@ -194,27 +193,24 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
     assert_eq!(miroir.total(), origine.total());
     assert!(reconstituer(&miroir).is_ok());
 
-    // Déjà contre-passée : le fait fourni par l'appelant suffit.
-    assert_eq!(
-        contre_passer(
-            &origine,
-            Some(miroir.numero()),
-            date!(2026 - 04 - 02),
-            t("Encore"),
-            &d.contexte(),
-            &suivant,
-            date!(2026 - 04 - 03),
-        ),
-        Err(ErreurValidation::DejaContrePassee {
-            origine: origine.numero().clone(),
-            par: miroir.numero().clone(),
-        })
-    );
+    // Une seconde contre-passation de la même origine réussit (ADR 0021 point 4, révisé) :
+    // son propre numéro, la même origine.
+    let (seconde, _) = contre_passer(
+        &origine,
+        date!(2026 - 04 - 02),
+        t("Encore"),
+        &d.contexte(),
+        &suivant,
+        date!(2026 - 04 - 03),
+    )
+    .unwrap()
+    .decomposer();
+    assert_eq!(seconde.numero().to_string(), "AC-2026-000003");
+    assert_eq!(seconde.origine(), Some(origine.numero()));
     // Datée avant l'origine.
     assert_eq!(
         contre_passer(
             &origine,
-            None,
             date!(2026 - 03 - 09),
             t("Trop tôt"),
             &d.contexte(),
@@ -230,7 +226,6 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
     assert!(matches!(
         contre_passer(
             &origine,
-            None,
             date!(2026 - 04 - 02),
             t("x"),
             &d.contexte(),
@@ -293,7 +288,6 @@ fn la_contre_passation_n_a_pas_de_date_de_valeur() {
     let tardive = d.livre.ecriture(&numeros[1]).unwrap();
     let (miroir, _) = contre_passer(
         tardive,
-        None,
         date!(2026 - 02 - 05),
         t("Annulation"),
         &d.contexte(),
@@ -641,7 +635,6 @@ struct Banc {
     compteurs_livre: Compteurs,
     base: Vec<EcritureValidee>,
     compteurs_base: Compteurs,
-    liens_base: BTreeMap<NumeroEcriture, NumeroEcriture>,
     numeros: Vec<NumeroEcriture>,
 }
 
@@ -653,7 +646,6 @@ impl Banc {
             compteurs_livre: Compteurs::new(),
             base: Vec::new(),
             compteurs_base: Compteurs::new(),
-            liens_base: BTreeMap::new(),
             numeros: Vec::new(),
         }
     }
@@ -836,13 +828,12 @@ impl Banc {
             &c_livre,
             date_validation,
         );
-        // Côté base : l'API relit l'origine et sa contre-passation éventuelle ; une origine
+        // Côté base : l'API relit l'origine ; une origine
         // absente est son propre refus (`EcritureInconnue`).
         let par_base = match self.base.iter().find(|e| e.numero() == origine) {
             None => Err(ErreurValidation::EcritureInconnue(origine.clone())),
             Some(source) => contre_passer(
                 source,
-                self.liens_base.get(origine),
                 date,
                 t("Contre-passation"),
                 &contexte,
@@ -860,7 +851,6 @@ impl Banc {
                 prop_assert_eq!(self.livre.ecriture(&numero), Some(&validee));
                 enregistrer(&mut self.compteurs_livre, s_livre);
                 enregistrer(&mut self.compteurs_base, s_base);
-                self.liens_base.insert(origine.clone(), numero.clone());
                 self.base.push(validee);
                 self.numeros.push(numero);
             }
@@ -875,9 +865,15 @@ impl Banc {
         prop_assert_eq!(self.livre.ecritures(), self.base.as_slice());
         prop_assert_eq!(&self.compteurs_livre, &self.compteurs_base);
         for e in &self.base {
+            let attendues: Vec<_> = self
+                .base
+                .iter()
+                .filter(|c| c.origine() == Some(e.numero()))
+                .map(|c| c.numero().clone())
+                .collect();
             prop_assert_eq!(
-                self.livre.contre_passee_par(e.numero()),
-                self.liens_base.get(e.numero())
+                self.livre.contre_passations(e.numero()),
+                attendues.as_slice()
             );
         }
         Ok(())
