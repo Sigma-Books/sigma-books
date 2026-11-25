@@ -227,3 +227,58 @@ export function estPasskeyEnrolee(valeur: unknown): valeur is PasskeyEnrolee {
 export function estObjetJson(valeur: unknown): valeur is Record<string, unknown> {
 	return estObjet(valeur);
 }
+
+// --- Administration du cabinet (PR 9a) ---------------------------------------------------------
+
+/** Un membre du cabinet (`GET /api/cabinets/{c}/membres`). */
+export interface Membre {
+	id: Uuid;
+	nom: string;
+	courriel: string;
+	role: string;
+	actif: boolean;
+}
+
+/** Une invitation en attente (`GET /api/cabinets/{c}/invitations`). */
+export interface Invitation {
+	id: Uuid;
+	courriel: string;
+	nom: string;
+	role: string;
+	cree_le: string;
+}
+
+/** Une réinitialisation d'accès en attente (`GET /api/cabinets/{c}/reinitialisations`). */
+export interface Reinitialisation {
+	id: Uuid;
+	membre: Uuid;
+	demandee_par: Uuid | null;
+	motif: string;
+	cree_le: string;
+	echeance: string;
+}
+
+export function estMembre(valeur: unknown): valeur is Membre {
+	return (
+		estObjet(valeur) &&
+		estId(valeur.id) &&
+		chaines(valeur, ['nom', 'courriel', 'role']) &&
+		typeof valeur.actif === 'boolean'
+	);
+}
+
+export function estInvitation(valeur: unknown): valeur is Invitation {
+	return (
+		estObjet(valeur) && estId(valeur.id) && chaines(valeur, ['courriel', 'nom', 'role', 'cree_le'])
+	);
+}
+
+export function estReinitialisation(valeur: unknown): valeur is Reinitialisation {
+	return (
+		estObjet(valeur) &&
+		estId(valeur.id) &&
+		estId(valeur.membre) &&
+		(valeur.demandee_par === null || estId(valeur.demandee_par)) &&
+		chaines(valeur, ['motif', 'cree_le', 'echeance'])
+	);
+}
