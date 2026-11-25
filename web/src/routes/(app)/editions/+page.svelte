@@ -146,7 +146,12 @@
 {:else}
 	{@const { contexte, valeur } = data.contenu.valeur}
 	<h1>Éditions — {contexte.nomDossier.nom}</h1>
-	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="editions" />
+	<NavigationDossier
+		cabinet={contexte.cabinet}
+		dossier={contexte.dossier}
+		actif="editions"
+		role={contexte.membre.role}
+	/>
 
 	<FormulaireEdition
 		bind:nature

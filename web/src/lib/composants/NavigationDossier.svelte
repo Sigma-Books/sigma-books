@@ -1,15 +1,19 @@
-<!-- Navigation entre les écrans de saisie d'un dossier (saisie, brouillard, écritures validées, éditions ; intégrité et alertes : PR 18b). -->
+<!-- Navigation entre les écrans de saisie d'un dossier (saisie, brouillard, écritures validées, éditions , intégrité, alertes). -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { ROLES_INTEGRITE } from '#lib/api/integrite.ts';
 	import type { Uuid } from '#lib/api/types.ts';
 
 	interface Props {
 		cabinet: Uuid;
 		dossier: Uuid;
-		actif: 'saisie' | 'brouillard' | 'ecritures' | 'editions';
+		actif: 'saisie' | 'brouillard' | 'ecritures' | 'editions' | 'integrite' | 'alertes';
+		/** Rôle du membre : l'onglet Intégrité est masqué sans accès (le serveur décide, §20). */
+		role?: string;
 	}
 
-	let { cabinet, dossier, actif }: Props = $props();
+	let { cabinet, dossier, actif, role }: Props = $props();
+	const avecIntegrite = $derived(role === undefined || ROLES_INTEGRITE.includes(role));
 </script>
 
 <nav class="onglets" aria-label="Écrans du dossier">
@@ -44,6 +48,24 @@
 				aria-current={actif === 'editions' ? 'page' : undefined}
 			>
 				Éditions
+			</a>
+		</li>
+		{#if avecIntegrite}
+			<li>
+				<a
+					href={resolve(`integrite/?cabinet=${cabinet}&dossier=${dossier}`)}
+					aria-current={actif === 'integrite' ? 'page' : undefined}
+				>
+					Intégrité
+				</a>
+			</li>
+		{/if}
+		<li>
+			<a
+				href={resolve(`alertes/?cabinet=${cabinet}&dossier=${dossier}`)}
+				aria-current={actif === 'alertes' ? 'page' : undefined}
+			>
+				Alertes
 			</a>
 		</li>
 		<li>
