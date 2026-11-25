@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT set_config('sigma.utilisateur', $1, true) AS utilisateur",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "utilisateur",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5afece1455e74a6252167cc5c07e395dc1ec4720dee2a04a30f0dc145e116e10"
+}

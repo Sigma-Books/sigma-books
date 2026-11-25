@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, courriel, nom, role, etat, cree_le FROM invitation WHERE cabinet_id = $1 AND id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "courriel",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "courriel"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "17ddca56731697f5595572349df66dc1e0d3c2a0051457eed70739871a1f165b"
+}

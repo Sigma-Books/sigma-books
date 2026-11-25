@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM facteur_secours WHERE utilisateur_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eed470502336c5381374cfd055b92d47728e0296d29d1b6cb3e014824493fbaf"
+}

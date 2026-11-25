@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM appartenance a JOIN utilisateur u ON u.id = a.utilisateur_id WHERE a.cabinet_id = $1 AND lower(u.courriel) = $2) AS \"existe!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "existe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "808a02ad1d3178c8aaa3454cab21200d5bad93fd344d13c423f7f2993e4714c7"
+}

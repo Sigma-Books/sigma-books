@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT courriel, role FROM invitation WHERE cabinet_id = $1 AND id = $2 AND etat = 'en_attente' FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "courriel",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "courriel"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "invitation",
+            "name": "role"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0c46746ebbdf1952c3a9b41c97a2546bbefa6b3ed5aacd5626549167829cc760"
+}

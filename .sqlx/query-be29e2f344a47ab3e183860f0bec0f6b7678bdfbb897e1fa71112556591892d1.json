@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM acces_dossier WHERE cabinet_id = $1 AND dossier_id = $2 AND utilisateur_id = $3 RETURNING validation_deleguee",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "validation_deleguee",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "acces_dossier",
+            "name": "validation_deleguee"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "be29e2f344a47ab3e183860f0bec0f6b7678bdfbb897e1fa71112556591892d1"
+}

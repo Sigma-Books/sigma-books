@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT separation_taches FROM cabinet WHERE id = $1 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "separation_taches",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "cabinet",
+            "name": "separation_taches"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "acf21c129d18a7c81872570bba62439875a0123ade74e8fc5369d6eb8b1305f4"
+}

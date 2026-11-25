@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE lien_acces SET ferme_le = $4, raison = $5 WHERE cabinet_cible = $1 AND nature = $2 AND cible = $3 AND ferme_le IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ce25575b0b97df7ba2b1fa0d093427f60caf1e077f95d02c1a1c3ae1ccebb02"
+}

@@ -7,8 +7,11 @@
 //! dossier. Un membre, une invitation ou une réinitialisation de B placés dans le chemin de A :
 //! même 404 qu'un identifiant inexistant (généré par le harnais).
 
+#![allow(clippy::many_single_char_names)]
+
 use api::base::liens::{self, NatureLien};
 use api::base::{ContexteTenant, IdCabinet, IdUtilisateur, ouvrir_transaction};
+use api::serveur::routes::Methode::{Delete, Get, Post};
 use api::serveur::routes::{Methode, Route};
 use axum::Router;
 use axum::http::StatusCode;
@@ -84,45 +87,36 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
     };
     let admin_a = |resultat: Resultat| attendu(a.administrateur, a.cabinet, a.dossier, resultat);
     let multi_a = |resultat: Resultat| attendu(m.multi, a.cabinet, a.dossier, resultat);
-    let mut cas = match (route.methode, route.chemin) {
-        (Methode::Get, "/api/cabinets/{cabinet}/membres") => vec![admin_a(Tableau {
+    let base = "/api/cabinets/{cabinet}";
+    let chemin = route.chemin.strip_prefix(base)?;
+    let mut cas = match (route.methode, chemin) {
+        (Get, "/membres") => vec![admin_a(Tableau {
             present: a.administrateur.uuid(),
             absents: vec![b.administrateur.uuid(), b.collaborateur.uuid()],
         })],
-        (Methode::Post, "/api/cabinets/{cabinet}/membres/{membre}/role")
-        | (Methode::Post, "/api/cabinets/{cabinet}/membres/{membre}/suspension")
-        | (Methode::Delete, "/api/cabinets/{cabinet}/membres/{membre}/suspension") => {
-            // Premier appel : l'état change ; le second (même effet) ne change plus rien.
-            vec![admin_a(ok()), multi_a(conflit())]
-        }
-        (Methode::Post, "/api/cabinets/{cabinet}/membres/{membre}/acces") => {
-            // Dossier inexistant dans le corps d'exemple : 404, rien d'écrit.
+        // Premier appel : l'état change ; le second (même effet) ne change plus rien. Désactivée
+        // puis réactivée (l'ordre de la table), la séparation des tâches retrouve son état.
+        (
+            Post,
+            "/membres/{membre}/role" | "/membres/{membre}/suspension" | "/separation-taches",
+        )
+        | (
+            Delete,
+            "/membres/{membre}/suspension"
+            | "/separation-taches"
+            | "/invitations/{invitation}"
+            | "/reinitialisations/{reinitialisation}",
+        ) => vec![admin_a(ok()), multi_a(conflit())],
+        // Dossier inexistant dans le corps d'exemple, accès ou session inexistants : 404.
+        (Post, "/membres/{membre}/acces")
+        | (Delete, "/membres/{membre}/acces/{acces}" | "/membres/{membre}/sessions/{session}") => {
             vec![admin_a(absent())]
         }
-        (Methode::Delete, "/api/cabinets/{cabinet}/membres/{membre}/acces/{acces}") => {
-            vec![admin_a(absent())]
+        (Get, "/membres/{membre}/sessions" | "/invitations" | "/reinitialisations") => {
+            vec![admin_a(ok())]
         }
-        (Methode::Get, "/api/cabinets/{cabinet}/membres/{membre}/sessions") => vec![admin_a(ok())],
-        (Methode::Delete, "/api/cabinets/{cabinet}/membres/{membre}/sessions/{session}") => {
-            vec![admin_a(absent())]
-        }
-        (Methode::Get, "/api/cabinets/{cabinet}/invitations") => vec![admin_a(ok())],
-        (Methode::Post, "/api/cabinets/{cabinet}/invitations") => {
+        (Post, "/invitations" | "/membres/{membre}/reinitialisation") => {
             vec![admin_a(Cree), multi_a(conflit())]
-        }
-        (Methode::Delete, "/api/cabinets/{cabinet}/invitations/{invitation}") => {
-            vec![admin_a(ok()), multi_a(conflit())]
-        }
-        (Methode::Get, "/api/cabinets/{cabinet}/reinitialisations") => vec![admin_a(ok())],
-        (Methode::Post, "/api/cabinets/{cabinet}/membres/{membre}/reinitialisation") => {
-            vec![admin_a(Cree), multi_a(conflit())]
-        }
-        (Methode::Delete, "/api/cabinets/{cabinet}/reinitialisations/{reinitialisation}") => {
-            vec![admin_a(ok()), multi_a(conflit())]
-        }
-        // Désactivée puis réactivée (l'ordre de la table) : le monde retrouve son état.
-        (Methode::Delete | Methode::Post, "/api/cabinets/{cabinet}/separation-taches") => {
-            vec![admin_a(ok()), multi_a(conflit())]
         }
         _ => return None,
     };

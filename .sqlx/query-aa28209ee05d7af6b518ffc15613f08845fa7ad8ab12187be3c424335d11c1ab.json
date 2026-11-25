@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.id, u.nom, u.courriel, a.role, a.actif, a.cree_le FROM appartenance a JOIN utilisateur u ON u.id = a.utilisateur_id WHERE a.cabinet_id = $1 ORDER BY u.nom, u.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "courriel",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "courriel"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "appartenance",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "actif",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "appartenance",
+            "name": "actif"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "appartenance",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "aa28209ee05d7af6b518ffc15613f08845fa7ad8ab12187be3c424335d11c1ab"
+}

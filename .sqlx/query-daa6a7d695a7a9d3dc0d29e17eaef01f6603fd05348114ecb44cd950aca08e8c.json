@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.utilisateur_id, a.actif FROM reinitialisation r JOIN appartenance a ON a.cabinet_id = r.cabinet_id AND a.utilisateur_id = r.utilisateur_id WHERE r.cabinet_id = $1 AND r.id = $2 AND r.etat = 'en_attente' AND r.echeance <= $3 FOR UPDATE OF r",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "utilisateur_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "reinitialisation",
+            "name": "utilisateur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "actif",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "appartenance",
+            "name": "actif"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "daa6a7d695a7a9d3dc0d29e17eaef01f6603fd05348114ecb44cd950aca08e8c"
+}

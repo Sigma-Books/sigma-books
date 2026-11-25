@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"n!\" FROM lien_acces WHERE cabinet_cible = $1 AND nature = $2 AND cible = $3 AND ferme_le IS NULL AND expire_le > $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9c8efb437e8ba3b7be62e72ed4045b55067d1a32023d30463a035b33f7febe02"
+}

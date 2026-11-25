@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE lien_acces SET ferme_le = $2, raison = 'utilise' WHERE id = $1 AND ferme_le IS NULL AND expire_le > $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a783fa9d83dae49d759325311429a244f2599a032af8e4d19bd84602f9b07788"
+}

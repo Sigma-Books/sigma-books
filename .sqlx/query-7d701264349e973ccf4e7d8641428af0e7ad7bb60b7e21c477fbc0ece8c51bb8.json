@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE appartenance SET role = $3 WHERE cabinet_id = $1 AND utilisateur_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7d701264349e973ccf4e7d8641428af0e7ad7bb60b7e21c477fbc0ece8c51bb8"
+}
