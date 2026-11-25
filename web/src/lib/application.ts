@@ -11,7 +11,8 @@ import { resolve } from '$app/paths';
 import { creerClient } from './api/client.ts';
 import { ErreurApi } from './api/erreurs.ts';
 import { listerCabinets } from './api/ressources.ts';
-import type { CabinetMembre, Uuid } from './api/types.ts';
+import type { Resultat } from './api/resultat.ts';
+import type { CabinetMembre, EtatSession, Uuid } from './api/types.ts';
 
 let cabinetActif: Uuid | null = null;
 
@@ -67,4 +68,17 @@ export async function membreDuCabinet(cabinet: Uuid): Promise<CabinetMembre> {
 	const membre = (await listerCabinets(api)).find((c) => c.id === cabinet);
 	if (membre === undefined) throw new ErreurApi('introuvable', 404);
 	return membre;
+}
+
+/**
+ * Garde des `load` des pages métier : une session restreinte ou d'enrôlement ne déclenche aucun
+ * appel (ni rotation, ni lecture), le serveur les refuserait de toute façon. `parent` est celui de
+ * `load` : il attend la lecture de la session faite par la coquille.
+ */
+export async function exigerSessionComplete(
+	parent: () => Promise<{ session: Resultat<EtatSession> }>
+): Promise<void> {
+	const { session } = await parent();
+	if (!session.ok) throw session.erreur;
+	if (session.valeur.nature !== 'complete') throw new ErreurApi('interdit', 403);
 }
