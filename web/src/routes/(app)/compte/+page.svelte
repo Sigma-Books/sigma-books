@@ -21,7 +21,7 @@
 	import { dateHeure } from '#lib/instants.ts';
 	import { grouperSecret, uriOtpauthSure } from '#lib/libelles.ts';
 	import { enroler, ErreurPasskey, passkeysPrisesEnCharge } from '#lib/passkeys.ts';
-	import { assurerFraicheur } from '#lib/reauthentification.svelte.ts';
+	import { executerSensible } from '#lib/reauthentification.svelte.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -63,8 +63,8 @@
 		erreur = null;
 		avis = '';
 		try {
-			if (sensible && complete && !(await assurerFraicheur())) return;
-			await travail();
+			if (sensible && complete) await executerSensible(travail);
+			else await travail();
 		} catch (e) {
 			if (e instanceof ErreurPasskey) {
 				avis =

@@ -6,6 +6,7 @@
 // façon une action sensible sur une session non fraîche (403).
 
 import { api } from './application.ts';
+import { executerSensible as executer, type IssueSensible } from './fraicheur.ts';
 
 class EtatReauthentification {
 	ouverte = $state(false);
@@ -40,4 +41,15 @@ export async function assurerFraicheur(): Promise<boolean> {
 	const session = await api.ouvrirSession();
 	if (session.fraiche) return true;
 	return reauthentification.demander();
+}
+
+/**
+ * Exécute une action sensible : ré-authentification d'abord si la session n'est plus fraîche, et
+ * un seul rejeu si elle expire entre la vérification et l'action (voir `fraicheur.ts`).
+ */
+export function executerSensible<T>(travail: () => Promise<T>): Promise<IssueSensible<T>> {
+	return executer(travail, {
+		assurer: assurerFraicheur,
+		estFraiche: async () => (await api.ouvrirSession()).fraiche
+	});
 }
