@@ -371,6 +371,33 @@ impl TransactionLien {
         Ok(())
     }
 
+    /// Vrai si l'utilisateur du contexte a une appartenance à un autre cabinet que `cabinet` : la
+    /// lecture se fait sans cabinet en contexte (politique `appartenance_membre`), puis le
+    /// cabinet est rétabli.
+    async fn membre_d_un_autre_cabinet(
+        &mut self,
+        cabinet: IdCabinet,
+        utilisateur: IdUtilisateur,
+    ) -> Result<bool, ErreurLien> {
+        sqlx::query!("SELECT set_config('sigma.cabinet', '', true) AS cabinet")
+            .fetch_one(&mut *self.tx)
+            .await?;
+        let n = sqlx::query_scalar!(
+            "SELECT count(*) AS \"n!\" FROM appartenance WHERE utilisateur_id = $1 AND cabinet_id <> $2",
+            utilisateur.uuid(),
+            cabinet.uuid(),
+        )
+        .fetch_one(&mut *self.tx)
+        .await?;
+        sqlx::query!(
+            "SELECT set_config('sigma.cabinet', $1, true) AS cabinet",
+            cabinet.to_string()
+        )
+        .fetch_one(&mut *self.tx)
+        .await?;
+        Ok(n > 0)
+    }
+
     async fn sortir_du_cabinet(mut self) -> Result<Transaction<'static, Postgres>, ErreurLien> {
         sqlx::query!("SELECT set_config('sigma.cabinet', '', true) AS cabinet")
             .fetch_one(&mut *self.tx)
@@ -471,6 +498,14 @@ impl TransactionLien {
                 .execute(&mut *self.tx)
                 .await?;
                 self.poser_utilisateur(utilisateur).await?;
+                // Le compte a pu rejoindre un autre cabinet pendant le délai : ses facteurs ne
+                // se retirent pas pour un cabinet qui n'est qu'un des siens (ADR 0023, §4).
+                if self
+                    .membre_d_un_autre_cabinet(lien.cabinet, utilisateur)
+                    .await?
+                {
+                    return Err(ErreurLien::Invalide);
+                }
                 retirer_les_facteurs(&mut self.tx, utilisateur, instant).await?;
                 (utilisateur, None)
             }

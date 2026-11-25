@@ -49,9 +49,9 @@ pub(super) async fn doter(
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO reinitialisation (cabinet_id, id, utilisateur_id, motif, \
+        "INSERT INTO reinitialisation (cabinet_id, id, utilisateur_id, motif_code, motif, \
                                        verification_hors_bande, cree_le, echeance, etat) \
-         VALUES ($1, $2, $3, 'Motif', true, now(), now() + interval '24 hours', 'en_attente')",
+         VALUES ($1, $2, $3, 'autre', 'Motif', true, now(), now() + interval '24 hours', 'en_attente')",
     )
     .bind(cabinet.uuid())
     .bind(reinitialisation)

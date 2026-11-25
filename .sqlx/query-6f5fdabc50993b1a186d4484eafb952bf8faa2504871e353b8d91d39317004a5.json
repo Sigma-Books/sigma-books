@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO reinitialisation (cabinet_id, id, utilisateur_id, demandee_par, motif_code, motif, verification_hors_bande, cree_le, echeance, etat) VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, 'en_attente') ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f5fdabc50993b1a186d4484eafb952bf8faa2504871e353b8d91d39317004a5"
+}

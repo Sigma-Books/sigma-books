@@ -14,7 +14,7 @@ const LOCAL_MAX: usize = 64;
 pub const NOM_MAX: usize = 200;
 
 fn caractere_local(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-')
+    c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-')
 }
 
 fn etiquette_valide(e: &str) -> bool {
@@ -26,7 +26,7 @@ fn etiquette_valide(e: &str) -> bool {
 }
 
 /// Normalise (minuscules, sans espaces autour) et valide une adresse. `None` si elle sort de la
-/// liste blanche : partie locale de `[a-z0-9._%+-]` sans point en tête, en queue ni doublé ;
+/// liste blanche : partie locale de `[a-z0-9._+-]` (ni `%`, ni `!`, ni `/` : routes de source et jokers) sans point en tête, en queue ni doublé ;
 /// domaine d'au moins deux étiquettes `[a-z0-9-]`, dont la dernière n'est pas numérique.
 #[must_use]
 pub fn adresse(saisie: &str) -> Option<String> {
@@ -93,6 +93,8 @@ mod tests {
             "a,b@cabinet.sn",
             "a;b@cabinet.sn",
             "a<b>@cabinet.sn",
+            "a%b@cabinet.sn",
+            "a!b@cabinet.sn",
             "a@cabinet.sn>",
             "a@-cabinet.sn",
             "a@cabinet-.sn",

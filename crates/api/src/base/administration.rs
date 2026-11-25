@@ -581,6 +581,15 @@ pub struct Reinitialisation {
     pub etat: String,
 }
 
+/// Codes de motif d'une réinitialisation (liste fermée de la table) : seuls inscrits à l'audit.
+pub const MOTIFS_REINITIALISATION: [&str; 5] = [
+    "appareil_perdu",
+    "facteurs_perdus",
+    "compte_compromis",
+    "depart_reprise",
+    "autre",
+];
+
 /// Délai de contestation d'une réinitialisation (ADR 0012).
 pub const DELAI_REINITIALISATION: time::Duration = time::Duration::hours(24);
 
@@ -603,18 +612,20 @@ pub async fn creer_reinitialisation(
     id: Uuid,
     utilisateur: IdUtilisateur,
     demandee_par: Option<IdUtilisateur>,
+    motif_code: &str,
     motif: &str,
     instant: OffsetDateTime,
 ) -> Result<CreationReinitialisation, ErreurBase> {
     let cabinet = tx.contexte().id_cabinet().uuid();
     let n = sqlx::query!(
-        "INSERT INTO reinitialisation (cabinet_id, id, utilisateur_id, demandee_par, motif, \
-                                       verification_hors_bande, cree_le, echeance, etat) \
-         VALUES ($1, $2, $3, $4, $5, true, $6, $7, 'en_attente') ON CONFLICT DO NOTHING",
+        "INSERT INTO reinitialisation (cabinet_id, id, utilisateur_id, demandee_par, motif_code, \
+                                       motif, verification_hors_bande, cree_le, echeance, etat) \
+         VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, 'en_attente') ON CONFLICT DO NOTHING",
         cabinet,
         id,
         utilisateur.uuid(),
         demandee_par.map(IdUtilisateur::uuid),
+        motif_code,
         motif,
         instant,
         instant + DELAI_REINITIALISATION,
@@ -731,6 +742,53 @@ pub async fn annuler_reinitialisation(
     .await?
     .rows_affected();
     Ok(n == 1)
+}
+
+/// Vrai si l'utilisateur est aussi membre d'un **autre** cabinet que celui du contexte (actif ou
+/// suspendu). La RLS n'ouvre jamais les appartenances d'un autre cabinet à un administrateur :
+/// la question se pose sous le seul contexte de l'utilisateur, le temps d'une lecture, puis le
+/// contexte du cabinet est rétabli à l'identique. Sert à refuser la réinitialisation d'un compte
+/// **global** (facteurs et sessions) par l'administrateur d'un seul de ses cabinets (ADR 0023, §4).
+/// Seule réponse rendue : un booléen, jamais le cabinet.
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn appartient_a_d_autres_cabinets(
+    tx: &mut TransactionTenant,
+    utilisateur: IdUtilisateur,
+) -> Result<bool, ErreurBase> {
+    let cabinet = tx.contexte().id_cabinet();
+    let acteur = tx.contexte().id_utilisateur();
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .map_or_else(String::new, |d| d.to_string());
+    sqlx::query!(
+        "SELECT set_config('sigma.cabinet', '', true) AS c, \
+                set_config('sigma.dossier', '', true) AS d, \
+                set_config('sigma.utilisateur', $1, true) AS u",
+        utilisateur.to_string(),
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    let n = sqlx::query_scalar!(
+        "SELECT count(*) AS \"n!\" FROM appartenance WHERE utilisateur_id = $1 AND cabinet_id <> $2",
+        utilisateur.uuid(),
+        cabinet.uuid(),
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    sqlx::query!(
+        "SELECT set_config('sigma.cabinet', $1, true) AS c, \
+                set_config('sigma.dossier', $2, true) AS d, \
+                set_config('sigma.utilisateur', $3, true) AS u",
+        cabinet.to_string(),
+        dossier,
+        acteur.to_string(),
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    Ok(n > 0)
 }
 
 /// Cabinet du contexte (aide pour les traces).

@@ -597,7 +597,7 @@ Code : `src/serveur/routes/administration.rs` (routes), `src/serveur/liens.rs` (
   seules requises) :
   ```sh
   api creer-cabinet --nom "Cabinet Diop" --administrateur-courriel awa@cabinet.example --administrateur-nom "Awa Diop"
-  api reinitialiser-acces --cabinet <uuid> --courriel awa@cabinet.example --motif "Identité vérifiée par appel"
+  api reinitialiser-acces --cabinet <uuid> --courriel awa@cabinet.example --motif-code compte_compromis --motif "Identité vérifiée par appel"
   ```
   La première écrit le lien d'invitation une seule fois sur la sortie standard.
 

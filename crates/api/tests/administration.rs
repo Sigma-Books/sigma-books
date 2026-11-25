@@ -819,7 +819,7 @@ async fn demander_reinitialisation(b: &Banc, admin: &Session, cible: IdUtilisate
         "POST",
         &b.chemin(&format!("/membres/{cible}/reinitialisation")),
         admin,
-        &corps(&json!({"motif": "Appel de vérification au titulaire", "verification_hors_bande": true})),
+        &corps(&json!({"motif_code": "appareil_perdu", "motif": "Appel de vérification au titulaire", "verification_hors_bande": true})),
     )
     .await
 }
@@ -913,15 +913,17 @@ async fn la_reinitialisation_respecte_le_delai_et_retire_les_facteurs() {
         b.utiliser_lien(&lien).await.statut,
         StatusCode::UNAUTHORIZED
     );
-    // Chaque étape est à l'audit du cabinet, motif compris ; la chaîne est intacte.
+    // Chaque étape est à l'audit du cabinet, avec le code du motif ; la chaîne est intacte.
     let audit = b.audit().await.join("\n");
     for attendu in [
         "ReinitialiserAcces",
         "UtiliserLienReinitialisation",
-        "Appel de vérification",
+        "appareil_perdu",
     ] {
         assert!(audit.contains(attendu), "{attendu} : {audit}");
     }
+    // Le texte libre du motif reste dans la table (effaçable) : jamais dans la chaîne définitive.
+    assert!(!audit.contains("Appel de vérification"), "{audit}");
     assert!(!audit.contains(&lien) && !audit.contains(&trop_tot));
     b.chaine_verifiee(&b.session(b.c.administrateur).await)
         .await;
@@ -937,10 +939,12 @@ async fn la_reinitialisation_est_encadree() {
     // Sans vérification hors bande déclarée, ou sans motif : 400.
     let chemin = b.chemin(&format!("/membres/{}/reinitialisation", b.c.collaborateur));
     for mauvais in [
-        json!({"motif": "ok", "verification_hors_bande": false}),
-        json!({"motif": "  ", "verification_hors_bande": true}),
-        json!({"motif": "a\nb", "verification_hors_bande": true}),
-        json!({"verification_hors_bande": true}),
+        json!({"motif_code": "autre", "motif": "ok", "verification_hors_bande": false}),
+        json!({"motif_code": "autre", "motif": "  ", "verification_hors_bande": true}),
+        json!({"motif_code": "autre", "motif": "a\nb", "verification_hors_bande": true}),
+        json!({"motif_code": "autre", "verification_hors_bande": true}),
+        json!({"motif_code": "inconnu", "motif": "ok", "verification_hors_bande": true}),
+        json!({"motif": "ok", "verification_hors_bande": true}),
     ] {
         let r = b.appel("POST", &chemin, &admin, &corps(&mauvais)).await;
         assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{mauvais}");
@@ -1113,6 +1117,7 @@ async fn la_commande_de_reinitialisation_suit_le_meme_delai_et_s_audite() {
     let commande = Commande::ReinitialiserAcces {
         cabinet: b.c.cabinet,
         courriel: courriel.clone(),
+        motif_code: "compte_compromis".to_owned(),
         motif: "Identité vérifiée par visioconférence".to_owned(),
     };
     executer(
@@ -1148,6 +1153,7 @@ async fn la_commande_de_reinitialisation_suit_le_meme_delai_et_s_audite() {
     let inconnu = Commande::ReinitialiserAcces {
         cabinet: b.c.cabinet,
         courriel: "inconnu@cabinet.example".to_owned(),
+        motif_code: "autre".to_owned(),
         motif: "m".to_owned(),
     };
     assert!(
@@ -1162,4 +1168,121 @@ async fn la_commande_de_reinitialisation_suit_le_meme_delai_et_s_audite() {
     );
     assert!(b.audit().await.join("\n").contains("ReinitialiserAcces"));
     let _ = courriel;
+}
+
+#[tokio::test]
+async fn un_membre_de_plusieurs_cabinets_ne_se_reinitialise_pas() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    // Le collaborateur de A est aussi membre d'un autre cabinet : ses facteurs et sessions sont
+    // ceux du compte, l'administrateur de A ne les retire pas.
+    let autre = creer_cabinet(&b.env.admin, "Autre").await;
+    let mut tx = b.env.admin.begin().await.unwrap();
+    commun::ajouter_membre(&mut tx, autre.cabinet, b.c.collaborateur, "auditeur").await;
+    tx.commit().await.unwrap();
+    let r = demander_reinitialisation(&b, &admin, b.c.collaborateur).await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(r.json()["erreur"], "membre_d_un_autre_cabinet");
+    let n: i64 = b
+        .compter(
+            "SELECT count(*) FROM reinitialisation WHERE utilisateur_id = $1",
+            b.c.collaborateur.uuid(),
+        )
+        .await;
+    assert_eq!(n, 0);
+    // Le contexte du cabinet est rétabli : l'action suivante, dans la même requête, n'a pas bougé.
+    let r = b.appel("GET", &b.chemin("/membres"), &admin, "").await;
+    assert_eq!(r.statut, StatusCode::OK);
+    // Un membre propre au cabinet reste réinitialisable.
+    let propre = b.membre("auditeur").await;
+    assert_eq!(
+        demander_reinitialisation(&b, &admin, propre).await.statut,
+        StatusCode::CREATED
+    );
+    // L'administrateur de l'autre cabinet n'apprend rien par la route de son cabinet (404).
+    let sa = b.session(autre.administrateur).await;
+    let r = b
+        .appel(
+            "POST",
+            &format!(
+                "/api/cabinets/{}/membres/{}/reinitialisation",
+                b.c.cabinet, propre
+            ),
+            &sa,
+            "",
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn un_compte_qui_rejoint_un_autre_cabinet_pendant_le_delai_n_est_plus_reinitialise() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    let cible = b.c.collaborateur;
+    installer_secours(&b.env.admin, cible, "cheval agrafe pile correcte").await;
+    let r = demander_reinitialisation(&b, &admin, cible).await;
+    let id = Uuid::parse_str(r.json()["id"].as_str().unwrap()).unwrap();
+    let autre = creer_cabinet(&b.env.admin, "Autre").await;
+    let mut tx = b.env.admin.begin().await.unwrap();
+    commun::ajouter_membre(&mut tx, autre.cabinet, cible, "auditeur").await;
+    tx.commit().await.unwrap();
+    b.horloge
+        .avancer(Duration::hours(24) + Duration::minutes(1));
+    let lien = b
+        .lien(NatureLien::Reinitialisation, id, b.c.administrateur)
+        .await;
+    assert_eq!(
+        b.utiliser_lien(&lien).await.statut,
+        StatusCode::UNAUTHORIZED
+    );
+    let secours: i64 = b
+        .compter(
+            "SELECT count(*) FROM facteur_secours WHERE utilisateur_id = $1",
+            cible.uuid(),
+        )
+        .await;
+    assert_eq!(secours, 1, "facteurs intacts");
+}
+
+#[tokio::test]
+async fn deux_usages_simultanes_du_meme_lien_n_en_laissent_passer_qu_un() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    let courriel = format!("simultane.{}@cabinet.example", Uuid::new_v4().simple());
+    let r = b
+        .appel(
+            "POST",
+            &b.chemin("/invitations"),
+            &admin,
+            &corps(&json!({"courriel": courriel, "nom": "Simultané", "role": "auditeur"})),
+        )
+        .await;
+    let id = Uuid::parse_str(r.json()["id"].as_str().unwrap()).unwrap();
+    let lien = b.lien(NatureLien::Invitation, id, b.c.administrateur).await;
+    let (r1, r2, r3) = tokio::join!(
+        b.utiliser_lien(&lien),
+        b.utiliser_lien(&lien),
+        b.utiliser_lien(&lien)
+    );
+    let statuts = [r1.statut, r2.statut, r3.statut];
+    assert_eq!(
+        statuts.iter().filter(|s| **s == StatusCode::OK).count(),
+        1,
+        "{statuts:?}"
+    );
+    assert_eq!(
+        statuts
+            .iter()
+            .filter(|s| **s == StatusCode::UNAUTHORIZED)
+            .count(),
+        2,
+        "{statuts:?}"
+    );
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM utilisateur WHERE courriel = $1")
+        .bind(&courriel)
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
 }

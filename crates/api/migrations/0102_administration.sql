@@ -107,6 +107,10 @@ CREATE TABLE reinitialisation (
     utilisateur_id uuid NOT NULL,
     -- Administrateur demandeur ; NULL pour la procédure de support de l'instance (commande).
     demandee_par uuid,
+    -- Code du motif (liste fermée) : seul inscrit à l'audit chaîné, qui est définitif. Le texte
+    -- libre `motif` reste ici, dans une table dont les lignes peuvent être effacées (loi 2008-12).
+    motif_code text NOT NULL CHECK (motif_code IN (
+        'appareil_perdu', 'facteurs_perdus', 'compte_compromis', 'depart_reprise', 'autre')),
     motif text NOT NULL CHECK (length(btrim(motif)) BETWEEN 1 AND 500),
     verification_hors_bande boolean NOT NULL CHECK (verification_hors_bande),
     cree_le timestamptz NOT NULL,

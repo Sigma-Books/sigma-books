@@ -246,6 +246,9 @@ struct CorpsInvitation {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CorpsReinitialisation {
+    /// Code du motif (liste fermée) : seul inscrit à l'audit.
+    motif_code: String,
+    /// Texte libre, conservé dans la table seulement (effaçable).
     motif: String,
     verification_hors_bande: bool,
 }
@@ -721,10 +724,20 @@ async fn reinitialiser(
     if motif.is_empty() || motif.chars().count() > 500 || motif.chars().any(char::is_control) {
         return Err(ErreurApi::RequeteInvalide);
     }
+    let motif_code = adm::MOTIFS_REINITIALISATION
+        .iter()
+        .copied()
+        .find(|c| *c == corps.motif_code)
+        .ok_or(ErreurApi::RequeteInvalide)?;
     let membre = membre_du_chemin(tx, requete).await?;
     // Un administrateur ne réinitialise jamais son propre compte (ADR 0012).
     if membre.utilisateur == garde.utilisateur() {
         return Err(conflit(MotifConflit::ActionSurSoiMeme));
+    }
+    // Facteurs et sessions sont ceux du compte, pas du cabinet : un membre d'un autre cabinet ne
+    // se réinitialise pas ici (ADR 0023, §4).
+    if adm::appartient_a_d_autres_cabinets(tx, membre.utilisateur).await? {
+        return Err(conflit(MotifConflit::MembreDUnAutreCabinet));
     }
     let id = Uuid::new_v4();
     let issue = adm::creer_reinitialisation(
@@ -732,6 +745,7 @@ async fn reinitialiser(
         id,
         membre.utilisateur,
         Some(garde.utilisateur()),
+        motif_code,
         motif,
         requete.maintenant,
     )
@@ -741,7 +755,8 @@ async fn reinitialiser(
     }
     let echeance = requete.maintenant + adm::DELAI_REINITIALISATION;
     let mut t = trace("reinitialisation", id);
-    t.motif = Some(motif.to_owned());
+    // Le code seul : la chaîne d'audit est définitive, le texte libre reste dans la table.
+    t.motif = Some(motif_code.to_owned());
     t.donnees.push(("membre", membre.utilisateur.to_string()));
     t.donnees.push(("echeance", horodatage(echeance)));
     t.donnees

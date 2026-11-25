@@ -3,7 +3,7 @@
 //!
 //! - `api creer-cabinet --nom <nom> --administrateur-courriel <adresse> --administrateur-nom
 //!   <nom>` : crée un cabinet et invite son premier administrateur. Pas d'inscription libre ;
-//! - `api reinitialiser-acces --cabinet <uuid> --courriel <adresse> --motif <texte>` : procédure
+//! - `api reinitialiser-acces --cabinet <uuid> --courriel <adresse> --motif-code <code> --motif <texte>` : procédure
 //!   de support pour un administrateur **sans autre administrateur** dans son cabinet (ADR 0012) :
 //!   même délai de 24 heures et mêmes traces que la demande d'un administrateur. L'identité du
 //!   demandeur est vérifiée **hors bande** par l'exploitation avant de lancer la commande.
@@ -20,8 +20,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::base::administration::{
-    CreationReinitialisation, NouvelleInvitation, creer_invitation, creer_reinitialisation,
-    lister_membres,
+    CreationReinitialisation, MOTIFS_REINITIALISATION, NouvelleInvitation,
+    appartient_a_d_autres_cabinets, creer_invitation, creer_reinitialisation, lister_membres,
 };
 use crate::base::audit::{PorteeAudit, inscrire};
 use crate::base::liens::{self, NatureLien};
@@ -48,7 +48,9 @@ pub enum Commande {
         cabinet: IdCabinet,
         /// Courriel normalisé du membre.
         courriel: String,
-        /// Motif (vérification d'identité hors bande effectuée).
+        /// Code du motif (liste fermée) : seul inscrit à l'audit chaîné.
+        motif_code: String,
+        /// Motif libre (vérification d'identité hors bande effectuée), conservé dans la table.
         motif: String,
     },
 }
@@ -69,7 +71,7 @@ pub enum ErreurCommande {
 
 const USAGE: &str = "usage : api creer-cabinet --nom <nom> --administrateur-courriel <adresse> \
                      --administrateur-nom <nom> | api reinitialiser-acces --cabinet <uuid> \
-                     --courriel <adresse> --motif <texte>";
+                     --courriel <adresse> --motif-code <code> --motif <texte>";
 
 fn usage<T>() -> Result<T, ErreurCommande> {
     Err(ErreurCommande::Usage(USAGE.to_owned()))
@@ -118,10 +120,18 @@ pub fn lire_commande(args: &[String]) -> Result<Option<Commande>, ErreurCommande
                 _ => usage(),
             }
         }
-        "reinitialiser-acces" if connues(&["--cabinet", "--courriel", "--motif"]) => {
-            let (Some(cabinet), Some(c), Some(motif)) =
-                (option("--cabinet"), option("--courriel"), option("--motif"))
-            else {
+        "reinitialiser-acces"
+            if connues(&["--cabinet", "--courriel", "--motif-code", "--motif"]) =>
+        {
+            let (Some(cabinet), Some(c), Some(code), Some(motif)) = (
+                option("--cabinet"),
+                option("--courriel"),
+                option("--motif-code"),
+                option("--motif"),
+            ) else {
+                return usage();
+            };
+            let Some(code) = MOTIFS_REINITIALISATION.iter().find(|m| **m == code) else {
                 return usage();
             };
             let cabinet = Uuid::try_parse(cabinet)
@@ -137,6 +147,7 @@ pub fn lire_commande(args: &[String]) -> Result<Option<Commande>, ErreurCommande
                     Ok(Some(Commande::ReinitialiserAcces {
                         cabinet: IdCabinet::depuis_uuid(cabinet),
                         courriel,
+                        motif_code: (*code).to_owned(),
                         motif: motif.to_owned(),
                     }))
                 }
@@ -195,8 +206,9 @@ pub async fn executer(
         Commande::ReinitialiserAcces {
             cabinet,
             courriel,
+            motif_code,
             motif,
-        } => reinitialiser(pool, *cabinet, courriel, motif, instant).await,
+        } => reinitialiser(pool, *cabinet, courriel, motif_code, motif, instant).await,
     }
 }
 
@@ -264,6 +276,7 @@ async fn reinitialiser(
     pool: &PgPool,
     cabinet: IdCabinet,
     courriel: &str,
+    motif_code: &str,
     motif: &str,
     instant: OffsetDateTime,
 ) -> Result<Sortie, ErreurCommande> {
@@ -279,9 +292,24 @@ async fn reinitialiser(
         .ok_or(ErreurCommande::Refus(
             "aucun membre de ce cabinet pour ce courriel",
         ))?;
+    // Procédure de support : elle ne vaut que pour un compte propre à ce cabinet (ADR 0023, §4).
+    // Un compte de plusieurs cabinets relève d'un futur administrateur d'instance.
+    if appartient_a_d_autres_cabinets(&mut tx, membre.utilisateur).await? {
+        return Err(ErreurCommande::Refus(
+            "ce compte appartient à d'autres cabinets : réinitialisation refusée",
+        ));
+    }
     let id = Uuid::new_v4();
-    let issue =
-        creer_reinitialisation(&mut tx, id, membre.utilisateur, None, motif, instant).await?;
+    let issue = creer_reinitialisation(
+        &mut tx,
+        id,
+        membre.utilisateur,
+        None,
+        motif_code,
+        motif,
+        instant,
+    )
+    .await?;
     if issue == CreationReinitialisation::EnCours {
         return Err(ErreurCommande::Refus(
             "une réinitialisation est déjà en attente",
@@ -391,6 +419,8 @@ mod tests {
                 "pas-un-uuid",
                 "--courriel",
                 "a@b.sn",
+                "--motif-code",
+                "autre",
                 "--motif",
                 "m",
             ],
@@ -400,6 +430,8 @@ mod tests {
                 "00000000-0000-0000-0000-000000000000",
                 "--courriel",
                 "a@b.sn",
+                "--motif-code",
+                "autre",
                 "--motif",
                 "m",
             ],
@@ -409,6 +441,8 @@ mod tests {
                 "6f1d3c2e-5a47-4b8e-9c10-2d7e8a9b0c11",
                 "--courriel",
                 "a@b.sn",
+                "--motif-code",
+                "autre",
                 "--motif",
                 "  ",
             ],
@@ -433,6 +467,8 @@ mod tests {
             "6f1d3c2e-5a47-4b8e-9c10-2d7e8a9b0c11",
             "--courriel",
             "A@B.sn",
+            "--motif-code",
+            "autre",
             "--motif",
             " Appel de vérification ",
         ]))

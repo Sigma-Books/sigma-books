@@ -11,7 +11,7 @@ pub fn corps(cas: api::serveur::routes::administration::Cas) -> &'static str {
             r#"{"courriel":"invite.isolation@cabinet.example","nom":"Invité","role":"auditeur"}"#
         }
         Cas::Reinitialiser => {
-            r#"{"motif":"Vérification par un appel au titulaire","verification_hors_bande":true}"#
+            r#"{"motif_code":"autre","motif":"Vérification par un appel au titulaire","verification_hors_bande":true}"#
         }
         // Usage d'un lien : corps vide (refus avant toute lecture de la base) ; les scénarios
         // d'isolation de ces deux routes fabriquent leurs propres liens.

@@ -183,11 +183,14 @@ pub enum MotifConflit {
     ReinitialisationNonEnAttente,
     /// Un compte existe déjà pour ce courriel : il accepte l'invitation une fois connecté.
     CompteExistant,
+    /// Le membre appartient aussi à d'autres cabinets : sa réinitialisation retirerait ses accès
+    /// à des cabinets que l'administrateur n'administre pas (ADR 0023, §4).
+    MembreDUnAutreCabinet,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 28] = [
+    pub const TOUS: [Self; 29] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -216,6 +219,7 @@ impl MotifConflit {
         Self::ReinitialisationEnCours,
         Self::ReinitialisationNonEnAttente,
         Self::CompteExistant,
+        Self::MembreDUnAutreCabinet,
     ];
 
     /// Code du corps de la réponse.
@@ -250,6 +254,7 @@ impl MotifConflit {
             Self::ReinitialisationEnCours => "reinitialisation_en_cours",
             Self::ReinitialisationNonEnAttente => "reinitialisation_non_en_attente",
             Self::CompteExistant => "compte_existant",
+            Self::MembreDUnAutreCabinet => "membre_d_un_autre_cabinet",
         }
     }
 }
