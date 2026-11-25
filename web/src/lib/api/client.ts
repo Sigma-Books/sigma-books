@@ -115,7 +115,11 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 			redirect: 'error',
 			headers: entetes
 		};
-		if (corps !== undefined) {
+		if (corps instanceof Blob) {
+			// Dépôt d'une pièce : le fichier part brut, avec son type (le serveur le reconnaît à sa signature).
+			entetes['content-type'] = corps.type === '' ? 'application/octet-stream' : corps.type;
+			init.body = corps;
+		} else if (corps !== undefined) {
 			entetes['content-type'] = 'application/json';
 			init.body = JSON.stringify(corps);
 		}
