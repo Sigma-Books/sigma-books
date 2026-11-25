@@ -176,7 +176,15 @@
 		phase = 'aucune';
 	}
 
-	const lotTropGrand = $derived(selection.length > LOT_MAX);
+	/** Seules les écritures cochées **et affichées** partent dans le lot. */
+	const selectionVisible = $derived(
+		(() => {
+			const visibles = new Set<string>(affichees.map((l) => l.id));
+			return selection.filter((id) => visibles.has(id));
+		})()
+	);
+	const lotTropGrand = $derived(selectionVisible.length > LOT_MAX);
+	const occupation = $derived(enCoursLot || occupes.length > 0);
 
 	function demanderLot(): void {
 		erreurLot = null;
@@ -227,7 +235,7 @@
 
 	async function executerLot(): Promise<void> {
 		const elements: ElementLot[] = [];
-		for (const id of selection) {
+		for (const id of selectionVisible) {
 			const uuid = lireUuid(id);
 			const l = parId.get(id);
 			if (uuid !== null && l !== undefined) elements.push({ ecriture: uuid, version: l.version });
@@ -333,13 +341,14 @@
 	{#if peutLot}
 		<div class="barre-lot" role="group" aria-label="Validation par lot">
 			<span role="status" aria-live="polite">
-				{selection.length} sélectionnée{selection.length > 1 ? 's' : ''} (100 au plus par lot)
+				{selectionVisible.length} sélectionnée{selectionVisible.length > 1 ? 's' : ''} (100 au plus par
+				lot)
 			</span>
 			<button
 				type="button"
 				class="bouton"
 				onclick={demanderLot}
-				disabled={selection.length === 0 || lotTropGrand || enCoursLot}
+				disabled={selectionVisible.length === 0 || lotTropGrand || occupation}
 			>
 				Valider la sélection
 			</button>
@@ -358,9 +367,9 @@
 			aria-labelledby="titre-confirmation"
 		>
 			<p id="titre-confirmation">
-				Valider {selection.length} écriture{selection.length > 1 ? 's' : ''} ? Une écriture validée est
-				définitive (seule une contre-passation la corrige). Le lot est validé en entier ou refusé en entier
-				; les écritures « à revoir » en sont exclues par le serveur.
+				Valider {selectionVisible.length} écriture{selectionVisible.length > 1 ? 's' : ''} ? Une écriture
+				validée est définitive (seule une contre-passation la corrige). Le lot est validé en entier ou
+				refusé en entier ; les écritures « à revoir » en sont exclues par le serveur.
 			</p>
 			<p class="actions">
 				<button type="button" class="bouton" onclick={confirmerLot} disabled={enCoursLot}>
@@ -396,8 +405,9 @@
 							<input
 								type="checkbox"
 								aria-label="Sélectionner toutes les écritures affichées (100 au plus)"
-								checked={selection.length > 0 &&
-									selection.length >= Math.min(affichees.length, LOT_MAX)}
+								checked={selectionVisible.length > 0 &&
+									selectionVisible.length >= Math.min(affichees.length, LOT_MAX)}
+								disabled={occupation}
 								onchange={(e) => toutSelectionner(e.currentTarget.checked)}
 							/>
 						</th>
@@ -414,7 +424,7 @@
 			<tbody>
 				{#each affichees as r (r.id)}
 					{@const e = ecart([r.debit], [r.credit])}
-					{@const occupe = occupes.includes(r.id)}
+					{@const occupe = occupation}
 					<tr class:a-revoir={r.a_revoir}>
 						{#if peutLot}
 							<td>
@@ -422,6 +432,7 @@
 									type="checkbox"
 									aria-label={`Sélectionner ${r.libelle}`}
 									checked={selection.includes(r.id)}
+									disabled={occupation}
 									onchange={() => basculerSelection(r.id)}
 								/>
 							</td>

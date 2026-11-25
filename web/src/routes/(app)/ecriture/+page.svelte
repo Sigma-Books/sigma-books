@@ -7,6 +7,8 @@
 		type ContrePassation,
 		type Ecriture
 	} from '#lib/api/brouillard.ts';
+	import { longueurOctets } from '#lib/api/texte.ts';
+	import { lireUuid } from '#lib/api/types.ts';
 	import { api } from '#lib/application.ts';
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
@@ -30,11 +32,16 @@
 	let erreur = $state<ErreurApi | null>(null);
 	let erreurRelecture = $state<ErreurApi | null>(null);
 
+	/** Borne du serveur, en octets UTF-8 (`MOTIF_MAX` de `contre_passation.rs`). */
 	const MOTIF_MAX = 400;
+	const octetsMotif = $derived(longueurOctets(motif));
+	/** Contre-passations faites depuis le chargement, tant que la relecture n'a pas abouti. */
+	let faitesDepuis = $state(0);
 
 	$effect(() => {
 		relue = null;
 		faite = null;
+		faitesDepuis = 0;
 		if (data.contenu?.ok) {
 			libelle = `Contre-passation de ${data.contenu.valeur.valeur.numero}`;
 		}
@@ -50,6 +57,7 @@
 		erreurRelecture = null;
 		try {
 			faite = await contrePasser(api, cabinet, dossier, ecriture.id, { date, libelle, motif });
+			faitesDepuis += 1;
 			motif = '';
 			confirmeRepetition = false;
 			try {
@@ -79,7 +87,11 @@
 {:else}
 	{@const { contexte, valeur } = data.contenu.valeur}
 	{@const e = relue ?? valeur}
-	{@const nombre = e.contre_passations.length}
+	{@const nombre =
+		relue === null
+			? valeur.contre_passations.length + faitesDepuis
+			: relue.contre_passations.length}
+	{@const origine = e.origine ? lireUuid(e.origine) : null}
 	{@const peut = ROLES_VALIDATION_LOT.includes(contexte.membre.role)}
 	<h1>Écriture {e.numero}</h1>
 	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="ecritures" />
@@ -101,12 +113,12 @@
 		<dd>{e.rang}</dd>
 		<dt>Empreinte</dt>
 		<dd><code class="empreinte">{e.empreinte}</code></dd>
-		{#if e.origine}
+		{#if origine !== null}
 			<dt>Contre-passation de</dt>
 			<dd>
 				<a
 					href={resolve(
-						`ecriture/?cabinet=${contexte.cabinet}&dossier=${contexte.dossier}&ecriture=${e.origine}`
+						`ecriture/?cabinet=${contexte.cabinet}&dossier=${contexte.dossier}&ecriture=${origine}`
 					)}
 				>
 					l’écriture d’origine
@@ -233,12 +245,15 @@
 				<input
 					id="cp-motif"
 					type="text"
-					maxlength={MOTIF_MAX}
 					aria-describedby="cp-motif-aide"
 					bind:value={motif}
 					required
 				/>
-				<span class="aide" id="cp-motif-aide">{motif.length} / {MOTIF_MAX} caractères</span>
+				<span class="aide" id="cp-motif-aide">
+					{octetsMotif} / {MOTIF_MAX} octets{octetsMotif > MOTIF_MAX
+						? ' : motif trop long, raccourcissez-le'
+						: ''}
+				</span>
 			</div>
 			{#if nombre > 0}
 				<label class="case">
@@ -253,7 +268,10 @@
 				<button
 					type="submit"
 					class="bouton"
-					disabled={enCours || motif.trim() === '' || (nombre > 0 && !confirmeRepetition)}
+					disabled={enCours ||
+						motif.trim() === '' ||
+						octetsMotif > MOTIF_MAX ||
+						(nombre > 0 && !confirmeRepetition)}
 				>
 					Contre-passer
 				</button>
