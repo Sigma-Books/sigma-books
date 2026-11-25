@@ -103,7 +103,7 @@
 	aria-labelledby="titre-reauth"
 	oncancel={(e) => {
 		e.preventDefault();
-		annuler();
+		if (!enCours) annuler();
 	}}
 >
 	<h2 id="titre-reauth">Confirmez votre identité</h2>
@@ -157,7 +157,9 @@
 	{/if}
 
 	<p>
-		<button type="button" class="bouton bouton-secondaire" onclick={annuler}>Annuler</button>
+		<button type="button" class="bouton bouton-secondaire" onclick={annuler} disabled={enCours}>
+			Annuler
+		</button>
 	</p>
 </dialog>
 

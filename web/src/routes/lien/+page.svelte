@@ -5,7 +5,7 @@
 	de connexion.
 -->
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import { accepterInvitation, utiliserLien } from '#lib/api/ressources.ts';
@@ -19,6 +19,7 @@
 	let enCours = $state(false);
 	let erreur = $state<ErreurApi | null>(null);
 	let accepte = $state(false);
+	let invalide = $state(false);
 
 	$effect(() => {
 		jeton = jetonDuFragment(window.location.hash);
@@ -36,7 +37,22 @@
 
 	function effacerFragment(): void {
 		// Le jeton est consommé : il ne reste pas dans l'adresse ni dans l'historique.
-		history.replaceState(null, '', window.location.pathname);
+		replaceState(resolve('lien/'), {});
+	}
+
+	/**
+	 * Lien refusé (invalide, expiré, déjà utilisé) : échec définitif, le jeton ne reste ni en
+	 * mémoire ni dans l'adresse. Les autres erreurs (réseau, compte existant) gardent le lien.
+	 */
+	function traiterEchec(e: unknown): void {
+		if (!(e instanceof ErreurApi)) throw e;
+		if (e.code === 'non_authentifie' || e.motif === 'lien_invalide') {
+			effacerFragment();
+			jeton = null;
+			invalide = true;
+			return;
+		}
+		erreur = e;
 	}
 
 	async function continuer(): Promise<void> {
@@ -51,8 +67,7 @@
 			await api.ouvrirSession();
 			await goto(resolve('compte/'));
 		} catch (e) {
-			if (!(e instanceof ErreurApi)) throw e;
-			erreur = e;
+			traiterEchec(e);
 		} finally {
 			enCours = false;
 		}
@@ -68,8 +83,7 @@
 			jeton = null;
 			accepte = true;
 		} catch (e) {
-			if (!(e instanceof ErreurApi)) throw e;
-			erreur = e;
+			traiterEchec(e);
 		} finally {
 			enCours = false;
 		}
@@ -90,6 +104,12 @@
 			<p>Invitation acceptée : le cabinet apparaît dans votre liste.</p>
 		</div>
 		<p><a href={resolve('/(app)')}>Choisir un cabinet</a></p>
+	{:else if invalide}
+		<div class="message message-erreur" role="alert">
+			<p>
+				Ce lien est invalide, expiré ou déjà utilisé. Demandez-en un nouveau à un administrateur.
+			</p>
+		</div>
 	{:else if jeton === null}
 		<div class="message message-erreur" role="alert">
 			<p>Ce lien est incomplet. Rouvrez le lien tel que vous l’avez reçu par courriel.</p>

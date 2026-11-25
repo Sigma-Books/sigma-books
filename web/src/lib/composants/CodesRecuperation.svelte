@@ -17,6 +17,7 @@
 		try {
 			await navigator.clipboard.writeText(codes.join('\n'));
 			copie = 'oui';
+			window.getSelection()?.removeAllRanges();
 		} catch {
 			copie = 'echec';
 		}
@@ -30,7 +31,7 @@
 		sert qu’une fois. <strong>Ils ne seront plus jamais affichés.</strong>
 	</p>
 	<ol class="codes">
-		{#each codes as code (code)}
+		{#each codes as code, i (i)}
 			<li><code>{code}</code></li>
 		{/each}
 	</ol>
@@ -39,6 +40,10 @@
 			Copier les codes
 		</button>
 		<button type="button" class="bouton" onclick={termine}>J’ai conservé mes codes</button>
+	</p>
+	<p class="aide">
+		Une fois copiés, les codes restent dans le presse-papiers jusqu’à ce qu’il soit vidé ou remplacé
+		: collez-les dans votre gestionnaire de mots de passe, puis copiez autre chose pour l’effacer.
 	</p>
 	<p role="status" class="aide">
 		{#if copie === 'oui'}Codes copiés.{:else if copie === 'echec'}Copie impossible : recopiez les
