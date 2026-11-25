@@ -31,7 +31,12 @@
 	import { api } from '#lib/application.ts';
 	import { dateIso } from '#lib/dates.ts';
 	import { formaterMontant } from '#lib/montants.ts';
-	import { actionClavier, rechercherComptes, type ChampSaisie } from '#lib/raccourcis.ts';
+	import {
+		actionClavier,
+		entreeSansAction,
+		rechercherComptes,
+		type ChampSaisie
+	} from '#lib/raccourcis.ts';
 	import MessageMetier from '../MessageMetier.svelte';
 
 	interface Props {
@@ -154,10 +159,12 @@
 				!intituleDe.has(cible.value.trim())
 		});
 		if (action === null) {
-			// Entrée dans l'en-tête ne soumet pas le formulaire : elle mène à la première ligne.
+			if (!entreeSansAction(evenement) || cible instanceof HTMLButtonElement) return;
+			// Aucune soumission native : Entrée sans action ne crée jamais de brouillon.
+			evenement.preventDefault();
+			// Dans l'en-tête, elle mène à la première ligne.
 			const dansEntete = ou === null && (estSaisie || cible instanceof HTMLSelectElement);
-			if (dansEntete && evenement.key === 'Enter' && !evenement.ctrlKey && !evenement.shiftKey) {
-				evenement.preventDefault();
+			if (dansEntete && !evenement.ctrlKey && !evenement.shiftKey) {
 				void focaliser(idChamp(0, 'compte'));
 			}
 			return;
@@ -206,6 +213,8 @@
 	}
 
 	const PROBLEMES = {
+		montant_ambigu:
+			'Montant ambigu (« 1,500 » : mille cinq cents ou un et demi ?) : écrivez 1500 ou 1,5.',
 		montant_illisible: 'Montant illisible : saisissez un nombre positif (ex. 1 500,50).',
 		debit_et_credit: 'Une ligne ne porte qu’un montant : débit ou crédit, pas les deux.',
 		montant_absent: 'Cette ligne n’a ni débit ni crédit.',

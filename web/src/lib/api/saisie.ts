@@ -4,7 +4,7 @@
 // chaînes canoniques, lignes vides ignorées) et indique, à titre indicatif, l'équilibre. Le
 // serveur décide de tout (comptes admis, équilibre, numéros) et renvoie des codes stables.
 
-import { ecart, lireMontant, type Ecart } from '../montants.ts';
+import { ecart, estAmbigu, lireMontant, type Ecart } from '../montants.ts';
 
 export interface LigneSaisie {
 	compte: string;
@@ -53,7 +53,7 @@ export interface CorpsEcriture {
 }
 
 export type ProblemeLocal =
-	'montant_illisible' | 'debit_et_credit' | 'montant_absent' | 'compte_absent';
+	'montant_ambigu' | 'montant_illisible' | 'debit_et_credit' | 'montant_absent' | 'compte_absent';
 
 export type Construction =
 	| {
@@ -83,6 +83,7 @@ export function corpsEcriture(
 		if (d !== '' && c !== '') return { ok: false, probleme: 'debit_et_credit', ligne: i };
 		if (d === '' && c === '') return { ok: false, probleme: 'montant_absent', ligne: i };
 		const brut = d === '' ? c : d;
+		if (estAmbigu(brut)) return { ok: false, probleme: 'montant_ambigu', ligne: i };
 		const montant = lireMontant(brut);
 		if (montant === null) return { ok: false, probleme: 'montant_illisible', ligne: i };
 		if (l.compte.trim() === '') return { ok: false, probleme: 'compte_absent', ligne: i };

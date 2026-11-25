@@ -98,3 +98,12 @@ test('position du serveur → ligne de la grille', () => {
 	assert.equal(indexDepuisPosition([0, 2, 3], 2), 2);
 	assert.equal(indexDepuisPosition([0, 2, 3], 9), null);
 });
+
+test('un montant ambigu (1,500) est refusé avec la ligne', () => {
+	assert.deepEqual(corpsEcriture(entete, [l('6222', '1,500', '')]), {
+		ok: false,
+		probleme: 'montant_ambigu',
+		ligne: 0
+	});
+	assert.ok(corpsEcriture(entete, [l('6222', '1 500', '')]).ok);
+});

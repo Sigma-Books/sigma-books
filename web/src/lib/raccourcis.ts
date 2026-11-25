@@ -17,6 +17,8 @@ export interface EvenementClavier {
 	metaKey: boolean;
 	altKey: boolean;
 	shiftKey: boolean;
+	/** Composition IME en cours (Entrée valide alors la composition, pas la saisie). */
+	isComposing?: boolean;
 }
 
 export type ChampSaisie = 'entete' | 'compte' | 'tiers' | 'libelle' | 'debit' | 'credit';
@@ -31,8 +33,7 @@ export interface ContexteClavier {
 
 /** Action du clavier, ou `null` : la touche garde alors son effet normal. */
 export function actionClavier(e: EvenementClavier, c: ContexteClavier): ActionClavier | null {
-	const modifie = e.altKey || e.metaKey;
-	if (modifie) return null;
+	if (e.isComposing === true || e.altKey || e.metaKey) return null;
 	if (e.key === 'Enter') {
 		if (e.ctrlKey) return e.shiftKey ? null : 'enregistrer';
 		if (e.shiftKey || c.listeOuverte === true) return null;
@@ -76,4 +77,12 @@ export function rechercherComptes<T extends CompteRecherchable>(
 		}
 	}
 	return [...parNumero, ...parIntitule].slice(0, max);
+}
+
+/**
+ * Vrai si Entrée, sans action de saisie, ne doit pas soumettre le formulaire (suggestion de
+ * liste, Maj+Entrée…). Une composition IME garde son effet.
+ */
+export function entreeSansAction(e: EvenementClavier): boolean {
+	return e.key === 'Enter' && e.isComposing !== true && !e.altKey && !e.metaKey;
 }

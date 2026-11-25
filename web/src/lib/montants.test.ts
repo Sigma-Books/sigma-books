@@ -4,6 +4,7 @@ import {
 	additionner,
 	depuisUnites,
 	ecart,
+	estAmbigu,
 	estNul,
 	formaterMontant,
 	lireMontant,
@@ -76,4 +77,24 @@ test('formaterMontant groupe les milliers et met la virgule', () => {
 	assert.equal(formaterMontant('1000'), '1 000');
 	assert.equal(formaterMontant('-1000.25'), '-1 000,25');
 	assert.equal(formaterMontant('pas un nombre'), 'pas un nombre');
+});
+
+test('estAmbigu signale 1.500 et 1,500, pas les autres formes', () => {
+	for (const ambigu of ['1.500', '1,500', '12,345', '999.000', ' 1,500 ']) {
+		assert.equal(estAmbigu(ambigu), true, ambigu);
+	}
+	for (const clair of [
+		'1 500',
+		'1500',
+		'1.50',
+		'1,5000',
+		'0,500',
+		'1500,000',
+		'1.500,25',
+		'1500.5'
+	]) {
+		assert.equal(estAmbigu(clair), false, clair);
+	}
+	assert.equal(lireMontant('1 500'), '1500');
+	assert.equal(lireMontant('1.500,25'), null);
 });

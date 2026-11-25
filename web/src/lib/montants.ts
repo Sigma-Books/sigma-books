@@ -16,6 +16,16 @@ const ESPACES = /[ \u00a0\u202f]/g;
 const FORME = new RegExp(`^(\\d{1,${CHIFFRES_ENTIERS_MAX}})(?:[.,](\\d{1,${ECHELLE}}))?$`);
 
 /**
+ * Vrai si la saisie est ambiguë : une partie entière de 1 à 3 chiffres, un seul séparateur
+ * (`.` ou `,`) et exactement 3 chiffres après lui (`1.500`, `1,500`) se lisent comme un millier ou
+ * comme une décimale. Zéro en partie entière (`0,500`) n'est pas ambigu.
+ */
+export function estAmbigu(saisie: string): boolean {
+	const m = /^(\d{1,3})[.,]\d{3}$/.exec(saisie.trim().replace(ESPACES, ''));
+	return m !== null && !/^0+$/.test(m[1] ?? '');
+}
+
+/**
  * Montant saisi (`1 500,50`, `1500.5`) en chaîne canonique (`1500.5`), ou `null` si ce n'est pas
  * un nombre décimal positif ou nul. La chaîne vide donne `null` : c'est l'absence de montant.
  */

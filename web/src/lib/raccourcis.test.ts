@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
 	actionClavier,
+	entreeSansAction,
 	normaliser,
 	rechercherComptes,
 	type EvenementClavier
@@ -94,4 +95,25 @@ test('rechercherComptes : numéro d’abord, puis intitulé', () => {
 	);
 	assert.deepEqual(rechercherComptes(COMPTES, ''), []);
 	assert.equal(rechercherComptes(COMPTES, 'client', 1).length, 1);
+});
+
+test('Entrée sans action ne doit jamais soumettre le formulaire', () => {
+	assert.equal(entreeSansAction(touche('Enter', { shiftKey: true })), true);
+	assert.equal(entreeSansAction(touche('Enter', { ctrlKey: true, shiftKey: true })), true);
+	assert.equal(entreeSansAction(touche('a')), false);
+	assert.equal(entreeSansAction(touche('Enter', { isComposing: true })), false);
+});
+
+test('une composition IME n’est jamais un raccourci', () => {
+	assert.equal(
+		actionClavier(touche('Enter', { isComposing: true }), { champ: 'debit', vide: false }),
+		null
+	);
+	assert.equal(
+		actionClavier(touche('Enter', { ctrlKey: true, isComposing: true }), {
+			champ: 'debit',
+			vide: false
+		}),
+		null
+	);
 });
