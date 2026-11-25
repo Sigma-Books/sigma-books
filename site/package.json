@@ -19,7 +19,7 @@
 	"devDependencies": {
 		"@astrojs/check": "^0.9.12",
 		"@eslint/js": "^10.0.1",
-		"astro": "^7.4.12",
+		"astro": "^7.4.13",
 		"eslint": "^10.15.0",
 		"eslint-plugin-astro": "^3.2.1",
 		"prettier": "^3.10.1",

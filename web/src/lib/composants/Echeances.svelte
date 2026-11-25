@@ -41,9 +41,10 @@
 </script>
 
 <p class="echeances">
-	Session : fin par inactivité à <time datetime={session.fin_inactivite}
-		>{heure(session.fin_inactivite)}</time
-	>, au plus tard à <time datetime={session.fin_absolue}>{dateHeure(session.fin_absolue)}</time>.
+	Session : fin par inactivité à <time datetime={session.fin_inactivite}>
+		{heure(session.fin_inactivite)}
+	</time>, au plus tard à
+	<time datetime={session.fin_absolue}>{dateHeure(session.fin_absolue)}</time>.
 </p>
 
 {#if bientot}

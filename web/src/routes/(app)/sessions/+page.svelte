@@ -82,11 +82,9 @@
 					>
 						Révoquer
 					</button>
-					<span id={`appareil-${session.id}`} class="visuellement-cache"
-						>la session {session.appareil ?? 'de l’appareil inconnu'} du {dateHeure(
-							session.cree_le
-						)}</span
-					>
+					<span id={`appareil-${session.id}`} class="visuellement-cache">
+						la session {session.appareil ?? 'de l’appareil inconnu'} du {dateHeure(session.cree_le)}
+					</span>
 				{/if}
 			</li>
 		{/each}

@@ -48,16 +48,19 @@
 				<li>
 					<a
 						href={resolve('sessions/')}
-						aria-current={page.route.id === '/(app)/sessions' ? 'page' : undefined}>Mes sessions</a
+						aria-current={page.route.id === '/(app)/sessions' ? 'page' : undefined}
 					>
+						Mes sessions
+					</a>
 				</li>
 				{#if fil?.cabinet}
 					<li>
 						<a
 							href={resolve(`administration/?cabinet=${fil.cabinet.id}`)}
 							aria-current={page.route.id === '/(app)/administration' ? 'page' : undefined}
-							>Administration</a
 						>
+							Administration
+						</a>
 					</li>
 				{/if}
 				<li>
@@ -65,8 +68,10 @@
 						type="button"
 						class="bouton bouton-secondaire"
 						onclick={deconnecter}
-						disabled={deconnexionEnCours}>Se déconnecter</button
+						disabled={deconnexionEnCours}
 					>
+						Se déconnecter
+					</button>
 				</li>
 			</ul>
 		</nav>
@@ -90,8 +95,10 @@
 			<li>
 				<a
 					href={resolve(`dossier/?cabinet=${fil.cabinet.id}&dossier=${fil.dossier.id}`)}
-					aria-current="page">{fil.dossier.nom}</a
+					aria-current="page"
 				>
+					{fil.dossier.nom}
+				</a>
 			</li>
 		{/if}
 	</ol>
