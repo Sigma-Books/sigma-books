@@ -271,7 +271,7 @@ async fn la_reinitialisation_alerte_a_chaque_etape_y_compris_le_membre_concerne(
             "POST",
             &b.chemin(&format!("/membres/{cible}/reinitialisation")),
             &admin,
-            &json!({"motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
+            &json!({"motif_code": "autre", "motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
         )
         .await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
@@ -330,7 +330,7 @@ async fn seul_le_membre_concerne_conteste_sa_reinitialisation() {
             "POST",
             &b.chemin(&format!("/membres/{}/reinitialisation", b.c.collaborateur)),
             &admin,
-            &json!({"motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
+            &json!({"motif_code": "autre", "motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
         )
         .await;
     let id = r.json()["id"].as_str().unwrap().to_owned();
@@ -377,7 +377,7 @@ async fn l_usage_du_lien_de_reinitialisation_alerte() {
             "POST",
             &b.chemin(&format!("/membres/{cible}/reinitialisation")),
             &admin,
-            &json!({"motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
+            &json!({"motif_code": "autre", "motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
         )
         .await;
     assert_eq!(r.statut, StatusCode::CREATED);
@@ -396,14 +396,24 @@ async fn l_usage_du_lien_de_reinitialisation_alerte() {
     assert_eq!(b.transport.remis().len(), avant + 1);
     assert_eq!(b.utiliser_lien(&lien).await.statut, StatusCode::OK);
     b.expediteur.passer().await.unwrap();
-    let abouties: Vec<String> = b
-        .transport
-        .remis()
-        .into_iter()
-        .filter(|m| m.sujet == "Sigma Books : accès d'un membre réinitialisé")
-        .map(|m| m.destinataire)
-        .collect();
-    assert_eq!(abouties, vec![courriel(b.c.administrateur)]);
+    let vers = |sujet: &str| -> Vec<String> {
+        b.transport
+            .remis()
+            .into_iter()
+            .filter(|m| m.sujet == sujet)
+            .map(|m| m.destinataire)
+            .collect()
+    };
+    // Les administrateurs (texte propre aux administrateurs) et le membre concerné, une fois,
+    // avec le texte qui lui dit que son accès vient d'être refait.
+    assert_eq!(
+        vers("Sigma Books : accès d'un membre réinitialisé"),
+        vec![courriel(b.c.administrateur)]
+    );
+    assert_eq!(
+        vers("Sigma Books : votre accès a été réinitialisé"),
+        vec![courriel(cible)]
+    );
 }
 
 #[tokio::test]
@@ -512,4 +522,144 @@ async fn un_echec_provisoire_rejoue_l_alerte() {
     );
     b.horloge.avancer(Duration::seconds(61));
     assert_eq!(b.passer().await.len(), 1);
+}
+
+#[tokio::test]
+async fn l_administrateur_vise_par_un_autre_administrateur_est_prevenu_et_peut_contester() {
+    let b = banc().await;
+    let second = ajouter_affecte(&b.env.admin, &b.c, "administrateur").await;
+    let s1 = b.session(b.c.administrateur).await;
+    let r = b
+        .appel(
+            "POST",
+            &b.chemin(&format!("/membres/{second}/reinitialisation")),
+            &s1,
+            &json!({"motif_code": "compte_compromis", "motif": "Appel de vérification", "verification_hors_bande": true}).to_string(),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    let id = r.json()["id"].as_str().unwrap().to_owned();
+    b.expediteur.passer().await.unwrap();
+    let remis = b.transport.remis();
+    // L'administrateur visé reçoit le texte qui lui est propre (une seule fois), l'autre celui des
+    // administrateurs.
+    let au_vise: Vec<_> = remis
+        .iter()
+        .filter(|m| m.destinataire == courriel(second))
+        .collect();
+    assert_eq!(au_vise.len(), 1);
+    assert_eq!(
+        au_vise[0].sujet,
+        "Sigma Books : réinitialisation de votre accès demandée"
+    );
+    // Il conteste sa propre réinitialisation, par sa route de membre (non d'administration).
+    let s2 = b.session(second).await;
+    let r = b
+        .appel(
+            "POST",
+            &b.chemin(&format!("/reinitialisations/{id}/contestation")),
+            &s2,
+            "",
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let etat: String = sqlx::query_scalar("SELECT etat FROM reinitialisation WHERE id = $1::uuid")
+        .bind(&id)
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+    assert_eq!(etat, "annulee");
+}
+
+#[tokio::test]
+async fn les_alertes_d_un_sujet_sont_plafonnees_par_cabinet_sur_24_heures() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    // Dix exports déjà alertés aujourd'hui dans ce cabinet.
+    for _ in 0..10 {
+        sqlx::query(
+            "INSERT INTO tache (id, nature, sujet, cabinet_cible, etat, cree_le, prochaine_tentative, \
+                                termine_le, derniere_issue) \
+             VALUES ($1, 'notification', 'export_audit_cabinet', $2, 'terminee', now(), now(), now(), 'envoye')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(b.c.cabinet.uuid())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    }
+    b.appel("POST", &b.chemin("/audit/export"), &admin, "")
+        .await;
+    assert_eq!(b.passer().await, Vec::<String>::new());
+    let issue: Option<String> = sqlx::query_scalar(
+        "SELECT derniere_issue FROM tache WHERE nature = 'notification' AND cabinet_cible = $1 \
+         AND etat = 'terminee' AND derniere_issue <> 'envoye'",
+    )
+    .bind(b.c.cabinet.uuid())
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(issue.as_deref(), Some("plafond"));
+    // Un autre sujet n'est pas concerné.
+    b.appel("DELETE", &b.chemin("/separation-taches"), &admin, "")
+        .await;
+    assert_eq!(b.passer().await.len(), 1);
+}
+
+#[tokio::test]
+async fn un_echec_partiel_rejoue_a_tous_et_les_doublons_sont_bornes() {
+    let b = banc().await;
+    let second = ajouter_affecte(&b.env.admin, &b.c, "administrateur").await;
+    let admin = b.session(b.c.administrateur).await;
+    // Le premier envoi réussit, le second échoue de façon provisoire : l'alerte est rejouée à
+    // tous (au moins une fois) ; le destinataire déjà servi reçoit un doublon, une fois par rejeu.
+    b.transport
+        .programmer([Ok(()), Err(ErreurEnvoi::Temporaire), Ok(()), Ok(())]);
+    b.appel("POST", &b.chemin("/audit/export"), &admin, "")
+        .await;
+    b.expediteur.passer().await.unwrap();
+    assert_eq!(b.transport.remis().len(), 1);
+    b.horloge.avancer(Duration::seconds(61));
+    b.expediteur.passer().await.unwrap();
+    let remis = b.transport.remis();
+    assert_eq!(
+        remis.len(),
+        3,
+        "un doublon au plus pour le destinataire déjà servi"
+    );
+    for u in [b.c.administrateur, second] {
+        assert!(remis.iter().any(|m| m.destinataire == courriel(u)));
+    }
+    // Bornés : jamais plus de `tentatives_max` envois à un même destinataire.
+    assert!(remis.len() <= 2 * 8);
+}
+
+#[tokio::test]
+async fn un_envoi_trop_lent_est_interrompu_avant_la_fin_du_bail() {
+    let b = banc().await;
+    let admin = b.session(b.c.administrateur).await;
+    let lent = Expediteur::new(
+        b.env.application.clone(),
+        Arc::new(b.transport.avec_lenteur(std::time::Duration::from_secs(30))),
+        Arc::new(b.horloge.clone()),
+        ORIGINE.to_owned(),
+        Reglages {
+            budget: std::time::Duration::from_millis(150),
+            ..Reglages::default()
+        },
+    );
+    b.appel("POST", &b.chemin("/audit/export"), &admin, "")
+        .await;
+    let debut = std::time::Instant::now();
+    let bilan = lent.passer().await.unwrap();
+    assert!(debut.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!((bilan.prises, bilan.reportes), (1, 1));
+    let issue: Option<String> = sqlx::query_scalar(
+        "SELECT derniere_issue FROM tache WHERE nature = 'notification' AND cabinet_cible = $1",
+    )
+    .bind(b.c.cabinet.uuid())
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(issue.as_deref(), Some("delai_depasse"));
 }

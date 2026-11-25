@@ -55,6 +55,12 @@ pub struct Reglages {
     pub lot: i64,
     /// Tentatives au plus avant abandon.
     pub tentatives_max: i32,
+    /// Budget de temps d'une tâche d'envoi (tous destinataires), **inférieur au bail** : la
+    /// tâche ne peut pas être reprise par un autre passage pendant qu'elle s'exécute.
+    pub budget: Duration,
+    /// Plafond d'alertes envoyées par cabinet et par sujet sur 24 heures : au-delà, l'alerte est
+    /// ignorée (issue `plafond`) plutôt que d'inonder les administrateurs.
+    pub alertes_max_par_sujet_24h: i64,
     /// Attente avant de relancer la boucle après son arrêt inattendu (panique).
     pub relance: Duration,
 }
@@ -66,6 +72,8 @@ impl Default for Reglages {
             bail: time::Duration::minutes(5),
             lot: 20,
             tentatives_max: 8,
+            budget: Duration::from_secs(240),
+            alertes_max_par_sujet_24h: 10,
             relance: Duration::from_secs(5),
         }
     }
@@ -242,6 +250,7 @@ impl Expediteur {
             tache.sujet,
             SujetNotification::ReinitialisationDemandee
                 | SujetNotification::ReinitialisationAnnulee
+                | SujetNotification::ReinitialisationAboutie
         );
         let mut messages = Vec::new();
         for m in membres.iter().filter(|m| m.actif) {
@@ -250,16 +259,12 @@ impl Expediteur {
             if !admin && !concerne {
                 continue;
             }
-            // Le membre concerné est alerté en tant que tel, même s'il administre le cabinet.
-            let qui = if concerne && !admin {
+            // Le membre concerné est alerté en tant que tel (une seule fois), même s'il administre
+            // le cabinet.
+            let qui = if concerne {
                 Destinataire::Concerne
             } else {
                 Destinataire::Administrateur
-            };
-            let qui = if concerne && tache.sujet == SujetNotification::ReinitialisationDemandee {
-                Destinataire::Concerne
-            } else {
-                qui
             };
             if let Some(message) = alerte(
                 tache.sujet,
@@ -276,23 +281,49 @@ impl Expediteur {
     }
 
     async fn traiter_notification(&self, tache: NotificationPrise) -> Result<Sortie, ErreurBase> {
-        let messages = self.preparer_alerte(&tache).await?;
-        let sortie = if messages.is_empty() {
+        let maintenant = self.horloge.maintenant();
+        // Plafond par cabinet et par sujet sur 24 heures : au-delà, rien n'est envoyé.
+        let mut tx = ouvrir_transaction_travailleur(&self.pool).await?;
+        let deja = tx
+            .compter_alertes_envoyees(
+                tache.cabinet,
+                tache.sujet,
+                maintenant - time::Duration::hours(24),
+            )
+            .await?;
+        tx.confirmer().await?;
+        let messages = if deja >= self.reglages.alertes_max_par_sujet_24h {
+            Vec::new()
+        } else {
+            self.preparer_alerte(&tache).await?
+        };
+        let sortie = if deja >= self.reglages.alertes_max_par_sujet_24h {
+            Sortie::Refus("plafond")
+        } else if messages.is_empty() {
             Sortie::SansObjet
         } else {
             let (mut envoyes, mut rejouable, mut refus) = (0, None, false);
-            for message in &messages {
-                match self.transport.envoyer(message).await {
-                    Ok(()) => envoyes += 1,
-                    Err(e) if e.a_rejouer() => rejouable = Some(e),
-                    Err(_) => refus = true,
+            // Budget de temps global, inférieur au bail : tous les destinataires, ou rien de plus.
+            let remise = tokio::time::timeout(self.reglages.budget, async {
+                for message in &messages {
+                    match self.transport.envoyer(message).await {
+                        Ok(()) => envoyes += 1,
+                        Err(e) if e.a_rejouer() => rejouable = Some(e),
+                        Err(_) => refus = true,
+                    }
                 }
-            }
+            })
+            .await;
+            let delai_depasse = remise.is_err();
             match rejouable {
                 Some(e) if tache.tentatives + 1 < self.reglages.tentatives_max => {
                     Sortie::Echec(e.code())
                 }
+                None if delai_depasse && tache.tentatives + 1 < self.reglages.tentatives_max => {
+                    Sortie::Echec("delai_depasse")
+                }
                 Some(_) => Sortie::Refus("abandon"),
+                None if delai_depasse => Sortie::Refus("abandon"),
                 None if envoyes > 0 => Sortie::Envoye,
                 None if refus => Sortie::Refus("smtp_refus"),
                 None => Sortie::SansObjet,
@@ -442,8 +473,13 @@ impl Expediteur {
             Preparation::Invalide => Sortie::Invalide,
             Preparation::Pas(instant) => Sortie::Pas(instant),
             Preparation::Message(message) => {
-                // Hors de toute transaction : l'échange SMTP peut durer.
-                match self.transport.envoyer(&message).await {
+                // Hors de toute transaction : l'échange SMTP peut durer, mais pas plus que le
+                // budget de la tâche (inférieur au bail).
+                let envoi =
+                    tokio::time::timeout(self.reglages.budget, self.transport.envoyer(&message))
+                        .await
+                        .unwrap_or(Err(super::transport::ErreurEnvoi::Temporaire));
+                match envoi {
                     Ok(()) => Sortie::Envoye,
                     Err(e)
                         if e.a_rejouer() && tache.tentatives + 1 < self.reglages.tentatives_max =>

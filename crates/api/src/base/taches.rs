@@ -624,6 +624,10 @@ impl TransactionTravailleur {
             == 1)
     }
 
+    /// **Une alerte par dossier et par période de `delai`**, quel que soit l'état de la précédente :
+    /// une alerte envoyée puis terminée n'en appelle pas une nouvelle à chaque passage (un courriel
+    /// par minute pendant une panne de l'autorité).
+    ///
     /// Crée l'alerte de retard (F6.2) de chaque dossier dont une tâche d'horodatage non
     /// terminée date de plus de `delai` : toute écriture non couverte a une tâche, créée à la
     /// première validation qui a suivi le dernier jeton. Une seule alerte non traitée par dossier.
@@ -640,11 +644,16 @@ impl TransactionTravailleur {
         let lignes = sqlx::query!(
             "INSERT INTO tache (id, nature, sujet, cabinet_cible, dossier_cible, etat, cree_le, \
                                 prochaine_tentative) \
-             SELECT gen_random_uuid(), 'notification', 'retard_horodatage', cabinet_cible, \
-                    dossier_cible, 'en_attente', $2, $2 \
-             FROM tache \
-             WHERE nature = 'horodatage' AND etat <> 'terminee' AND cree_le <= $1 \
-             GROUP BY cabinet_cible, dossier_cible \
+             SELECT gen_random_uuid(), 'notification', 'retard_horodatage', t.cabinet_cible, \
+                    t.dossier_cible, 'en_attente', $2, $2 \
+             FROM tache t \
+             WHERE t.nature = 'horodatage' AND t.etat <> 'terminee' AND t.cree_le <= $1 \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM tache n \
+                   WHERE n.sujet = 'retard_horodatage' \
+                     AND n.cabinet_cible = t.cabinet_cible AND n.dossier_cible = t.dossier_cible \
+                     AND n.cree_le > $1) \
+             GROUP BY t.cabinet_cible, t.dossier_cible \
              ON CONFLICT DO NOTHING \
              RETURNING cabinet_cible, dossier_cible AS \"dossier_cible!\"",
             seuil,
@@ -656,6 +665,29 @@ impl TransactionTravailleur {
             .into_iter()
             .map(|l| (l.cabinet_cible, l.dossier_cible))
             .collect())
+    }
+
+    /// Nombre d'alertes du sujet déjà **envoyées** pour ce cabinet depuis `depuis` : base du
+    /// plafond d'envoi par cabinet et par sujet (ADR 0025, §6).
+    ///
+    /// # Errors
+    /// Erreur de PostgreSQL.
+    pub async fn compter_alertes_envoyees(
+        &mut self,
+        cabinet: Uuid,
+        sujet: SujetNotification,
+        depuis: OffsetDateTime,
+    ) -> Result<i64, ErreurBase> {
+        Ok(sqlx::query_scalar!(
+            "SELECT count(*) AS \"n!\" FROM tache \
+             WHERE nature = 'notification' AND cabinet_cible = $1 AND sujet = $2 \
+               AND etat = 'terminee' AND derniere_issue = 'envoye' AND termine_le > $3",
+            cabinet,
+            sujet.nom(),
+            depuis,
+        )
+        .fetch_one(self.connexion())
+        .await?)
     }
 
     /// Supprime les tâches d'horodatage, d'envoi de courriel et de notification terminées avant

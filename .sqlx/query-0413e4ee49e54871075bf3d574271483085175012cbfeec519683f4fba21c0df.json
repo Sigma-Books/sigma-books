@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"n!\" FROM tache WHERE nature = 'notification' AND cabinet_cible = $1 AND sujet = $2 AND etat = 'terminee' AND derniere_issue = 'envoye' AND termine_le > $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0413e4ee49e54871075bf3d574271483085175012cbfeec519683f4fba21c0df"
+}

@@ -192,7 +192,15 @@ pub fn alerte(
             "Sigma Books : réinitialisation d'un accès annulée",
             "La réinitialisation de l'accès d'un membre de votre cabinet a été annulée.".to_owned(),
         ),
-        (S::ReinitialisationAboutie, _) => (
+        (S::ReinitialisationAboutie, Destinataire::Concerne) => (
+            "Sigma Books : votre accès a été réinitialisé",
+            "Le lien de réinitialisation de votre accès vient d'être utilisé : vos anciens moyens \
+             de connexion ont été retirés et une nouvelle clé d'accès (passkey) est en cours \
+             d'enregistrement. Si ce n'était pas vous, prévenez immédiatement un administrateur \
+             de votre cabinet."
+                .to_owned(),
+        ),
+        (S::ReinitialisationAboutie, Destinataire::Administrateur) => (
             "Sigma Books : accès d'un membre réinitialisé",
             "Le lien de réinitialisation de l'accès d'un membre de votre cabinet vient d'être \
              utilisé : ses anciens moyens de connexion sont retirés. Si vous ne reconnaissez pas \
