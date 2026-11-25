@@ -35,20 +35,18 @@
 //!   (journal, exercice, séquence) sert de filet (PR 13) ;
 //! - **date de validation** : le jour lu par l'appelant (le moteur ne lit pas l'horloge) ;
 //! - pour une contre-passation, l'**écriture d'origine**, relue par
-//!   [`EcritureValidee::reconstituer`], et son **état de contre-passation** (numéro de la
-//!   contre-passation qui la cite, s'il y en a une), lus après la prise des verrous, de sorte
-//!   que deux contre-passations concurrentes de la même origine soient sérialisées. Le verrou
-//!   `FOR UPDATE` de la tête de chaîne du dossier suffit à cette sérialisation. **Aucun verrou
-//!   de ligne n'est possible sur les écritures validées** : `FOR UPDATE`, `FOR NO KEY UPDATE`,
-//!   `FOR SHARE` et `FOR KEY SHARE` exigent tous le droit `UPDATE`, refusé au rôle applicatif
-//!   sur ces tables (ADR 0011, ajout seul). Un index unique partiel sur l'origine
-//!   (`WHERE origine IS NOT NULL`) sert de filet.
+//!   [`EcritureValidee::reconstituer`], lue après la prise des verrous. Une origine peut être
+//!   contre-passée plusieurs fois (ADR 0021 point 4, révisé le 2026-11-25) : aucun état de
+//!   contre-passation n'est un fait de la décision. La sérialisation de deux contre-passations
+//!   concurrentes (numéros, chaîne) est celle du verrou `FOR UPDATE` de la tête de chaîne du
+//!   dossier. **Aucun verrou de ligne n'est possible sur les écritures validées** : tous les
+//!   verrous de ligne exigent le droit `UPDATE`, refusé au rôle applicatif (ADR 0011, ajout
+//!   seul).
 //!
 //! # Moteurs de référence étudiés
 //! - Tryton `modules/account/move.py` : `post` numérote à la validation par une séquence
 //!   stricte, incrémentée sous verrou ; `cancel(reversal=True)` inverse débit et crédit et
-//!   garde l'origine, mais rien n'y empêche d'annuler deux fois la même pièce (ici
-//!   [`ErreurValidation::DejaContrePassee`]).
+//!   garde l'origine, et n'empêche pas d'annuler plusieurs fois la même pièce : suivi (ADR 0021).
 //! - Odoo `sequence_mixin.py` : pas de compteur, numéro déduit du dernier enregistré, unicité
 //!   par index unique, trous admis : écarté (spec §6.3, numérotation sans trou).
 //! - Bigcapital `PublishManualJournal` : relit la pièce sous verrou de ligne, puis vérifie
@@ -118,28 +116,27 @@ pub fn valider(
 
 /// Contre-passe l'écriture `origine` à partir de faits fournis : écriture miroir dans le même
 /// journal (sens inversés ; mêmes comptes, montants, devises, tiers, justification et version
-/// de paramètres), à la `date` donnée, validée selon les mêmes contrôles. `contre_passee_par`
-/// est la contre-passation qui cite déjà `origine`, s'il y en a une. La contre-passation ne
+/// de paramètres), à la `date` donnée, validée selon les mêmes contrôles. Une origine peut être
+/// contre-passée plusieurs fois (ADR 0021 point 4). La contre-passation ne
 /// reprend pas la date de valeur comptable de l'origine : c'est une opération nouvelle,
 /// datée dans une période ouverte.
 ///
-/// `origine` et `contre_passee_par` doivent être relus de la base **du même dossier**, dans
-/// la transaction de la contre-passation, après la prise des verrous (voir la documentation
-/// du module) : le moteur ne peut pas vérifier qu'ils sont à jour.
+/// `origine` doit être relue de la base **du même dossier**, dans la transaction de la
+/// contre-passation, après la prise des verrous (voir la documentation du module) : le moteur
+/// ne peut pas vérifier qu'elle est à jour.
 ///
 /// # Errors
-/// Écriture déjà contre-passée, date antérieure à l'origine, invariant non respecté à la date
+/// Date antérieure à l'origine, invariant non respecté à la date
 /// choisie, compteur inadapté.
 pub fn contre_passer(
     origine: &EcritureValidee,
-    contre_passee_par: Option<&NumeroEcriture>,
     date: Date,
     libelle: TexteCourt,
     contexte: &Contexte<'_>,
     compteur: &Compteur,
     date_validation: Date,
 ) -> Result<Validation, ErreurValidation> {
-    let miroir = miroir(origine, contre_passee_par, date, libelle)?;
+    let miroir = miroir(origine, date, libelle)?;
     let (ecriture, compteur) = valider_avec(
         miroir,
         Some(origine.numero().clone()),
@@ -155,16 +152,9 @@ pub fn contre_passer(
 /// Écriture miroir de `origine`, après les contrôles propres à la contre-passation.
 pub(crate) fn miroir(
     origine: &EcritureValidee,
-    contre_passee_par: Option<&NumeroEcriture>,
     date: Date,
     libelle: TexteCourt,
 ) -> Result<EcritureEquilibree, ErreurValidation> {
-    if let Some(par) = contre_passee_par {
-        return Err(ErreurValidation::DejaContrePassee {
-            origine: origine.numero().clone(),
-            par: par.clone(),
-        });
-    }
     if date < origine.date() {
         return Err(ErreurValidation::DateAnterieureAOrigine {
             date,

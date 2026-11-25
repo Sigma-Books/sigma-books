@@ -2,7 +2,8 @@
 //! - toute suite d'écritures validées donne une balance équilibrée, quel que soit le format,
 //!   le regroupement et la période ;
 //! - écriture + contre-passation = effet nul exact sur chaque compte ;
-//! - une écriture n'est jamais contre-passée deux fois.
+//! - une écriture peut être contre-passée plusieurs fois (ADR 0021 point 4, révisé) : origine +
+//!   deux contre-passations = effet inversé net.
 
 // Fichier de test : les `unwrap` y sont voulus (une donnée de test invalide fait échouer le test).
 #![allow(clippy::unwrap_used)]
@@ -10,8 +11,7 @@ mod commun;
 
 use commun::*;
 use compta_core::{
-    Balance, CodeExercice, Devise, ErreurValidation, Filtre, FormatBalance, Ligne, Mode, Montant,
-    Regroupement, Sens,
+    Balance, CodeExercice, Devise, Filtre, FormatBalance, Ligne, Mode, Montant, Regroupement, Sens,
 };
 use proptest::prelude::*;
 use rust_decimal::Decimal;
@@ -158,13 +158,31 @@ proptest! {
             let (debit, credit) = ligne.mouvements();
             prop_assert_eq!(debit, credit);
         }
-        // Aucune écriture n'est contre-passée deux fois.
+        // Une seconde contre-passation réussit : numéro propre, effet inversé net.
         for numero in &numeros {
-            let refus = dos.contre_passer(numero, date_de(365));
-            prop_assert!(
-                matches!(refus, Err(ErreurValidation::DejaContrePassee { .. })),
-                "{:?}", refus
-            );
+            let seconde = dos.contre_passer(numero, date_de(365)).unwrap();
+            prop_assert_eq!(dos.livre.contre_passations(numero).len(), 2);
+            prop_assert_eq!(dos.livre.ecriture(&seconde).unwrap().origine(), Some(numero));
+        }
+        let apres = Balance::calculer(
+            dos.livre.ecritures(), &[], Mode::Definitif, &filtre(&dos, 1, 365), Regroupement::ParCompte,
+        ).unwrap();
+        let origines: Vec<_> = numeros
+            .iter()
+            .map(|n| dos.livre.ecriture(n).unwrap().clone())
+            .collect();
+        let seules = Balance::calculer(
+            &origines, &[], Mode::Definitif, &filtre(&dos, 1, 365), Regroupement::ParCompte,
+        ).unwrap();
+        for ligne in seules.lignes() {
+            let (d0, c0) = ligne.solde_final().unwrap();
+            let net = apres
+                .lignes()
+                .iter()
+                .find(|l| l.cle() == ligne.cle())
+                .map(|l| l.solde_final().unwrap())
+                .unwrap();
+            prop_assert_eq!(net.0 - net.1, c0 - d0, "compte {}", ligne.cle());
         }
     }
 }

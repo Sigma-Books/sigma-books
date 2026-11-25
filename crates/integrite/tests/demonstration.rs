@@ -619,8 +619,8 @@ fn controler_la_balance(
 
     // La contre-passation est liée à son origine, dans les deux sens.
     assert_eq!(
-        dossier.livre.contre_passee_par(doublon),
-        Some(contre_passation)
+        dossier.livre.contre_passations(doublon),
+        [contre_passation.clone()]
     );
     let miroir = dossier.livre.ecriture(contre_passation).unwrap();
     assert_eq!(miroir.origine(), Some(doublon));

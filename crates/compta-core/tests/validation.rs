@@ -334,12 +334,12 @@ fn compteur_inadapte_ou_desynchronise() {
 }
 
 #[test]
-fn contre_passation_liee_dans_les_deux_sens_et_unique() {
+fn contre_passation_liee_dans_les_deux_sens_et_repetable() {
     let mut d = Dossier::nouveau();
     let origine = d.valider(achat()).unwrap();
     let cp = d.contre_passer(&origine, date!(2026 - 04 - 02)).unwrap();
     assert_eq!(cp.to_string(), "AC-2026-000002");
-    assert_eq!(d.livre.contre_passee_par(&origine), Some(&cp));
+    assert_eq!(d.livre.contre_passations(&origine), [cp.clone()]);
     let miroir = d.livre.ecriture(&cp).unwrap();
     assert_eq!(miroir.origine(), Some(&origine));
     let source = d.livre.ecriture(&origine).unwrap();
@@ -352,10 +352,15 @@ fn contre_passation_liee_dans_les_deux_sens_et_unique() {
     assert_eq!(miroir.justification(), source.justification());
     // L'origine reste validée et inchangée.
     assert_eq!(source.lignes()[0].sens(), Sens::Debit);
-    assert!(matches!(
-        d.contre_passer(&origine, date!(2026 - 04 - 03)),
-        Err(ErreurValidation::DejaContrePassee { .. })
-    ));
+    // Une origine peut être contre-passée plusieurs fois (ADR 0021 point 4, révisé le
+    // 2026-11-25) : chaque contre-passation a son numéro et cite l'origine.
+    let seconde = d.contre_passer(&origine, date!(2026 - 04 - 03)).unwrap();
+    assert_eq!(seconde.to_string(), "AC-2026-000003");
+    assert_eq!(
+        d.livre.ecriture(&seconde).unwrap().origine(),
+        Some(&origine)
+    );
+    assert_eq!(d.livre.contre_passations(&origine), [cp, seconde]);
 }
 
 #[test]
@@ -379,7 +384,7 @@ fn contre_passation_refusee_avant_l_origine_ou_inconnue() {
         d.contre_passer(&origine, date!(2026 - 05 - 15)),
         Err(ErreurValidation::PeriodeFermee(date!(2026 - 05 - 15)))
     );
-    assert!(d.livre.contre_passee_par(&origine).is_none());
+    assert!(d.livre.contre_passations(&origine).is_empty());
 }
 
 #[test]

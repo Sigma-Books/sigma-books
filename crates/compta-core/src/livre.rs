@@ -130,14 +130,6 @@ pub enum ErreurValidation {
     /// Écriture à contre-passer absente du livre.
     #[error("l'écriture {0} n'existe pas")]
     EcritureInconnue(NumeroEcriture),
-    /// Écriture déjà contre-passée.
-    #[error("l'écriture {origine} est déjà contre-passée par {par}")]
-    DejaContrePassee {
-        /// Écriture d'origine.
-        origine: NumeroEcriture,
-        /// Contre-passation existante.
-        par: NumeroEcriture,
-    },
     /// Échéance de la clôture informatique dépassée : la période doit être clôturée et
     /// n'accepte plus d'écriture (AUDCIF art. 22 3°).
     #[error(
@@ -466,7 +458,7 @@ impl EcritureValidee {
 pub struct Livre {
     ecritures: Vec<EcritureValidee>,
     index: BTreeMap<NumeroEcriture, usize>,
-    contre_passations: BTreeMap<NumeroEcriture, NumeroEcriture>,
+    contre_passations: BTreeMap<NumeroEcriture, Vec<NumeroEcriture>>,
     /// Dernière séquence validée, par journal et exercice.
     dernieres_sequences: BTreeMap<(CodeJournal, CodeExercice), u32>,
 }
@@ -490,11 +482,14 @@ impl Livre {
         self.index.get(numero).and_then(|i| self.ecritures.get(*i))
     }
 
-    /// Contre-passation d'une écriture, si elle existe (l'autre sens du lien est
+    /// Contre-passations d'une écriture, dans l'ordre de validation (une écriture peut être
+    /// contre-passée plusieurs fois, ADR 0021 ; l'autre sens du lien est
     /// [`EcritureValidee::origine`]).
     #[must_use]
-    pub fn contre_passee_par(&self, numero: &NumeroEcriture) -> Option<&NumeroEcriture> {
-        self.contre_passations.get(numero)
+    pub fn contre_passations(&self, numero: &NumeroEcriture) -> &[NumeroEcriture] {
+        self.contre_passations
+            .get(numero)
+            .map_or(&[], Vec::as_slice)
     }
 
     /// Usage d'un compte : mouvementé si une écriture validée l'utilise (plan, suppression).
@@ -548,11 +543,10 @@ impl Livre {
     /// Contre-passe l'écriture `origine` : écriture miroir dans le même journal, à la `date`
     /// donnée, avec la même justification, validée selon les mêmes contrôles.
     ///
-    /// Délègue à [`crate::validation::contre_passer`], avec l'écriture d'origine et son état
-    /// de contre-passation tirés du livre.
+    /// Délègue à [`crate::validation::contre_passer`], avec l'écriture d'origine tirée du livre.
     ///
     /// # Errors
-    /// Écriture inconnue ou déjà contre-passée, date antérieure à l'origine, ou invariant non
+    /// Écriture inconnue, date antérieure à l'origine, ou invariant non
     /// respecté à la date choisie. Le livre n'est pas modifié.
     pub fn contre_passer(
         &mut self,
@@ -566,7 +560,7 @@ impl Livre {
         let source = self
             .ecriture(origine)
             .ok_or_else(|| ErreurValidation::EcritureInconnue(origine.clone()))?;
-        let miroir = validation::miroir(source, self.contre_passee_par(origine), date, libelle)?;
+        let miroir = validation::miroir(source, date, libelle)?;
         let (validee, suivant) = validation::valider_avec(
             miroir,
             Some(origine.clone()),
@@ -604,7 +598,9 @@ impl Livre {
         self.index.insert(numero.clone(), self.ecritures.len());
         if let Some(origine) = &validee.origine {
             self.contre_passations
-                .insert(origine.clone(), numero.clone());
+                .entry(origine.clone())
+                .or_default()
+                .push(numero.clone());
         }
         self.ecritures.push(validee);
         numero
