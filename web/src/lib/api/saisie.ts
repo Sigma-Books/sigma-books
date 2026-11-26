@@ -4,7 +4,8 @@
 // chaînes canoniques, lignes vides ignorées) et indique, à titre indicatif, l'équilibre. Le
 // serveur décide de tout (comptes admis, équilibre, numéros) et renvoie des codes stables.
 
-import { ecart, estAmbigu, lireMontant, type Ecart } from '../montants.ts';
+import { ecart, lireMontant, type Ecart } from '../montants.ts';
+import type { Regional } from '../regional.ts';
 
 export interface LigneSaisie {
 	compte: string;
@@ -53,7 +54,7 @@ export interface CorpsEcriture {
 }
 
 export type ProblemeLocal =
-	'montant_ambigu' | 'montant_illisible' | 'debit_et_credit' | 'montant_absent' | 'compte_absent';
+	'montant_illisible' | 'debit_et_credit' | 'montant_absent' | 'compte_absent';
 
 export type Construction =
 	| {
@@ -65,13 +66,15 @@ export type Construction =
 	| { ok: false; probleme: ProblemeLocal; ligne: number };
 
 /**
- * Corps de la requête : lignes vides ignorées, montants en chaînes canoniques. Ne refuse que ce
- * que le serveur ne pourrait pas lire (montant illisible, débit et crédit ensemble) ; tout le
- * reste (compte, équilibre, justification) est contrôlé par le serveur.
+ * Corps de la requête : lignes vides ignorées, montants lus selon le locale du dossier et mis en
+ * chaînes canoniques. Ne refuse que ce que le serveur ne pourrait pas lire (montant illisible,
+ * débit et crédit ensemble) ; tout le reste (compte, équilibre, justification, échelle de la
+ * devise) est contrôlé par le serveur.
  */
 export function corpsEcriture(
 	entete: EnteteSaisie,
 	lignes: readonly LigneSaisie[],
+	regional: Regional,
 	version?: number
 ): Construction {
 	const corpsLignes: CorpsLigne[] = [];
@@ -83,8 +86,7 @@ export function corpsEcriture(
 		if (d !== '' && c !== '') return { ok: false, probleme: 'debit_et_credit', ligne: i };
 		if (d === '' && c === '') return { ok: false, probleme: 'montant_absent', ligne: i };
 		const brut = d === '' ? c : d;
-		if (estAmbigu(brut)) return { ok: false, probleme: 'montant_ambigu', ligne: i };
-		const montant = lireMontant(brut);
+		const montant = lireMontant(brut, regional);
 		if (montant === null) return { ok: false, probleme: 'montant_illisible', ligne: i };
 		if (l.compte.trim() === '') return { ok: false, probleme: 'compte_absent', ligne: i };
 		const ligne: CorpsLigne = {
@@ -108,10 +110,12 @@ export function corpsEcriture(
 }
 
 /** Équilibre indicatif de la grille (les montants illisibles comptent pour zéro). */
-export function equilibreIndicatif(lignes: readonly LigneSaisie[]): Ecart {
+export function equilibreIndicatif(lignes: readonly LigneSaisie[], regional: Regional): Ecart {
+	const lire = (texte: string) => lireMontant(texte, regional);
 	return ecart(
 		lignes.map((l) => l.debit),
-		lignes.map((l) => l.credit)
+		lignes.map((l) => l.credit),
+		lire
 	);
 }
 
@@ -124,9 +128,13 @@ export interface Solde {
  * Solde proposé par `=` pour la ligne `index` : le montant qui équilibre les autres lignes, porté
  * sur le côté demandé par la colonne où l'utilisateur se trouve. `null` si rien à équilibrer.
  */
-export function soldePropose(lignes: readonly LigneSaisie[], index: number): Solde | null {
+export function soldePropose(
+	lignes: readonly LigneSaisie[],
+	index: number,
+	regional: Regional
+): Solde | null {
 	const autres = lignes.filter((_, i) => i !== index);
-	const e = equilibreIndicatif(autres);
+	const e = equilibreIndicatif(autres, regional);
 	if (e.sens === 'equilibre') return null;
 	return { champ: e.sens, montant: e.difference };
 }

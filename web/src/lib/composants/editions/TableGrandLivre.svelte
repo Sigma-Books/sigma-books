@@ -3,9 +3,10 @@
 	import type { GrandLivre } from '#lib/api/editions.ts';
 	import { afficherDate } from '#lib/dates.ts';
 	import { afficherMontant } from '#lib/editions-affichage.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import '#lib/styles/editions.css';
 
-	let { grandLivre }: { grandLivre: GrandLivre } = $props();
+	let { grandLivre, regional }: { grandLivre: GrandLivre; regional: Regional } = $props();
 </script>
 
 {#each grandLivre.comptes as compte (compte.compte)}
@@ -27,27 +28,27 @@
 			<tbody>
 				<tr class="sous-total">
 					<th scope="row" colspan="7">Solde d’ouverture</th>
-					<td class="num">{afficherMontant(compte.solde_ouverture)}</td>
+					<td class="num">{afficherMontant(compte.solde_ouverture, regional)}</td>
 				</tr>
 				{#each compte.lignes as l, i (i)}
 					<tr>
-						<td>{afficherDate(l.date)}</td>
+						<td>{afficherDate(l.date, regional)}</td>
 						<td>{l.journal}</td>
 						<td>{l.numero ?? 'Brouillon'}</td>
 						<td>{l.libelle}</td>
 						<td>{l.tiers ?? ''}</td>
-						<td class="num">{afficherMontant(l.debit)}</td>
-						<td class="num">{afficherMontant(l.credit)}</td>
-						<td class="num">{afficherMontant(l.solde)}</td>
+						<td class="num">{afficherMontant(l.debit, regional)}</td>
+						<td class="num">{afficherMontant(l.credit, regional)}</td>
+						<td class="num">{afficherMontant(l.solde, regional)}</td>
 					</tr>
 				{/each}
 			</tbody>
 			<tfoot>
 				<tr>
 					<th scope="row" colspan="5">Totaux et solde final</th>
-					<td class="num">{afficherMontant(compte.total_debit)}</td>
-					<td class="num">{afficherMontant(compte.total_credit)}</td>
-					<td class="num">{afficherMontant(compte.solde_final)}</td>
+					<td class="num">{afficherMontant(compte.total_debit, regional)}</td>
+					<td class="num">{afficherMontant(compte.total_credit, regional)}</td>
+					<td class="num">{afficherMontant(compte.solde_final, regional)}</td>
 				</tr>
 			</tfoot>
 		</table>

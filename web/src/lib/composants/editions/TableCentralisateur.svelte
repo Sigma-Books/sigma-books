@@ -2,9 +2,11 @@
 <script lang="ts">
 	import type { Centralisateur, Rubrique } from '#lib/api/editions.ts';
 	import { afficherMontant, libelleMois } from '#lib/editions-affichage.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import '#lib/styles/editions.css';
 
-	let { centralisateur }: { centralisateur: Centralisateur } = $props();
+	let { centralisateur, regional }: { centralisateur: Centralisateur; regional: Regional } =
+		$props();
 </script>
 
 {#snippet rubrique(titre: string, r: Rubrique)}
@@ -23,26 +25,26 @@
 			<tbody>
 				{#each r.par_journal as l, i (i)}
 					<tr>
-						<td>{libelleMois(l)}</td>
+						<td>{libelleMois(l, regional)}</td>
 						<td>{l.journal ?? ''}</td>
 						<td></td>
-						<td class="num">{afficherMontant(l.debit)}</td>
-						<td class="num">{afficherMontant(l.credit)}</td>
+						<td class="num">{afficherMontant(l.debit, regional)}</td>
+						<td class="num">{afficherMontant(l.credit, regional)}</td>
 					</tr>
 				{/each}
 				{#each r.par_mois as l, i (i)}
 					<tr class="sous-total">
-						<th scope="row" colspan="3">Total {libelleMois(l)}</th>
-						<td class="num">{afficherMontant(l.debit)}</td>
-						<td class="num">{afficherMontant(l.credit)}</td>
+						<th scope="row" colspan="3">Total {libelleMois(l, regional)}</th>
+						<td class="num">{afficherMontant(l.debit, regional)}</td>
+						<td class="num">{afficherMontant(l.credit, regional)}</td>
 					</tr>
 				{/each}
 			</tbody>
 			<tfoot>
 				<tr>
 					<th scope="row" colspan="3">Total</th>
-					<td class="num">{afficherMontant(r.total_debit)}</td>
-					<td class="num">{afficherMontant(r.total_credit)}</td>
+					<td class="num">{afficherMontant(r.total_debit, regional)}</td>
+					<td class="num">{afficherMontant(r.total_credit, regional)}</td>
 				</tr>
 			</tfoot>
 		</table>
@@ -69,11 +71,11 @@
 					<tbody>
 						{#each r.par_compte as l, i (i)}
 							<tr>
-								<td>{libelleMois(l)}</td>
+								<td>{libelleMois(l, regional)}</td>
 								<td>{l.journal ?? ''}</td>
 								<td>{l.compte ?? ''}</td>
-								<td class="num">{afficherMontant(l.debit)}</td>
-								<td class="num">{afficherMontant(l.credit)}</td>
+								<td class="num">{afficherMontant(l.debit, regional)}</td>
+								<td class="num">{afficherMontant(l.credit, regional)}</td>
 							</tr>
 						{/each}
 					</tbody>

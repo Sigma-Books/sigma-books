@@ -6,10 +6,14 @@
 	import { api } from '#lib/application.ts';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import { dateHeure } from '#lib/instants.ts';
+	import { regionalUtilisateur } from '#lib/regional.ts';
 	import { libelleMethode } from '#lib/libelles.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	// Instants dans le fuseau et la langue du navigateur : ces écrans ne dépendent d'aucun dossier.
+	const regional = regionalUtilisateur();
 
 	let enCours = $state<string | null>(null);
 	let erreur = $state<ErreurApi | null>(null);
@@ -64,11 +68,11 @@
 					<dt>Adresse</dt>
 					<dd>{session.adresse ?? '—'}</dd>
 					<dt>Connexion</dt>
-					<dd>{libelleMethode(session.methode)}, le {dateHeure(session.cree_le)}</dd>
+					<dd>{libelleMethode(session.methode)}, le {dateHeure(session.cree_le, regional)}</dd>
 					<dt>Dernière activité</dt>
-					<dd>{dateHeure(session.derniere_activite)}</dd>
+					<dd>{dateHeure(session.derniere_activite, regional)}</dd>
 					<dt>Échéance</dt>
-					<dd>{dateHeure(session.echeance)}</dd>
+					<dd>{dateHeure(session.echeance, regional)}</dd>
 				</dl>
 				{#if session.courante}
 					<p class="aide">Pour fermer cette session, utilisez « Se déconnecter ».</p>
@@ -83,7 +87,10 @@
 						Révoquer
 					</button>
 					<span id={`appareil-${session.id}`} class="visuellement-cache">
-						la session {session.appareil ?? 'de l’appareil inconnu'} du {dateHeure(session.cree_le)}
+						la session {session.appareil ?? 'de l’appareil inconnu'} du {dateHeure(
+							session.cree_le,
+							regional
+						)}
 					</span>
 				{/if}
 			</li>

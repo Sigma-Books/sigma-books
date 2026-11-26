@@ -3,6 +3,8 @@
 // Les microsecondes dépassent la forme garantie par `Date.parse` (trois chiffres) : l'analyse est
 // faite ici, tronquée à la milliseconde, et refuse toute autre forme.
 
+import { localeDe, type Regional } from './regional.ts';
+
 const MOTIF = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/;
 
 /** Instant UTC lu, ou `null` si la forme ou la date est invalide. */
@@ -29,19 +31,36 @@ export function lireInstant(texte: string): Date | null {
 	return coherente ? date : null;
 }
 
-const DATE_HEURE = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
-const HEURE = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' });
+const FORMATS = new Map<string, Intl.DateTimeFormat>();
 
-/** Date et heure locales (« 19/11/2026 14:05 »), ou « — » si l'instant est illisible. */
-export function dateHeure(texte: string): string {
-	const date = lireInstant(texte);
-	return date === null ? '—' : DATE_HEURE.format(date);
+function format(r: Regional, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+	const cle = `${localeDe(r)}|${r.fuseau}|${JSON.stringify(options)}`;
+	let f = FORMATS.get(cle);
+	if (f === undefined) {
+		f = new Intl.DateTimeFormat(localeDe(r), { timeZone: r.fuseau, ...options });
+		FORMATS.set(cle, f);
+	}
+	return f;
 }
 
-/** Heure locale (« 14:05 »), ou « — ». */
-export function heure(texte: string): string {
+/** Date et heure du fuseau et du locale du dossier (`19/11/2026 14:05`), ou « — » si illisible. */
+export function dateHeure(texte: string, r: Regional): string {
 	const date = lireInstant(texte);
-	return date === null ? '—' : HEURE.format(date);
+	return date === null
+		? '—'
+		: format(r, {
+				day: '2-digit',
+				month: '2-digit',
+				year: 'numeric',
+				hour: '2-digit',
+				minute: '2-digit'
+			}).format(date);
+}
+
+/** Heure du fuseau du dossier (`14:05`), ou « — ». */
+export function heure(texte: string, r: Regional): string {
+	const date = lireInstant(texte);
+	return date === null ? '—' : format(r, { hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
 /** Minutes entières restantes avant l'instant (0 s'il est passé), ou `null` s'il est illisible. */

@@ -85,9 +85,9 @@
 									{e.numero}
 								</a>
 							</td>
-							<td>{afficherDate(e.date)}</td>
+							<td>{afficherDate(e.date, contexte.regional)}</td>
 							<td>{e.libelle}</td>
-							<td class="num">{formaterMontant(e.total)}</td>
+							<td class="num">{formaterMontant(e.total, contexte.regional)}</td>
 						</tr>
 					{/each}
 				</tbody>

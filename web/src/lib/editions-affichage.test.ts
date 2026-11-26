@@ -10,15 +10,38 @@ import {
 	messageAlerteEcheance,
 	messageBrouillonsExclus
 } from './editions-affichage.ts';
+import { fixerLangue } from './i18n/index.ts';
+import { lireRegional } from './regional.ts';
 import { estNomFichierSur } from './telechargement.ts';
+
+const FR = lireRegional({});
+const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
 
 describe('affichage des éditions', () => {
 	it('colonnes et mois', () => {
 		assert.equal(libelleColonne('solde_debiteur'), 'Solde débiteur');
 		assert.equal(libelleColonne('inconnue'), 'inconnue');
 		assert.equal(libelleColonne('constructor'), 'constructor');
-		assert.equal(libelleMois({ annee: 2026, mois: 3 }), 'mars 2026');
-		assert.equal(libelleMois({ annee: 2026, mois: 13 }), '2026-13');
+		assert.equal(libelleMois({ annee: 2026, mois: 3 }, FR), 'mars 2026');
+		assert.equal(libelleMois({ annee: 2026, mois: 13 }, FR), '2026-13');
+	});
+
+	it('les mois suivent le locale du dossier (Intl, aucun nom de mois en dur)', () => {
+		const mars = { annee: 2026, mois: 3 };
+		assert.equal(libelleMois(mars, EN), 'March 2026');
+		assert.equal(libelleMois(mars, lireRegional({ langue: 'pt', pays: 'GW' })), 'março de 2026');
+		assert.equal(libelleMois(mars, lireRegional({ langue: 'es', pays: 'GQ' })), 'marzo de 2026');
+		assert.equal(libelleMois({ annee: 2026, mois: 8 }, FR), 'août 2026');
+		assert.equal(libelleMois({ annee: 2026, mois: 12 }, FR), 'décembre 2026');
+	});
+
+	it('les libellés suivent la langue courante, avec repli sur le français', () => {
+		fixerLangue('en');
+		try {
+			assert.equal(libelleColonne('solde_debiteur'), 'Solde débiteur'); // non traduit : français
+		} finally {
+			fixerLangue('fr');
+		}
 	});
 
 	it('brouillons exclus signalés seulement s’il y en a', () => {
@@ -26,18 +49,21 @@ describe('affichage des éditions', () => {
 		assert.match(messageBrouillonsExclus({ desequilibres: 2, illisibles: 1 }) ?? '', /3 brouillon/);
 	});
 
-	it('alertes', () => {
-		assert.match(
-			messageAlerteBrouillard({
-				journal: 'OD',
-				debut_periode: '2026-01-01',
-				fin_periode: '2026-01-31',
-				nombre: 2,
-				plus_ancienne: '2026-01-05',
-				jours_de_retard: 1
-			}),
-			/1 jour\b.*OD|Journal OD.*1 jour/
-		);
+	it('alertes : dates dans le locale du dossier', () => {
+		const brouillard = {
+			journal: 'OD',
+			debut_periode: '2026-01-01',
+			fin_periode: '2026-01-31',
+			nombre: 2,
+			plus_ancienne: '2026-01-05',
+			jours_de_retard: 1
+		};
+		const m = messageAlerteBrouillard(brouillard, FR);
+		assert.match(m, /Journal OD/);
+		assert.match(m, /2 brouillons/);
+		assert.match(m, /retard de 1 jour\b/);
+		assert.match(m, /du 01\/01\/2026 au 31\/01\/2026/);
+		assert.match(m, /date du 05\/01\/2026/);
 		const e = {
 			exercice: '2026',
 			debut: '2026-01-01',
@@ -47,9 +73,10 @@ describe('affichage des éditions', () => {
 			depassee: true,
 			statut: 'ouverte'
 		};
-		assert.match(messageAlerteEcheance(e), /dépassée de 3 jours/);
+		assert.match(messageAlerteEcheance(e, FR), /dépassée de 3 jours/);
+		assert.match(messageAlerteEcheance(e, FR), /échéance le 31\/03\/2026/);
 		assert.match(
-			messageAlerteEcheance({ ...e, depassee: false, jours_restants: 12 }),
+			messageAlerteEcheance({ ...e, depassee: false, jours_restants: 12 }, FR),
 			/dans 12 jours/
 		);
 	});
@@ -94,6 +121,7 @@ describe('édition vide et zéro', () => {
 		assert.equal(normaliserZero('-0'), '0');
 		assert.equal(normaliserZero('-0.000'), '0');
 		assert.equal(normaliserZero('-0.5'), '-0.5');
-		assert.equal(afficherMontant('-0'), '0');
+		assert.equal(afficherMontant('-0', FR), '0');
+		assert.equal(afficherMontant('-0.00', lireRegional({ decimales: 2 })), '0,00');
 	});
 });

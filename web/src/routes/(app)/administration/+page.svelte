@@ -24,11 +24,15 @@
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import { dateHeure } from '#lib/instants.ts';
+	import { regionalUtilisateur } from '#lib/regional.ts';
 	import { libelleMotifReinitialisation, libelleRole, ROLES_PROPOSES } from '#lib/libelles.ts';
 	import { assurerFraicheur } from '#lib/reauthentification.svelte.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	// Instants dans le fuseau et la langue du navigateur : ces écrans ne dépendent d'aucun dossier.
+	const regional = regionalUtilisateur();
 
 	let enCours = $state(false);
 	let erreur = $state<ErreurApi | null>(null);
@@ -267,7 +271,9 @@
 						<div class="identite">
 							<strong>{inv.nom}</strong>
 							<span class="aide">{inv.courriel}</span>
-							<span class="aide">{libelleRole(inv.role)}, le {dateHeure(inv.cree_le)}</span>
+							<span class="aide">
+								{libelleRole(inv.role)}, le {dateHeure(inv.cree_le, regional)}
+							</span>
 						</div>
 						<div class="actions">
 							<button
@@ -348,9 +354,12 @@
 						<div class="identite">
 							<strong>{nomDuMembre(membres, r.membre)}</strong>
 							<span class="aide">
-								{libelleMotifReinitialisation(r.motif)}, demandée le {dateHeure(r.cree_le)}
+								{libelleMotifReinitialisation(r.motif)}, demandée le {dateHeure(
+									r.cree_le,
+									regional
+								)}
 							</span>
-							<span class="aide">Lien envoyé après le {dateHeure(r.echeance)}.</span>
+							<span class="aide">Lien envoyé après le {dateHeure(r.echeance, regional)}.</span>
 						</div>
 						<div class="actions">
 							<button

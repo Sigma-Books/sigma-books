@@ -2,9 +2,10 @@
 <script lang="ts">
 	import type { Balance } from '#lib/api/editions.ts';
 	import { afficherMontant, libelleColonne, titreBalance } from '#lib/editions-affichage.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import '#lib/styles/editions.css';
 
-	let { balance }: { balance: Balance } = $props();
+	let { balance, regional }: { balance: Balance; regional: Regional } = $props();
 </script>
 
 <div class="defilement" role="region" aria-label="Balance" tabindex="-1">
@@ -23,7 +24,7 @@
 				<tr>
 					<th scope="row">{ligne.cle}</th>
 					{#each ligne.valeurs as valeur, i (i)}
-						<td class="num">{afficherMontant(valeur)}</td>
+						<td class="num">{afficherMontant(valeur, regional)}</td>
 					{/each}
 				</tr>
 			{/each}
@@ -32,7 +33,7 @@
 			<tr>
 				<th scope="row">Totaux</th>
 				{#each balance.totaux as total, i (i)}
-					<td class="num">{afficherMontant(total)}</td>
+					<td class="num">{afficherMontant(total, regional)}</td>
 				{/each}
 			</tr>
 		</tfoot>

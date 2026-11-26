@@ -15,7 +15,8 @@
 	import MessageMetier from '#lib/composants/MessageMetier.svelte';
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
 	import { ROLES_VALIDATION_LOT } from '#lib/contexte-dossier.ts';
-	import { afficherDate, dateIso } from '#lib/dates.ts';
+	import { afficherDate, dateDuJour } from '#lib/dates.ts';
+	import { traduire } from '#lib/i18n/index.ts';
 	import { formaterMontant } from '#lib/montants.ts';
 	import type { PageProps } from './$types';
 
@@ -24,7 +25,7 @@
 	/** Écriture relue après une contre-passation (sa liste de contre-passations avance). */
 	let relue = $state<Ecriture | null>(null);
 	let faite = $state<ContrePassation | null>(null);
-	let date = $state(dateIso(new Date()));
+	let date = $state('');
 	let libelle = $state('');
 	let motif = $state('');
 	let confirmeRepetition = $state(false);
@@ -43,7 +44,9 @@
 		faite = null;
 		faitesDepuis = 0;
 		if (data.contenu?.ok) {
-			libelle = `Contre-passation de ${data.contenu.valeur.valeur.numero}`;
+			const { contexte, valeur } = data.contenu.valeur;
+			date = dateDuJour(contexte.regional.fuseau);
+			libelle = traduire('contre_passation.libelle_defaut', { numero: valeur.numero });
 		}
 	});
 
@@ -107,13 +110,13 @@
 		<dt>Journal</dt>
 		<dd>{e.journal} (exercice {e.exercice})</dd>
 		<dt>Date comptable</dt>
-		<dd>{afficherDate(e.date)}</dd>
+		<dd>{afficherDate(e.date, contexte.regional)}</dd>
 		{#if e.date_valeur_comptable}
 			<dt>Date de valeur</dt>
-			<dd>{afficherDate(e.date_valeur_comptable)}</dd>
+			<dd>{afficherDate(e.date_valeur_comptable, contexte.regional)}</dd>
 		{/if}
 		<dt>Validée le</dt>
-		<dd>{afficherDate(e.date_validation)}</dd>
+		<dd>{afficherDate(e.date_validation, contexte.regional)}</dd>
 		<dt>Rang dans la chaîne</dt>
 		<dd>{e.rang}</dd>
 		<dt>Empreinte</dt>
@@ -149,8 +152,12 @@
 					<tr>
 						<th scope="row">{l.position}</th>
 						<td>{l.compte}</td>
-						<td class="num">{l.sens === 'debit' ? formaterMontant(l.montant) : ''}</td>
-						<td class="num">{l.sens === 'credit' ? formaterMontant(l.montant) : ''}</td>
+						<td class="num">
+							{l.sens === 'debit' ? formaterMontant(l.montant, contexte.regional) : ''}
+						</td>
+						<td class="num">
+							{l.sens === 'credit' ? formaterMontant(l.montant, contexte.regional) : ''}
+						</td>
 					</tr>
 				{/each}
 			</tbody>
@@ -230,8 +237,12 @@
 						{#each e.lignes as l (l.position)}
 							<tr>
 								<td>{l.compte}</td>
-								<td class="num">{l.sens === 'credit' ? formaterMontant(l.montant) : ''}</td>
-								<td class="num">{l.sens === 'debit' ? formaterMontant(l.montant) : ''}</td>
+								<td class="num">
+									{l.sens === 'credit' ? formaterMontant(l.montant, contexte.regional) : ''}
+								</td>
+								<td class="num">
+									{l.sens === 'debit' ? formaterMontant(l.montant, contexte.regional) : ''}
+								</td>
 							</tr>
 						{/each}
 					</tbody>
