@@ -1,0 +1,10 @@
+# Socle commun à tous les pays de la zone OHADA (ADR 0030) : rôles de taux et plancher de
+# rétention. Les régimes du socle sont dans `regimes-tva.toml`.
+
+# Rôles de taux dont une version de paramètres donne la valeur. Ajout seul.
+roles_taux = ["normal", "reduit"]
+
+[retention]
+# Plancher de conservation des pièces, en années, qu'aucune version ne peut baisser.
+plancher_annees = 10
+source = "AUDCIF art. 24 (ADR 0015 : dix ans, point de départ à confirmer)"

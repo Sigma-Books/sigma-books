@@ -1,0 +1,16 @@
+[[motif]]
+code = "EXO_SANS_DEDUCTION-x1"
+regime = "EXO_SANS_DEDUCTION"
+article = "F21"
+alinea = "1"
+libelle = "Motif factice 1"
+deduction = "non"
+fin = "2025-12-31"
+
+[[motif]]
+code = "EXO_SANS_DEDUCTION-x2"
+regime = "EXO_SANS_DEDUCTION"
+article = "F21"
+alinea = "2"
+libelle = "Motif factice 2"
+deduction = "non"

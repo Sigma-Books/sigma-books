@@ -1,0 +1,26 @@
+[package]
+name = "fiscal"
+description = "Paramètres fiscaux versionnés par pays (socle commun, paquets de pays, registre)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+compta-core = { path = "../compta-core" }
+serde.workspace = true
+thiserror.workspace = true
+time.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+# Empreinte des fichiers de version publiés (ils sont immuables, ADR 0030 point 1) : déjà dans
+# l'arbre (`integrite`), aucune nouvelle dépendance.
+sha2.workspace = true
+proptest.workspace = true
+time = { workspace = true, features = ["macros"] }

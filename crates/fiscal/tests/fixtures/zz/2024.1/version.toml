@@ -1,0 +1,22 @@
+# PAQUET FACTICE DE TEST (pays ZZ, inexistant) : valeurs inventées, aucune source réelle.
+# Il prouve qu'un autre pays se charge et s'applique sans toucher au socle ni au code.
+pays = "ZZ"
+version = "2024.1"
+date_effet = "2024-01-01"
+source = "FACTICE : texte inventé pour les tests"
+
+[[document]]
+id = "factice"
+titre = "Document factice"
+
+[taux.normal]
+valeur = "15"
+source = "FACTICE art. 1"
+
+[taux.reduit]
+valeur = "5"
+source = "FACTICE art. 2"
+
+[retention]
+annees_min = 12
+source = "FACTICE art. 3"
