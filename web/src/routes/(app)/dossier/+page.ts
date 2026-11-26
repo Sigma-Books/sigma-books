@@ -1,8 +1,9 @@
 // Écran d'un dossier (`?cabinet=<uuid>&dossier=<uuid>`).
 import { activerCabinet, api, exigerSessionComplete, membreDuCabinet } from '#lib/application.ts';
-import { lireDossier } from '#lib/api/ressources.ts';
+import { lirePackPays, lireDossier } from '#lib/api/ressources.ts';
 import { tenter } from '#lib/api/resultat.ts';
 import { lireUuid } from '#lib/api/types.ts';
+import { ROLES_CREATION_DOSSIER } from '#lib/libelles.ts';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ url, parent }) => {
@@ -16,7 +17,12 @@ export const load: PageLoad = async ({ url, parent }) => {
 			membreDuCabinet(cabinet),
 			lireDossier(api, cabinet, dossier)
 		]);
-		return { membre, dossier: lu };
+		// Le pack ne sert qu'à nommer le pays et les types d'identifiants : sans lui (rôle sans droit
+		// de création, ou erreur), l'écran affiche les codes.
+		const pack = ROLES_CREATION_DOSSIER.includes(membre.role)
+			? await tenter(() => lirePackPays(api, cabinet))
+			: null;
+		return { membre, dossier: lu, pack: pack?.ok ? pack.valeur : null };
 	});
 	const fil = contenu.ok
 		? {

@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { messageMetier } from './api/messages.ts';
 import { ErreurApi, traduireReponse } from './api/erreurs.ts';
 import { MOTIFS_CONTEXTE, type PackPays } from './api/pays.ts';
+import type { Dossier, Uuid } from './api/types.ts';
 import {
 	BORNES_PROBLEMES,
 	choisirPays,
@@ -14,6 +15,8 @@ import {
 	formulaireVide,
 	creationPossiblementFaite,
 	etatIdentifiants,
+	formulaireDuDossier,
+	preparerModification,
 	messageProbleme,
 	ouvertureSuivantFuseau,
 	libelleDecalage,
@@ -378,6 +381,143 @@ describe('corps de la création', () => {
 			corpsCreation('X', formulaireSn(), { ...REPRISE, annee: 'abcd' }, PACK, AUJOURDHUI),
 			null
 		);
+	});
+});
+
+describe('corps de la modification', () => {
+	const dossier: Dossier = {
+		id: '0b0f6c43-7c47-4a43-9d1e-2f4f6f0a1b2c' as Uuid,
+		nom: 'SARL Exemple',
+		pays: 'SN',
+		devise: 'XOF',
+		decimales: 0,
+		fuseau: 'Africa/Dakar',
+		langue: 'fr',
+		forme_juridique: 'SARL',
+		identifiants_legaux: [{ type: 'NINEA', valeur: '123' }]
+	};
+	const initial = formulaireDuDossier(dossier, PACK);
+
+	it('le formulaire d’un dossier reprend son contexte et ses identifiants', () => {
+		assert.equal(initial.formeJuridique, 'SARL');
+		assert.deepEqual(initial.identifiants, { NINEA: '123', RCCM: '', AUTRE: '' });
+	});
+
+	it('sans changement : rien à envoyer', () => {
+		assert.deepEqual(preparerModification(initial, { ...initial }, PACK), { etat: 'inchange' });
+		// Une valeur seulement entourée d'espaces ne change rien.
+		assert.deepEqual(
+			preparerModification(initial, { ...initial, formeJuridique: ' SARL ' }, PACK),
+			{ etat: 'inchange' }
+		);
+	});
+
+	it('fuseau, langue, forme juridique : changement non sensible, champs changés seulement', () => {
+		const m = preparerModification(
+			initial,
+			{ ...initial, fuseau: 'Africa/Kinshasa', langue: 'pt', formeJuridique: 'SA' },
+			PACK
+		);
+		assert.deepEqual(m, {
+			etat: 'a_envoyer',
+			sensible: false,
+			corps: { fuseau: 'Africa/Kinshasa', langue: 'pt', forme_juridique: 'SA' }
+		});
+	});
+
+	it('forme juridique vidée : envoyée null pour l’effacer', () => {
+		const m = preparerModification(initial, { ...initial, formeJuridique: '' }, PACK);
+		assert.deepEqual(m, { etat: 'a_envoyer', sensible: false, corps: { forme_juridique: null } });
+	});
+
+	it('pays ou devise changés : changement sensible (session fraîche)', () => {
+		const devise = preparerModification(initial, { ...initial, devise: 'EUR' }, PACK);
+		assert.deepEqual(devise, { etat: 'a_envoyer', sensible: true, corps: { devise: 'EUR' } });
+		const pays = preparerModification(initial, choisirPays(initial, PACK, 'CD'), PACK);
+		assert.equal(pays.etat, 'a_envoyer');
+		assert.equal(pays.etat === 'a_envoyer' && pays.sensible, true);
+		assert.deepEqual(pays.etat === 'a_envoyer' && pays.corps, {
+			pays: 'CD',
+			devise: 'CDF',
+			fuseau: 'Africa/Kinshasa',
+			// Le NINEA n'existe pas pour ce pays : la liste complète est remplacée, sans lui.
+			identifiants_legaux: []
+		});
+	});
+
+	it('identifiants : la liste complète remplace l’existante', () => {
+		const m = preparerModification(
+			initial,
+			{ ...initial, identifiants: { NINEA: '123', RCCM: 'R1', AUTRE: '' } },
+			PACK
+		);
+		assert.deepEqual(m, {
+			etat: 'a_envoyer',
+			sensible: false,
+			corps: {
+				identifiants_legaux: [
+					{ type: 'NINEA', valeur: '123' },
+					{ type: 'RCCM', valeur: 'R1' }
+				]
+			}
+		});
+	});
+
+	it('une valeur invalide n’est pas envoyée', () => {
+		const m = preparerModification(initial, { ...initial, formeJuridique: 'x'.repeat(101) }, PACK);
+		assert.deepEqual(m, {
+			etat: 'invalide',
+			problemes: [{ champ: 'forme_juridique', cle: 'forme_trop_longue' }]
+		});
+	});
+
+	it('aller-retour SN → CD → SN : rien n’est perdu ni envoyé', () => {
+		const aller = choisirPays(initial, PACK, 'CD');
+		// Au retour, le NINEA est retrouvé : aucun changement.
+		const retour = choisirPays(aller, PACK, 'SN');
+		assert.deepEqual(preparerModification(initial, retour, PACK), { etat: 'inchange' });
+		// Pendant le séjour en CD, le NINEA est signalé comme non enregistré.
+		assert.deepEqual(etatIdentifiants(aller, PACK, 'SN').retires, ['NINEA']);
+	});
+
+	it('identifiants non modifiés : jamais envoyés avec un changement de fuseau', () => {
+		const m = preparerModification(initial, { ...initial, fuseau: 'Africa/Kinshasa' }, PACK);
+		assert.deepEqual(m, {
+			etat: 'a_envoyer',
+			sensible: false,
+			corps: { fuseau: 'Africa/Kinshasa' }
+		});
+	});
+
+	it('un type inscrit que le pack ne propose plus ne bloque pas la modification du fuseau', () => {
+		const ancien: Dossier = {
+			...dossier,
+			fuseau: 'Africa/Disparu',
+			identifiants_legaux: [{ type: 'IFU', valeur: '42' }]
+		};
+		const base = formulaireDuDossier(ancien, PACK);
+		assert.equal(base.identifiants['IFU'], '42');
+		const m = preparerModification(base, { ...base, langue: 'pt' }, PACK);
+		assert.deepEqual(m, { etat: 'a_envoyer', sensible: false, corps: { langue: 'pt' } });
+		// Le type est conservé tant que le pays ne change pas ; changer sa valeur l'envoie.
+		const change = preparerModification(
+			base,
+			{ ...base, identifiants: { ...base.identifiants, IFU: '43' } },
+			PACK
+		);
+		assert.deepEqual(change.etat === 'a_envoyer' && change.corps.identifiants_legaux, [
+			{ type: 'IFU', valeur: '43' }
+		]);
+	});
+
+	it('un type inscrit sous un nom hostile reste une simple clé', () => {
+		const hostile: Dossier = {
+			...dossier,
+			identifiants_legaux: [{ type: '__proto__', valeur: 'x' }]
+		};
+		const f = formulaireDuDossier(hostile, PACK);
+		assert.deepEqual(Object.keys(f.identifiants).includes('__proto__'), true);
+		assert.deepEqual(preparerModification(f, { ...f }, PACK), { etat: 'inchange' });
 	});
 });
 

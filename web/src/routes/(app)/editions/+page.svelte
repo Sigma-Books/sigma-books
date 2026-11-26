@@ -24,6 +24,7 @@
 	import TableCentralisateur from '#lib/composants/editions/TableCentralisateur.svelte';
 	import TableGrandLivre from '#lib/composants/editions/TableGrandLivre.svelte';
 	import TableJournaux from '#lib/composants/editions/TableJournaux.svelte';
+	import IdentiteDossier from '#lib/composants/IdentiteDossier.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import {
 		csvBalance,
@@ -216,9 +217,7 @@
 				{afficherDate(a.edition.au, contexte.regional)}
 				<span class="badge">{a.edition.mode === 'provisoire' ? 'PROVISOIRE' : 'Définitive'}</span>
 			</h3>
-			<p class="identite-edition">
-				<strong>{contexte.nomDossier.nom}</strong> — montants en {contexte.regional.devise}
-			</p>
+			<IdentiteDossier nom={contexte.nomDossier.nom} devise={contexte.regional.devise} />
 			{#if a.edition.mode === 'provisoire'}
 				<div class="message message-avertissement" role="status">
 					<p>

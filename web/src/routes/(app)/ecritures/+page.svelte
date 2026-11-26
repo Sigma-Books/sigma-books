@@ -5,6 +5,7 @@
 	import { api } from '#lib/application.ts';
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
+	import IdentiteDossier from '#lib/composants/IdentiteDossier.svelte';
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
 	import { afficherDate } from '#lib/dates.ts';
 	import { formaterMontant } from '#lib/montants.ts';
@@ -58,6 +59,7 @@
 		actif="ecritures"
 		role={contexte.membre.role}
 	/>
+	<IdentiteDossier nom={contexte.nomDossier.nom} devise={contexte.regional.devise} />
 
 	{#if toutes.length === 0}
 		<p>Aucune écriture validée pour l’instant.</p>

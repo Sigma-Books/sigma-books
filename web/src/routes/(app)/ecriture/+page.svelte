@@ -17,6 +17,7 @@
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import MessageMetier from '#lib/composants/MessageMetier.svelte';
+	import IdentiteDossier from '#lib/composants/IdentiteDossier.svelte';
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
 	import { ROLES_VALIDATION_LOT } from '#lib/contexte-dossier.ts';
 	import { afficherDate, dateDuJour } from '#lib/dates.ts';
@@ -123,6 +124,7 @@
 		actif="ecritures"
 		role={contexte.membre.role}
 	/>
+	<IdentiteDossier nom={contexte.nomDossier.nom} devise={contexte.regional.devise} />
 
 	<dl class="fiche">
 		<dt>Libellé</dt>
