@@ -6,9 +6,15 @@
 // du serveur (`contexte_dossier.rs`), citées pour le confort de saisie ; le serveur contrôle de
 // toute façon (422) et son refus est affiché. Module pur, testé sous `node --test`.
 
-import type { CorpsCreationDossier, CorpsOuverture, PackPays, PaysPack } from './api/pays.ts';
+import type {
+	CorpsCreationDossier,
+	CorpsModificationContexte,
+	CorpsOuverture,
+	PackPays,
+	PaysPack
+} from './api/pays.ts';
 import type { ErreurApi } from './api/erreurs.ts';
-import type { IdentifiantLegal } from './api/types.ts';
+import type { Dossier, IdentifiantLegal } from './api/types.ts';
 import { estDateIso } from './dates.ts';
 import { chercher } from './i18n/index.ts';
 import { estLangue } from './regional.ts';
@@ -145,6 +151,23 @@ export function choisirPays(
 		fuseau: suit(formulaire.fuseau, ancien?.fuseau, nouveau?.fuseau),
 		langue: suit(formulaire.langue, ancien?.langue, nouveau?.langue),
 		identifiants: identifiantsPour(nouveau, formulaire.identifiants)
+	};
+}
+
+/** Formulaire d'un dossier existant, prêt à être modifié. */
+export function formulaireDuDossier(dossier: Dossier, pack: PackPays): FormulaireContexte {
+	// `fromEntries` : une clé `__proto__` venue du serveur reste une clé ordinaire.
+	const saisis: Record<string, string> = Object.fromEntries(
+		(dossier.identifiants_legaux ?? []).map((i) => [i.type, i.valeur])
+	);
+	return {
+		pays: dossier.pays,
+		devise: dossier.devise,
+		fuseau: dossier.fuseau,
+		langue: dossier.langue,
+		formeJuridique: dossier.forme_juridique ?? '',
+		// Tous les identifiants inscrits, plus un champ vide pour chaque type admis par le pays.
+		identifiants: identifiantsPour(paysDuPack(pack, dossier.pays), saisis)
 	};
 }
 
@@ -359,6 +382,53 @@ export function corpsCreation(
 		...(forme === '' ? {} : { forme_juridique: forme }),
 		...(identifiants.length === 0 ? {} : { identifiants_legaux: identifiants }),
 		...corpsOuverture(ouverture)
+	};
+}
+
+const memesIdentifiants = (a: IdentifiantLegal[], b: IdentifiantLegal[]): boolean => {
+	const tri = (l: IdentifiantLegal[]) => [...l].sort((x, y) => (x.type < y.type ? -1 : 1));
+	const [ta, tb] = [tri(a), tri(b)];
+	return (
+		ta.length === tb.length &&
+		ta.every((x, i) => x.type === tb[i]?.type && x.valeur === tb[i]?.valeur)
+	);
+};
+
+export type Modification =
+	| { etat: 'invalide'; problemes: Probleme[] }
+	| { etat: 'inchange' }
+	| { etat: 'a_envoyer'; corps: CorpsModificationContexte; sensible: boolean };
+
+/**
+ * Modification : seuls les champs changés sont envoyés (un champ absent est conservé par le
+ * serveur). `sensible` : le pays ou la devise de tenue change, ce qui exige une session fraîche.
+ * La forme juridique vidée est envoyée `null` (le serveur l'efface). Les identifiants sont envoyés
+ * en liste complète (le serveur remplace la liste) **seulement s'ils ont changé** par rapport à
+ * ceux inscrits (un type inscrit que le pack ne propose plus est conservé tant que le pays reste ;
+ * au changement de pays, les types non admis sont retirés, ce que le formulaire signale).
+ */
+export function preparerModification(
+	initial: FormulaireContexte,
+	actuel: FormulaireContexte,
+	pack: PackPays
+): Modification {
+	const problemes = diagnostiquer(actuel, pack, initial);
+	if (problemes.length > 0) return { etat: 'invalide', problemes };
+	const corps: CorpsModificationContexte = {};
+	if (actuel.pays !== initial.pays) corps.pays = actuel.pays;
+	if (actuel.devise !== initial.devise) corps.devise = actuel.devise;
+	if (actuel.fuseau !== initial.fuseau) corps.fuseau = actuel.fuseau;
+	if (actuel.langue !== initial.langue) corps.langue = actuel.langue;
+	const forme = actuel.formeJuridique.trim();
+	if (forme !== initial.formeJuridique.trim()) corps.forme_juridique = forme === '' ? null : forme;
+	const inscrits = etatIdentifiants(initial, pack, initial.pays).effectifs;
+	const voulus = etatIdentifiants(actuel, pack, initial.pays).effectifs;
+	if (!memesIdentifiants(voulus, inscrits)) corps.identifiants_legaux = voulus;
+	if (Object.keys(corps).length === 0) return { etat: 'inchange' };
+	return {
+		etat: 'a_envoyer',
+		corps,
+		sensible: corps.pays !== undefined || corps.devise !== undefined
 	};
 }
 

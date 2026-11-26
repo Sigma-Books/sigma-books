@@ -5,7 +5,12 @@
 // identifiants sont des `Uuid` déjà vérifiés : un chemin ne peut pas être détourné.
 
 import type { ClientApi } from './client.ts';
-import { estPackPays, type CorpsCreationDossier, type PackPays } from './pays.ts';
+import {
+	estPackPays,
+	type CorpsCreationDossier,
+	type CorpsModificationContexte,
+	type PackPays
+} from './pays.ts';
 import {
 	estCabinetMembre,
 	estCodesRecuperation,
@@ -62,6 +67,24 @@ export function creerDossier(
 /** Pack pays : États, devises avec leur échelle, fuseaux, types d'identifiants (ADR 0027). */
 export function lirePackPays(api: ClientApi, cabinet: Uuid): Promise<PackPays> {
 	return api.lire(`/api/cabinets/${cabinet}/pays`, estPackPays);
+}
+
+/**
+ * Modification du contexte (administrateur). Pays et devise exigent une session fraîche : l'appelant
+ * passe par `executerSensible`.
+ */
+export function modifierContexte(
+	api: ClientApi,
+	cabinet: Uuid,
+	dossier: Uuid,
+	corps: CorpsModificationContexte
+): Promise<Dossier> {
+	return api.muter(
+		'POST',
+		`/api/cabinets/${cabinet}/dossiers/${dossier}/contexte`,
+		estDossier,
+		corps
+	);
 }
 
 /** Sessions actives de l'utilisateur. */

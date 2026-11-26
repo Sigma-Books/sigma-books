@@ -3,6 +3,7 @@
 	import { ROLES_INTEGRITE } from '#lib/api/integrite.ts';
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
+	import { ROLES_CONTEXTE } from '#lib/contexte-dossier.ts';
 	import { libelleRole } from '#lib/libelles.ts';
 	import type { PageProps } from './$types';
 
@@ -19,14 +20,43 @@
 	<h1>Dossier</h1>
 	<MessageErreur erreur={data.contenu.erreur} contexte="Le dossier n’a pas pu être chargé." />
 {:else}
-	{@const { membre, dossier } = data.contenu.valeur}
+	{@const { membre, dossier, pack } = data.contenu.valeur}
+	{@const pays = pack?.pays.find((p) => p.code === dossier.pays)}
 	<h1>{dossier.nom}</h1>
 	<dl class="fiche">
 		<dt>Cabinet</dt>
 		<dd>{membre.nom}</dd>
 		<dt>Votre rôle</dt>
 		<dd>{libelleRole(membre.role)}</dd>
+		<dt>Pays</dt>
+		<dd>{pays?.nom ?? dossier.pays}</dd>
+		<dt>Devise de tenue</dt>
+		<dd>
+			{dossier.devise} ({dossier.decimales}
+			{dossier.decimales > 1 ? 'décimales' : 'décimale'})
+		</dd>
+		<dt>Fuseau horaire</dt>
+		<dd>{dossier.fuseau}</dd>
+		<dt>Langue</dt>
+		<dd>{dossier.langue}</dd>
+		{#if dossier.forme_juridique !== null}
+			<dt>Forme juridique</dt>
+			<dd>{dossier.forme_juridique}</dd>
+		{/if}
+		{#each dossier.identifiants_legaux ?? [] as identifiant (identifiant.type)}
+			<dt>
+				{pays?.identifiants.find((t) => t.code === identifiant.type)?.libelle ?? identifiant.type}
+			</dt>
+			<dd>{identifiant.valeur}</dd>
+		{/each}
 	</dl>
+	{#if ROLES_CONTEXTE.includes(membre.role)}
+		<p>
+			<a href={resolve(`contexte/?cabinet=${membre.id}&dossier=${dossier.id}`)}>
+				Modifier le contexte du dossier
+			</a>
+		</p>
+	{/if}
 	<ul class="ecrans">
 		<li>
 			<a href={resolve(`saisie/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Saisie manuelle</a>

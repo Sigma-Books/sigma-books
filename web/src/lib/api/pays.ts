@@ -122,6 +122,19 @@ export type CorpsCreationDossier = {
 } & CorpsOuverture;
 
 /**
+ * Corps de `POST …/dossiers/{dossier}/contexte` : un champ absent est conservé,
+ * `forme_juridique: null` l'efface, `identifiants_legaux` remplace la liste entière.
+ */
+export interface CorpsModificationContexte {
+	pays?: string;
+	devise?: string;
+	fuseau?: string;
+	langue?: string;
+	forme_juridique?: string | null;
+	identifiants_legaux?: IdentifiantLegal[];
+}
+
+/**
  * Motifs de refus propres au contexte du dossier et à l'échelle de la devise de tenue, avec le
  * statut que le serveur leur donne (422 : refus de forme ; 409 : conflit d'état). Chacun a son
  * message dans le catalogue (`saisie.motif.<motif>` : `messageMetier` les traduit) ; les tests

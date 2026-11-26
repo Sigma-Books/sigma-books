@@ -1,5 +1,5 @@
 <!--
-	Champs du contexte d'un dossier (ADR 0027), pour la création : pays, devise de
+	Champs du contexte d'un dossier (ADR 0027), pour la création et la modification : pays, devise de
 	tenue, fuseau, langue, forme juridique et identifiants légaux. Les listes et les valeurs par
 	défaut viennent du pack pays de l'API ; l'interface ne connaît aucun pays ni aucune devise. Les
 	contrôles de forme (`contexte-saisie.ts`) sont un confort : le serveur décide.
@@ -28,9 +28,17 @@
 		problemes: readonly Probleme[];
 		/** Pays inscrit au dossier (modification) ; `null` à la création. */
 		paysInitial?: string | null;
+		/** Modification d'un dossier existant : le texte explique ce qui se fige. */
+		modification?: boolean;
 	}
 
-	let { pack, formulaire = $bindable(), problemes, paysInitial = null }: Props = $props();
+	let {
+		pack,
+		formulaire = $bindable(),
+		problemes,
+		paysInitial = null,
+		modification = false
+	}: Props = $props();
 
 	const paysChoisi = $derived(paysDuPack(pack, formulaire.pays));
 	const deviseChoisie = $derived(pack.devises.find((d) => d.code === formulaire.devise));
@@ -91,8 +99,14 @@
 			Échelle de la devise : {deviseChoisie.decimales}
 			{deviseChoisie.decimales > 1 ? 'décimales' : 'décimale'}.
 		{/if}
-		Le pays et la devise de tenue ne pourront plus être changés après la première écriture validée du
-		dossier.
+		{#if modification}
+			Le pays et la devise de tenue ne sont modifiables que tant qu’aucune écriture validée n’existe
+			dans le dossier (et qu’aucun brouillon n’est en cours) ; les modifier demande une nouvelle
+			authentification.
+		{:else}
+			Le pays et la devise de tenue ne pourront plus être changés après la première écriture validée
+			du dossier.
+		{/if}
 	</span>
 	{#each messages('devise') as m (m)}<span class="erreur-champ" role="alert">{m}</span>{/each}
 </div>
@@ -159,6 +173,9 @@
 		<p class="aide">
 			Types proposés pour le pays choisi ; la valeur est libre, de {VALEUR_IDENTIFIANT_MAX} caractères
 			au plus.
+			{#if modification}
+				Ils ne sont modifiables que tant qu’aucune écriture validée n’existe dans le dossier.
+			{/if}
 		</p>
 		{#if identifiants.retires.length > 0}
 			<div class="message message-avertissement" role="status">
