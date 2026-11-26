@@ -99,6 +99,10 @@ describe('contrat du dossier (ADR 0027)', () => {
 		);
 	});
 
+	it('un champ supplémentaire du serveur ne casse pas la lecture', () => {
+		assert.equal(estDossier({ ...complet, champ_futur: { x: 1 } }), true);
+	});
+
 	it('un champ du contexte absent rend la réponse invalide : aucune valeur n’est supposée', () => {
 		for (const champ of ['pays', 'devise', 'decimales', 'fuseau', 'langue', 'forme_juridique']) {
 			const reste = Object.fromEntries(Object.entries(complet).filter(([cle]) => cle !== champ));

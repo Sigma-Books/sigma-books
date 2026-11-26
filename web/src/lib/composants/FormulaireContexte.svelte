@@ -7,11 +7,12 @@
 <script lang="ts">
 	import type { PackPays } from '#lib/api/pays.ts';
 	import {
-		BORNES_PROBLEMES,
 		choisirPays,
+		etatIdentifiants,
 		FORME_JURIDIQUE_MAX,
 		libelleDecalage,
 		libelleLangue,
+		messageProbleme,
 		paysDuPack,
 		VALEUR_IDENTIFIANT_MAX,
 		type FormulaireContexte,
@@ -25,9 +26,11 @@
 		pack: PackPays;
 		formulaire: FormulaireContexte;
 		problemes: readonly Probleme[];
+		/** Pays inscrit au dossier (modification) ; `null` à la création. */
+		paysInitial?: string | null;
 	}
 
-	let { pack, formulaire = $bindable(), problemes }: Props = $props();
+	let { pack, formulaire = $bindable(), problemes, paysInitial = null }: Props = $props();
 
 	const paysChoisi = $derived(paysDuPack(pack, formulaire.pays));
 	const deviseChoisie = $derived(pack.devises.find((d) => d.code === formulaire.devise));
@@ -37,20 +40,10 @@
 			(l) => l !== ''
 		)
 	);
-	/** Types d'identifiants affichés : ceux du formulaire, avec leur libellé du pack s'il existe. */
-	const types = $derived(
-		Object.keys(formulaire.identifiants).map((code) => ({
-			code,
-			libelle: paysChoisi?.identifiants.find((t) => t.code === code)?.libelle ?? code
-		}))
-	);
+	const identifiants = $derived(etatIdentifiants(formulaire, pack, paysInitial));
 
 	function messages(champ: string): string[] {
-		return problemes
-			.filter((p) => p.champ === champ)
-			.map(
-				(p) => chercher(`contexte.probleme.${p.cle}`, { max: BORNES_PROBLEMES[p.cle] ?? 0 }) ?? ''
-			);
+		return problemes.filter((p) => p.champ === champ).map(messageProbleme);
 	}
 </script>
 
@@ -160,17 +153,24 @@
 		</span>{/each}
 </div>
 
-{#if types.length > 0}
+{#if identifiants.affiches.length > 0 || identifiants.retires.length > 0}
 	<fieldset class="groupe">
 		<legend>Identifiants légaux (facultatifs)</legend>
 		<p class="aide">
 			Types proposés pour le pays choisi ; la valeur est libre, de {VALEUR_IDENTIFIANT_MAX} caractères
 			au plus.
 		</p>
+		{#if identifiants.retires.length > 0}
+			<div class="message message-avertissement" role="status">
+				<p>
+					{chercher('contexte.identifiants_retires', { types: identifiants.retires.join(', ') })}
+				</p>
+			</div>
+		{/if}
 		{#each messages('identifiants') as m (m)}<span class="erreur-champ" role="alert">
 				{m}
 			</span>{/each}
-		{#each types as t (t.code)}
+		{#each identifiants.affiches as t (t.code)}
 			<div class="champ">
 				<label for={`ctx-id-${t.code}`}>{t.libelle} ({t.code})</label>
 				<input

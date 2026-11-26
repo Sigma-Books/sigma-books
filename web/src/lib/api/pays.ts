@@ -122,19 +122,21 @@ export type CorpsCreationDossier = {
 } & CorpsOuverture;
 
 /**
- * Motifs de refus (409, 422) propres au contexte du dossier, avec leur message dans le catalogue
- * (`saisie.motif.<motif>` : `messageMetier` les traduit). Liste vérifiée par les tests.
+ * Motifs de refus propres au contexte du dossier et à l'échelle de la devise de tenue, avec le
+ * statut que le serveur leur donne (422 : refus de forme ; 409 : conflit d'état). Chacun a son
+ * message dans le catalogue (`saisie.motif.<motif>` : `messageMetier` les traduit) ; les tests
+ * le vérifient en passant par `traduireReponse`.
  */
 export const MOTIFS_CONTEXTE = [
-	'pays_inconnu',
-	'devise_tenue_inconnue',
-	'fuseau_inconnu',
-	'contexte_dossier_invalide',
-	'dossier_deja_ecritures',
-	'dossier_brouillard_non_vide',
-	'contexte_dossier_modifie',
-	'brouillon_devise_tenue_perimee',
-	'montant_echelle_devise_tenue',
-	'validation_montant_echelle_devise_tenue',
-	'aucun_changement'
+	['pays_inconnu', 422],
+	['devise_tenue_inconnue', 422],
+	['fuseau_inconnu', 422],
+	['contexte_dossier_invalide', 422],
+	['montant_echelle_devise_tenue', 422],
+	['validation_montant_echelle_devise_tenue', 422],
+	['dossier_deja_ecritures', 409],
+	['dossier_brouillard_non_vide', 409],
+	['contexte_dossier_modifie', 409],
+	['brouillon_devise_tenue_perimee', 409],
+	['aucun_changement', 409]
 ] as const;

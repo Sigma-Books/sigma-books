@@ -150,11 +150,20 @@ export const fr = {
 	'contexte.probleme.forme_trop_longue': 'La forme juridique compte {max} caractères au plus.',
 	'contexte.probleme.valeur_trop_longue': 'Cette valeur compte {max} caractères au plus.',
 	'contexte.probleme.trop_d_identifiants': 'Au plus {max} identifiants légaux.',
-	'contexte.probleme.type_non_admis': 'Ce type d’identifiant n’est pas admis pour ce pays.',
 	'contexte.probleme.nom_absent': 'Le nom du dossier est obligatoire.',
 	'contexte.probleme.nom_trop_long': 'Le nom du dossier compte {max} caractères au plus.',
 	'contexte.probleme.debut_invalide': 'Saisissez une date de début d’activité valide.',
 	'contexte.probleme.annee_invalide': 'Saisissez l’année sur quatre chiffres.',
+	'contexte.probleme.annee_hors_bornes':
+		'Un dossier repris porte sur l’année en cours ou la précédente ({min} ou {max}, d’après le fuseau choisi).',
+	'contexte.probleme.debut_hors_bornes':
+		'Le début d’activité d’une entité nouvelle doit tomber entre {min} et {max} (d’après le fuseau choisi).',
+	'contexte.probleme.prolongation_impossible':
+		'Un premier exercice qui finit l’année suivante n’est admis que si l’activité débute à partir du 1er juillet.',
+	'contexte.identifiants_retires':
+		'Non admis pour le pays choisi, donc non enregistrés : {types}. Leurs valeurs sont gardées ici si vous revenez au pays d’origine.',
+	'contexte.creation_incertaine':
+		'Le serveur a répondu, mais sa réponse est illisible : le dossier a peut-être été créé. La liste est rechargée, vérifiez-la avant de recommencer.',
 
 	// Avertissements d'une validation réussie (l'écriture est validée malgré tout).
 	'avertissement.echeance_de_cloture_depassee':

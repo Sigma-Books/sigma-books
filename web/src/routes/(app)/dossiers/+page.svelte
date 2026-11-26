@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import type { PackPays } from '#lib/api/pays.ts';
@@ -10,62 +10,100 @@
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import MessageMetier from '#lib/composants/MessageMetier.svelte';
 	import {
-		BORNES_PROBLEMES,
 		corpsCreation,
+		creationPossiblementFaite,
 		diagnostiquer,
 		diagnostiquerNom,
 		diagnostiquerOuverture,
 		formulaireVide,
+		messageProbleme,
 		NOM_DOSSIER_MAX,
 		ouvertureParDefaut,
+		ouvertureSuivantFuseau,
 		type FormulaireContexte as Formulaire,
 		type FormulaireOuverture,
 		type Probleme
 	} from '#lib/contexte-saisie.ts';
 	import { dateDuJour } from '#lib/dates.ts';
-	import { chercher } from '#lib/i18n/index.ts';
+	import { traduire } from '#lib/i18n/index.ts';
 	import { libelleRole, ROLES_CREATION_DOSSIER } from '#lib/libelles.ts';
-	import { regionalUtilisateur } from '#lib/regional.ts';
+	import { estFuseau, regionalUtilisateur } from '#lib/regional.ts';
+	import { tick, untrack } from 'svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
+	/** Fuseau du navigateur : celui de la date proposée tant qu'aucun fuseau n'est choisi. */
+	const fuseauNavigateur = regionalUtilisateur().fuseau;
+
 	let nom = $state('');
 	let formulaire = $state<Formulaire>(formulaireVide());
-	// La date du jour proposée est celle du navigateur : le fuseau du dossier n'est pas encore choisi.
-	let ouverture = $state<FormulaireOuverture>(
-		ouvertureParDefaut(dateDuJour(regionalUtilisateur().fuseau))
+	/** Date du jour dans le fuseau choisi : le serveur calcule l'année en cours dans ce fuseau. */
+	const aujourdhui = $derived(
+		dateDuJour(estFuseau(formulaire.fuseau) ? formulaire.fuseau : fuseauNavigateur)
 	);
+	let ouverture = $state<FormulaireOuverture>(ouvertureParDefaut(dateDuJour(fuseauNavigateur)));
+	let proposee = dateDuJour(fuseauNavigateur);
 	let problemes = $state<Probleme[]>([]);
 	let creationEnCours = $state(false);
 	let erreurCreation = $state<ErreurApi | null>(null);
+	let creationIncertaine = $state(false);
+	let formulaireDom = $state<HTMLFormElement>();
+	let zoneErreur = $state<HTMLElement>();
+
+	// L'année et la date proposées suivent le fuseau choisi tant qu'elles n'ont pas été saisies.
+	$effect(() => {
+		const apres = aujourdhui;
+		untrack(() => {
+			ouverture = ouvertureSuivantFuseau(ouverture, proposee, apres);
+			proposee = apres;
+		});
+	});
 
 	const messageDe = (champ: string): string[] =>
-		problemes
-			.filter((p) => p.champ === champ)
-			.map(
-				(p) => chercher(`contexte.probleme.${p.cle}`, { max: BORNES_PROBLEMES[p.cle] ?? 0 }) ?? ''
-			);
+		problemes.filter((p) => p.champ === champ).map(messageProbleme);
+
+	/** Amène le focus sur la première erreur : le bouton est en bas, le message en haut. */
+	async function montrerErreur(): Promise<void> {
+		await tick();
+		const premier = formulaireDom?.querySelector<HTMLElement>('[aria-invalid="true"]');
+		(erreurCreation !== null || creationIncertaine ? zoneErreur : premier)?.focus();
+		(erreurCreation !== null || creationIncertaine ? zoneErreur : premier)?.scrollIntoView({
+			block: 'center'
+		});
+	}
 
 	async function creer(evenement: SubmitEvent, pack: PackPays): Promise<void> {
 		evenement.preventDefault();
 		const cabinet = data.cabinet;
 		if (cabinet === null) return;
 		erreurCreation = null;
+		creationIncertaine = false;
 		problemes = [
 			...diagnostiquerNom(nom),
 			...diagnostiquer(formulaire, pack),
-			...diagnostiquerOuverture(ouverture)
+			...diagnostiquerOuverture(ouverture, aujourdhui)
 		];
-		const corps = corpsCreation(nom, formulaire, ouverture, pack);
-		if (corps === null) return;
+		const corps = corpsCreation(nom, formulaire, ouverture, pack, aujourdhui);
+		if (corps === null) {
+			await montrerErreur();
+			return;
+		}
 		creationEnCours = true;
 		try {
 			const dossier = await creerDossier(api, cabinet, corps);
 			await goto(resolve(`dossier/?cabinet=${cabinet}&dossier=${dossier.id}`));
 		} catch (erreur) {
 			if (!(erreur instanceof ErreurApi)) throw erreur;
-			erreurCreation = erreur;
+			if (creationPossiblementFaite(erreur)) {
+				// 201 mais réponse illisible : le dossier existe peut-être, on recharge la liste
+				// au lieu de proposer de le recréer.
+				creationIncertaine = true;
+				await invalidateAll();
+			} else {
+				erreurCreation = erreur;
+			}
+			await montrerErreur();
 		} finally {
 			creationEnCours = false;
 		}
@@ -115,10 +153,17 @@
 					/>
 				{/if}
 			{:else}
-				{#if erreurCreation}
-					<MessageMetier erreur={erreurCreation} contexte="Le dossier n’a pas été créé." />
-				{/if}
-				<form onsubmit={(e) => creer(e, pack.valeur)} novalidate>
+				<div bind:this={zoneErreur} tabindex="-1">
+					{#if erreurCreation}
+						<MessageMetier erreur={erreurCreation} contexte="Le dossier n’a pas été créé." />
+					{/if}
+					{#if creationIncertaine}
+						<div class="message message-avertissement" role="alert">
+							<p>{traduire('contexte.creation_incertaine')}</p>
+						</div>
+					{/if}
+				</div>
+				<form bind:this={formulaireDom} onsubmit={(e) => creer(e, pack.valeur)} novalidate>
 					<div class="champ">
 						<label for="nom-dossier">Nom du dossier</label>
 						<input
@@ -182,13 +227,20 @@
 							</div>
 							<div class="champ">
 								<label for="ouv-fin">Fin du premier exercice</label>
-								<select id="ouv-fin" bind:value={ouverture.finPremier}>
+								<select
+									id="ouv-fin"
+									aria-invalid={messageDe('fin_premier_exercice').length > 0}
+									bind:value={ouverture.finPremier}
+								>
 									<option value="annee_de_debut">31 décembre de l’année de début</option>
 									<option value="annee_suivante">31 décembre de l’année suivante</option>
 								</select>
 								<span class="aide">
 									La seconde option n’est admise que si l’activité débute au second semestre.
 								</span>
+								{#each messageDe('fin_premier_exercice') as m (m)}
+									<span class="erreur-champ" role="alert">{m}</span>
+								{/each}
 							</div>
 						{/if}
 						<p class="aide">
