@@ -991,6 +991,18 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             // Affectation d'un dossier réel du cabinet.
             let corps = format!(r#"{{"dossier":"{}"}}"#, c.autre_dossier);
             commun::serveur::envoyer(&routeur, &chemin, Some(c.administrateur), &corps, None).await
+        } else if route.cas_usage
+            == CasUsage::Organisation(api::serveur::routes::organisation::Cas::ModifierContexte)
+        {
+            // Une modification qui change vraiment le contexte (sinon : 409 « aucun changement »).
+            commun::serveur::envoyer(
+                &routeur,
+                &chemin,
+                Some(c.administrateur),
+                r#"{"fuseau":"Africa/Douala"}"#,
+                None,
+            )
+            .await
         } else {
             appeler_route(&routeur, route, &chemin, Some(c.administrateur)).await
         };

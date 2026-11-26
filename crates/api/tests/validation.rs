@@ -207,7 +207,7 @@ async fn echelle_de_la_tenue_et_contre_valeur_arrondie() {
         .pret_avec(&contenu(
             &journal_de_saisie(),
             &aujourd(),
-            &[devise, ligne(banque(), "credit", "65595.7")],
+            &[devise, ligne(banque(), "credit", "65595")],
             "",
         ))
         .await;
