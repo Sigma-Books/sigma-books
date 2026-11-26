@@ -52,6 +52,7 @@ Lire d'abord son `README.md` (ordre d'autorité, erreurs connues). La liste offi
 ## Espace disque (WSL limité à 100 Go ; détail dans `docs/stockage-developpement.md`)
 - **Avant** toute compilation ou création de worktree : `scripts/disque-audit.sh --alerte`. Au-delà de 70 % du budget, nettoyer d'abord (`scripts/disque-nettoyer.sh`, dry-run puis `--appliquer`). Un crochet bloque `cargo` s'il reste moins de 12 Go.
 - Les compilations vont dans le répertoire partagé `.worktrees/.target` (configuré par `.worktrees/.cargo/config.toml`). Ne définis pas de `CARGO_TARGET_DIR` ni de `target/` local par worktree ; un seul agent compile à la fois.
+- **Avant les vérifications finales** (fmt, clippy, test, deny) : `scripts/cargo-propre.sh` (dry-run puis `--appliquer`) ; le répertoire partagé peut servir les crates d'un autre worktree.
 - Un worktree par tâche, créé seulement si nécessaire (réutilise un worktree propre). **Retire-le dès la PR ouverte** si le travail est terminé : `git worktree remove` sans `--force`. Jamais de suppression de branche sans autorisation.
 - Tu es responsable de ce que tu crées : worktree, conteneurs (préfixe `sigma-l2-` ou `sigma-test-`, lancés avec `--rm` ou un volume nommé, supprimés en fin de tâche), fichiers temporaires. Pas de mot de passe ni de fichier hors du dépôt.
 - Jamais de `du` ou de parcours sur tout `.worktrees/`, ni sur `/mnt/c` et `/mnt/d` (interdits). Ne touche ni à containerd ni au VHDX, aucun volume nommé ni base sans autorisation.

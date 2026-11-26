@@ -43,14 +43,25 @@ sous 5 Go.
    s'accumulent : 35 Go en une journée de trois agents avant que le profil allégé soit fusionné
    (leurs branches avaient encore le débogage complet, 325 Mo par binaire). `scripts/disque-nettoyer.sh`
    les supprime au-delà du plafond de 12 Go ; les dépendances externes sont conservées.
+   **Second risque constaté (deux agents, novembre 2026) : des vérifications faussées.** Le
+   répertoire étant commun, un agent peut se voir servir des crates du dépôt compilées par un
+   AUTRE worktree : `cargo test` ou `cargo clippy` réussit (ou échoue) alors qu'il a porté, en
+   partie, sur le code d'un autre. **Recette obligatoire avant les vérifications finales d'un
+   agent** (`fmt`, `clippy`, `test`, `deny`), quand plus aucun `cargo` ni `rustc` ne tourne :
+   `scripts/cargo-propre.sh` (dry-run), puis `scripts/cargo-propre.sh --appliquer`. Il lance
+   `cargo clean -p <crate>` pour chaque crate du dépôt (liste lue dans le `Cargo.toml` du
+   workspace, sans nom codé en dur) et laisse les dépendances externes : seul le dépôt est
+   recompilé, quelques minutes. `--tout` supprime en plus `debug/incremental`. Le script refuse
+   de s'appliquer tant que `cargo` ou `rustc` est actif. La **CI compile à neuf** : elle reste le
+   filet, la recette ne sert qu'à rendre les vérifications locales fidèles avant la PR.
 2. **Débogage allégé** (`Cargo.toml`, versionné) : `debug = "line-tables-only"` pour le dépôt,
    `debug = false` pour les dépendances. Les traces de panique gardent les numéros de ligne.
 3. **Tests d'intégration non regroupés.** Réunir les 19 fichiers de `crates/api/tests/` en un seul
    binaire ferait gagner de la place, mais ils partagent des objets PostgreSQL à nom fixe (rôle
    `sigma_test_contournement`, base `sigma_test_catalogue_jetable`) et s'exécuteraient dans le même
    processus : risque de courses. La fiabilité des tests prime ; le gain vient de (1) et (2).
-4. **Scripts** : `scripts/disque-audit.sh` (lecture seule, seuils d'alerte, `--exiger-libre`) et
-   `scripts/disque-nettoyer.sh` (dry-run par défaut, `--appliquer`).
+4. **Scripts** : `scripts/disque-audit.sh` (lecture seule, seuils d'alerte, `--exiger-libre`),
+   `scripts/disque-nettoyer.sh` et `scripts/cargo-propre.sh` (dry-run par défaut, `--appliquer`).
 5. **Crochets Claude Code** (`.claude/settings.json`) : ligne d'état de l'espace au démarrage de la
    session ; blocage d'une commande `cargo` lourde s'il reste moins de 12 Go sous le budget
    (`SIGMA_LIBRE_MIN_GO`).
