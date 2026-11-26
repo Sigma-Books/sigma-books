@@ -133,9 +133,10 @@ fn ecritures_de(export: &str) -> Vec<String> {
 #[test]
 fn une_devise_de_tenue_qui_change_est_signalee() {
     use integrite::{IdDossier, chainer, genese};
+    use std::fmt::Write as _;
     let cdf = ecritures_de(&texte());
     let xof = ecritures_de(
-        &String::from_utf8(include_bytes!("vecteurs/export-v4-reference.txt").to_vec()).unwrap(),
+        std::str::from_utf8(include_bytes!("vecteurs/export-v4-reference.txt")).unwrap(),
     );
     // BQ1-2026-000001 : première écriture XOF du journal BQ1 (aucune contre-passation).
     let bq1 = xof
@@ -148,9 +149,9 @@ fn une_devise_de_tenue_qui_change_est_signalee() {
     for e in [&cdf[0], bq1] {
         tete = chainer(&tete, e.as_bytes());
         export.push_str(e);
-        export.push_str(&format!("empreinte={tete}\n"));
+        writeln!(export, "empreinte={tete}").unwrap();
     }
-    export.push_str(&format!("tete={tete}\nnombre=2\nfin-export\n"));
+    write!(export, "tete={tete}\nnombre=2\nfin-export\n").unwrap();
     let rapport = verifier(export.as_bytes(), &Options::default()).unwrap();
     assert!(!rapport.est_integre());
     // Seule l'anomalie de devise : la chaîne, la numérotation et l'équilibre sont sains.

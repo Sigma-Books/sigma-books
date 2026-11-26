@@ -483,6 +483,41 @@ fn types_de(v: &[IdentifiantLegal]) -> String {
         .join(",")
 }
 
+/// Trace d'audit de la modification : un champ par valeur modifiée (avant, après), au journal du
+/// dossier ; les identifiants légaux n'y figurent que par leurs types (jamais leurs valeurs).
+fn trace_de_modification(
+    dossier: crate::base::IdDossier,
+    (actuel, nouveau): (&ContexteDossier, &ContexteDossier),
+    identifiants: Option<&(String, String)>,
+) -> Trace {
+    let mut trace = Trace::new(PorteeAudit::Dossier(dossier), "dossier", dossier.uuid());
+    let mut champ = |nom: &'static str, avant: Option<&str>, apres: Option<&str>| {
+        if avant != apres {
+            trace
+                .champs
+                .push((nom, avant.map(str::to_owned), apres.map(str::to_owned)));
+        }
+    };
+    champ("pays", Some(&actuel.pays), Some(&nouveau.pays));
+    champ("devise_tenue", Some(&actuel.devise), Some(&nouveau.devise));
+    champ(
+        "decimales_tenue",
+        Some(&actuel.decimales.to_string()),
+        Some(&nouveau.decimales.to_string()),
+    );
+    champ("fuseau", Some(&actuel.fuseau), Some(&nouveau.fuseau));
+    champ("langue", Some(&actuel.langue), Some(&nouveau.langue));
+    champ(
+        "forme_juridique",
+        actuel.forme_juridique.as_deref(),
+        nouveau.forme_juridique.as_deref(),
+    );
+    if let Some((avant, apres)) = identifiants {
+        champ("identifiants_legaux", Some(avant), Some(apres));
+    }
+    trace
+}
+
 /// Modification du contexte du dossier (ADR 0027). Fuseau, langue et forme juridique changent à
 /// tout moment. Pays et devise de tenue (donc échelle) exigent une **session fraîche** et un
 /// dossier **sans écriture validée ni brouillon** ; le remplacement des identifiants légaux
@@ -579,36 +614,13 @@ async fn modifier(
         remplacer_identifiants_legaux(tx, &finaux).await?;
     }
 
-    let dossier = autorise.id().uuid();
-    let mut trace = Trace::new(PorteeAudit::Dossier(autorise.id()), "dossier", dossier);
-    let mut champ = |nom: &'static str, avant: Option<&str>, apres: Option<&str>| {
-        if avant != apres {
-            trace
-                .champs
-                .push((nom, avant.map(str::to_owned), apres.map(str::to_owned)));
-        }
-    };
-    champ("pays", Some(&actuel.pays), Some(&nouveau.pays));
-    champ("devise_tenue", Some(&actuel.devise), Some(&nouveau.devise));
-    champ(
-        "decimales_tenue",
-        Some(&actuel.decimales.to_string()),
-        Some(&nouveau.decimales.to_string()),
+    let trace = trace_de_modification(
+        autorise.id(),
+        (&actuel, &nouveau),
+        identifiants_changent
+            .then(|| (types_de(&existants), types_de(&finaux)))
+            .as_ref(),
     );
-    champ("fuseau", Some(&actuel.fuseau), Some(&nouveau.fuseau));
-    champ("langue", Some(&actuel.langue), Some(&nouveau.langue));
-    champ(
-        "forme_juridique",
-        actuel.forme_juridique.as_deref(),
-        nouveau.forme_juridique.as_deref(),
-    );
-    if identifiants_changent {
-        champ(
-            "identifiants_legaux",
-            Some(&types_de(&existants)),
-            Some(&types_de(&finaux)),
-        );
-    }
     let vue = VueDossier::depuis(
         autorise.id().to_string(),
         autorise.nom(),

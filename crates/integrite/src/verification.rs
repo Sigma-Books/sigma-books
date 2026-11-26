@@ -8,6 +8,7 @@ use std::io::{self, BufRead};
 
 use compta_core::{CodeExercice, CodeJournal, Devise, DeviseTenue, NumeroEcriture};
 
+use crate::canonique::EcritureCanonique;
 use crate::chaine::{Empreinte, IdDossier, chainer, genese};
 use crate::export::{Element, ErreurExport, ErreurLecture, JetonExporte, LecteurExport, Version};
 use crate::horodatage::{
@@ -280,6 +281,27 @@ impl Rapport {
     }
 }
 
+/// La devise de tenue (et l'échelle) est celle de la première écriture de l'export : toute autre
+/// est signalée ([`Anomalie::TenueChangeante`]).
+fn controler_tenue(
+    rapport: &mut Rapport,
+    du_dossier: &mut Option<DeviseTenue>,
+    ecriture: &EcritureCanonique,
+    ligne: u64,
+) {
+    let (numero, tenue) = (ecriture.numero(), *ecriture.tenue());
+    match *du_dossier {
+        None => *du_dossier = Some(tenue),
+        Some(attendue) if attendue != tenue => rapport.signaler(Anomalie::TenueChangeante {
+            numero: numero.clone(),
+            ligne,
+            attendue: attendue.devise(),
+            trouvee: tenue.devise(),
+        }),
+        Some(_) => {}
+    }
+}
+
 /// Vérifie un export. Les défauts de forme et les altérations sont des anomalies du rapport ;
 /// seule une erreur d'entrée-sortie interrompt la vérification sans rapport.
 ///
@@ -342,19 +364,7 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
                 }
                 precedente_declaree = empreinte;
                 controler_numero(&mut rapport, &mut derniers_lus, &numero, ligne);
-                let tenue = *ecriture.tenue();
-                if let Some(attendue) = tenue_du_dossier {
-                    if attendue != tenue {
-                        rapport.signaler(Anomalie::TenueChangeante {
-                            numero: numero.clone(),
-                            ligne,
-                            attendue: attendue.devise(),
-                            trouvee: tenue.devise(),
-                        });
-                    }
-                } else {
-                    tenue_du_dossier = Some(tenue);
-                }
+                controler_tenue(&mut rapport, &mut tenue_du_dossier, &ecriture, ligne);
                 if !ecriture.est_equilibree() {
                     rapport.signaler(Anomalie::Desequilibre {
                         numero: numero.clone(),
