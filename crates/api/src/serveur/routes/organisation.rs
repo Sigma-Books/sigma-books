@@ -356,13 +356,13 @@ async fn creer(
 
     let mut au_cabinet = Trace::new(PorteeAudit::Cabinet, "dossier", id);
     au_cabinet.champs.push(("nom", None, Some(nom.clone())));
+    au_cabinet
+        .champs
+        .push(("affectation", None, Some(garde.utilisateur().to_string())));
     au_cabinet.champs.push(("pays", None, Some(c.pays.clone())));
     au_cabinet
         .champs
         .push(("devise_tenue", None, Some(c.devise.clone())));
-    au_cabinet
-        .champs
-        .push(("affectation", None, Some(garde.utilisateur().to_string())));
     let mut au_dossier = Trace::new(PorteeAudit::Dossier(dossier.id), "dossier", id);
     au_dossier.champs.push(("nom", None, Some(nom.clone())));
     au_dossier.donnees = donnees;

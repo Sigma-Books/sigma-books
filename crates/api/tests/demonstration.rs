@@ -1626,7 +1626,7 @@ async fn scenario(m: Monde) {
     let rapport = sortie_texte(&sortie);
     assert_eq!(sortie.status.code(), Some(1), "{rapport}");
     assert!(
-        rapport.contains("export v4") && rapport.contains("attendu"),
+        rapport.contains("export v5") && rapport.contains("attendu"),
         "{rapport}"
     );
     for f in [&chemin_export, &chemin_ancre, &altere, &tronque, &informe] {

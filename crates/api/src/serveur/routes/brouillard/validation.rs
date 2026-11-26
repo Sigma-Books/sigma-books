@@ -1168,8 +1168,8 @@ mod tests {
                 date_valeur_comptable: None,
                 libelle: "Nominal".to_owned(),
                 lignes: vec![
-                    stockee("debit", &d.caisse, "1000.5"),
-                    stockee("credit", &d.banque, "1000.50"),
+                    stockee("debit", &d.caisse, "1000"),
+                    stockee("credit", &d.banque, "1000.00"),
                 ],
             },
             a_revoir: false,
@@ -1209,7 +1209,103 @@ mod tests {
             r.empreinte,
             chainer(&tete.empreinte, r.canonique.as_bytes())
         );
-        assert!(r.canonique.contains("montant=1000.5\n"));
+        assert!(r.canonique.contains("montant=1000\n"));
+    }
+
+    /// Applique un brouillon à deux lignes (`debit`, `credit`) dans un dossier tenu en `tenue`.
+    fn appliquer_deux_lignes(
+        tenue: DeviseTenue,
+        debit: &str,
+        credit: &str,
+    ) -> Result<Decision, ErreurApi> {
+        let d = decor();
+        let etat = d.inst.etat();
+        let contexte = Contexte {
+            plan: &etat.plan,
+            journaux: &etat.journaux,
+            exercices: d.inst.exercices(),
+            tenue,
+        };
+        let journal = etat
+            .journaux
+            .journaux()
+            .find(|j| j.genre().accepte_la_saisie() && j.compte_tresorerie().is_none())
+            .unwrap()
+            .code()
+            .as_str()
+            .to_owned();
+        let b = BrouillonStocke {
+            id: Uuid::nil(),
+            contenu: ContenuStocke {
+                journal_id: Uuid::nil(),
+                journal,
+                date: date!(2026 - 03 - 15),
+                date_valeur_comptable: None,
+                libelle: "Échelle".to_owned(),
+                lignes: vec![
+                    stockee("debit", &d.caisse, debit),
+                    stockee("credit", &d.banque, credit),
+                ],
+            },
+            a_revoir: false,
+            a_revoir_par: None,
+            version: 1,
+            cree_par: Uuid::nil(),
+            cree_le: time::OffsetDateTime::UNIX_EPOCH,
+            modifie_par: Uuid::nil(),
+            modifie_le: time::OffsetDateTime::UNIX_EPOCH,
+            pieces: vec![],
+            contributeurs: vec![],
+        };
+        let tete = Tete {
+            rang: 0,
+            empreinte: Empreinte::calculer(b"tete"),
+        };
+        appliquer(
+            &b,
+            &["b".repeat(64)],
+            referentiel_tva().unwrap(),
+            &contexte,
+            |_, _| 0,
+            &tete,
+            date!(2026 - 03 - 20),
+        )
+    }
+
+    #[test]
+    fn echelle_de_la_devise_de_tenue_a_la_validation() {
+        let cdf = DeviseTenue::nouvelle(Devise::parse("CDF").unwrap(), 2).unwrap();
+        // XOF : aucune décimale ; un brouillon saisi avec des centimes est refusé.
+        let ko = appliquer_deux_lignes(tenue_xof(), "1000.5", "1000.5").unwrap_err();
+        assert_eq!(
+            ko,
+            ErreurApi::Validation {
+                motif: MotifValidation::MontantEchelleTenue,
+                ligne: Some(1)
+            }
+        );
+        // CDF : deux décimales, en format v4 (la devise de tenue est dans le contenu haché).
+        let r = appliquer_deux_lignes(cdf, "1000.55", "1000.55").unwrap();
+        assert_eq!(r.format, 4);
+        assert!(r.canonique.starts_with("ecriture v4\n"));
+        assert!(
+            r.canonique
+                .contains("devise-tenue=CDF\ndecimales-tenue=2\n")
+        );
+        assert!(r.canonique.contains("montant=1000.55\n"));
+        let ko = appliquer_deux_lignes(cdf, "1000.555", "1000.555").unwrap_err();
+        assert_eq!(
+            ko,
+            ErreurApi::Validation {
+                motif: MotifValidation::MontantEchelleTenue,
+                ligne: Some(1)
+            }
+        );
+        // XOF : v1, octet pour octet comme avant le contexte du dossier.
+        let r = appliquer_deux_lignes(tenue_xof(), "1000", "1000").unwrap();
+        assert_eq!(r.format, 1);
+        assert!(r.canonique.starts_with("ecriture v1\n"));
+        assert!(!r.canonique.contains("devise-tenue"));
     }
 
     #[test]

@@ -160,21 +160,33 @@ async fn numeros_continus_et_chaine() {
 }
 
 #[tokio::test]
-async fn decimales_acceptees_et_contre_valeur_arrondie() {
+async fn echelle_de_la_tenue_et_contre_valeur_arrondie() {
     let b = banc().await;
-    // Décimales du XOF acceptées et conservées exactes.
+    // Dossier XOF (zéro décimale) : des centimes sont refusés à la saisie (ADR 0027), un montant
+    // entier est écrit tel quel au format v1.
+    let r = envoyer(
+        &b.routeur,
+        &b.base(),
+        Some(b.c.collaborateur),
+        &contenu(&journal_de_saisie(), &aujourd(), &equilibre("1000.5"), ""),
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    assert_eq!(code(&r), "montant_echelle_devise_tenue");
     let (id, v) = b
         .pret_avec(&contenu(
             &journal_de_saisie(),
             &aujourd(),
-            &equilibre("1000.5"),
+            &equilibre("1000.00"),
             "",
         ))
         .await;
     let r = b.valider(id, v).await;
     assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
     let chaine = b.chaine().await;
-    assert!(chaine[0].2.contains("montant=1000.5\n"), "{}", chaine[0].2);
+    assert!(chaine[0].2.starts_with("ecriture v1\n"), "{}", chaine[0].2);
+    assert!(chaine[0].2.contains("montant=1000\n"), "{}", chaine[0].2);
     // Ligne en devise : contre-valeur arrondie au franc par le moteur (100 EUR à 655,957 :
     // 65 595,7 → 65 596) ; équilibrée par une ligne XOF explicite.
     let devise = format!(

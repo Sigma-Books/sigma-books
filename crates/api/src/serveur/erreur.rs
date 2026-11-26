@@ -401,7 +401,7 @@ impl MotifValidation {
             Self::DateHorsExercice => "validation_date_hors_exercice",
             Self::DateValeurNonAnterieure => "validation_date_valeur_non_anterieure",
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
-            Self::MontantEchelleTenue => "montant_echelle_devise_tenue",
+            Self::MontantEchelleTenue => "validation_montant_echelle_devise_tenue",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
             Self::PaysInconnu => "pays_inconnu",
