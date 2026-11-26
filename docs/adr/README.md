@@ -30,6 +30,7 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0024 | Courriels : relais SMTP en TLS obligatoire, envoi par la file de tâches | Proposée |
 | 0025 | Alertes par courriel aux administrateurs du cabinet | Proposée |
 | 0026 | Comptes de TVA désignés ; pas de contrôle bloquant étiquettes et comptes à la validation (rapport d'écarts en L5) | Proposée |
+| 0027 | Pays, devise de tenue et paramètres du dossier : contexte du dossier, pack pays, format haché v4 (export v5), fuseau | Proposée |
 | 0028 | Séparation des tâches : activée par défaut, appliquée tant que le paramètre du cabinet est actif (clarifie les ADR 0014 et 0020) | Proposée |
 | 0029 | Règles de gestion alignées sur Odoo et Tryton : échéance de clôture, date de contre-passation, compte de trésorerie sans blocage, motif de contre-passation facultatif ; ligne à zéro et numéro à largeur variable renvoyés (format canonique figé) | Proposée |
 
