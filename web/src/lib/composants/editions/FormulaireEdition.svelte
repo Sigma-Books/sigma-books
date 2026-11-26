@@ -15,6 +15,7 @@
 	import type { Exercice, Journal } from '#lib/api/referentiel.ts';
 	import { afficherDate } from '#lib/dates.ts';
 	import { libelleEdition, libelleFormat } from '#lib/editions-affichage.ts';
+	import { traduire } from '#lib/i18n/index.ts';
 	import type { Regional } from '#lib/regional.ts';
 	import '#lib/styles/editions.css';
 
@@ -89,7 +90,7 @@
 					id="f-comptes"
 					type="text"
 					bind:value={filtre.comptes}
-					placeholder="411, 401"
+					placeholder={traduire('filtre.comptes_exemple')}
 					aria-describedby="aide-comptes"
 					autocomplete="off"
 				/>

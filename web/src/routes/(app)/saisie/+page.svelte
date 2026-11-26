@@ -9,6 +9,7 @@
 	import PiecesBrouillon from '#lib/composants/saisie/PiecesBrouillon.svelte';
 	import { ROLES_SAISIE } from '#lib/contexte-dossier.ts';
 	import { afficherDate } from '#lib/dates.ts';
+	import { traduire } from '#lib/i18n/index.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -100,8 +101,7 @@
 			Saisie au kilomètre : après chaque enregistrement, le journal et la date sont conservés et une
 			nouvelle écriture vide s’ouvre. Joignez les pièces plus tard, depuis le brouillard.
 		{:else}
-			Saisie par pièce : une écriture à la fois, avec ses pièces justificatives. Le montant en
-			devise et l’étiquette fiscale (TVA) ne sont pas saisissables ici.
+			{traduire('saisie.aide_piece', { taxe: traduire('taxe.sigle') })}
 		{/if}
 	</p>
 
