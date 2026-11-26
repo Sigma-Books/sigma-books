@@ -385,7 +385,7 @@ La v1 est le logiciel comptable complet. Le plan de développement détaillé (l
 |---|---|
 | Langage | **Rust** (backend et moteur) ; TypeScript strict + SvelteKit (interface) ; Astro (site public) |
 | Contributions | **CLA** standard (modèle inspiré d'Apache), géré par le bot CLA Assistant |
-| Hébergement de l'offre Cloud | **Grand fournisseur cloud, région Europe**, au lancement. Transfert hors du pays du client couvert par la déclaration auprès de l'autorité de protection des données de ce pays (au Sénégal, la CDP) avant le premier client. Instances dédiées hébergées au Sénégal proposées ensuite. |
+| Hébergement de l'offre Cloud | **Grand fournisseur cloud, région Europe**, au lancement. Transfert hors du Sénégal couvert par la déclaration CDP avant le premier client. Instances dédiées hébergées au Sénégal proposées ensuite. |
 | Marque | **Recherche d'antériorité** sur « Sigma Books », puis dépôt **OAPI** |
 | IA | Prompts **publics** ; données d'évaluation réelles **toujours privées** |
 | Publication du code | **Public dès le premier commit** |

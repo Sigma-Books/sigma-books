@@ -23,7 +23,7 @@
 12. Paie et notes de frais
 13. Immobilisations
 14. Travaux de fin d'exercice
-15. Clôture et réouverture
+15. Clôture
 16. Répartition du résultat
 17. États financiers et éditions
 18. Migration, interopérabilité et réversibilité
@@ -108,7 +108,7 @@
 12. **Cloisonnement** : chaque cabinet, et dans un cabinet chaque dossier, est un espace étanche. Aucune donnée d'un dossier (pièces, empreintes, écritures, tiers, règles apprises, contexte transmis à l'IA) n'est lue, comparée ni utilisée pour un autre dossier. Notamment, la recherche de doublons et le stockage des pièces se font **dans le dossier seulement**.
 
 **Méthode de conception** (décisions du mainteneur)
-13. **Consensus des moteurs de référence** : si Odoo et Tryton ont à peu près le même mécanisme, Sigma fait pareil ; les textes OHADA priment seulement s'ils tranchent explicitement ; Sigma n'ajoute pas de contrôle **bloquant** plus strict que ces moteurs sans raison documentée (ADR 0026, ADR 0029). Un écart volontaire (séparation des tâches par défaut, étiquette fiscale dans le contenu haché…) est une décision du mainteneur, consignée dans un ADR.
+13. **Consensus des moteurs de référence** : si Odoo et Tryton ont à peu près le même mécanisme, Sigma fait pareil **par défaut** ; les textes OHADA priment seulement s'ils tranchent explicitement ; Sigma n'ajoute pas de contrôle **bloquant** plus strict que ces moteurs sans raison documentée (ADR 0026, ADR 0029). Un écart volontaire (séparation des tâches par défaut, étiquette fiscale dans le contenu haché…) est une décision du mainteneur, consignée dans un ADR.
 14. **Multi-pays dès la conception** : le socle SYSCOHADA est commun aux États de l'OHADA ; ce qui varie d'un pays à l'autre (devise de tenue et son échelle, fuseau, langue, types d'identifiants légaux, paramètres fiscaux) est une **donnée sourcée du pack pays** ou un **paramètre versionné**, jamais une constante ni une colonne propre à un pays (ADR 0027 ; ADR à venir sur les paramètres fiscaux par pays). Le Sénégal est le premier pays livré (§0).
 
 ---
@@ -133,7 +133,7 @@
 | Interopérabilité | Reprise de données (plan, tiers, balance d'ouverture, FEC), export FEC et profils d'export |
 
 ### Hors v1
-Système Minimal de Trésorerie · comptabilité analytique · calcul de paie · inventaire permanent · consolidation · télédéclaration fiscale · paiements · relances clients automatiques · autres pays que le Sénégal · applications mobiles natives (le portail est une PWA).
+Système Minimal de Trésorerie · comptabilité analytique · calcul de paie · inventaire permanent · consolidation · télédéclaration fiscale · paiements · relances clients automatiques · paramètres fiscaux et formalités d'autres pays que le Sénégal (le modèle est multi-pays dès la conception, §2 principe 14) · applications mobiles natives (le portail est une PWA).
 
 ---
 
@@ -270,7 +270,7 @@ Nom, identifiant fiscal et registre de commerce (types et libellés fournis par 
 
 ### 6.6 Écritures en devises
 - Ligne : montant devise, devise, cours, contre-valeur en devise de tenue (arrondie à l'échelle de la devise de tenue : au franc pour le XOF ; ADR 0027).
-- Différence de règlement : écart de change en 676 (perte) / 776 (gain) — **tranché** (§26, point 6).
+- Différence de règlement : écart de change en 676 (perte) / 776 (gain) — retenu d'après Odoo seul, **à confirmer par l'expert-comptable** (§26, point 6).
 - Clôture : écarts de conversion (478 actif / 479 passif) et provision pour perte de change — **à valider** (§26).
 
 ---
@@ -591,7 +591,7 @@ Saisie assistée du montant de l'impôt (calcul fiscal hors v1) : D 891 / C 441.
 
 ---
 
-## 15. Clôture et réouverture
+## 15. Clôture
 
 ### 15.1 Liste de contrôle (bloquante)
 | Contrôle | Condition |
@@ -820,7 +820,7 @@ MouvementTresorerie── compte, date, montant, sens, libellé, statut, emprein
 
 Ecriture           ── dossier, exercice, journal, date, n° définitif, libellé, statut,
                       origine (ia/manuel/import/modèle/abonnement/inventaire/an/liquidation),
-                      confiance, alertes, contre-passe_id, hash, hash_precedent,
+                      confiance, alertes, origine_id (lien de la contre-passation vers l'origine), hash, hash_precedent,
                       validée_par, validée_le, version paramètres
 LigneEcriture      ── compte, tiers, libellé, débit, crédit, devise, montant devise, cours
 PieceEcriture      ── pièce, écriture, rôle                       (N-N)
@@ -873,7 +873,7 @@ Total séquentiel : ~46 semaines. Avec parallélisation (L3, L5 et L8 en parall�
 | Horizon | Contenu |
 |---|---|
 | v1.1 | Connecteurs API (Odoo, ERPNext, Dolibarr, Tryton) ; dépôt par WhatsApp ; Système Minimal de Trésorerie |
-| v1.2 | Côte d'Ivoire puis autres pays UEMOA ; analytique légère |
+| v1.2 | Paramètres fiscaux et formalités de la Côte d'Ivoire, puis des autres pays UEMOA ; analytique légère |
 | v2 | Télédéclaration (si les portails le permettent) ; trésorerie prévisionnelle ; offre directe aux TPE avec relecture par un cabinet partenaire |
 
 ---
@@ -889,13 +889,13 @@ Ces points touchent à l'exactitude comptable et fiscale. Ils doivent être conf
 | 3 | Taux réduits et exonérations de TVA ; types, taux et comptes des retenues à la source (CGI Sénégal) | L5 |
 | 4 | Comptes de paie par rubrique ; compte de dette des notes de frais | L5 |
 | 5 | Coefficients et règles de pro rata du dégressif (CGI Sénégal) | L6 |
-| 6 | Comptes d'écarts de change et de conversion ; provision pour perte de change. ~~Écarts de change au règlement : 676 (perte) / 776 (gain)~~ **Tranché** : Odoo les désigne comme comptes de différence de change par défaut de `l10n_syscohada` (`addons/l10n_syscohada/models/template_syscohada.py:25-26`). **Reste ouvert** : écarts de conversion 478 / 479 et provision pour perte de change | L6 |
+| 6 | Comptes d'écarts de change et de conversion ; provision pour perte de change. Écarts de change au règlement 676 (perte) / 776 (gain) : **tranché d'après Odoo seul** (`l10n_syscohada/models/template_syscohada.py:25-26`) ; Tryton `account_syscohada` ne désigne que le plan : pas de consensus ; **à confirmer par l'expert-comptable**. **Reste ouvert** : écarts de conversion 478 / 479 et provision pour perte de change | L6 |
 | 7 | Compte de reprise du résultat à l'ouverture (130, 131/139) | L6 |
 | 8 | Référence d'article et champ d'application de la réserve légale (AUSCGIE) | L6 |
 | 9 | ~~Durée minimale et maximale d'un premier exercice~~ **Tranché** par le texte (AUDCIF art. 7, JO OHADA du 15/02/2017, p. 15) : voir §4.2 | L1 |
 | 10 | Impôt minimum forfaitaire et modalités de l'impôt sur le résultat | L6 |
 | 11 | Reclassements des soldes inversés selon les tableaux de correspondance | L7 |
-| 12 | ~~Forme de la correction d'erreur : contre-passation par inversion du débit et du crédit (choix retenu) ou « inscription en négatif des éléments erronés » (AUDCIF art. 20, p. PDF 23)~~ **Tranché** : contre-passation par inversion du débit et du crédit (écriture miroir), ADR 0021, point 4 | L1 |
+| 12 | ~~Forme de la correction d'erreur : contre-passation par inversion du débit et du crédit (choix retenu) ou « inscription en négatif des éléments erronés » (AUDCIF art. 20, p. PDF 23)~~ **Contre-passation miroir retenue par l'ADR 0021 ; la forme exacte (inversion du sens plutôt qu'inscription en négatif) reste à confirmer par l'expert-comptable** | L1 |
 | 13 | Colonnes des balances de travail en 2, 4 et 8 colonnes (la balance générale à 6 colonnes suit l'AUDCIF art. 19) | L1 |
 | 14 | Sens normal des comptes (règle du chiffre 9, AUDCIF p. PDF 216-217) et incohérence 5261/5265 entre la fiche du compte 52 (p. PDF 416) et la liste officielle | L1 |
 | 15 | Clôture informatique (AUDCIF art. 22 3°) : lecture du délai pour une période mensuelle (3 mois après la période, retenu, ou fin du trimestre civil suivant) ; échéance de la dernière période alignée sur l'arrêté des comptes (art. 23) pour les écritures d'inventaire. Le dépassement de l'échéance est désormais un avertissement et le délai un paramètre (ADR 0029, point 1) ; la lecture du délai reste à valider | L1 |
