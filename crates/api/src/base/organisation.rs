@@ -486,6 +486,67 @@ pub async fn lire_contexte_du_dossier(
     )
 }
 
+/// Le dossier du contexte a-t-il une écriture validée, un brouillon ? Lecture sous la RLS du
+/// dossier ; à appeler **après** le verrou de la tête de chaîne pour voir les validations
+/// concurrentes.
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, ou erreur de PostgreSQL.
+pub async fn ecritures_du_dossier(tx: &mut TransactionTenant) -> Result<(bool, bool), ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let l = sqlx::query!(
+        r#"SELECT
+             EXISTS (SELECT 1 FROM ecriture_validee WHERE cabinet_id = $1 AND dossier_id = $2)
+               AS "validee!",
+             EXISTS (SELECT 1 FROM brouillon WHERE cabinet_id = $1 AND dossier_id = $2)
+               AS "brouillon!""#,
+        cabinet,
+        dossier,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    Ok((l.validee, l.brouillon))
+}
+
+/// Enregistre le contexte modifié du dossier du contexte (ADR 0027). Les contrôles (écritures
+/// existantes, ré-authentification) sont ceux du cas d'usage ; un déclencheur de la base refuse
+/// en dernier recours de changer pays, devise ou échelle d'un dossier qui a des écritures.
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, ou erreur de PostgreSQL.
+pub async fn modifier_contexte(
+    tx: &mut TransactionTenant,
+    contexte: &ContexteDossier,
+) -> Result<(), ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    sqlx::query!(
+        "UPDATE dossier SET pays = $3, devise_tenue = $4, decimales_tenue = $5, fuseau = $6, \
+                            langue = $7, forme_juridique = $8 \
+         WHERE cabinet_id = $1 AND id = $2",
+        cabinet,
+        dossier,
+        contexte.pays,
+        contexte.devise,
+        i16::from(contexte.decimales),
+        contexte.fuseau,
+        contexte.langue,
+        contexte.forme_juridique,
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(())
+}
+
 /// Inscrit les identifiants légaux d'un dossier qui vient d'être créé. La transaction doit être
 /// restreinte à ce dossier (`restreindre_au_dossier`, comme pour son référentiel) : la table est
 /// une table de dossier à la règle commune.

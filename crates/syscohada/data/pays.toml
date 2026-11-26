@@ -6,6 +6,8 @@
 # Chaque entrée cite sa source (règle absolue 9). Les valeurs fournies à la création du dossier
 # sont contrôlées contre les tables de ce fichier (devises, fuseaux, types d'identifiants).
 #
+# Fuseaux : la RDC en a deux (Africa/Kinshasa UTC+1, Africa/Lubumbashi UTC+2) : le fuseau est
+# celui du dossier, choisi à sa création (défaut du pays : Kinshasa).
 # Fuseaux : décalage **constant** par rapport à UTC, en minutes. Vérifié contre la base IANA
 # `tzdata` 2026f le 2026-11-26 : aucun de ces fuseaux n'observe l'heure d'été. Un fuseau à heure
 # d'été n'a pas sa place ici (ADR 0027, point 4).
@@ -23,135 +25,135 @@
 code = "XOF"
 intitule = "Franc CFA BCEAO (UEMOA)"
 decimales = 0
-source = "ISO 4217, liste en vigueur (colonne « minor unit »), recoupée le 2026-11-26"
+source = "ISO 4217:2015 « Codes pour la représentation des monnaies », tableau A.1 tenu à jour par SIX Group (agence de maintenance), colonne « Minor unit » ; document hors du dépôt (norme payante), recoupé le 2026-11-26 sur la liste publiée"
 
 [[devise]]
 code = "XAF"
 intitule = "Franc CFA BEAC (CEMAC)"
 decimales = 0
-source = "ISO 4217, liste en vigueur (colonne « minor unit »), recoupée le 2026-11-26"
+source = "ISO 4217:2015 « Codes pour la représentation des monnaies », tableau A.1 tenu à jour par SIX Group (agence de maintenance), colonne « Minor unit » ; document hors du dépôt (norme payante), recoupé le 2026-11-26 sur la liste publiée"
 
 [[devise]]
 code = "KMF"
 intitule = "Franc comorien"
 decimales = 0
-source = "ISO 4217, liste en vigueur (colonne « minor unit »), recoupée le 2026-11-26"
+source = "ISO 4217:2015 « Codes pour la représentation des monnaies », tableau A.1 tenu à jour par SIX Group (agence de maintenance), colonne « Minor unit » ; document hors du dépôt (norme payante), recoupé le 2026-11-26 sur la liste publiée"
 
 [[devise]]
 code = "GNF"
 intitule = "Franc guinéen"
 decimales = 0
-source = "ISO 4217, liste en vigueur (colonne « minor unit »), recoupée le 2026-11-26"
+source = "ISO 4217:2015 « Codes pour la représentation des monnaies », tableau A.1 tenu à jour par SIX Group (agence de maintenance), colonne « Minor unit » ; document hors du dépôt (norme payante), recoupé le 2026-11-26 sur la liste publiée"
 
 [[devise]]
 code = "CDF"
 intitule = "Franc congolais"
 decimales = 2
-source = "ISO 4217, liste en vigueur (colonne « minor unit »), recoupée le 2026-11-26"
+source = "ISO 4217:2015 « Codes pour la représentation des monnaies », tableau A.1 tenu à jour par SIX Group (agence de maintenance), colonne « Minor unit » ; document hors du dépôt (norme payante), recoupé le 2026-11-26 sur la liste publiée"
 
 [[devise]]
 code = "EUR"
 intitule = "Euro"
 decimales = 2
-source = "ISO 4217, liste en vigueur (colonne « minor unit »), recoupée le 2026-11-26"
+source = "ISO 4217:2015 « Codes pour la représentation des monnaies », tableau A.1 tenu à jour par SIX Group (agence de maintenance), colonne « Minor unit » ; document hors du dépôt (norme payante), recoupé le 2026-11-26 sur la liste publiée"
 
 [[devise]]
 code = "USD"
 intitule = "Dollar des États-Unis"
 decimales = 2
-source = "ISO 4217, liste en vigueur (colonne « minor unit »), recoupée le 2026-11-26"
+source = "ISO 4217:2015 « Codes pour la représentation des monnaies », tableau A.1 tenu à jour par SIX Group (agence de maintenance), colonne « Minor unit » ; document hors du dépôt (norme payante), recoupé le 2026-11-26 sur la liste publiée"
 
 # --- Fuseaux ------------------------------------------------------------------------------
 
 [[fuseau]]
 nom = "Africa/Abidjan"
 decalage_minutes = 0
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Bamako"
 decalage_minutes = 0
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Bissau"
 decalage_minutes = 0
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Conakry"
 decalage_minutes = 0
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Dakar"
 decalage_minutes = 0
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Lome"
 decalage_minutes = 0
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Ouagadougou"
 decalage_minutes = 0
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Bangui"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Brazzaville"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Douala"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Kinshasa"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Libreville"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Malabo"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Ndjamena"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Niamey"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Porto-Novo"
 decalage_minutes = 60
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Africa/Lubumbashi"
 decalage_minutes = 120
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 [[fuseau]]
 nom = "Indian/Comoro"
 decalage_minutes = 180
-source = "IANA tzdata 2026f, vérifié le 2026-11-26 (décalage constant toute l'année)"
+source = "IANA Time Zone Database (tzdata) 2026f, fichier « africa » (et « indian » pour Indian/Comoro), vérifié le 2026-11-26 : décalage constant toute l'année"
 
 # --- Types d'identifiants légaux communs à tous les pays ----------------------------------
 
@@ -173,7 +175,7 @@ nom = "Bénin"
 devise = "XOF"
 fuseau = "Africa/Porto-Novo"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "BF"
@@ -181,7 +183,7 @@ nom = "Burkina Faso"
 devise = "XOF"
 fuseau = "Africa/Ouagadougou"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "CI"
@@ -189,7 +191,7 @@ nom = "Côte d'Ivoire"
 devise = "XOF"
 fuseau = "Africa/Abidjan"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "GW"
@@ -197,7 +199,7 @@ nom = "Guinée-Bissau"
 devise = "XOF"
 fuseau = "Africa/Bissau"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "ML"
@@ -205,7 +207,7 @@ nom = "Mali"
 devise = "XOF"
 fuseau = "Africa/Bamako"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "NE"
@@ -213,7 +215,7 @@ nom = "Niger"
 devise = "XOF"
 fuseau = "Africa/Niamey"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "SN"
@@ -221,7 +223,7 @@ nom = "Sénégal"
 devise = "XOF"
 fuseau = "Africa/Dakar"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays.identifiant_propre]]
 code = "NINEA"
@@ -234,7 +236,7 @@ nom = "Togo"
 devise = "XOF"
 fuseau = "Africa/Lome"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XOF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XOF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "CM"
@@ -242,7 +244,7 @@ nom = "Cameroun"
 devise = "XAF"
 fuseau = "Africa/Douala"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XAF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XAF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "CG"
@@ -250,7 +252,7 @@ nom = "Congo"
 devise = "XAF"
 fuseau = "Africa/Brazzaville"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XAF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XAF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "GA"
@@ -258,7 +260,7 @@ nom = "Gabon"
 devise = "XAF"
 fuseau = "Africa/Libreville"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XAF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XAF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "CF"
@@ -266,7 +268,7 @@ nom = "République centrafricaine"
 devise = "XAF"
 fuseau = "Africa/Bangui"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XAF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XAF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "TD"
@@ -274,7 +276,7 @@ nom = "Tchad"
 devise = "XAF"
 fuseau = "Africa/Ndjamena"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XAF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XAF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "KM"
@@ -282,7 +284,7 @@ nom = "Comores"
 devise = "KMF"
 fuseau = "Indian/Comoro"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour KMF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour KMF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "GN"
@@ -290,7 +292,7 @@ nom = "Guinée"
 devise = "GNF"
 fuseau = "Africa/Conakry"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour GNF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour GNF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "GQ"
@@ -298,7 +300,7 @@ nom = "Guinée équatoriale"
 devise = "XAF"
 fuseau = "Africa/Malabo"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour XAF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour XAF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"
 
 [[pays]]
 code = "CD"
@@ -306,4 +308,4 @@ nom = "République démocratique du Congo"
 devise = "CDF"
 fuseau = "Africa/Kinshasa"
 langue = "fr"
-source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217, États listés pour CDF, recoupé le 2026-11-26 ; fuseau : IANA tzdata 2026f"
+source = "Guide d'application du SYSCOHADA révisé, 1er mai 2017, p. PDF 394, note (2) : liste des dix-sept États parties ; devise : ISO 4217:2015 (tableau A.1, États listés pour CDF, recoupé le 2026-11-26) ; fuseau : IANA tzdata 2026f"

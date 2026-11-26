@@ -186,11 +186,17 @@ pub enum MotifConflit {
     /// Le membre appartient aussi à d'autres cabinets : sa réinitialisation retirerait ses accès
     /// à des cabinets que l'administrateur n'administre pas (ADR 0023, §4).
     MembreDUnAutreCabinet,
+    /// Le dossier a déjà une écriture validée : pays et devise de tenue sont figés (ADR 0027).
+    DossierDejaEcritures,
+    /// Le dossier a un brouillon : changer le pays ou la devise réinterpréterait ses montants.
+    DossierBrouillardNonVide,
+    /// La devise de tenue du dossier a changé pendant l'attente du verrou : réessayer.
+    ContexteDossierModifie,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 29] = [
+    pub const TOUS: [Self; 32] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -220,6 +226,9 @@ impl MotifConflit {
         Self::ReinitialisationNonEnAttente,
         Self::CompteExistant,
         Self::MembreDUnAutreCabinet,
+        Self::DossierDejaEcritures,
+        Self::DossierBrouillardNonVide,
+        Self::ContexteDossierModifie,
     ];
 
     /// Code du corps de la réponse.
@@ -255,6 +264,9 @@ impl MotifConflit {
             Self::ReinitialisationNonEnAttente => "reinitialisation_non_en_attente",
             Self::CompteExistant => "compte_existant",
             Self::MembreDUnAutreCabinet => "membre_d_un_autre_cabinet",
+            Self::DossierDejaEcritures => "dossier_deja_ecritures",
+            Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
+            Self::ContexteDossierModifie => "contexte_dossier_modifie",
         }
     }
 }

@@ -57,7 +57,9 @@ use super::{
 use crate::base::brouillard::{
     self, BrouillonStocke, ContenuStocke, LigneStockee, RolePiece, decimal_canonique,
 };
-use crate::base::organisation::{lire_acces_dossier, lire_appartenance, lire_cabinet};
+use crate::base::organisation::{
+    lire_acces_dossier, lire_appartenance, lire_cabinet, lire_contexte_du_dossier,
+};
 use crate::base::referentiel::charger;
 use crate::base::validation::{
     self as base, Circonstances, EcritureStockee, Inscription, PieceVerrouillee, Tete,
@@ -732,6 +734,11 @@ pub(super) async fn valider(
         &integrite::IdDossier::parse(&dossier.id().uuid().to_string()).map_err(|_| donnee())?,
     );
     let tete = base::verrouiller_tete(tx, &genese).await?;
+    // Devise de tenue relue **après** la tête : une modification du contexte du dossier prend le
+    // même verrou (ADR 0027) ; si elle est passée entre-temps, la validation se rejoue.
+    if lire_contexte_du_dossier(tx).await?.tenue()? != tenue {
+        return Err(conflit(MotifConflit::ContexteDossierModifie));
+    }
     // Instant relu **après** la tête : la validation a pu attendre, ou franchir minuit.
     let instant = requete.horloge.maintenant();
     let dernier = base::verrouiller_compteur(tx, journal_id, exercice_id).await?;

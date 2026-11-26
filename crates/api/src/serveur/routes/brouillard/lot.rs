@@ -43,7 +43,7 @@ use super::validation::{
 use super::{conflit, corps, referentiel_tva, sans_parametres, trace_de};
 use crate::base::TransactionTenant;
 use crate::base::brouillard::{self, BrouillonStocke};
-use crate::base::organisation::{lire_appartenance, lire_cabinet};
+use crate::base::organisation::{lire_appartenance, lire_cabinet, lire_contexte_du_dossier};
 use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, PieceVerrouillee, Tete};
 use crate::pieces::interne;
@@ -266,6 +266,10 @@ pub(super) async fn valider_par_lot(
         &integrite::IdDossier::parse(&dossier.id().uuid().to_string()).map_err(|_| donnee())?,
     );
     let tete = base::verrouiller_tete(tx, &genese).await?;
+    // Devise de tenue relue après la tête (ADR 0027) : voir la validation unitaire.
+    if lire_contexte_du_dossier(tx).await?.tenue()? != tenue {
+        return Err(conflit(MotifConflit::ContexteDossierModifie));
+    }
     let instant = requete.horloge.maintenant();
     let mut compteurs: BTreeMap<(Uuid, Uuid), u32> = BTreeMap::new();
     for r in &retenues {

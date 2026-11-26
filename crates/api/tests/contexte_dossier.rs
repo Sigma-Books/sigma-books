@@ -14,7 +14,7 @@ use api::base::organisation::lire_identifiants_legaux;
 use api::base::{ContexteTenant, ouvrir_transaction};
 use axum::http::StatusCode;
 use commun::banc::{Banc, aujourd, banc, banc_avec, banque, caisse, code, contenu};
-use commun::brouillard::{aujourd_hui, journal_de_saisie, ligne};
+use commun::brouillard::{aujourd_hui, journal_de_saisie, ligne, saisie};
 use commun::creer_cabinet;
 use commun::serveur::{HorlogeTest, envoyer, lire};
 use integrite::Options;
@@ -521,20 +521,6 @@ async fn les_identifiants_legaux_restent_dans_leur_dossier_et_leur_cabinet() {
             .is_err()
     );
     tx.annuler().await.unwrap();
-    // Le contexte du dossier (devise de tenue…) n'est modifiable par aucune requête applicative.
-    let mut tx = ouvrir_transaction(
-        &a.env.application,
-        ContexteTenant::dossier(a.c.cabinet, a.c.dossier, a.c.administrateur),
-    )
-    .await
-    .unwrap();
-    assert!(
-        sqlx::query("UPDATE dossier SET devise_tenue = 'EUR'")
-            .execute(tx.connexion())
-            .await
-            .is_err()
-    );
-    tx.annuler().await.unwrap();
 }
 
 /// 23 h 30 UTC du jour : encore le même jour à Dakar (UTC+0), déjà le lendemain à Douala (UTC+1).
@@ -570,4 +556,255 @@ async fn la_date_de_validation_est_celle_du_fuseau_du_dossier() {
     .await;
     let lendemain = aujourdhui.next_day().unwrap();
     assert!(t.contains(&format!("date-validation={lendemain}\n")), "{t}");
+}
+
+// --- Modification du contexte (ADR 0027, point 1) ------------------------------------------
+
+async fn modifier(
+    b: &Banc,
+    par: api::base::IdUtilisateur,
+    corps: &str,
+    anciennete: Option<i64>,
+) -> commun::serveur::Reponse {
+    envoyer(
+        &b.routeur,
+        &format!(
+            "/api/cabinets/{}/dossiers/{}/contexte",
+            b.c.cabinet, b.c.dossier
+        ),
+        Some(par),
+        corps,
+        anciennete,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn le_contexte_se_modifie_avant_la_premiere_ecriture() {
+    let b = banc().await;
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"pays":"CD","devise":"CDF","fuseau":"Africa/Lubumbashi","forme_juridique":"SA"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let v = r.json();
+    assert_eq!(
+        (v["pays"].as_str(), v["devise"].as_str()),
+        (Some("CD"), Some("CDF"))
+    );
+    assert_eq!(v["decimales"], 2, "l'échelle suit le pack");
+    assert_eq!(v["fuseau"], "Africa/Lubumbashi");
+    assert_eq!(v["forme_juridique"], "SA");
+    assert_eq!(dossier(&b).await["devise"], "CDF");
+    // Inscrit à l'audit chaîné du dossier, avec l'avant et l'après.
+    let audit: Vec<String> =
+        sqlx::query_scalar("SELECT contenu FROM audit_dossier WHERE dossier_id = $1")
+            .bind(b.c.dossier.uuid())
+            .fetch_all(&b.env.admin)
+            .await
+            .unwrap();
+    let entree = audit
+        .iter()
+        .find(|c| c.contains("ModifierContexteDossier"))
+        .expect("audit");
+    assert!(
+        entree.contains("devise_tenue") && entree.contains("XOF") && entree.contains("CDF"),
+        "{entree}"
+    );
+    // Le dossier se tient désormais en CDF, deux décimales, format v4.
+    let texte = valider(
+        &b,
+        &[
+            ligne(caisse(), "debit", "10.55"),
+            ligne(banque(), "credit", "10.55"),
+        ],
+    )
+    .await;
+    assert!(
+        texte.starts_with("ecriture v4\n") && texte.contains("decimales-tenue=2\n"),
+        "{texte}"
+    );
+    // Redire les mêmes valeurs ne change rien (409), champ inconnu ou corps vide : 400.
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"fuseau":"Africa/Lubumbashi"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT);
+    assert_eq!(code(&r), "aucun_changement");
+    for corps in ["{}", r#"{"ninea":"1"}"#, "pas du json"] {
+        assert_eq!(
+            modifier(&b, b.c.administrateur, corps, None).await.statut,
+            StatusCode::BAD_REQUEST,
+            "{corps}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn pays_et_devise_se_figent_a_la_premiere_ecriture_validee() {
+    let b = banc().await;
+    valider(
+        &b,
+        &[
+            ligne(caisse(), "debit", "1000"),
+            ligne(banque(), "credit", "1000"),
+        ],
+    )
+    .await;
+    for corps in [
+        r#"{"devise":"EUR"}"#,
+        r#"{"pays":"CM"}"#,
+        r#"{"pays":"CM","devise":"XAF"}"#,
+    ] {
+        let r = modifier(&b, b.c.administrateur, corps, None).await;
+        assert_eq!(r.statut, StatusCode::CONFLICT, "{corps} : {}", r.texte());
+        assert_eq!(code(&r), "dossier_deja_ecritures", "{corps}");
+    }
+    // Fuseau, langue et forme juridique restent modifiables (hors du haché) ; effacement par null.
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"fuseau":"Africa/Douala","langue":"fr-SN","forme_juridique":"SARL"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert_eq!(r.json()["devise"], "XOF");
+    let r = modifier(&b, b.c.administrateur, r#"{"forme_juridique":null}"#, None).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert!(r.json()["forme_juridique"].is_null());
+    // Seconde barrière : même une requête SQL du rôle applicatif ne change plus la devise.
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    assert!(
+        sqlx::query("UPDATE dossier SET devise_tenue = 'EUR', decimales_tenue = 2")
+            .execute(tx.connexion())
+            .await
+            .is_err()
+    );
+    tx.annuler().await.unwrap();
+    // La chaîne et la devise de la validation suivante n'ont pas bougé.
+    assert_eq!(dossier(&b).await["devise"], "XOF");
+    assert!(b.chaine_valide().await);
+}
+
+#[tokio::test]
+async fn un_brouillon_empeche_de_changer_la_devise() {
+    let b = banc().await;
+    let id = b.creer(&saisie("Brouillon", None)).await;
+    let r = modifier(&b, b.c.administrateur, r#"{"devise":"EUR"}"#, None).await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "dossier_brouillard_non_vide");
+    assert_eq!(
+        modifier(
+            &b,
+            b.c.administrateur,
+            r#"{"fuseau":"Africa/Douala"}"#,
+            None
+        )
+        .await
+        .statut,
+        StatusCode::OK
+    );
+    // Le brouillon supprimé, la devise peut changer.
+    for table in [
+        "brouillon_ligne",
+        "brouillon_contributeur",
+        "brouillon_piece",
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {table} WHERE brouillon_id = $1"
+        )))
+        .bind(id)
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    }
+    sqlx::query("DELETE FROM brouillon WHERE id = $1")
+        .bind(id)
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    // (les pièces liées au brouillon s'il y en avait : aucune ici)
+    let r = modifier(&b, b.c.administrateur, r#"{"devise":"EUR"}"#, None).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert_eq!(r.json()["decimales"], 2);
+}
+
+#[tokio::test]
+async fn pays_et_devise_exigent_une_session_fraiche_et_l_administrateur() {
+    let b = banc().await;
+    // Session vieille de dix minutes : le fuseau passe, la devise et le pays non (403).
+    let vieille = Some(600);
+    assert_eq!(
+        modifier(&b, b.c.administrateur, r#"{"devise":"XAF"}"#, vieille)
+            .await
+            .statut,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        modifier(&b, b.c.administrateur, r#"{"pays":"CM"}"#, vieille)
+            .await
+            .statut,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        modifier(&b, b.c.administrateur, r#"{"langue":"fr-SN"}"#, vieille)
+            .await
+            .statut,
+        StatusCode::OK
+    );
+    assert_eq!(dossier(&b).await["devise"], "XOF");
+    // Ni le valideur ni le collaborateur ne modifient le contexte (Cedar, puis la requête).
+    for qui in [b.valideur, b.c.collaborateur, b.auditeur] {
+        let r = modifier(&b, qui, r#"{"fuseau":"Africa/Douala"}"#, None).await;
+        assert_eq!(r.statut, StatusCode::FORBIDDEN, "{}", r.texte());
+    }
+    assert_eq!(dossier(&b).await["fuseau"], "Africa/Dakar");
+}
+
+#[tokio::test]
+async fn refus_de_modification_a_codes_stables() {
+    let b = banc().await;
+    for (corps, attendu) in [
+        (r#"{"pays":"FR"}"#, "pays_inconnu"),
+        (r#"{"devise":"ZZZ"}"#, "devise_tenue_inconnue"),
+        (r#"{"fuseau":"Europe/Paris"}"#, "fuseau_inconnu"),
+        (r#"{"langue":"FR"}"#, "contexte_dossier_invalide"),
+    ] {
+        let r = modifier(&b, b.c.administrateur, corps, None).await;
+        assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{corps}");
+        assert_eq!(code(&r), attendu, "{corps}");
+    }
+    // Un identifiant légal propre au Sénégal ne suit pas le dossier dans un autre pays.
+    sqlx::query(
+        "INSERT INTO dossier_identifiant_legal (cabinet_id, dossier_id, type, valeur) \
+         VALUES ($1, $2, 'NINEA', '0012345')",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"pays":"CM","devise":"XAF"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    assert_eq!(code(&r), "contexte_dossier_invalide");
+    // Vers un pays qui l'admet encore (SN reste SN) : sans objet ; le dossier est inchangé.
+    assert_eq!(dossier(&b).await["pays"], "SN");
 }

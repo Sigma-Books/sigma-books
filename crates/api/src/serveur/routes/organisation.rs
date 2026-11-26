@@ -6,7 +6,7 @@ use authz::Action;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use syscohada::PackPays;
 
 use super::{
@@ -15,13 +15,16 @@ use super::{
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
-    affecter_utilisateur_du_contexte, creer_dossier, inserer_identifiants_legaux,
-    lire_appartenance, lire_cabinet, lire_dossier_visible, lire_identifiants_legaux,
-    lister_dossiers_visibles,
+    affecter_utilisateur_du_contexte, creer_dossier, ecritures_du_dossier,
+    inserer_identifiants_legaux, lire_appartenance, lire_cabinet, lire_contexte_du_dossier,
+    lire_dossier_visible, lire_identifiants_legaux, lister_dossiers_visibles, modifier_contexte,
 };
-use crate::contexte_dossier::IdentifiantLegal;
+use crate::contexte_dossier::{
+    ContexteDossier, IdentifiantLegal, ModificationContexte, controler_identifiants,
+    modifier as modifier_le_contexte,
+};
 use crate::serveur::audit::Trace;
-use crate::serveur::erreur::{CategorieErreur, ErreurApi};
+use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
 use crate::serveur::pipeline::{CabinetAutorise, DossierAutorise, Garde};
 
 /// Cas d'usage du module.
@@ -40,6 +43,9 @@ pub enum Cas {
     /// fuseau, langue), types d'identifiants légaux, devises et fuseaux admis. Données publiques
     /// du produit, lues pour la page de création d'un dossier.
     ListerPays,
+    /// Modifier le contexte du dossier (ADR 0027) : fuseau, langue, forme juridique à tout
+    /// moment ; pays et devise de tenue tant que le dossier n'a ni écriture ni brouillon.
+    ModifierContexte,
 }
 
 /// Tranche du module.
@@ -74,6 +80,14 @@ pub const ROUTES: &[Route] = &[
         action: ActionRoute::Cabinet(Action::CreerDossier),
         portee: Portee::Cabinet,
         cas_usage: CasUsage::Organisation(Cas::CreerDossier),
+    },
+    // Modification du contexte du dossier : administrateur du cabinet (ADR 0027).
+    Route {
+        methode: Methode::Post,
+        chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}/contexte",
+        action: ActionRoute::Cabinet(Action::ModifierContexteDossier),
+        portee: Portee::Dossier,
+        cas_usage: CasUsage::Organisation(Cas::ModifierContexte),
     },
     // Pack pays : mêmes droits que la création d'un dossier (c'est sa page qui s'en sert).
     Route {
@@ -144,10 +158,23 @@ struct VueIdentifiant {
 
 impl VueDossier {
     fn de(dossier: &DossierAutorise, identifiants: Option<Vec<IdentifiantLegal>>) -> Self {
-        let c = dossier.contexte();
+        Self::depuis(
+            dossier.id().to_string(),
+            dossier.nom(),
+            dossier.contexte(),
+            identifiants,
+        )
+    }
+
+    fn depuis(
+        id: String,
+        nom: &str,
+        c: &ContexteDossier,
+        identifiants: Option<Vec<IdentifiantLegal>>,
+    ) -> Self {
         Self {
-            id: dossier.id().to_string(),
-            nom: dossier.nom().to_owned(),
+            id,
+            nom: nom.to_owned(),
             pays: c.pays.clone(),
             devise: c.devise.clone(),
             decimales: c.decimales,
@@ -287,6 +314,7 @@ pub(crate) async fn executer(
             Ok(Resultat::lecture(Json(vue).into_response()))
         }
         Cas::CreerDossier => creer(tx, garde, requete).await,
+        Cas::ModifierContexte => modifier(tx, garde, requete).await,
         Cas::ListerPays => {
             garde.exiger_cabinet()?;
             exiger_createur(tx).await?;
@@ -390,6 +418,141 @@ async fn creer(
     Ok(Resultat {
         reponse: (StatusCode::CREATED, Json(vue)).into_response(),
         traces: vec![au_cabinet, au_dossier],
+    })
+}
+
+/// Corps de `POST …/dossiers/{dossier}/contexte` : chaque champ absent est conservé ;
+/// `"forme_juridique": null` l'efface.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CorpsModification {
+    pays: Option<String>,
+    devise: Option<String>,
+    fuseau: Option<String>,
+    langue: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    forme_juridique: Option<Option<String>>,
+}
+
+/// Distingue un champ absent (`None`) d'un champ à `null` (`Some(None)`).
+fn double_option<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
+}
+
+/// Défense en profondeur : appartenance **active** lue en base, de rôle `administrateur`
+/// (Cedar décide aussi). Absente ou suspendue : 404 ; autre rôle : 403.
+async fn exiger_administrateur(tx: &mut TransactionTenant) -> Result<(), ErreurApi> {
+    let appartenance = lire_appartenance(tx)
+        .await?
+        .filter(|a| a.actif)
+        .ok_or(ErreurApi::Introuvable)?;
+    if appartenance.role == authz::Role::Administrateur.nom() {
+        Ok(())
+    } else {
+        Err(ErreurApi::Interdit)
+    }
+}
+
+/// Modification du contexte du dossier (ADR 0027). Fuseau, langue et forme juridique changent à
+/// tout moment. Pays et devise de tenue (donc échelle) exigent une **session fraîche** et un
+/// dossier **sans écriture validée ni brouillon**, contrôlés sous le verrou de la tête de chaîne
+/// (qui sérialise les validations) ; les identifiants légaux déjà inscrits doivent rester admis
+/// par le nouveau pays. Une trace d'audit par champ modifié, au journal du dossier.
+async fn modifier(
+    tx: &mut TransactionTenant,
+    garde: &Garde,
+    requete: &Requete<'_>,
+) -> Result<Resultat, ErreurApi> {
+    exiger_administrateur(tx).await?;
+    let id = tx.contexte().id_dossier().ok_or(ErreurApi::Introuvable)?;
+    let visible = lire_dossier_visible(tx, id)
+        .await?
+        .ok_or(ErreurApi::Introuvable)?;
+    let autorise = garde.dossier_du_chemin(visible)?;
+    let Json(c) = Json::<CorpsModification>::from_bytes(requete.corps)
+        .map_err(|_| ErreurApi::RequeteInvalide)?;
+    let modification = ModificationContexte {
+        pays: c.pays.as_deref(),
+        devise: c.devise.as_deref(),
+        fuseau: c.fuseau.as_deref(),
+        langue: c.langue.as_deref(),
+        forme_juridique: c.forme_juridique.as_ref().map(Option::as_deref),
+    };
+    if modification.est_vide() {
+        return Err(ErreurApi::RequeteInvalide);
+    }
+    let pack = PackPays::officiel().map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
+    // Verrou de la tête de chaîne : les validations en cours se terminent, les suivantes
+    // attendent ; le contexte et les écritures sont relus après.
+    let genese = integrite::genese(
+        &integrite::IdDossier::parse(&id.uuid().to_string())
+            .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?,
+    );
+    crate::base::validation::verrouiller_tete(tx, &genese).await?;
+    let actuel = lire_contexte_du_dossier(tx).await?;
+    let nouveau = modifier_le_contexte(pack, &actuel, &modification)
+        .map_err(super::referentiel::refus_contexte)?;
+    if nouveau == actuel {
+        return Err(ErreurApi::Conflit {
+            motif: MotifConflit::AucunChangement,
+            nombre: None,
+        });
+    }
+    if actuel.change_pays_ou_devise(&nouveau) {
+        if !garde.session_fraiche() {
+            return Err(ErreurApi::Interdit);
+        }
+        let (validee, brouillon) = ecritures_du_dossier(tx).await?;
+        let conflit = |motif| ErreurApi::Conflit {
+            motif,
+            nombre: None,
+        };
+        if validee {
+            return Err(conflit(MotifConflit::DossierDejaEcritures));
+        }
+        if brouillon {
+            return Err(conflit(MotifConflit::DossierBrouillardNonVide));
+        }
+    }
+    let identifiants = lire_identifiants_legaux(tx).await?;
+    if nouveau.pays != actuel.pays {
+        controler_identifiants(pack, &nouveau.pays, &identifiants)
+            .map_err(super::referentiel::refus_contexte)?;
+    }
+    modifier_contexte(tx, &nouveau).await?;
+
+    let dossier = autorise.id().uuid();
+    let mut trace = Trace::new(PorteeAudit::Dossier(autorise.id()), "dossier", dossier);
+    let mut champ = |nom: &'static str, avant: Option<&str>, apres: Option<&str>| {
+        if avant != apres {
+            trace
+                .champs
+                .push((nom, avant.map(str::to_owned), apres.map(str::to_owned)));
+        }
+    };
+    champ("pays", Some(&actuel.pays), Some(&nouveau.pays));
+    champ("devise_tenue", Some(&actuel.devise), Some(&nouveau.devise));
+    champ(
+        "decimales_tenue",
+        Some(&actuel.decimales.to_string()),
+        Some(&nouveau.decimales.to_string()),
+    );
+    champ("fuseau", Some(&actuel.fuseau), Some(&nouveau.fuseau));
+    champ("langue", Some(&actuel.langue), Some(&nouveau.langue));
+    champ(
+        "forme_juridique",
+        actuel.forme_juridique.as_deref(),
+        nouveau.forme_juridique.as_deref(),
+    );
+    let vue = VueDossier::depuis(
+        autorise.id().to_string(),
+        autorise.nom(),
+        &nouveau,
+        Some(identifiants),
+    );
+    Ok(Resultat {
+        reponse: (StatusCode::OK, Json(vue)).into_response(),
+        traces: vec![trace],
     })
 }
 

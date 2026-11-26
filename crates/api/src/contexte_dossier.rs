@@ -118,6 +118,76 @@ pub fn resoudre(
     })
 }
 
+/// Modification demandée du contexte d'un dossier existant : chaque champ absent est conservé.
+/// `forme_juridique` : `Some(None)` l'efface.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ModificationContexte<'a> {
+    /// Nouveau pays.
+    pub pays: Option<&'a str>,
+    /// Nouvelle devise de tenue (l'échelle suit, du pack).
+    pub devise: Option<&'a str>,
+    /// Nouveau fuseau.
+    pub fuseau: Option<&'a str>,
+    /// Nouvelle langue.
+    pub langue: Option<&'a str>,
+    /// Nouvelle forme juridique, ou son effacement.
+    pub forme_juridique: Option<Option<&'a str>>,
+}
+
+impl ModificationContexte<'_> {
+    /// Vrai si la demande ne porte sur aucun champ.
+    #[must_use]
+    pub fn est_vide(&self) -> bool {
+        self.pays.is_none()
+            && self.devise.is_none()
+            && self.fuseau.is_none()
+            && self.langue.is_none()
+            && self.forme_juridique.is_none()
+    }
+}
+
+/// Applique une modification au contexte actuel : mêmes contrôles qu'à la création, contre les
+/// tables du pack. Une devise identique à l'actuelle conserve l'échelle stockée ; une devise
+/// différente prend l'échelle du pack.
+///
+/// # Errors
+/// [`RefusContexte`] : pays, devise, fuseau inconnus du pack ; langue ou forme juridique invalide.
+pub fn modifier(
+    pack: &PackPays,
+    actuel: &ContexteDossier,
+    modification: &ModificationContexte<'_>,
+) -> Result<ContexteDossier, RefusContexte> {
+    let pays = modification.pays.unwrap_or(&actuel.pays);
+    pack.pays_par_code(pays).ok_or(RefusContexte::PaysInconnu)?;
+    let (devise, decimales) = match modification.devise {
+        Some(d) if d != actuel.devise => {
+            let info = pack.devise(d).ok_or(RefusContexte::DeviseInconnue)?;
+            (info.code().to_owned(), info.decimales())
+        }
+        _ => (actuel.devise.clone(), actuel.decimales),
+    };
+    let fuseau = modification.fuseau.unwrap_or(&actuel.fuseau);
+    pack.fuseau(fuseau).ok_or(RefusContexte::FuseauInconnu)?;
+    let langue = modification.langue.unwrap_or(&actuel.langue);
+    if !langue_valide(langue) {
+        return Err(RefusContexte::Invalide);
+    }
+    let forme_juridique = match modification.forme_juridique {
+        None => actuel.forme_juridique.clone(),
+        Some(None) => None,
+        Some(Some(f)) if texte_borne(f, FORME_JURIDIQUE_MAX) => Some(f.to_owned()),
+        Some(Some(_)) => return Err(RefusContexte::Invalide),
+    };
+    Ok(ContexteDossier {
+        pays: pays.to_owned(),
+        devise,
+        decimales,
+        fuseau: fuseau.to_owned(),
+        langue: langue.to_owned(),
+        forme_juridique,
+    })
+}
+
 /// Contrôle les identifiants légaux demandés pour un pays : au plus [`IDENTIFIANTS_MAX`], un seul
 /// par type, type admis pour le pays, valeur de 1 à [`VALEUR_IDENTIFIANT_MAX`] caractères sans
 /// caractère de contrôle. Aucun format national n'est imposé (aucun n'est sourcé).
@@ -173,6 +243,13 @@ impl ContexteDossier {
             langue,
             forme_juridique,
         })
+    }
+
+    /// Vrai si le pays, la devise de tenue ou son échelle diffèrent : ces champs entrent dans le
+    /// contenu haché (devise) et ne changent plus après la première écriture (ADR 0027).
+    #[must_use]
+    pub fn change_pays_ou_devise(&self, autre: &Self) -> bool {
+        self.pays != autre.pays || self.devise != autre.devise || self.decimales != autre.decimales
     }
 
     /// Devise de tenue et échelle, à passer à `compta-core`.
@@ -404,5 +481,91 @@ mod tests {
         let mut inconnu = dakar;
         inconnu.fuseau = "Mars/Olympus".to_owned();
         assert!(inconnu.date_du_jour(instant).is_err());
+    }
+
+    #[test]
+    fn modification_du_contexte() {
+        let sn = resoudre(pack(), &demande("SN")).unwrap();
+        // Une modification vide ne change rien.
+        let m = ModificationContexte::default();
+        assert!(m.est_vide());
+        assert_eq!(modifier(pack(), &sn, &m).unwrap(), sn);
+        // Devise : l'échelle suit le pack ; fuseau, langue, forme juridique changent à part.
+        let m = ModificationContexte {
+            pays: Some("CD"),
+            devise: Some("CDF"),
+            fuseau: Some("Africa/Lubumbashi"),
+            langue: Some("fr-CD"),
+            forme_juridique: Some(Some("SA")),
+        };
+        assert!(!m.est_vide());
+        let cd = modifier(pack(), &sn, &m).unwrap();
+        assert_eq!(
+            (cd.pays.as_str(), cd.devise.as_str(), cd.decimales),
+            ("CD", "CDF", 2)
+        );
+        assert_eq!(cd.fuseau, "Africa/Lubumbashi");
+        assert!(sn.change_pays_ou_devise(&cd));
+        // Fuseau et langue seuls : ni pays ni devise.
+        let m = ModificationContexte {
+            fuseau: Some("Africa/Douala"),
+            ..ModificationContexte::default()
+        };
+        let douala = modifier(pack(), &cd, &m).unwrap();
+        assert!(!cd.change_pays_ou_devise(&douala));
+        // Même devise redemandée : l'échelle stockée est conservée.
+        let mut stocke = cd.clone();
+        stocke.decimales = 3;
+        let m = ModificationContexte {
+            devise: Some("CDF"),
+            ..ModificationContexte::default()
+        };
+        assert_eq!(modifier(pack(), &stocke, &m).unwrap().decimales, 3);
+        // Effacement de la forme juridique.
+        let m = ModificationContexte {
+            forme_juridique: Some(None),
+            ..ModificationContexte::default()
+        };
+        assert_eq!(modifier(pack(), &cd, &m).unwrap().forme_juridique, None);
+        // Refus : mêmes codes qu'à la création.
+        for (m, attendu) in [
+            (
+                ModificationContexte {
+                    pays: Some("FR"),
+                    ..Default::default()
+                },
+                RefusContexte::PaysInconnu,
+            ),
+            (
+                ModificationContexte {
+                    devise: Some("ZZZ"),
+                    ..Default::default()
+                },
+                RefusContexte::DeviseInconnue,
+            ),
+            (
+                ModificationContexte {
+                    fuseau: Some("Europe/Paris"),
+                    ..Default::default()
+                },
+                RefusContexte::FuseauInconnu,
+            ),
+            (
+                ModificationContexte {
+                    langue: Some("FR"),
+                    ..Default::default()
+                },
+                RefusContexte::Invalide,
+            ),
+            (
+                ModificationContexte {
+                    forme_juridique: Some(Some(" ")),
+                    ..Default::default()
+                },
+                RefusContexte::Invalide,
+            ),
+        ] {
+            assert_eq!(modifier(pack(), &sn, &m), Err(attendu));
+        }
     }
 }

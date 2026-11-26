@@ -56,6 +56,8 @@ const MATRICE: &[(Action, [bool; 5])] = &[
     (Action::AccederDossier, [OUI, OUI, OUI, OUI, NON]),
     // « Paramétrer plan, journaux, fiscalité »
     (Action::ParametrerDossier, [OUI, OUI, NON, NON, NON]),
+    // Modifier le contexte du dossier (ADR 0027) : administrateur seul
+    (Action::ModifierContexteDossier, [OUI, NON, NON, NON, NON]),
     // « Déposer des pièces » (client : portail, L4)
     (Action::DeposerPiece, [OUI, OUI, OUI, NON, NON]),
     // « Saisir, corriger dans le brouillard »

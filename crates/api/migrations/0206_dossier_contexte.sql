@@ -9,7 +9,7 @@
 -- Dossiers existants : XOF, sans décimale, Sénégal, Africa/Dakar, français (tout dossier créé
 -- jusqu'ici l'était en XOF, spec §5.5). Les valeurs par défaut ne servent qu'à cette
 -- reprise : elles sont retirées aussitôt, un nouveau dossier doit dire son pays et sa devise
--- (la devise de tenue est immuable : un défaut silencieux la fixerait à tort).
+-- (la devise de tenue se fige à la première écriture : un défaut silencieux la fixerait à tort).
 
 ALTER TABLE dossier
     ADD COLUMN pays text NOT NULL DEFAULT 'SN' CHECK (pays ~ '^[A-Z]{2}$'),
@@ -32,10 +32,40 @@ ALTER TABLE dossier
     ALTER COLUMN fuseau DROP DEFAULT,
     ALTER COLUMN langue DROP DEFAULT;
 
--- Le rôle applicatif ne reçoit toujours que `UPDATE (nom)` sur `dossier` (migration `0001`) :
--- pays, devise de tenue, échelle, fuseau, langue et forme juridique sont fixés à la création.
--- La devise de tenue est dans le contenu haché de chaque écriture (format v4) ; elle ne change
--- plus après la création (ADR 0027 point 1).
+-- Modification du contexte (ADR 0027, point 1) : le rôle applicatif reçoit `UPDATE` sur ces
+-- colonnes (route `POST …/dossiers/{dossier}/contexte`, administrateur du cabinet, audit). Fuseau,
+-- langue et forme juridique changent à tout moment ; pays, devise de tenue et échelle ne changent
+-- que tant que le dossier n'a **ni écriture validée ni brouillon** (la devise est dans le contenu
+-- haché de chaque écriture, format v4). Le cas d'usage le contrôle sous le verrou de la tête de
+-- chaîne ; ce déclencheur est la seconde barrière (fonction ordinaire, sans `SECURITY DEFINER` :
+-- sous la RLS du rôle, qui ne voit que les écritures et brouillons du dossier du contexte).
+GRANT UPDATE (pays, devise_tenue, decimales_tenue, fuseau, langue, forme_juridique)
+    ON dossier TO sigma_application;
+
+CREATE FUNCTION dossier_contexte_fige() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    IF (NEW.pays, NEW.devise_tenue, NEW.decimales_tenue)
+           IS DISTINCT FROM (OLD.pays, OLD.devise_tenue, OLD.decimales_tenue)
+       AND (
+        EXISTS (SELECT 1 FROM public.ecriture_validee e
+                 WHERE e.cabinet_id = OLD.cabinet_id AND e.dossier_id = OLD.id)
+        OR EXISTS (SELECT 1 FROM public.brouillon b
+                    WHERE b.cabinet_id = OLD.cabinet_id AND b.dossier_id = OLD.id)
+    ) THEN
+        RAISE EXCEPTION 'pays et devise de tenue figés : le dossier a des écritures'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END
+$$;
+REVOKE EXECUTE ON FUNCTION dossier_contexte_fige() FROM PUBLIC;
+
+CREATE TRIGGER dossier_contexte_fige
+    BEFORE UPDATE ON dossier
+    FOR EACH ROW EXECUTE FUNCTION dossier_contexte_fige();
 
 -- Identifiants légaux du dossier (NINEA, RCCM, NIF…) : couples type/valeur. Le type est un code
 -- du pack pays (`crates/syscohada/data/pays.toml`), contrôlé par l'API ; la valeur est un texte

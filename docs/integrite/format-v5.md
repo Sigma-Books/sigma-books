@@ -21,7 +21,7 @@ Identique à la v3 (`format-v4.md` §2 : date de valeur comptable facultative, �
 | `devise-tenue=` | code ISO 4217 de la devise de tenue du dossier (`CDF`, `XAF`) |
 | `decimales-tenue=` | échelle décimale de cette devise : un seul chiffre de `0` à `4` |
 
-Sens des montants : `montant=` d'une ligne est exprimé dans la **devise de tenue** (contre-valeur pour une ligne en devise) ; `devise=` d'une ligne en devise est un code **autre que** la devise de tenue ; `montant-devise=` et `cours=` sont inchangés (le cours est le nombre d'unités de la devise de tenue pour une unité de devise).
+Sens des montants : `montant=` d'une ligne est exprimé dans la **devise de tenue** (contre-valeur pour une ligne en devise) ; `devise=` d'une ligne en devise est un code **autre que** la devise de tenue ; `montant-devise=` et `cours=` sont inchangés (la **sémantique de `cours=` change** par rapport aux formats v1 à v3 : « francs CFA pour une unité de devise » devient « unités de la devise de tenue pour une unité de devise »).
 
 Règles propres à la v4, contrôlées à la lecture (donc par `sigma-verifier`, qui ne connaît aucune liste de devises) :
 - **Échelle** : un `montant=` n'a pas plus de décimales que `decimales-tenue=`. Les formats v1 à v3 n'imposent aucune échelle (des écritures XOF avec décimales ont été validées, ADR 0020 point 6).
@@ -35,7 +35,7 @@ La version est choisie par le **contenu** :
 
 ### Lecture stricte
 Le texte doit être **exactement** la sérialisation de l'écriture qu'il décrit :
-- `ecriture v4` pour un dossier XOF sans décimale est refusé (ce serait une v1, v2 ou v3) ;
+- `ecriture v4` qui déclare `devise-tenue=XOF` avec `decimales-tenue=0` est **refusé** (ce serait une v1, v2 ou v3 : sans ce refus, deux textes décriraient le même contenu et l'injectivité serait perdue) ;
 - `devise-tenue=` et `decimales-tenue=` sont refusées dans une écriture v1, v2 ou v3 ;
 - ordre des clés fixe, aucun doublon, aucune clé inconnue ; `decimales-tenue=02`, `+2`, `5` et un code en minuscules sont refusés ;
 - `sans-piece=` n'existe pas en v4.
@@ -52,7 +52,7 @@ La chaîne de hachage (`format-v1.md` §3), les jetons (`format-v2.md` §3) et l
 Sigma Books écrit la version **la plus basse qui admet toutes les écritures** : v3 ou v4 pour un dossier XOF (l'export reste identique à celui d'avant), v5 pour tout autre dossier ayant au moins une écriture. `sigma-verifier` lit les v1 à v5. Une version antérieure du vérificateur refuse un export v5 (« en-tête inconnu ») : un échec explicite, jamais un succès silencieux.
 
 ## 4. Vérification
-`sigma-verifier` contrôle l'intégrité (forme, chaîne, numérotation, équilibre en devise de tenue, jetons) et, pour la v4, l'échelle et la contre-valeur (§2). Il ne contrôle **pas** que la devise de tenue est celle que le pays du dossier fixe par défaut : il est autonome, et la devise du dossier est immuable (ADR 0027).
+`sigma-verifier` contrôle l'intégrité (forme, chaîne, numérotation, équilibre en devise de tenue, jetons) et, pour la v4, l'échelle et la contre-valeur (§2). Il ne contrôle **pas** que la devise de tenue est celle que le pays du dossier fixe par défaut : il est autonome, et la devise du dossier se fige à sa première écriture validée (ADR 0027).
 
 ## 5. Vecteur
 `export-v5-reference.txt` : dossier `dossier-cdf`, tenu en CDF (deux décimales), trois écritures v4 : vente taxée à 18 % avec centimes et étiquettes fiscales, achat de 100,55 EUR au cours de 2 827,3333 (contre-valeur 284 288,363315, arrondie à 284 288,36), contre-passation de la vente. Produit **indépendamment** du moteur (Python, `hashlib`) à partir de ce document, sans jeton d'horodatage. Les vecteurs v1 à v4 (dossier XOF) sont inchangés.

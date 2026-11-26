@@ -257,7 +257,7 @@ impl DemandeCreation {
 }
 
 /// Refus de contexte → réponse 422 d'un code stable.
-fn refus_contexte(refus: RefusContexte) -> ErreurApi {
+pub(crate) fn refus_contexte(refus: RefusContexte) -> ErreurApi {
     let motif = match refus {
         RefusContexte::PaysInconnu => MotifValidation::PaysInconnu,
         RefusContexte::DeviseInconnue => MotifValidation::DeviseTenueInconnue,
