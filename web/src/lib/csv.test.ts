@@ -22,6 +22,7 @@ const O: OptionsCsv = optionsCsvParDefaut(FR);
 const contexte = (regional = FR, nomDossier = 'Société Test'): ContexteCsv => ({
 	nomDossier,
 	regional,
+	exercices: [{ code: '2026', debut: '2026-01-01', fin: '2026-12-31' }],
 	options: optionsCsvParDefaut(regional)
 });
 
@@ -89,7 +90,7 @@ describe('éditions en CSV', () => {
 		};
 		assert.equal(
 			csvBalance(b, contexte()),
-			'\uFEFFDossier;Société Test\r\nDevise;XOF\r\nMode;définitif\r\nExercice;2026\r\nPériode;2026-01-01;2026-12-31\r\n\r\nCompte;Solde débiteur;Solde créditeur\r\n411;100,25;0\r\nTotaux;100,25;100,25\r\n'
+			'\uFEFFDossier;Société Test\r\nDevise;XOF\r\nMode;définitif\r\nExercice;2026;2026-01-01;2026-12-31\r\nPériode;2026-01-01;2026-12-31\r\n\r\nCompte;Solde débiteur;Solde créditeur\r\n411;100,25;0\r\nTotaux;100,25;100,25\r\n'
 		);
 	});
 
@@ -152,7 +153,7 @@ describe('éditions en CSV', () => {
 		assert.equal(nomFichierEdition('../x', '20/26', 'a b'), 'x-2026-ab.csv');
 	});
 
-	it('en-tête : dossier (neutralisé) et devise', () => {
+	it('en-tête : dossier, devise et dates de l’exercice (pas seulement son code)', () => {
 		const csv = csvBalance(
 			{
 				...entete,
@@ -167,7 +168,7 @@ describe('éditions en CSV', () => {
 		);
 		assert.ok(csv.includes("Dossier;'=Société\r\n"), 'nom du dossier neutralisé');
 		assert.ok(csv.includes('Devise;CDF\r\n'));
-		assert.ok(csv.includes('Exercice;2026\r\n'));
+		assert.ok(csv.includes('Exercice;2026;2026-01-01;2026-12-31\r\n'));
 		const inconnu = csvBalance(
 			{
 				...entete,

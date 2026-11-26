@@ -24,6 +24,7 @@
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import { dateHeure } from '#lib/instants.ts';
+	import { DELAI_RETARD_HORODATAGE_HEURES } from '#lib/seuils.ts';
 	import { executerSensible } from '#lib/reauthentification.svelte.ts';
 	import { enregistrerFichier } from '#lib/telechargement.ts';
 	import '#lib/styles/editions.css';
@@ -180,7 +181,7 @@
 				<div class="message message-erreur" role="alert">
 					<p>
 						<strong>Retard d’horodatage</strong> : des écritures attendent un jeton depuis plus de
-						24 h{#if e.horodatage.en_attente_depuis !== null}
+						{DELAI_RETARD_HORODATAGE_HEURES} h{#if e.horodatage.en_attente_depuis !== null}
 							(depuis le {dateHeure(e.horodatage.en_attente_depuis, contexte.regional)}){/if}. Le
 						jeton quotidien n’a pas pu être obtenu : prévenez l’administrateur.
 					</p>

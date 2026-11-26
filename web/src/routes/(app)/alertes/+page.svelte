@@ -14,6 +14,7 @@
 	import { afficherDate } from '#lib/dates.ts';
 	import { messageAlerteBrouillard, messageAlerteEcheance } from '#lib/editions-affichage.ts';
 	import { dateHeure } from '#lib/instants.ts';
+	import { DELAI_RETARD_HORODATAGE_HEURES, PREAVIS_ECHEANCE_JOURS } from '#lib/seuils.ts';
 	import '#lib/styles/editions.css';
 	import type { PageProps } from './$types';
 
@@ -128,7 +129,8 @@
 			<h2 id="titre-horodatage">Retard d’horodatage</h2>
 			<div class="message message-erreur" role="alert">
 				<p>
-					Des écritures attendent un jeton d’horodatage depuis plus de 24 h
+					Des écritures attendent un jeton d’horodatage depuis plus de {DELAI_RETARD_HORODATAGE_HEURES}
+					h
 					{#if integrite.valeur.horodatage.en_attente_depuis !== null}
 						(depuis le {dateHeure(
 							integrite.valeur.horodatage.en_attente_depuis,
@@ -164,7 +166,7 @@
 	</section>
 
 	<section aria-labelledby="titre-echeances">
-		<h2 id="titre-echeances">Échéances de clôture (30 jours ou dépassées)</h2>
+		<h2 id="titre-echeances">Échéances de clôture ({PREAVIS_ECHEANCE_JOURS} jours ou dépassées)</h2>
 		{#if alertes === null}
 			<p role="status">Chargement…</p>
 		{:else if !alertes.ok}

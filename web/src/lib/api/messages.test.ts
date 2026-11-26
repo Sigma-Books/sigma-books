@@ -60,10 +60,22 @@ test('tous les motifs du serveur ont un message', () => {
 		'brouillon_perime',
 		'lot_sans_ecriture_a_valider',
 		'justification_manquante',
-		'date_anterieure_a_l_origine',
+		'date_valeur_dans_periode_ouverte',
 		'periode_verrouillee',
 		'revue_par_le_poseur'
 	]) {
 		assert.notEqual(messageMotif(motif), null, motif);
+	}
+});
+
+test('les codes supprimés du serveur n’ont plus de message d’erreur (#234)', () => {
+	// Devenus des avertissements (validation réussie) ou des cas acceptés.
+	for (const supprime of [
+		'echeance_de_cloture_depassee',
+		'date_valeur_dans_periode_echue',
+		'compte_tresorerie_absent',
+		'date_anterieure_a_l_origine'
+	]) {
+		assert.equal(messageMotif(supprime), null, supprime);
 	}
 });

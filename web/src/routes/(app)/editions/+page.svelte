@@ -40,6 +40,7 @@
 	import { afficherDate } from '#lib/dates.ts';
 	import { editionVide, libelleEdition, messageBrouillonsExclus } from '#lib/editions-affichage.ts';
 	import { traduire } from '#lib/i18n/index.ts';
+	import type { Exercice } from '#lib/api/referentiel.ts';
 	import { lireRegional, type Regional } from '#lib/regional.ts';
 	import { enregistrerFichier } from '#lib/telechargement.ts';
 	import '#lib/styles/editions.css';
@@ -128,14 +129,22 @@
 		}
 	}
 
-	function exporter(a: Affichee, nomDossier: string, regional: Regional): void {
+	function exporter(
+		a: Affichee,
+		nomDossier: string,
+		regional: Regional,
+		exercices: Exercice[]
+	): void {
 		erreurExport = null;
 		const entete: EnteteEdition = a.edition;
 		try {
 			enregistrerFichier(
-				new Blob([csvDe(a, { nomDossier, regional, options: $state.snapshot(optionsCsv) })], {
-					type: 'text/csv;charset=utf-8'
-				}),
+				new Blob(
+					[csvDe(a, { nomDossier, regional, exercices, options: $state.snapshot(optionsCsv) })],
+					{
+						type: 'text/csv;charset=utf-8'
+					}
+				),
 				nomFichierEdition(a.nature, entete.exercice, entete.mode)
 			);
 		} catch {
@@ -193,10 +202,15 @@
 		{:else}
 			{@const a = etat.affichee}
 			{@const exclus = messageBrouillonsExclus(a.edition.brouillons_exclus)}
+			{@const exercice = valeur.exercices.find((x) => x.code === a.edition.exercice)}
 			<h3>
-				{libelleEdition(a.nature)} — {traduire('edition.exercice_code', {
-					code: a.edition.exercice
-				})}, du
+				{libelleEdition(a.nature)} —
+				{#if exercice}
+					{traduire('edition.exercice_dates', {
+						code: exercice.code,
+						debut: afficherDate(exercice.debut, contexte.regional),
+						fin: afficherDate(exercice.fin, contexte.regional)
+					})}{:else}{traduire('edition.exercice_code', { code: a.edition.exercice })}{/if}, du
 				{afficherDate(a.edition.du, contexte.regional)} au
 				{afficherDate(a.edition.au, contexte.regional)}
 				<span class="badge">{a.edition.mode === 'provisoire' ? 'PROVISOIRE' : 'Définitive'}</span>
@@ -224,7 +238,8 @@
 					<button
 						class="bouton bouton-secondaire"
 						type="button"
-						onclick={() => exporter(a, contexte.nomDossier.nom, contexte.regional)}
+						onclick={() =>
+							exporter(a, contexte.nomDossier.nom, contexte.regional, valeur.exercices)}
 					>
 						Exporter en CSV
 					</button>

@@ -13,7 +13,10 @@ import {
 	estObjet,
 	tableauDe
 } from './gardes.ts';
-import type { Garde, Uuid } from './types.ts';
+import { traduire } from '../i18n/index.ts';
+import type { Langue } from '../regional.ts';
+import { longueurOctets } from './texte.ts';
+import { estCodeJournal, type Garde, type Uuid } from './types.ts';
 
 export type Sens = 'debit' | 'credit';
 
@@ -80,6 +83,8 @@ export interface Validation {
 	empreinte: string;
 	format: number;
 	date_validation: string;
+	/** Avertissements de la validation : à lire par `lireAvertissements` (jamais bloquants). */
+	avertissements?: unknown;
 }
 
 export interface LotValide {
@@ -140,6 +145,8 @@ export interface ContrePassation {
 	empreinte: string;
 	format: number;
 	date_validation: string;
+	/** Avertissements de la contre-passation : à lire par `lireAvertissements`. */
+	avertissements?: unknown;
 }
 
 const estSens = (v: unknown): v is Sens => v === 'debit' || v === 'credit';
@@ -256,14 +263,12 @@ export const estContrePassation: Garde<ContrePassation> = (v): v is ContrePassat
 /** Lot de 100 écritures au plus (`LOT_MAX` du serveur). */
 export const LOT_MAX = 100;
 
-const CODE_JOURNAL = /^[A-Z0-9]{1,8}$/;
-
 function base(cabinet: Uuid, dossier: Uuid): string {
 	return `/api/cabinets/${cabinet}/dossiers/${dossier}`;
 }
 
 export interface FiltreBrouillard {
-	/** Code du journal (`[A-Z0-9]{1,8}`), vide pour tous. */
+	/** Code du journal (voir `estCodeJournal`), vide pour tous. */
 	journal?: string;
 	periode?: Uuid | null;
 	apres?: string | null;
@@ -272,7 +277,7 @@ export interface FiltreBrouillard {
 /** Paramètres de la liste ; une valeur de forme invalide est ignorée plutôt que d'être envoyée. */
 export function parametresBrouillard(filtre: FiltreBrouillard, limite = 50): string {
 	const p = new URLSearchParams();
-	if (filtre.journal !== undefined && CODE_JOURNAL.test(filtre.journal))
+	if (filtre.journal !== undefined && estCodeJournal(filtre.journal))
 		p.set('journal', filtre.journal);
 	if (filtre.periode) p.set('periode', filtre.periode);
 	if (filtre.apres) p.set('apres', filtre.apres);
@@ -450,11 +455,42 @@ export function lireEcriture(
 	return api.lire(`${base(cabinet, dossier)}/ecritures/${ecriture}`, estEcriture);
 }
 
+/** Longueur maximale du motif, en octets UTF-8 (`MOTIF_MAX` de `contre_passation.rs`). */
+export const MOTIF_CONTRE_PASSATION_MAX = 400;
+
+/**
+ * Motif envoyé pour une contre-passation : la saisie **rognée**, ou, si elle est vide, un motif par
+ * défaut « Contre-passation de <numéro> » dans la langue **demandée** (celle du dossier, passée en
+ * paramètre : aucun état global). Le serveur exige aujourd'hui un motif non blanc (journal
+ * d'audit) ; l'interface le rend facultatif, comme Odoo (`account.move.reversal`, raison
+ * facultative) et Tryton (`CancelMoves`, description facultative).
+ *
+ * À terme, l'API fournira un défaut côté serveur quand le motif est vide (un autre chantier
+ * assouplit l'API) : l'interface pourra alors envoyer un motif vide et supprimer ce défaut.
+ */
+export function motifContrePassation(saisie: string, numero: string, langue: Langue): string {
+	const net = saisie.trim();
+	return net === '' ? traduire('contre_passation.motif_defaut', { numero }, langue) : net;
+}
+
+/**
+ * Vrai si le serveur acceptera ce motif : non blanc, au plus {@link MOTIF_CONTRE_PASSATION_MAX}
+ * octets UTF-8 et sans caractère de contrôle (confort : le serveur contrôle de toute façon).
+ */
+export function motifAdmis(motif: string): boolean {
+	return (
+		motif.trim() !== '' &&
+		longueurOctets(motif) <= MOTIF_CONTRE_PASSATION_MAX &&
+		// eslint-disable-next-line no-control-regex
+		!/[\u0000-\u001f\u007f-\u009f]/.test(motif)
+	);
+}
+
 export interface CorpsContrePassation {
 	/** `AAAA-MM-JJ`. */
 	date: string;
 	libelle: string;
-	/** Motif obligatoire (400 caractères au plus), versé au journal d'audit. */
+	/** Motif non blanc (400 octets au plus), versé au journal d'audit : voir `motifContrePassation`. */
 	motif: string;
 }
 

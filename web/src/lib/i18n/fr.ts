@@ -86,15 +86,12 @@ export const fr = {
 	'saisie.motif.periode_verrouillee':
 		'La période est verrouillée : déverrouillez-la ou changez la date.',
 	'saisie.motif.periode_cloturee': 'La période est clôturée.',
-	'saisie.motif.echeance_de_cloture_depassee': 'L’échéance de clôture de la période est dépassée.',
 	'saisie.motif.exercice_cloture': 'L’exercice est clôturé.',
 	'saisie.motif.exercice_en_cloture': 'L’exercice est en clôture : ce journal n’est pas admis.',
 	'saisie.motif.date_valeur_dans_periode_ouverte':
 		'La date de valeur tombe dans une période encore ouverte.',
 	'saisie.motif.date_valeur_dans_periode_verrouillee':
 		'La date de valeur tombe dans une période verrouillée.',
-	'saisie.motif.date_valeur_dans_periode_echue':
-		'La date de valeur tombe dans une période dont l’échéance est passée.',
 	'saisie.motif.periode_accueil_verrouillee':
 		'La période qui doit accueillir l’opération tardive est verrouillée.',
 	'saisie.motif.operation_tardive_mal_datee': 'L’opération tardive est mal datée.',
@@ -110,8 +107,6 @@ export const fr = {
 	'saisie.motif.tiers_manquant': 'Une ligne sur un compte collectif n’a pas de tiers.',
 	'saisie.motif.justification_manquante':
 		'Aucune pièce justificative n’est jointe : joignez-en une avant de valider.',
-	'saisie.motif.compte_tresorerie_absent':
-		'Ce journal de trésorerie exige un mouvement sur son compte de trésorerie.',
 	'saisie.motif.validation_journal_inconnu': 'Le journal de l’écriture n’existe pas.',
 	'saisie.motif.validation_journal_sans_saisie':
 		'Le journal de l’écriture n’accepte pas la saisie.',
@@ -123,12 +118,22 @@ export const fr = {
 	'saisie.motif.ecriture_invalide': 'L’écriture est invalide (montant ou texte refusé).',
 	'saisie.motif.ecriture_non_representable':
 		'L’écriture ne peut pas être enregistrée sous la forme figée requise.',
-	'saisie.motif.date_anterieure_a_l_origine':
-		'La contre-passation ne peut pas être datée avant l’écriture d’origine.',
 	'saisie.motif.type_non_admis': 'Ce type de fichier n’est pas admis (PDF, JPEG ou PNG seulement).',
 	'saisie.motif.facteurs_refuses': 'Mot de passe ou code refusé.',
 	'saisie.motif.code_invalide': 'Code refusé.',
 	'saisie.ligne': 'Ligne {ligne} : {message}',
+
+	// Avertissements d'une validation réussie (l'écriture est validée malgré tout).
+	'avertissement.echeance_de_cloture_depassee':
+		'L’échéance de clôture de la période commençant le {periode} était le {echeance} : pensez à clôturer cette période.',
+	'avertissement.compte_tresorerie_absent':
+		'L’écriture du journal {journal} ne mouvemente pas son compte de trésorerie {compte}.',
+	'avertissement.inconnu':
+		'Le serveur signale un avertissement que cette version de l’interface ne sait pas expliquer.',
+	'avertissement.titre.une': 'Écriture validée, avec avertissement :',
+	'avertissement.titre.lot': 'Écritures validées, avec avertissements :',
+	'avertissement.ecriture': '{numero} : {message}',
+	'avertissement.suite': '… et {nombre} autre(s) avertissement(s).',
 
 	// Éditions, intégrité, alertes.
 	'anomalie.code.rang_discontinu':

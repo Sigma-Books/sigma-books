@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { bandeauAvertissements, lireAvertissements } from '#lib/api/avertissements.ts';
 	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import {
 		contrePasser,
+		MOTIF_CONTRE_PASSATION_MAX,
+		motifAdmis,
+		motifContrePassation,
 		lireEcriture,
 		type ContrePassation,
 		type Ecriture
@@ -28,14 +32,11 @@
 	let date = $state('');
 	let libelle = $state('');
 	let motif = $state('');
-	let confirmeRepetition = $state(false);
 	let enCours = $state(false);
 	let erreur = $state<ErreurApi | null>(null);
 	let erreurRelecture = $state<ErreurApi | null>(null);
 
-	/** Borne du serveur, en octets UTF-8 (`MOTIF_MAX` de `contre_passation.rs`). */
-	const MOTIF_MAX = 400;
-	const octetsMotif = $derived(longueurOctets(motif));
+	const octetsMotif = $derived(longueurOctets(motif.trim()));
 	/** Contre-passations faites depuis le chargement, tant que la relecture n'a pas abouti. */
 	let faitesDepuis = $state(0);
 
@@ -46,23 +47,34 @@
 		if (data.contenu?.ok) {
 			const { contexte, valeur } = data.contenu.valeur;
 			date = dateDuJour(contexte.regional.fuseau);
-			libelle = traduire('contre_passation.libelle_defaut', { numero: valeur.numero });
+			libelle = traduire(
+				'contre_passation.libelle_defaut',
+				{ numero: valeur.numero },
+				contexte.regional.langue
+			);
 		}
 	});
 
 	async function contrePasserCette(evenement: SubmitEvent): Promise<void> {
 		evenement.preventDefault();
-		if (!data.contenu?.ok) return;
-		const { cabinet, dossier } = data.contenu.valeur.contexte;
+		// Une fois la contre-passation faite, le formulaire n'existe plus : un second envoi (double
+		// clic, touche Entrée répétée) ne doit jamais en créer une deuxième.
+		if (!data.contenu?.ok || enCours || faite !== null) return;
+		const { cabinet, dossier, regional } = data.contenu.valeur.contexte;
 		const ecriture = relue ?? data.contenu.valeur.valeur;
+		const motifFinal = motifContrePassation(motif, ecriture.numero, regional.langue);
+		if (!motifAdmis(motifFinal)) return;
 		enCours = true;
 		erreur = null;
 		erreurRelecture = null;
 		try {
-			faite = await contrePasser(api, cabinet, dossier, ecriture.id, { date, libelle, motif });
+			faite = await contrePasser(api, cabinet, dossier, ecriture.id, {
+				date,
+				libelle,
+				motif: motifFinal
+			});
 			faitesDepuis += 1;
 			motif = '';
-			confirmeRepetition = false;
 			try {
 				relue = await lireEcriture(api, cabinet, dossier, ecriture.id);
 			} catch (e) {
@@ -96,6 +108,14 @@
 			: relue.contre_passations.length}
 	{@const origine = e.origine ? lireUuid(e.origine) : null}
 	{@const peut = ROLES_VALIDATION_LOT.includes(contexte.membre.role)}
+	{@const bandeau =
+		faite === null
+			? null
+			: bandeauAvertissements(
+					[{ numero: faite.numero, avertissements: lireAvertissements(faite.avertissements) }],
+					contexte.regional,
+					false
+				)}
 	<h1>Écriture {e.numero}</h1>
 	<NavigationDossier
 		cabinet={contexte.cabinet}
@@ -208,13 +228,25 @@
 					{faite.numero}
 				</a>.
 			</p>
+			{#if bandeau}
+				<p><strong>{bandeau.titre}</strong></p>
+				<ul>
+					{#each bandeau.lignes as ligne, i (i)}
+						<li>{ligne}</li>
+					{/each}
+				</ul>
+			{/if}
+			<p class="aide">
+				Le formulaire est fermé pour éviter une double contre-passation : rechargez la page pour en
+				faire une autre.
+			</p>
 		</div>
 	{/if}
 	{#if erreurRelecture}
 		<MessageErreur erreur={erreurRelecture} contexte="La liste n’a pas pu être relue." />
 	{/if}
 
-	{#if peut}
+	{#if peut && faite === null}
 		<form onsubmit={contrePasserCette} aria-labelledby="titre-cp">
 			<h3 id="titre-cp">Contre-passer cette écriture</h3>
 			<p class="aide">
@@ -257,26 +289,21 @@
 				<input id="cp-libelle" type="text" maxlength="200" bind:value={libelle} required />
 			</div>
 			<div class="champ">
-				<label for="cp-motif">Motif (obligatoire, conservé au journal d’audit)</label>
+				<label for="cp-motif">Motif (facultatif, conservé au journal d’audit)</label>
 				<input
 					id="cp-motif"
 					type="text"
+					placeholder={motifContrePassation('', e.numero, contexte.regional.langue)}
 					aria-describedby="cp-motif-aide"
 					bind:value={motif}
-					required
 				/>
 				<span class="aide" id="cp-motif-aide">
-					{octetsMotif} / {MOTIF_MAX} octets{octetsMotif > MOTIF_MAX
+					Sans motif saisi, le motif proposé dans le champ est enregistré. {octetsMotif} / {MOTIF_CONTRE_PASSATION_MAX}
+					octets{octetsMotif > MOTIF_CONTRE_PASSATION_MAX
 						? ' : motif trop long, raccourcissez-le'
 						: ''}
 				</span>
 			</div>
-			{#if nombre > 0}
-				<label class="case">
-					<input type="checkbox" bind:checked={confirmeRepetition} />
-					Je confirme vouloir contre-passer une écriture déjà contre-passée {nombre} fois.
-				</label>
-			{/if}
 			{#if erreur}
 				<MessageMetier {erreur} contexte="La contre-passation a échoué." />
 			{/if}
@@ -285,9 +312,7 @@
 					type="submit"
 					class="bouton"
 					disabled={enCours ||
-						motif.trim() === '' ||
-						octetsMotif > MOTIF_MAX ||
-						(nombre > 0 && !confirmeRepetition)}
+						!motifAdmis(motifContrePassation(motif, e.numero, contexte.regional.langue))}
 				>
 					Contre-passer
 				</button>
@@ -338,14 +363,6 @@
 	.num {
 		text-align: right;
 		font-variant-numeric: tabular-nums;
-	}
-
-	.case {
-		display: flex;
-		align-items: center;
-		gap: var(--espace-2);
-		min-height: var(--cible-min);
-		margin-bottom: var(--espace-3);
 	}
 
 	input[type='date'],

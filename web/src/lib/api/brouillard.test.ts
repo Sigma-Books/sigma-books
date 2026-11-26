@@ -5,10 +5,14 @@ import {
 	estEcriture,
 	estLotValide,
 	estPageBrouillard,
+	MOTIF_CONTRE_PASSATION_MAX,
+	motifAdmis,
+	motifContrePassation,
 	parametresBrouillard
 } from './brouillard.ts';
+import { fixerLangue, langueCourante } from '../i18n/index.ts';
 import { nomPieceSur } from './pieces.ts';
-import { lireUuid } from './types.ts';
+import { CODE_JOURNAL_MAX, estCodeJournal, lireUuid } from './types.ts';
 
 const ID = '0b6f2f0e-8a3a-4a39-9d0c-3d6a8d6d3c11';
 
@@ -103,4 +107,47 @@ test('nom de pièce sûr : sans chemin, sans contrôle, borné en octets', () =>
 	assert.equal(nomPieceSur('../../etc/passwd'), '.._.._etc_passwd');
 	assert.equal(nomPieceSur('a\u0000b\nc.pdf'), 'abc.pdf');
 	assert.ok(new TextEncoder().encode(nomPieceSur('é'.repeat(300))).length <= 255);
+});
+
+test('le motif d’une contre-passation est facultatif : un motif par défaut est généré', () => {
+	const n = 'OD-2026-000001';
+	assert.equal(motifContrePassation('', n, 'fr'), 'Contre-passation de OD-2026-000001');
+	assert.equal(motifContrePassation('  \t', n, 'fr'), 'Contre-passation de OD-2026-000001');
+	assert.equal(motifContrePassation('Erreur de période', n, 'fr'), 'Erreur de période');
+});
+
+test('le motif saisi est rogné', () => {
+	assert.equal(motifContrePassation('  Erreur de période \t', 'X', 'fr'), 'Erreur de période');
+});
+
+test('le motif par défaut suit la langue demandée, sans état global', () => {
+	fixerLangue('fr');
+	assert.equal(motifContrePassation('', 'N1', 'en'), 'Reversal of N1');
+	assert.equal(motifContrePassation('', 'N1', 'pt'), 'Estorno de N1');
+	assert.equal(motifContrePassation('', 'N1', 'es'), 'Contrapartida de N1');
+	assert.equal(langueCourante(), 'fr');
+});
+
+test('le motif est borné à 400 octets UTF-8, pas à 400 caractères', () => {
+	assert.equal(MOTIF_CONTRE_PASSATION_MAX, 400);
+	assert.equal(motifAdmis('a'.repeat(400)), true);
+	assert.equal(motifAdmis('a'.repeat(401)), false);
+	assert.equal(motifAdmis('é'.repeat(200)), true); // 400 octets
+	assert.equal(motifAdmis('é'.repeat(201)), false); // 402 octets, 201 caractères
+	assert.equal(motifAdmis('€'.repeat(133)), true); // 399 octets
+	assert.equal(motifAdmis('€'.repeat(134)), false); // 402 octets
+	assert.equal(motifAdmis(''), false);
+	assert.equal(motifAdmis('  '), false);
+	assert.equal(motifAdmis('ligne\nsuivante'), false);
+	assert.equal(motifAdmis('Erreur de période'), true);
+});
+
+test('le code de journal suit le contrat de l’API (1 à 8 majuscules ou chiffres)', () => {
+	assert.equal(CODE_JOURNAL_MAX, 8);
+	assert.equal(estCodeJournal('OD'), true);
+	assert.equal(estCodeJournal('A'.repeat(8)), true);
+	assert.equal(estCodeJournal('A'.repeat(9)), false);
+	assert.equal(estCodeJournal(''), false);
+	assert.equal(estCodeJournal('od'), false);
+	assert.equal(parametresBrouillard({ journal: 'A'.repeat(9) }), 'limite=50');
 });

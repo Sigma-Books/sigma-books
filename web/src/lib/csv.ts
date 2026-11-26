@@ -81,10 +81,18 @@ export function versCsv(lignes: readonly (readonly Cellule[])[], o: OptionsCsv):
 	);
 }
 
-/** Ce que le fichier cite de l'entité : dossier, devise, options de mise en forme. */
+/** Exercice du dossier (code, début et fin), tel que le serveur le renvoie. */
+export interface ExerciceCsv {
+	code: string;
+	debut: string;
+	fin: string;
+}
+
+/** Ce que le fichier cite de l'entité : dossier, devise, exercices, options de mise en forme. */
 export interface ContexteCsv {
 	nomDossier: string;
 	regional: Regional;
+	exercices: readonly ExerciceCsv[];
 	options: OptionsCsv;
 }
 
@@ -92,16 +100,19 @@ const m = (montant: string): Cellule => ({ montant: normaliserZero(montant) });
 const t = traduire;
 
 /**
- * Lignes d'en-tête du fichier : dossier, devise, mode, exercice, période, brouillons exclus (si
- * signalés), ligne vide.
+ * Lignes d'en-tête du fichier : dossier, devise, mode, exercice avec ses dates de début et de fin
+ * (s'il est connu du dossier), période, brouillons exclus (si signalés), ligne vide.
  */
 export function enteteCsv(e: EnteteEdition, c: ContexteCsv): Cellule[][] {
 	const exclus = e.brouillons_exclus.desequilibres + e.brouillons_exclus.illisibles;
+	const exercice = c.exercices.find((x) => x.code === e.exercice);
 	return [
 		[t('csv.dossier'), c.nomDossier],
 		[t('csv.devise'), c.regional.devise],
 		[t('csv.mode'), e.mode === 'provisoire' ? t('csv.mode.provisoire') : t('csv.mode.definitif')],
-		[t('csv.exercice'), e.exercice],
+		exercice === undefined
+			? [t('csv.exercice'), e.exercice]
+			: [t('csv.exercice'), e.exercice, exercice.debut, exercice.fin],
 		[t('csv.periode'), e.du, e.au],
 		...(exclus > 0 ? [[t('csv.brouillons_exclus'), String(exclus)]] : []),
 		['']
