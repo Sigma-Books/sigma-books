@@ -39,6 +39,7 @@ mod facteurs;
 mod integrite;
 mod moi;
 mod organisation;
+mod parametres_fiscaux;
 mod passkeys;
 mod pieces;
 mod referentiel;
@@ -302,6 +303,7 @@ fn cas_du_module(nom: &str) -> Option<&'static CasModule> {
         "editions" => &editions::CAS,
         "pieces" => &pieces::CAS,
         "integrite" => &integrite::CAS,
+        "parametres_fiscaux" => &parametres_fiscaux::CAS,
         _ => return None,
     })
 }

@@ -52,7 +52,7 @@ use crate::base::brouillard::RolePiece;
 use crate::base::organisation::{lire_appartenance, lire_contexte_du_dossier};
 use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, Tete};
-use crate::parametres_fiscaux::ParametresDuDossier;
+use crate::parametres_fiscaux::{ParametresDuDossier, lire_propres};
 use crate::pieces::interne;
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{ErreurApi, MotifValidation};
@@ -220,7 +220,8 @@ pub(super) async fn contre_passer(
     // une), la date du jour est celle du fuseau relu.
     let courant = lire_contexte_du_dossier(tx).await?;
     let tenue = courant.tenue()?;
-    let fiscal = ParametresDuDossier::nouveau(registre, &courant.pays, &[]);
+    let propres = lire_propres(tx, registre).await?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &courant.pays, &propres);
     let origine = reconstituer(&stockee, &fiscal, &tenue)?;
     let recalcule = EcritureCanonique::depuis(&origine).serialiser();
     if recalcule != stockee.canonique

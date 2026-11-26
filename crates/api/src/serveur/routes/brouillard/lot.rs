@@ -47,7 +47,7 @@ use crate::base::brouillard::{self, BrouillonStocke};
 use crate::base::organisation::{lire_appartenance, lire_cabinet, lire_contexte_du_dossier};
 use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, PieceVerrouillee, Tete};
-use crate::parametres_fiscaux::ParametresDuDossier;
+use crate::parametres_fiscaux::{ParametresDuDossier, lire_propres};
 use crate::pieces::interne;
 use crate::serveur::erreur::{ErreurApi, MotifConflit, RefusLot, reponse_lot_refuse};
 use crate::serveur::pipeline::{DossierAutorise, Garde};
@@ -208,7 +208,9 @@ pub(super) async fn valider_par_lot(
     base::verrouiller_comptes_et_tiers(tx, &comptes, &tiers).await?;
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
     let tenue = dossier.contexte().tenue()?;
-    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &[]);
+    let propres = lire_propres(tx, registre).await?;
+    let nombre_de_versions = propres.len();
+    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &propres);
     let toutes_pieces: Vec<Uuid> = candidates
         .iter()
         .flat_map(|b| b.pieces.iter().map(|l| l.piece))
@@ -272,7 +274,12 @@ pub(super) async fn valider_par_lot(
     let tete = base::verrouiller_tete(tx, &genese).await?;
     // Devise de tenue relue après la tête (ADR 0027) : voir la validation unitaire.
     let courant = lire_contexte_du_dossier(tx).await?;
-    if courant.tenue()? != tenue || courant.pays != dossier.contexte().pays {
+    // Pays et versions propres relus après la tête : une version créée entre-temps rejoue le lot.
+    if courant.tenue()? != tenue
+        || courant.pays != dossier.contexte().pays
+        || i32::try_from(nombre_de_versions).ok()
+            != Some(crate::base::parametres_fiscaux::numero_maximal(tx).await?)
+    {
         return Err(conflit(MotifConflit::ContexteDossierModifie));
     }
     let instant = requete.horloge.maintenant();

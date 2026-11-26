@@ -100,6 +100,7 @@ pub(crate) async fn executer(
         | CasUsage::Brouillard(_)
         | CasUsage::Editions(_)
         | CasUsage::Integrite(_)
+        | CasUsage::ParametresFiscaux(_)
         | CasUsage::Administration(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }?;
     tx.confirmer().await?;

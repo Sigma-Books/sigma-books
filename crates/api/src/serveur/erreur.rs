@@ -196,6 +196,14 @@ pub enum MotifConflit {
     /// Le dossier a des pièces : leur rétention est celle de son pays à la date du dépôt, le pays
     /// ne change plus (ADR 0030).
     DossierPiecesPresentes,
+    /// La date d'effet d'une version propre tombe dans une période clôturée ou un exercice clos.
+    ParametresDateEffetCloturee,
+    /// La date d'effet n'est pas postérieure à celle de la dernière version propre du dossier.
+    ParametresDateEffetAnterieure,
+    /// Une écriture validée du dossier utilise un des régimes que la version retirerait.
+    ParametresRegimeUtilise,
+    /// Le dossier a déjà le nombre maximal de versions propres.
+    ParametresTropDeVersions,
     /// La devise de tenue du dossier a changé pendant l'attente du verrou : réessayer.
     ContexteDossierModifie,
     /// Brouillon saisi sous une autre devise de tenue ou une autre échelle que celles du dossier.
@@ -204,7 +212,7 @@ pub enum MotifConflit {
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 35] = [
+    pub const TOUS: [Self; 39] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -238,6 +246,10 @@ impl MotifConflit {
         Self::DossierBrouillardNonVide,
         Self::DossierParametresFiscauxPropres,
         Self::DossierPiecesPresentes,
+        Self::ParametresDateEffetCloturee,
+        Self::ParametresDateEffetAnterieure,
+        Self::ParametresRegimeUtilise,
+        Self::ParametresTropDeVersions,
         Self::ContexteDossierModifie,
         Self::BrouillonDeviseTenuePerimee,
     ];
@@ -278,6 +290,10 @@ impl MotifConflit {
             Self::DossierDejaEcritures => "dossier_deja_ecritures",
             Self::DossierParametresFiscauxPropres => "dossier_parametres_fiscaux_propres",
             Self::DossierPiecesPresentes => "dossier_pieces_presentes",
+            Self::ParametresDateEffetCloturee => "parametres_date_effet_cloturee",
+            Self::ParametresDateEffetAnterieure => "parametres_date_effet_anterieure",
+            Self::ParametresRegimeUtilise => "parametres_regime_utilise",
+            Self::ParametresTropDeVersions => "parametres_trop_de_versions",
             Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
             Self::ContexteDossierModifie => "contexte_dossier_modifie",
             Self::BrouillonDeviseTenuePerimee => "brouillon_devise_tenue_perimee",
@@ -354,11 +370,29 @@ pub enum MotifValidation {
     FuseauInconnu,
     /// Création d'un dossier : langue, forme juridique ou identifiant légal invalide.
     ContexteDossierInvalide,
+    /// Le pays du dossier n'a aucun paquet de paramètres fiscaux : pas de version propre.
+    ParametresPaysSansPaquet,
+    /// Aucune version de base ne s'applique à la date d'effet.
+    ParametresAucuneBase,
+    /// La version propre ne change ni taux ni régime.
+    ParametresAucunChangement,
+    /// Taux hors de ]0 ; 100], non décimal ou non canonique.
+    ParametresTauxInvalide,
+    /// Rôle de taux absent de la version de base.
+    ParametresRoleInconnu,
+    /// Régime absent de la version de base.
+    ParametresRegimeInconnu,
+    /// Régime exonéré ou qui a des motifs : il n'est jamais retiré.
+    ParametresRegimeNonRetirable,
+    /// Motif vide, de plus de 400 octets ou avec un caractère de contrôle.
+    ParametresMotifInvalide,
+    /// Date de fin antérieure à la date d'effet.
+    ParametresPeriodeInvalide,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 31] = [
+    pub const TOUS: [Self; 40] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -390,6 +424,15 @@ impl MotifValidation {
         Self::DeviseTenueInconnue,
         Self::FuseauInconnu,
         Self::ContexteDossierInvalide,
+        Self::ParametresPaysSansPaquet,
+        Self::ParametresAucuneBase,
+        Self::ParametresAucunChangement,
+        Self::ParametresTauxInvalide,
+        Self::ParametresRoleInconnu,
+        Self::ParametresRegimeInconnu,
+        Self::ParametresRegimeNonRetirable,
+        Self::ParametresMotifInvalide,
+        Self::ParametresPeriodeInvalide,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -444,6 +487,15 @@ impl MotifValidation {
             Self::DeviseTenueInconnue => "devise_tenue_inconnue",
             Self::FuseauInconnu => "fuseau_inconnu",
             Self::ContexteDossierInvalide => "contexte_dossier_invalide",
+            Self::ParametresPaysSansPaquet => "parametres_pays_sans_paquet",
+            Self::ParametresAucuneBase => "parametres_aucune_base",
+            Self::ParametresAucunChangement => "parametres_aucun_changement",
+            Self::ParametresTauxInvalide => "parametres_taux_invalide",
+            Self::ParametresRoleInconnu => "parametres_role_inconnu",
+            Self::ParametresRegimeInconnu => "parametres_regime_inconnu",
+            Self::ParametresRegimeNonRetirable => "parametres_regime_non_retirable",
+            Self::ParametresMotifInvalide => "parametres_motif_invalide",
+            Self::ParametresPeriodeInvalide => "parametres_periode_invalide",
         }
     }
 }

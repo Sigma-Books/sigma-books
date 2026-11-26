@@ -47,6 +47,7 @@ pub mod integrite;
 pub mod jetons;
 pub mod liens;
 pub mod organisation;
+pub mod parametres_fiscaux;
 pub mod passkeys;
 pub mod referentiel;
 pub mod session;

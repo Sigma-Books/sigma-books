@@ -496,8 +496,8 @@ async fn le_pays_ne_change_plus_des_qu_une_version_propre_existe() {
         |corps: &'static str| envoyer(&b.routeur, &chemin, Some(b.c.administrateur), corps, None);
     sqlx::query(
         "INSERT INTO parametres_fiscaux_dossier \
-             (cabinet_id, dossier_id, numero, pays, version, date_effet, contenu, empreinte, cree_par) \
-         VALUES ($1, $2, 1, 'SN', '2025.1', '2026-01-01', 'contenu', decode(repeat('00', 32), 'hex'), $3)",
+             (cabinet_id, dossier_id, id, numero, pays, version, date_effet, contenu, empreinte, motif, cree_par) \
+         VALUES ($1, $2, gen_random_uuid(), 1, 'SN', '2025.1', '2026-01-01', 'contenu', decode(repeat('00', 32), 'hex'), 'motif', $3)",
     )
     .bind(b.c.cabinet.uuid())
     .bind(b.c.dossier.uuid())

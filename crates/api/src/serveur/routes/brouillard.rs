@@ -42,7 +42,7 @@ use crate::base::organisation::{
 };
 use crate::base::referentiel::charger;
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
-use crate::parametres_fiscaux::ParametresDuDossier;
+use crate::parametres_fiscaux::{ParametresDuDossier, lire_propres};
 use crate::pieces::interne;
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
@@ -689,7 +689,8 @@ async fn contenu_controle(
     let contexte = lire_contexte_verrouille_en_partage(tx).await?;
     let tenue = contexte.tenue()?;
     // Paramètres fiscaux du pays du dossier, à la date comptable (ADR 0030).
-    let fiscal = ParametresDuDossier::nouveau(registre, &contexte.pays, &[]);
+    let propres = lire_propres(tx, registre).await?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &contexte.pays, &propres);
     let controle = saisie::controler(c, &referentiel, &fiscal, tenue)?;
     let contenu = controle.contenu;
     let visee = brouillard::verrouiller_date(tx, contenu.date)
