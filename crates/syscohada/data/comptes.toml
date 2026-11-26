@@ -31,7 +31,16 @@
 #   - 585, 588 Virements internes : comptes de passage à solder, ligne de contrepartie et jamais
 #     compte d'un journal (p. 430-431) ;
 #   - 59 Dépréciations (p. 433) ;
-#   - 581, 582 : en attente du mainteneur (régies d'avances et accréditifs, cas ambigu, p. 430).
+#   - 581 Régies d'avance, 582 Accréditifs : exclus, confirmé. La fiche du compte 58 (p. 430-431,
+#     imprimé 427-428) les fait débiter « par le crédit des comptes de trésorerie » (avances aux
+#     régisseurs, accréditifs) : ce sont des contreparties de la trésorerie, pas de la trésorerie.
+#     Les comptes 585 et 588 sont des « comptes de passage », utilisés pour des raisons techniques
+#     et soldés en fin d'exercice (p. 430 et 431).
+#     Consensus Odoo/Tryton : Odoo n'admet comme compte de journal banque ou caisse que
+#     `asset_cash` (account/models/account_journal.py:81-93) et range 581, 582 et 585 en
+#     `asset_current` dans l10n_syscohada ; son compte de transfert (585) est une contrepartie,
+#     jamais un compte de journal ; Tryton (account_payment_clearing) et Dolibarr utilisent un
+#     compte de transit séparé.
 #   `journal_tresorerie = false` exclut explicitement un sous-compte d'un compte admis et
 #   l'emporte sur l'héritage : 526 et 536, intérêts courus : ni encaisse ni avoir disponible
 #   (les fiches des comptes 52 et 53, p. PDF 416 et 418, ne font que les lister en subdivision).

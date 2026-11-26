@@ -7,8 +7,8 @@
 La question 7.2 du lot L2 (réponse a, 2026-11-19) veut que la ligne d'écriture porte une **étiquette fiscale** facultative, sans laquelle la déclaration de TVA de L5 ne saurait pas classer les écritures saisies en L2 : les comptes 443x et 445x donnent les montants de taxe par nature, jamais les bases par taux, l'exonéré ventilé entre l'art. 361 et l'art. 380, ni le motif (CGI du Sénégal consolidé, janvier 2025, art. 449-2 et 449-4). Issue #182.
 
 Ce que font les moteurs de référence :
-- **Tryton** porte des lignes de taxe sur la ligne d'écriture, mais elles restent modifiables après validation.
-- **Odoo** copie des étiquettes sur la ligne, mais hors de son hachage d'intégrité et modifiables ; un module les réécrit même rétroactivement.
+- **Tryton** porte des lignes de taxe sur la ligne d'écriture ; `tax_lines` est exclu du contrôle de modification après validation (`account/move.py:1074-1075`), et la contre-passation copie les lignes de taxe avec le montant inversé (`:432`).
+- **Odoo** copie des étiquettes sur la ligne, mais hors de son hachage d'intégrité ; un module les réécrit même rétroactivement. Une fois l'écriture comptabilisée, `tax_ids` et `tax_line_id` sont bloqués (`account/models/account_move_line.py:1871`) ; seules les étiquettes `tax_tag_ids` restent modifiables, protégées par les seules dates de verrouillage fiscal et de taxe (`:3510`) et absentes du hachage (champs hachés : `name`, `debit`, `credit`, `account_id`, `partner_id`, `:3416-3423`).
 - **OCA** lit la configuration courante des taxes : son rapport change après coup.
 - **Dolibarr** (et Bigcapital) ignorent les écritures manuelles.
 
@@ -28,6 +28,9 @@ Aucun ne fige ni ne hache l'information fiscale de la ligne.
 9. **Contrôle comptable** : le total des étiquettes « taxe » égale le solde des comptes de TVA. Fonction pure `controler_taxes_et_comptes` (les comptes 443x et 445x lui sont désignés par l'appelant, depuis `syscohada`) ; son emploi sur les soldes d'un dossier relève de L5. **Précisé par l'ADR 0026** : les comptes de TVA sont désignés par `syscohada` ; le contrôle n'est pas appliqué à la validation (Odoo et Tryton non plus), il sera un rapport d'écarts à la préparation de la déclaration (L5).
 10. **Hors étiquette** : le prorata de déduction (OD de régularisation étiquetée `REGUL`, L5), la période d'exigibilité à l'encaissement (déduite du lettrage, L3 et L5), la correspondance étiquette → case de déclaration (donnée versionnée et datée, L5, mémorisée par la déclaration), la déduction et l'exigibilité « non trouvées » de `AUTOLIQ_REPFISC` et `COLLECTE_NUM` (leur étiquette ne porte pas d'exigibilité tant que le texte ne la fixe pas).
 11. **Verrous de validation** : l'ordre des verrous de la validation (exercice < période < brouillon < pièce < chaîne < compteur < audit, étude PR 13) complète l'ADR 0011 ; il relève de la PR 13b et n'est pas décidé ici.
+
+### Écart assumé vis-à-vis d'Odoo et de Tryton
+Geler l'étiquette fiscale dans le contenu haché de la ligne est un choix propre à Sigma (règle absolue 5 : une écriture validée est définitive). Aucun moteur de référence ne le fait : leurs étiquettes sont modifiables (Tryton, Odoo) ou hors hachage (Odoo). **À confirmer par le mainteneur.** Le reste de la structure (champ facultatif de la ligne, issu de la taxe, contre-passé avec la ligne) est conforme au consensus.
 
 ## Conséquences
 - `compta-core` : `Ligne` porte une étiquette facultative ; `miroir` la copie.
