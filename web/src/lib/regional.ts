@@ -32,6 +32,27 @@ export const REGIONAL_DEFAUT: Readonly<Regional> = {
 	langue: 'fr'
 };
 
+/**
+ * Échelle décimale usuelle d'une devise (ISO 4217), pour le dossier dont l'API ne renvoie pas
+ * `decimales` : les francs de la zone (XOF, XAF, KMF, GNF) n'ont pas de décimales, le franc
+ * congolais (CDF) en a deux ; toute autre devise : deux.
+ */
+const ECHELLES_DEVISE: Readonly<Record<string, number>> = {
+	XOF: 0,
+	XAF: 0,
+	KMF: 0,
+	GNF: 0,
+	CDF: 2
+};
+const ECHELLE_AUTRES_DEVISES = 2;
+
+/** Échelle décimale usuelle de la devise (voir {@link ECHELLES_DEVISE}). */
+export function echelleDeLaDevise(devise: string): number {
+	return Object.hasOwn(ECHELLES_DEVISE, devise)
+		? (ECHELLES_DEVISE[devise] ?? ECHELLE_AUTRES_DEVISES)
+		: ECHELLE_AUTRES_DEVISES;
+}
+
 /** Échelle décimale maximale (celle de la saisie : voir `ECHELLE` de `montants.ts`). */
 const DECIMALES_MAX = 6;
 
@@ -57,17 +78,20 @@ function langueDe(valeur: unknown): Langue | null {
 export function lireRegional(brut: unknown): Regional {
 	const o = typeof brut === 'object' && brut !== null ? (brut as Record<string, unknown>) : {};
 	const { pays, devise, decimales, fuseau } = o;
+	const codeDevise =
+		typeof devise === 'string' && /^[A-Z]{3}$/.test(devise) ? devise : REGIONAL_DEFAUT.devise;
 	return {
 		pays: typeof pays === 'string' && /^[A-Z]{2}$/.test(pays) ? pays : REGIONAL_DEFAUT.pays,
-		devise:
-			typeof devise === 'string' && /^[A-Z]{3}$/.test(devise) ? devise : REGIONAL_DEFAUT.devise,
+		devise: codeDevise,
+		// Sans `decimales` valide, l'échelle est celle de la devise : zéro pour un dossier XOF, deux
+		// pour un dossier CDF (jamais zéro « par défaut » pour une devise qui a des décimales).
 		decimales:
 			typeof decimales === 'number' &&
 			Number.isInteger(decimales) &&
 			decimales >= 0 &&
 			decimales <= DECIMALES_MAX
 				? decimales
-				: REGIONAL_DEFAUT.decimales,
+				: echelleDeLaDevise(codeDevise),
 		fuseau: typeof fuseau === 'string' && fuseauValide(fuseau) ? fuseau : REGIONAL_DEFAUT.fuseau,
 		langue: langueDe(o.langue) ?? REGIONAL_DEFAUT.langue
 	};

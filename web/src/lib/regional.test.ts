@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { LANGUES, lireRegional, localeDe, REGIONAL_DEFAUT, separateurs } from './regional.ts';
+import {
+	echelleDeLaDevise,
+	LANGUES,
+	lireRegional,
+	localeDe,
+	REGIONAL_DEFAUT,
+	separateurs
+} from './regional.ts';
 
 test('sans contexte, le dossier est sénégalais : XOF, 0 décimale, fr, Africa/Dakar', () => {
 	for (const brut of [undefined, null, {}, 'x', 42, []]) {
@@ -64,4 +71,20 @@ test('les séparateurs viennent d’Intl', () => {
 	assert.deepEqual(separateurs('fr-SN'), { decimal: ',', groupe: ' ' });
 	assert.deepEqual(separateurs('en-CM'), { decimal: '.', groupe: ',' });
 	assert.deepEqual(separateurs('es-GQ'), { decimal: ',', groupe: '.' });
+});
+
+test('sans `decimales`, l’échelle est celle de la devise (CDF : 2, francs de la zone : 0)', () => {
+	for (const devise of ['XOF', 'XAF', 'KMF', 'GNF']) {
+		assert.equal(lireRegional({ devise }).decimales, 0, devise);
+	}
+	assert.equal(lireRegional({ devise: 'CDF' }).decimales, 2);
+	assert.equal(lireRegional({ devise: 'EUR' }).decimales, 2);
+	assert.equal(echelleDeLaDevise('XOF'), 0);
+	assert.equal(echelleDeLaDevise('toString'), 2);
+	// `decimales` explicite, valide : il l'emporte ; invalide : retour à l'échelle de la devise.
+	assert.equal(lireRegional({ devise: 'CDF', decimales: 0 }).decimales, 0);
+	assert.equal(lireRegional({ devise: 'CDF', decimales: -1 }).decimales, 2);
+	assert.equal(lireRegional({ devise: 'CDF', decimales: '2' }).decimales, 2);
+	// Devise invalide : retombe sur XOF, donc 0.
+	assert.equal(lireRegional({ devise: 'cdf' }).decimales, 0);
 });
