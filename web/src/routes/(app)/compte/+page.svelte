@@ -19,7 +19,7 @@
 	import CodesRecuperation from '#lib/composants/CodesRecuperation.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import { dateHeure } from '#lib/instants.ts';
-	import { regionalUtilisateur } from '#lib/regional.ts';
+	import { adopterRegionalUtilisateur } from '#lib/contexte-utilisateur.ts';
 	import { grouperSecret, uriOtpauthSure } from '#lib/libelles.ts';
 	import { enroler, ErreurPasskey, passkeysPrisesEnCharge } from '#lib/passkeys.ts';
 	import { executerSensible } from '#lib/reauthentification.svelte.ts';
@@ -28,7 +28,7 @@
 	let { data }: PageProps = $props();
 
 	// Instants dans le fuseau et la langue du navigateur : ces écrans ne dépendent d'aucun dossier.
-	const regional = regionalUtilisateur();
+	const regional = adopterRegionalUtilisateur();
 
 	const complete = $derived(data.session.ok && data.session.valeur.nature === 'complete');
 

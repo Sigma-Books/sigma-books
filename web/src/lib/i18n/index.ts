@@ -22,10 +22,29 @@ type Catalogue = Readonly<Partial<Record<Cle, string>>>;
 export const CATALOGUES: Readonly<Record<Langue, Catalogue>> = { fr, en, pt, es };
 
 let courante: Langue = 'fr';
+let generation = 0;
 
-/** Fixe la langue des messages (celle du dossier affiché). */
-export function fixerLangue(langue: Langue): void {
+/**
+ * Ouvre une navigation : toute langue demandée par une navigation plus ancienne (un chargement
+ * de dossier qui se termine après celui d'un autre dossier, ou après l'arrivée sur un écran
+ * hors dossier) sera ignorée. À appeler **avant** le chargement ; le jeton rendu s'ajoute à
+ * {@link fixerLangue}.
+ */
+export function nouvelleNavigation(): number {
+	generation += 1;
+	return generation;
+}
+
+/**
+ * Fixe la langue des messages et l'attribut `lang` du document, sans attendre la fin de la
+ * navigation. Avec le jeton d'une navigation, ne fait rien (et rend `false`) si une navigation
+ * plus récente a commencé depuis : une langue périmée ne remplace jamais la bonne.
+ */
+export function fixerLangue(langue: Langue, jeton: number = generation): boolean {
+	if (jeton !== generation) return false;
 	courante = langue;
+	if (typeof document !== 'undefined') document.documentElement.lang = langue;
+	return true;
 }
 
 export function langueCourante(): Langue {
