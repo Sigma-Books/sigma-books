@@ -52,7 +52,12 @@
 	{@const { contexte, valeur } = data.contenu.valeur}
 	{@const toutes = [...valeur.ecritures, ...ajoutees]}
 	<h1>Écritures validées — {contexte.nomDossier.nom}</h1>
-	<NavigationDossier cabinet={contexte.cabinet} dossier={contexte.dossier} actif="ecritures" />
+	<NavigationDossier
+		cabinet={contexte.cabinet}
+		dossier={contexte.dossier}
+		actif="ecritures"
+		role={contexte.membre.role}
+	/>
 
 	{#if toutes.length === 0}
 		<p>Aucune écriture validée pour l’instant.</p>

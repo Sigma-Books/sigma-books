@@ -40,6 +40,11 @@ const CHEMINS_SANS_SESSION = ['/api/connexion/', '/api/liens/utilisation'];
 export type Mutation = 'POST' | 'DELETE';
 type Methode = 'GET' | Mutation;
 
+export interface FichierRecu {
+	contenu: Blob;
+	entetes: Headers;
+}
+
 export interface OptionsClient {
 	/** `fetch` à utiliser (celui du navigateur par défaut ; un faux dans les tests). */
 	fetch?: typeof fetch;
@@ -52,6 +57,11 @@ export interface ClientApi {
 	lire<T>(chemin: string, garde: Garde<T>): Promise<T>;
 	/** Mutation dont la réponse JSON doit passer la garde. */
 	muter<T>(methode: Mutation, chemin: string, garde: Garde<T>, corps?: unknown): Promise<T>;
+	/**
+	 * Fichier rendu par l'API (export d'intégrité, témoin) : le corps est lu comme `Blob`, sans être
+	 * interprété ; les en-têtes sont rendus à l'appelant, qui n'en lit que ceux qu'il connaît.
+	 */
+	telecharger(methode: 'GET' | 'POST', chemin: string): Promise<FichierRecu>;
 	/** Mutation sans corps de réponse (204). */
 	muterSansReponse(methode: Mutation, chemin: string, corps?: unknown): Promise<void>;
 	/**
@@ -239,6 +249,19 @@ export function creerClient(options: OptionsClient = {}): ClientApi {
 
 		muter<T>(methode: Mutation, chemin: string, garde: Garde<T>, corps?: unknown): Promise<T> {
 			return suivre(async () => lireJson(await executer(methode, chemin, corps), garde));
+		},
+
+		telecharger(methode: 'GET' | 'POST', chemin: string): Promise<FichierRecu> {
+			return suivre(async () => {
+				const reponse = await executer(methode, chemin, undefined);
+				let contenu: Blob;
+				try {
+					contenu = await reponse.blob();
+				} catch {
+					throw new ErreurApi('reponse_invalide', reponse.status);
+				}
+				return { contenu, entetes: reponse.headers };
+			});
 		},
 
 		muterSansReponse(methode: Mutation, chemin: string, corps?: unknown): Promise<void> {

@@ -27,7 +27,7 @@ export function messageEdition(erreur: ErreurApi): string {
 /** Message d'une erreur de l'écran Intégrité (consultation, vérification, export). */
 export function messageIntegrite(erreur: ErreurApi): string {
 	if (erreur.code === 'interdit') {
-		return 'Action refusée : l’intégrité est réservée à l’administrateur, au valideur et à l’auditeur affectés au dossier (l’export exige en plus une session fraîche).';
+		return 'Accès réservé aux administrateurs, valideurs et auditeurs affectés au dossier.';
 	}
 	if (erreur.code === 'delai_depasse') {
 		return 'La vérification n’a pas abouti à temps : le serveur est très sollicité. Réessayez dans un instant.';

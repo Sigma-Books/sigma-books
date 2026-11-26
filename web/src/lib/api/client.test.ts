@@ -143,6 +143,7 @@ describe('session et jeton anti-CSRF', () => {
 			'muterSansSession',
 			'ouvrirSession',
 			'renouveler',
+			'telecharger',
 			'tourner'
 		]);
 		assert.ok(Object.values(api).every((v) => typeof v === 'function'));
