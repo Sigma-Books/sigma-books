@@ -5,6 +5,7 @@
 // identifiants sont des `Uuid` déjà vérifiés : un chemin ne peut pas être détourné.
 
 import type { ClientApi } from './client.ts';
+import { estPackPays, type CorpsCreationDossier, type PackPays } from './pays.ts';
 import {
 	estCabinetMembre,
 	estCodesRecuperation,
@@ -50,8 +51,17 @@ export function lireDossier(api: ClientApi, cabinet: Uuid, dossier: Uuid): Promi
 }
 
 /** Création d'un dossier ; le serveur décide (§20 : administrateur, valideur). */
-export function creerDossier(api: ClientApi, cabinet: Uuid, nom: string): Promise<Dossier> {
-	return api.muter('POST', `/api/cabinets/${cabinet}/dossiers`, estDossier, { nom });
+export function creerDossier(
+	api: ClientApi,
+	cabinet: Uuid,
+	corps: CorpsCreationDossier
+): Promise<Dossier> {
+	return api.muter('POST', `/api/cabinets/${cabinet}/dossiers`, estDossier, corps);
+}
+
+/** Pack pays : États, devises avec leur échelle, fuseaux, types d'identifiants (ADR 0027). */
+export function lirePackPays(api: ClientApi, cabinet: Uuid): Promise<PackPays> {
+	return api.lire(`/api/cabinets/${cabinet}/pays`, estPackPays);
 }
 
 /** Sessions actives de l'utilisateur. */
