@@ -14,6 +14,8 @@ import {
 	tableauDe
 } from './gardes.ts';
 import { traduire } from '../i18n/index.ts';
+import type { Langue } from '../regional.ts';
+import { longueurOctets } from './texte.ts';
 import { estCodeJournal, type Garde, type Uuid } from './types.ts';
 
 export type Sens = 'debit' | 'credit';
@@ -449,20 +451,42 @@ export function lireEcriture(
 	return api.lire(`${base(cabinet, dossier)}/ecritures/${ecriture}`, estEcriture);
 }
 
+/** Longueur maximale du motif, en octets UTF-8 (`MOTIF_MAX` de `contre_passation.rs`). */
+export const MOTIF_CONTRE_PASSATION_MAX = 400;
+
 /**
- * Motif envoyé pour une contre-passation. Le serveur exige un motif non blanc (journal d'audit) ;
- * l'interface le rend facultatif, comme Odoo (`account.move.reversal`, raison facultative) et
- * Tryton (`CancelMoves`, description facultative) : sans saisie, « Contre-passation de <numéro> ».
+ * Motif envoyé pour une contre-passation : la saisie **rognée**, ou, si elle est vide, un motif par
+ * défaut « Contre-passation de <numéro> » dans la langue **demandée** (celle du dossier, passée en
+ * paramètre : aucun état global). Le serveur exige aujourd'hui un motif non blanc (journal
+ * d'audit) ; l'interface le rend facultatif, comme Odoo (`account.move.reversal`, raison
+ * facultative) et Tryton (`CancelMoves`, description facultative).
+ *
+ * À terme, l'API fournira un défaut côté serveur quand le motif est vide (un autre chantier
+ * assouplit l'API) : l'interface pourra alors envoyer un motif vide et supprimer ce défaut.
  */
-export function motifContrePassation(saisie: string, numero: string): string {
-	return saisie.trim() === '' ? traduire('contre_passation.motif_defaut', { numero }) : saisie;
+export function motifContrePassation(saisie: string, numero: string, langue: Langue): string {
+	const net = saisie.trim();
+	return net === '' ? traduire('contre_passation.motif_defaut', { numero }, langue) : net;
+}
+
+/**
+ * Vrai si le serveur acceptera ce motif : non blanc, au plus {@link MOTIF_CONTRE_PASSATION_MAX}
+ * octets UTF-8 et sans caractère de contrôle (confort : le serveur contrôle de toute façon).
+ */
+export function motifAdmis(motif: string): boolean {
+	return (
+		motif.trim() !== '' &&
+		longueurOctets(motif) <= MOTIF_CONTRE_PASSATION_MAX &&
+		// eslint-disable-next-line no-control-regex
+		!/[\u0000-\u001f\u007f-\u009f]/.test(motif)
+	);
 }
 
 export interface CorpsContrePassation {
 	/** `AAAA-MM-JJ`. */
 	date: string;
 	libelle: string;
-	/** Motif obligatoire (400 caractères au plus), versé au journal d'audit. */
+	/** Motif non blanc (400 octets au plus), versé au journal d'audit : voir `motifContrePassation`. */
 	motif: string;
 }
 
