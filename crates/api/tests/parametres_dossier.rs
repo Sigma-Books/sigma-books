@@ -3,7 +3,12 @@
 //! contre-passation), deux dossiers d'un même cabinet, cabinets distincts.
 #![cfg(feature = "tests-postgres")]
 // Fichier de test : les `expect`/`unwrap` y sont voulus.
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::too_many_lines)]
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::too_many_lines,
+    clippy::many_single_char_names
+)]
 
 mod commun;
 
@@ -652,14 +657,14 @@ async fn la_version_du_dossier_s_applique_de_la_saisie_a_la_contre_passation() {
     )
     .await;
     assert_eq!(lot.statut, StatusCode::OK, "{}", lot.texte());
-    let rang4: Option<String> = sqlx::query_scalar(
-        "SELECT version_parametres FROM ecriture_validee WHERE dossier_id = $1 AND rang = 4",
+    let rang3: Option<String> = sqlx::query_scalar(
+        "SELECT version_parametres FROM ecriture_validee WHERE dossier_id = $1 AND rang = 3",
     )
     .bind(b.c.dossier.uuid())
     .fetch_one(&b.env.admin)
     .await
     .unwrap();
-    assert_eq!(rang4.as_deref(), Some("sn-2025.1+d1"));
+    assert_eq!(rang3.as_deref(), Some("sn-2025.1+d1"));
 }
 
 #[tokio::test]

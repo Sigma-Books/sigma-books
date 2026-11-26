@@ -185,7 +185,7 @@ impl ParametresFiscaux {
                 .find(|t| t.role.as_str() == role)
                 .ok_or_else(|| ErreurFiscale::RoleInconnu(role.clone()))?;
             cible.valeur = nouveau;
-            cible.source = "Surcharge du dossier (motif au registre du dossier)".to_owned();
+            "Surcharge du dossier (motif au registre du dossier)".clone_into(&mut cible.source);
         }
         for code in s.regimes_retires {
             let Some(regime) = self.regime(code) else {

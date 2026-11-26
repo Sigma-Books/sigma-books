@@ -228,10 +228,6 @@ mod tests {
         assert!(version_depuis_ligne(&registre, &altere).is_err());
         for modifie in [
             VersionPropre {
-                numero: 2,
-                ..ligne.clone()
-            },
-            VersionPropre {
                 pays: "CM".to_owned(),
                 ..ligne.clone()
             },

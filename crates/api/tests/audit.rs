@@ -992,6 +992,18 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             let corps = format!(r#"{{"dossier":"{}"}}"#, c.autre_dossier);
             commun::serveur::envoyer(&routeur, &chemin, Some(c.administrateur), &corps, None).await
         } else if route.cas_usage
+            == CasUsage::ParametresFiscaux(api::serveur::routes::parametres_fiscaux::Cas::Creer)
+        {
+            // Une version propre qui change vraiment un taux (sinon : 422 « aucun changement »).
+            commun::serveur::envoyer(
+                &routeur,
+                &chemin,
+                Some(c.administrateur),
+                r#"{"date_effet":"2099-01-01","motif":"Test d'audit","taux":{"normal":"19"}}"#,
+                None,
+            )
+            .await
+        } else if route.cas_usage
             == CasUsage::Organisation(api::serveur::routes::organisation::Cas::ModifierContexte)
         {
             // Une modification qui change vraiment le contexte (sinon : 409 « aucun changement »).
