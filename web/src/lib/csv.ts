@@ -1,7 +1,11 @@
 // Export CSV de l'édition affichée, côté navigateur : mise en forme des colonnes **reçues**, sans
-// aucun calcul (le serveur a calculé les totaux et les soldes). Séparateur `;` et BOM UTF-8 (lecture
-// directe par Excel en français). Les montants restent exacts : chaîne décimale reçue, virgule
-// décimale, aucun `number`. Toute cellule de texte est neutralisée contre l'injection de formules
+// aucun calcul (le serveur a calculé les totaux et les soldes).
+//
+// Séparateur de colonnes, séparateur décimal et marque d'ordre des octets (BOM) sont des options ;
+// leurs valeurs par défaut sont déduites du locale du dossier (virgule décimale et point-virgule en
+// `fr`, `es`, `pt` ; point décimal et virgule en `en` ; BOM UTF-8 pour la lecture directe par
+// Excel). Les montants restent exacts : chaîne décimale reçue, mise à l'échelle de la devise du
+// dossier, aucun `number`. Toute cellule de texte est neutralisée contre l'injection de formules
 // (OWASP « CSV injection ») : un texte qui commence par `=`, `+`, `-`, `@`, tabulation ou retour
 // chariot est précédé d'une apostrophe. Module pur, testé sous `node --test`.
 
@@ -9,11 +13,38 @@ import type { Balance, Centralisateur, GrandLivre, Journaux, Rubrique } from './
 import { estMontantChaine } from './api/editions.ts';
 import type { EnteteEdition } from './api/editions.ts';
 import { libelleColonne, libelleMois, normaliserZero } from './editions-affichage.ts';
+import { traduire } from './i18n/index.ts';
+import { formaterNombre } from './montants.ts';
+import { localeDe, separateurs, type Regional } from './regional.ts';
 
 /** Cellule : texte libre (neutralisé) ou montant décimal exact (reçu du serveur). */
 export type Cellule = string | { montant: string };
 
-const SEPARATEUR = ';';
+export const SEPARATEURS_CSV = [';', ',', '\t'] as const;
+export const SEPARATEURS_DECIMAUX = [',', '.'] as const;
+
+export interface OptionsCsv {
+	/** Séparateur de colonnes. */
+	separateur: (typeof SEPARATEURS_CSV)[number];
+	/** Séparateur décimal des montants. */
+	separateurDecimal: (typeof SEPARATEURS_DECIMAUX)[number];
+	/** Marque d'ordre des octets UTF-8 en tête du fichier. */
+	bom: boolean;
+	/** Échelle décimale des montants (celle de la devise du dossier). */
+	decimales: number;
+}
+
+/** Options par défaut d'un dossier : celles qu'attend un tableur réglé sur son locale. */
+export function optionsCsvParDefaut(r: Regional): OptionsCsv {
+	const decimal = separateurs(localeDe(r)).decimal === '.' ? '.' : ',';
+	return {
+		separateur: decimal === ',' ? ';' : ',',
+		separateurDecimal: decimal,
+		bom: true,
+		decimales: r.decimales
+	};
+}
+
 const FIN_DE_LIGNE = '\r\n';
 const BOM = '﻿';
 const DECLENCHEURS_FORMULE = /^[\s]*[=+\-@\t\r]/;
@@ -23,71 +54,105 @@ export function neutraliser(texte: string): string {
 	return DECLENCHEURS_FORMULE.test(texte) ? `'${texte}` : texte;
 }
 
-function proteger(texte: string): string {
-	return /[;"\r\n]/.test(texte) ? `"${texte.replaceAll('"', '""')}"` : texte;
+function proteger(texte: string, separateur: string): string {
+	return texte.includes(separateur) || /["\r\n]/.test(texte)
+		? `"${texte.replaceAll('"', '""')}"`
+		: texte;
 }
 
 /** Une cellule en CSV. Un « montant » illisible est traité comme du texte (donc neutralisé). */
-export function formaterCellule(cellule: Cellule): string {
-	if (typeof cellule === 'string') return proteger(neutraliser(cellule));
-	if (!estMontantChaine(cellule.montant)) return proteger(neutraliser(cellule.montant));
-	return cellule.montant.replace('.', ',');
+export function formaterCellule(cellule: Cellule, o: OptionsCsv): string {
+	if (typeof cellule === 'string') return proteger(neutraliser(cellule), o.separateur);
+	if (!estMontantChaine(cellule.montant)) {
+		return proteger(neutraliser(cellule.montant), o.separateur);
+	}
+	return proteger(
+		formaterNombre(cellule.montant, o.decimales, o.separateurDecimal, null),
+		o.separateur
+	);
 }
 
-/** Document CSV : lignes de cellules, fins de ligne `\r\n`, BOM en tête. */
-export function versCsv(lignes: readonly (readonly Cellule[])[]): string {
+/** Document CSV : lignes de cellules, fins de ligne `\r\n`, BOM en tête si demandé. */
+export function versCsv(lignes: readonly (readonly Cellule[])[], o: OptionsCsv): string {
 	return (
-		BOM +
-		lignes.map((l) => l.map(formaterCellule).join(SEPARATEUR)).join(FIN_DE_LIGNE) +
+		(o.bom ? BOM : '') +
+		lignes.map((l) => l.map((c) => formaterCellule(c, o)).join(o.separateur)).join(FIN_DE_LIGNE) +
 		FIN_DE_LIGNE
 	);
 }
 
-const m = (montant: string): Cellule => ({ montant: normaliserZero(montant) });
+/** Ce que le fichier cite de l'entité : dossier, devise, options de mise en forme. */
+export interface ContexteCsv {
+	nomDossier: string;
+	regional: Regional;
+	options: OptionsCsv;
+}
 
-/** Lignes d'en-tête du fichier : mode, exercice, période, brouillons exclus (si signalés), ligne vide. */
-export function enteteCsv(e: EnteteEdition): Cellule[][] {
+const m = (montant: string): Cellule => ({ montant: normaliserZero(montant) });
+const t = traduire;
+
+/**
+ * Lignes d'en-tête du fichier : dossier, devise, mode, exercice, période, brouillons exclus (si
+ * signalés), ligne vide.
+ */
+export function enteteCsv(e: EnteteEdition, c: ContexteCsv): Cellule[][] {
 	const exclus = e.brouillons_exclus.desequilibres + e.brouillons_exclus.illisibles;
 	return [
-		['Mode', e.mode === 'provisoire' ? 'provisoire' : 'définitif'],
-		['Exercice', e.exercice],
-		['Période', e.du, e.au],
-		...(exclus > 0 ? [['Brouillons exclus', String(exclus)]] : []),
+		[t('csv.dossier'), c.nomDossier],
+		[t('csv.devise'), c.regional.devise],
+		[t('csv.mode'), e.mode === 'provisoire' ? t('csv.mode.provisoire') : t('csv.mode.definitif')],
+		[t('csv.exercice'), e.exercice],
+		[t('csv.periode'), e.du, e.au],
+		...(exclus > 0 ? [[t('csv.brouillons_exclus'), String(exclus)]] : []),
 		['']
 	];
 }
 
-export function csvBalance(b: Balance): string {
-	const cle = b.regroupement === 'tronc' ? 'Tronc' : 'Compte';
-	return versCsv([
-		...enteteCsv(b),
-		[cle, ...b.colonnes.map(libelleColonne)],
-		...b.lignes.map((l) => [l.cle, ...l.valeurs.map(m)]),
-		['Totaux', ...b.totaux.map(m)]
-	]);
+export function csvBalance(b: Balance, c: ContexteCsv): string {
+	const cle = b.regroupement === 'tronc' ? t('csv.tronc') : t('csv.compte');
+	return versCsv(
+		[
+			...enteteCsv(b, c),
+			[cle, ...b.colonnes.map(libelleColonne)],
+			...b.lignes.map((l) => [l.cle, ...l.valeurs.map(m)]),
+			[t('csv.totaux'), ...b.totaux.map(m)]
+		],
+		c.options
+	);
 }
 
-export function csvGrandLivre(g: GrandLivre): string {
+export function csvGrandLivre(g: GrandLivre, c: ContexteCsv): string {
 	const lignes: Cellule[][] = [
-		...enteteCsv(g),
+		...enteteCsv(g, c),
 		[
-			'Compte',
-			'Date',
-			'Journal',
-			'Numéro',
-			'Date de valeur',
-			'Libellé',
-			'Tiers',
-			'Débit',
-			'Crédit',
-			'Solde'
+			t('csv.compte'),
+			t('csv.date'),
+			t('csv.journal'),
+			t('csv.numero'),
+			t('csv.date_valeur'),
+			t('csv.libelle'),
+			t('csv.tiers'),
+			t('csv.debit'),
+			t('csv.credit'),
+			t('csv.solde')
 		]
 	];
-	for (const c of g.comptes) {
-		lignes.push([c.compte, '', '', '', '', 'Solde d’ouverture', '', '', '', m(c.solde_ouverture)]);
-		for (const l of c.lignes) {
+	for (const compte of g.comptes) {
+		lignes.push([
+			compte.compte,
+			'',
+			'',
+			'',
+			'',
+			t('csv.solde_ouverture'),
+			'',
+			'',
+			'',
+			m(compte.solde_ouverture)
+		]);
+		for (const l of compte.lignes) {
 			lignes.push([
-				c.compte,
+				compte.compte,
 				l.date,
 				l.journal,
 				l.numero ?? '',
@@ -100,25 +165,35 @@ export function csvGrandLivre(g: GrandLivre): string {
 			]);
 		}
 		lignes.push([
-			c.compte,
+			compte.compte,
 			'',
 			'',
 			'',
 			'',
-			'Totaux et solde final',
+			t('csv.totaux_solde_final'),
 			'',
-			m(c.total_debit),
-			m(c.total_credit),
-			m(c.solde_final)
+			m(compte.total_debit),
+			m(compte.total_credit),
+			m(compte.solde_final)
 		]);
 	}
-	return versCsv(lignes);
+	return versCsv(lignes, c.options);
 }
 
-export function csvJournaux(j: Journaux): string {
+export function csvJournaux(j: Journaux, c: ContexteCsv): string {
 	const lignes: Cellule[][] = [
-		...enteteCsv(j),
-		['Journal', 'Numéro', 'Date', 'Date de valeur', 'Libellé', 'Compte', 'Tiers', 'Débit', 'Crédit']
+		...enteteCsv(j, c),
+		[
+			t('csv.journal'),
+			t('csv.numero'),
+			t('csv.date'),
+			t('csv.date_valeur'),
+			t('csv.libelle'),
+			t('csv.compte'),
+			t('csv.tiers'),
+			t('csv.debit'),
+			t('csv.credit')
+		]
 	];
 	for (const bloc of j.journaux) {
 		for (const e of bloc.ecritures) {
@@ -141,53 +216,57 @@ export function csvJournaux(j: Journaux): string {
 			'',
 			'',
 			'',
-			'Totaux du journal',
+			t('csv.totaux_journal'),
 			'',
 			'',
 			m(bloc.total_debit),
 			m(bloc.total_credit)
 		]);
 	}
-	return versCsv(lignes);
+	return versCsv(lignes, c.options);
 }
 
-function rubrique(nom: string, r: Rubrique): Cellule[][] {
+function rubrique(nom: string, r: Rubrique, c: ContexteCsv): Cellule[][] {
+	const mois = (l: { annee: number; mois: number }) => libelleMois(l, c.regional);
 	return [
-		...r.par_journal.map((l) => [
-			nom,
-			libelleMois(l),
-			l.journal ?? '',
-			'',
-			m(l.debit),
-			m(l.credit)
-		]),
+		...r.par_journal.map((l) => [nom, mois(l), l.journal ?? '', '', m(l.debit), m(l.credit)]),
 		...r.par_compte.map((l) => [
-			`${nom} (par compte)`,
-			libelleMois(l),
+			t('csv.par_compte', { rubrique: nom }),
+			mois(l),
 			l.journal ?? '',
 			l.compte ?? '',
 			m(l.debit),
 			m(l.credit)
 		]),
 		...r.par_mois.map((l) => [
-			`${nom} (total du mois)`,
-			libelleMois(l),
+			t('csv.total_du_mois', { rubrique: nom }),
+			mois(l),
 			'',
 			'',
 			m(l.debit),
 			m(l.credit)
 		]),
-		[`${nom} (total)`, '', '', '', m(r.total_debit), m(r.total_credit)]
+		[t('csv.total', { rubrique: nom }), '', '', '', m(r.total_debit), m(r.total_credit)]
 	];
 }
 
-export function csvCentralisateur(c: Centralisateur): string {
-	return versCsv([
-		...enteteCsv(c),
-		['Rubrique', 'Mois', 'Journal', 'Compte', 'Débit', 'Crédit'],
-		...rubrique('Mouvements', c.mouvements),
-		...rubrique('À-nouveaux', c.a_nouveaux)
-	]);
+export function csvCentralisateur(centralisateur: Centralisateur, c: ContexteCsv): string {
+	return versCsv(
+		[
+			...enteteCsv(centralisateur, c),
+			[
+				t('csv.rubrique'),
+				t('csv.mois'),
+				t('csv.journal'),
+				t('csv.compte'),
+				t('csv.debit'),
+				t('csv.credit')
+			],
+			...rubrique(t('csv.mouvements'), centralisateur.mouvements, c),
+			...rubrique(t('csv.a_nouveaux'), centralisateur.a_nouveaux, c)
+		],
+		c.options
+	);
 }
 
 /** Nom de fichier sûr d'une édition (exercice vérifié : quatre chiffres). */

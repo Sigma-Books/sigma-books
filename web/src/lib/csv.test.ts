@@ -3,12 +3,27 @@ import { describe, it } from 'node:test';
 import type { Balance, GrandLivre } from './api/editions.ts';
 import {
 	csvBalance,
+	csvCentralisateur,
 	csvGrandLivre,
 	formaterCellule,
 	neutraliser,
 	nomFichierEdition,
-	versCsv
+	optionsCsvParDefaut,
+	versCsv,
+	type ContexteCsv,
+	type OptionsCsv
 } from './csv.ts';
+import { lireRegional } from './regional.ts';
+
+const FR = lireRegional({});
+const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
+const CDF = lireRegional({ langue: 'fr', pays: 'CD', devise: 'CDF', decimales: 2 });
+const O: OptionsCsv = optionsCsvParDefaut(FR);
+const contexte = (regional = FR, nomDossier = 'Société Test'): ContexteCsv => ({
+	nomDossier,
+	regional,
+	options: optionsCsvParDefaut(regional)
+});
 
 describe('échappement des cellules', () => {
 	it('neutralise tout début de formule', () => {
@@ -29,27 +44,27 @@ describe('échappement des cellules', () => {
 	});
 
 	it('protège séparateur, guillemets et retours à la ligne', () => {
-		assert.equal(formaterCellule('a;b'), '"a;b"');
-		assert.equal(formaterCellule('dit "oui"'), '"dit ""oui"""');
-		assert.equal(formaterCellule('l1\nl2'), '"l1\nl2"');
-		assert.equal(formaterCellule('=A;B'), `"'=A;B"`);
+		assert.equal(formaterCellule('a;b', O), '"a;b"');
+		assert.equal(formaterCellule('dit "oui"', O), '"dit ""oui"""');
+		assert.equal(formaterCellule('l1\nl2', O), '"l1\nl2"');
+		assert.equal(formaterCellule('=A;B', O), `"'=A;B"`);
 	});
 
 	it('montant exact : virgule décimale, aucun nombre ; négatif conservé', () => {
-		assert.equal(formaterCellule({ montant: '1500.5' }), '1500,5');
-		assert.equal(formaterCellule({ montant: '-12' }), '-12');
+		assert.equal(formaterCellule({ montant: '1500.5' }, O), '1500,5');
+		assert.equal(formaterCellule({ montant: '-12' }, O), '-12');
 		assert.equal(
-			formaterCellule({ montant: '12345678901234567890.123456' }),
+			formaterCellule({ montant: '12345678901234567890.123456' }, O),
 			'12345678901234567890,123456'
 		);
 	});
 
 	it('un « montant » qui n’en est pas un est du texte neutralisé', () => {
-		assert.equal(formaterCellule({ montant: '=1+1' }), "'=1+1");
+		assert.equal(formaterCellule({ montant: '=1+1' }, O), "'=1+1");
 	});
 
 	it('document : BOM, séparateur point-virgule, fins de ligne CRLF', () => {
-		assert.equal(versCsv([['a', { montant: '1.5' }], ['b']]), '﻿a;1,5\r\nb\r\n');
+		assert.equal(versCsv([['a', { montant: '1.5' }], ['b']], O), '﻿a;1,5\r\nb\r\n');
 	});
 });
 
@@ -73,8 +88,8 @@ describe('éditions en CSV', () => {
 			equilibree: true
 		};
 		assert.equal(
-			csvBalance(b),
-			'\uFEFFMode;définitif\r\nExercice;2026\r\nPériode;2026-01-01;2026-12-31\r\n\r\nCompte;Solde débiteur;Solde créditeur\r\n411;100,25;0\r\nTotaux;100,25;100,25\r\n'
+			csvBalance(b, contexte()),
+			'\uFEFFDossier;Société Test\r\nDevise;XOF\r\nMode;définitif\r\nExercice;2026\r\nPériode;2026-01-01;2026-12-31\r\n\r\nCompte;Solde débiteur;Solde créditeur\r\n411;100,25;0\r\nTotaux;100,25;100,25\r\n'
 		);
 	});
 
@@ -104,24 +119,27 @@ describe('éditions en CSV', () => {
 				}
 			]
 		};
-		const csv = csvGrandLivre(g);
+		const csv = csvGrandLivre(g, contexte());
 		assert.ok(csv.includes("'=cmd|"));
 		assert.ok(!/;=cmd/.test(csv));
 	});
 
 	it('en-tête : mode provisoire et brouillons exclus signalés', () => {
-		const csv = csvBalance({
-			...entete,
-			mode: 'provisoire',
-			brouillons_exclus: { desequilibres: 2, illisibles: 1 },
-			format: 2,
-			regroupement: 'compte',
-			colonnes: ['solde_debiteur', 'solde_crediteur'],
-			lignes: [{ cle: '411', valeurs: ['-0', '0'] }],
-			totaux: ['0', '0'],
-			equilibree: true
-		});
-		assert.ok(csv.startsWith('\uFEFFMode;provisoire\r\n'));
+		const csv = csvBalance(
+			{
+				...entete,
+				mode: 'provisoire',
+				brouillons_exclus: { desequilibres: 2, illisibles: 1 },
+				format: 2,
+				regroupement: 'compte',
+				colonnes: ['solde_debiteur', 'solde_crediteur'],
+				lignes: [{ cle: '411', valeurs: ['-0', '0'] }],
+				totaux: ['0', '0'],
+				equilibree: true
+			},
+			contexte()
+		);
+		assert.ok(csv.includes('Mode;provisoire\r\n'));
 		assert.ok(csv.includes('Brouillons exclus;3\r\n'));
 		assert.ok(csv.includes('411;0;0\r\n'), 'moins zéro normalisé');
 	});
@@ -132,5 +150,115 @@ describe('éditions en CSV', () => {
 			'grand-livre-2026-provisoire.csv'
 		);
 		assert.equal(nomFichierEdition('../x', '20/26', 'a b'), 'x-2026-ab.csv');
+	});
+
+	it('en-tête : dossier (neutralisé) et devise', () => {
+		const csv = csvBalance(
+			{
+				...entete,
+				format: 2,
+				regroupement: 'compte',
+				colonnes: ['solde_debiteur'],
+				lignes: [],
+				totaux: ['0'],
+				equilibree: true
+			},
+			contexte(CDF, '=Société')
+		);
+		assert.ok(csv.includes("Dossier;'=Société\r\n"), 'nom du dossier neutralisé');
+		assert.ok(csv.includes('Devise;CDF\r\n'));
+		assert.ok(csv.includes('Exercice;2026\r\n'));
+		const inconnu = csvBalance(
+			{
+				...entete,
+				exercice: '2025',
+				format: 2,
+				regroupement: 'compte',
+				colonnes: [],
+				lignes: [],
+				totaux: [],
+				equilibree: true
+			},
+			contexte()
+		);
+		assert.ok(inconnu.includes('Exercice;2025\r\n'));
+	});
+
+	it('les montants suivent l’échelle de la devise (CDF : deux décimales)', () => {
+		const csv = csvBalance(
+			{
+				...entete,
+				format: 2,
+				regroupement: 'compte',
+				colonnes: ['solde_debiteur', 'solde_crediteur'],
+				lignes: [{ cle: '411', valeurs: ['1500.5', '0'] }],
+				totaux: ['1500.5', '0'],
+				equilibree: true
+			},
+			contexte(CDF)
+		);
+		assert.ok(csv.includes('411;1500,50;0,00\r\n'));
+	});
+
+	it('le centralisateur écrit les mois dans le locale du dossier', () => {
+		const rub = {
+			par_journal: [],
+			par_compte: [],
+			par_mois: [{ annee: 2026, mois: 3, journal: null, compte: null, debit: '1', credit: '1' }],
+			total_debit: '1',
+			total_credit: '1'
+		};
+		const vide = { ...rub, par_mois: [], total_debit: '0', total_credit: '0' };
+		const c = { ...entete, mouvements: rub, a_nouveaux: vide };
+		assert.ok(csvCentralisateur(c, contexte()).includes('mars 2026'));
+		assert.ok(csvCentralisateur(c, contexte(EN)).includes('March 2026'));
+	});
+});
+
+describe('options du CSV', () => {
+	it('valeurs par défaut déduites du locale du dossier', () => {
+		assert.deepEqual(optionsCsvParDefaut(FR), {
+			separateur: ';',
+			separateurDecimal: ',',
+			bom: true,
+			decimales: 0
+		});
+		assert.deepEqual(optionsCsvParDefaut(EN), {
+			separateur: ',',
+			separateurDecimal: '.',
+			bom: true,
+			decimales: 0
+		});
+		assert.equal(optionsCsvParDefaut(CDF).decimales, 2);
+		assert.equal(optionsCsvParDefaut(lireRegional({ langue: 'pt', pays: 'GW' })).separateur, ';');
+	});
+
+	it('séparateur, séparateur décimal et BOM sont réglables', () => {
+		const lignes = [['a', { montant: '1500.5' }]];
+		const virgule: OptionsCsv = {
+			separateur: ',',
+			separateurDecimal: '.',
+			bom: false,
+			decimales: 2
+		};
+		assert.equal(versCsv(lignes, virgule), 'a,1500.50\r\n');
+		assert.equal(versCsv(lignes, { ...virgule, separateur: '\t' }), 'a\t1500.50\r\n');
+		assert.equal(versCsv(lignes, { ...virgule, bom: true }), '\uFEFFa,1500.50\r\n');
+	});
+
+	it('un séparateur identique au décimal met le montant entre guillemets', () => {
+		const o: OptionsCsv = { separateur: ',', separateurDecimal: ',', bom: false, decimales: 2 };
+		assert.equal(versCsv([['a', { montant: '1.5' }]], o), 'a,"1,50"\r\n');
+	});
+
+	it('la neutralisation des formules est conservée avec toutes les options', () => {
+		for (const separateur of [';', ',', '\t'] as const) {
+			const o: OptionsCsv = { separateur, separateurDecimal: '.', bom: false, decimales: 0 };
+			assert.equal(versCsv([['=1+1', '+3', '-x', '@a', '\tz']], o).startsWith("'=1+1"), true);
+			assert.equal(formaterCellule('+3', o), "'+3");
+			assert.equal(formaterCellule('@a', o), "'@a");
+			assert.equal(formaterCellule('\rz', o), `"'\rz"`);
+			assert.equal(formaterCellule(`a${separateur}b`, o), `"a${separateur}b"`);
+		}
 	});
 });
