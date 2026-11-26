@@ -1,6 +1,6 @@
 # Fuzzing de `integrite`
 
-- Cible `export` : l'analyseur d'export de `sigma-verifier` (v1 à v4, jetons, écritures canoniques v2 et v3 avec étiquette fiscale compris) reçoit
+- Cible `export` : l'analyseur d'export de `sigma-verifier` (v1 à v5, jetons, écritures canoniques v2 à v4 avec étiquette fiscale et devise de tenue compris) reçoit
   des octets quelconques (menace F7.5 du modèle de menaces). Elle vérifie qu'aucune entrée ne
   provoque de panique et qu'une écriture acceptée est exactement sa forme canonique.
 - Cible `export_audit` : l'analyseur d'export d'audit (`docs/integrite/audit-v1.md`) et celui d'une
@@ -21,7 +21,7 @@ mkdir -p fuzz/corpus/jeton && cp tests/vecteurs/horodatage/*.ts[rt] fuzz/corpus/
 cargo +nightly fuzz run jeton -- -max_total_time=600
 ```
 
-Les semences `fuzz/seeds/ecriture/` sont des écritures canoniques v3 seules (étiquette fiscale, date de valeur comptable) : la cible `export` les lit aussi comme une écriture isolée.
+Les semences `fuzz/seeds/ecriture/` sont des écritures canoniques v3 et v4 seules (étiquette fiscale, date de valeur comptable, devise de tenue CDF avec une ligne en devise ; la commande `cp tests/vecteurs/export-v*.txt` copie aussi `export-v5-reference.txt`) : la cible `export` les lit aussi comme une écriture isolée.
 
 Le corpus et les plantages (`corpus/`, `artifacts/`) ne sont pas versionnés. Un plantage
 trouvé devient un test de non-régression dans `tests/`. L'exécution continue en CI relève du

@@ -8,6 +8,9 @@
 //! **indépendamment** du moteur (Python, `hashlib`) à partir de la documentation du format, puis
 //! comparé à ce que produit le moteur.
 //!
+//! Le vecteur se recalcule avec `tests/vecteurs/generer-export-v5.py` (Python, `hashlib` seul,
+//! écrit à partir de `docs/integrite/format-v5.md`).
+//!
 //! Les vecteurs v1 à v4 (dossier XOF) restent vérifiés par leurs propres tests : leurs
 //! empreintes n'ont pas changé.
 
@@ -105,4 +108,64 @@ fn echelle_et_contre_valeur_controlees_par_le_verificateur() {
             rapport.anomalies
         );
     }
+}
+
+/// Écritures (texte canonique, `fin\n` compris) d'un export, dans l'ordre.
+fn ecritures_de(export: &str) -> Vec<String> {
+    let mut sortie = Vec::new();
+    let mut courante = String::new();
+    for l in export.split_inclusive('\n') {
+        if l.starts_with("ecriture v") {
+            courante.clear();
+        }
+        if !courante.is_empty() || l.starts_with("ecriture v") {
+            courante.push_str(l);
+        }
+        if l == "fin\n" {
+            sortie.push(std::mem::take(&mut courante));
+        }
+    }
+    sortie
+}
+
+/// La devise de tenue est celle du dossier et ne change pas : un export qui mêle une écriture en
+/// CDF (v4) et une écriture en XOF (v1), pourtant chaîné sans défaut, est signalé.
+#[test]
+fn une_devise_de_tenue_qui_change_est_signalee() {
+    use integrite::{IdDossier, chainer, genese};
+    let cdf = ecritures_de(&texte());
+    let xof = ecritures_de(
+        &String::from_utf8(include_bytes!("vecteurs/export-v4-reference.txt").to_vec()).unwrap(),
+    );
+    // BQ1-2026-000001 : première écriture XOF du journal BQ1 (aucune contre-passation).
+    let bq1 = xof
+        .iter()
+        .find(|e| e.contains("numero=BQ1-2026-000001\n"))
+        .unwrap();
+    let dossier = IdDossier::parse("dossier-cdf").unwrap();
+    let mut export = format!("sigma-books export v5\ndossier={dossier}\n");
+    let mut tete = genese(&dossier);
+    for e in [&cdf[0], bq1] {
+        tete = chainer(&tete, e.as_bytes());
+        export.push_str(e);
+        export.push_str(&format!("empreinte={tete}\n"));
+    }
+    export.push_str(&format!("tete={tete}\nnombre=2\nfin-export\n"));
+    let rapport = verifier(export.as_bytes(), &Options::default()).unwrap();
+    assert!(!rapport.est_integre());
+    // Seule l'anomalie de devise : la chaîne, la numérotation et l'équilibre sont sains.
+    assert_eq!(rapport.anomalies.len(), 1, "{rapport}");
+    assert!(
+        matches!(
+            &rapport.anomalies[0],
+            Anomalie::TenueChangeante { attendue, trouvee, .. }
+                if attendue.code() == "CDF" && trouvee.code() == "XOF"
+        ),
+        "{rapport}"
+    );
+    assert!(
+        rapport
+            .to_string()
+            .contains("la devise de tenue d'un dossier ne change pas")
+    );
 }

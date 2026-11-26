@@ -64,6 +64,34 @@ fn export_v4_integre_puis_etiquette_retouchee() {
     assert!(sortie.contains("VT-2026-000003"), "{sortie}");
 }
 
+/// Export v5 (devise de tenue CDF) : intègre et ancré sur sa tête ; la devise de tenue retouchée
+/// est signalée (code 1), sans que le vérificateur ait besoin d'une table de devises.
+#[test]
+fn export_v5_integre_puis_devise_retouchee() {
+    let chemin =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vecteurs/export-v5-reference.txt");
+    let (code, sortie, _) = lancer(&[
+        "--dossier",
+        "dossier-cdf",
+        "--tete",
+        "3f4eb22f9321573164686b7ba8fb9afb7d5d065b43691662c6f4f666ce52756d",
+        chemin.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{sortie}");
+    assert!(sortie.contains("export v5"), "{sortie}");
+    assert!(sortie.contains("RÉSULTAT : INTÈGRE"), "{sortie}");
+    let retouche = std::fs::read_to_string(&chemin).unwrap().replacen(
+        "devise-tenue=CDF",
+        "devise-tenue=XAF",
+        1,
+    );
+    let copie = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("export-v5-retouche.txt");
+    std::fs::write(&copie, retouche).unwrap();
+    let (code, sortie, _) = lancer(&[copie.to_str().unwrap()]);
+    assert_eq!(code, 1, "{sortie}");
+    assert!(sortie.contains("VT-2026-000001"), "{sortie}");
+}
+
 #[test]
 fn export_altere_code_1() {
     let altere =

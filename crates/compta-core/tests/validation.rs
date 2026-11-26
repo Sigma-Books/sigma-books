@@ -840,6 +840,34 @@ fn ecriture_d_une_autre_devise_de_tenue_refusee() {
     assert!(matches!(
         refus.erreur(),
         ErreurValidation::DeviseTenueDifferente { ecriture, dossier }
-            if ecriture.code() == "XOF" && dossier.code() == "CDF"
+            if ecriture.devise().code() == "XOF" && dossier.devise().code() == "CDF"
     ));
+    // Même devise, autre échelle : refusée aussi, et le message dit l'échelle.
+    let (plan, journaux, exercices) = (d.plan.clone(), d.journaux.clone(), d.exercices.clone());
+    let autre_echelle =
+        compta_core::DeviseTenue::nouvelle(compta_core::Devise::parse("XOF").unwrap(), 2).unwrap();
+    let contexte = compta_core::Contexte {
+        plan: &plan,
+        journaux: &journaux,
+        exercices: &exercices,
+        tenue: autre_echelle,
+    };
+    let refus = d
+        .livre
+        .valider(
+            achat(),
+            &contexte,
+            &Compteur::nouveau(j("AC"), CodeExercice::parse("2026").unwrap()),
+            date!(2026 - 03 - 10),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        refus.erreur(),
+        ErreurValidation::DeviseTenueDifferente { .. }
+    ));
+    let message = refus.erreur().to_string();
+    assert!(
+        message.contains("0 décimale") && message.contains("2 décimale"),
+        "{message}"
+    );
 }

@@ -49,7 +49,7 @@ use crate::exercice::{
     echeance_de_cloture,
 };
 use crate::journal::{CodeJournal, Journal, Journaux};
-use crate::montant::{Devise, DeviseTenue};
+use crate::montant::DeviseTenue;
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 use crate::plan::{ErreurPlan, PlanComptes, Usage};
 use crate::texte::TexteCourt;
@@ -59,12 +59,15 @@ use crate::validation;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ErreurValidation {
     /// Écriture tenue dans une autre devise de tenue (ou une autre échelle) que le dossier.
-    #[error("l'écriture est tenue en {ecriture}, le dossier en {dossier}")]
+    #[error(
+        "l'écriture est tenue en {} ({} décimale(s)), le dossier en {} ({} décimale(s))",
+        ecriture.devise(), ecriture.decimales(), dossier.devise(), dossier.decimales()
+    )]
     DeviseTenueDifferente {
-        /// Devise de tenue de l'écriture.
-        ecriture: Devise,
-        /// Devise de tenue du dossier.
-        dossier: Devise,
+        /// Devise de tenue et échelle de l'écriture.
+        ecriture: DeviseTenue,
+        /// Devise de tenue et échelle du dossier.
+        dossier: DeviseTenue,
     },
     /// Journal absent du dossier.
     #[error("le journal {0} n'existe pas")]
@@ -767,8 +770,8 @@ pub(crate) fn controler(
     // Toute écriture d'un dossier est dans la devise de tenue (et l'échelle) du dossier.
     if *ecriture.tenue() != contexte.tenue {
         return Err(ErreurValidation::DeviseTenueDifferente {
-            ecriture: ecriture.tenue().devise(),
-            dossier: contexte.tenue.devise(),
+            ecriture: *ecriture.tenue(),
+            dossier: contexte.tenue,
         });
     }
     let code = ecriture.journal();
