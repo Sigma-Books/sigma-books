@@ -17,16 +17,16 @@ Identique à la v1 (`format-v1.md` §2) et à la v2 (`format-v3.md` §2), avec t
 |---|---|---|
 | `fiscal-nature=` | si la ligne est étiquetée | `base` ou `taxe` |
 | `fiscal-sens=` | avec `fiscal-nature=` | `collectee` ou `deductible` |
-| `fiscal-regime=` | avec `fiscal-nature=` | code du régime : 1 à 32 caractères `A-Z a-z 0-9 _ -`, le premier alphanumérique (`IMP18`, `EXO361`) |
+| `fiscal-regime=` | avec `fiscal-nature=` | code du régime : 1 à 32 caractères `A-Z a-z 0-9 _ -`, le premier alphanumérique (`IMP18`, `EXO361` dans les vecteurs publiés ; `TAXABLE_NORMAL`, `EXO_SANS_DEDUCTION` depuis l'ADR 0030) |
 | `fiscal-taux=` | si le régime comporte un taux | taux en pourcent, décimal exact : `18`, `10`, `5.5` |
 | `fiscal-exigibilite=` | si le régime en porte une | `debit` ou `encaissement` |
-| `fiscal-motif=` | ligne de **base** d'un régime exonéré | code du motif, même alphabet ; préfixé du code du régime et de `-` (`EXO361-4` pour `EXO361`) |
+| `fiscal-motif=` | ligne de **base** d'un régime exonéré | code du motif, même alphabet ; préfixé du code du régime et de `-` (`EXO361-4` pour `EXO361`, `EXO_SANS_DEDUCTION-4` pour `EXO_SANS_DEDUCTION`) |
 
 Les trois premières clés vont **ensemble** (tout ou rien) ; les trois suivantes sont facultatives. Une ligne sans étiquette n'a aucune de ces clés.
 
 **Taux** : chiffres seulement, au plus 3 chiffres avant le point et 6 après ; ni signe, ni exposant, ni zéro de tête, ni zéro final superflu (`18`, jamais `18.0` ni `018`) ; strictement positif et au plus 100.
 
-**Cohérence interne**, contrôlée par la lecture (et donc par `sigma-verifier`, qui ne connaît aucune liste de régimes) : un motif n'accompagne qu'une ligne de base (une opération exonérée n'a pas de ligne de taxe) et son code est préfixé de celui du régime. L'appartenance du régime et du motif aux listes fermées de `crates/fiscal-sn`, et les règles du régime (motif obligatoire pour un régime exonéré, taux admis, exigibilité), sont appliquées par le moteur à la saisie et à la validation ; l'écriture est ensuite figée par la chaîne.
+**Cohérence interne**, contrôlée par la lecture (et donc par `sigma-verifier`, qui ne connaît aucune liste de régimes) : un motif n'accompagne qu'une ligne de base (une opération exonérée n'a pas de ligne de taxe) et son code est préfixé de celui du régime. L'appartenance du régime et du motif aux listes fermées de `crates/fiscal` (socle et paquet du pays, version de paramètres du contenu haché `parametres=`, ADR 0030), et les règles du régime (motif obligatoire pour un régime exonéré, taux admis, exigibilité), sont appliquées par le moteur à la saisie et à la validation ; l'écriture est ensuite figée par la chaîne.
 
 ### Choix de la version
 La version est choisie par le **contenu** :
@@ -59,7 +59,7 @@ La chaîne de hachage (`format-v1.md` §3), les jetons (`format-v2.md` §3) et l
 Sigma Books écrit la version **la plus basse qui admet toutes les écritures** : v3 si aucune écriture n'est étiquetée (l'export reste identique à celui d'avant), v4 sinon. `sigma-verifier` lit les v1 à v4.
 
 ## 4. Vérification
-`sigma-verifier` contrôle l'intégrité (forme, chaîne, numérotation, équilibre, jetons) comme pour les versions précédentes, plus la forme et la cohérence interne des étiquettes (§2). Il ne contrôle **pas** les listes de `fiscal-sn` : il est autonome. Une étiquette retouchée change l'empreinte de l'écriture : l'altération est signalée.
+`sigma-verifier` contrôle l'intégrité (forme, chaîne, numérotation, équilibre, jetons) comme pour les versions précédentes, plus la forme et la cohérence interne des étiquettes (§2). Il ne contrôle **pas** les listes de `fiscal` : il est autonome. Une étiquette retouchée change l'empreinte de l'écriture : l'altération est signalée.
 
 ## 5. Vecteurs
 - `export-v4-reference.txt` : les 6 écritures du vecteur v3 (mêmes empreintes), puis quatre écritures v3 (vente taxée à 18 %, vente exonérée art. 361-4, contre-passation de la vente avec les mêmes étiquettes, achat à l'encaissement avec date de valeur comptable). Produit **indépendamment** du moteur (Python, `hashlib`) à partir de ce document, sans jeton d'horodatage (le conteneur est celui de la v2).

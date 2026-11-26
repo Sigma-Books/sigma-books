@@ -77,7 +77,7 @@ comptabilité, PR 13a) lie le brouillard aux pièces (`0300_pieces.sql`) ; elle 
 supérieur à celui de la voie dont elle dépend, hors de sa plage. Même cas pour
 `0351_ecriture_validee_pieces.sql` (PR 13b), qui lie les écritures validées (`0203_validation.sql`,
 dans la plage) aux pièces ; `0352_piece_liee_non_ecartee.sql` (déclencheur sur `piece`) en dépend aussi.
-`0206_dossier_contexte.sql` (ADR 0027) ajoute au dossier pays, devise de tenue, échelle, fuseau, langue, forme juridique (`UPDATE` accordé, pays et devise figés par déclencheur dès la première écriture ou le premier brouillon), la table des identifiants légaux (`dossier_identifiant_legal`, ajout seul), remplace `CHECK devise <> 'XOF'` des lignes par un déclencheur qui compare à `dossier.devise_tenue`, et admet le format canonique 4. `0204_contre_passation.sql` (PR 13c) ne dépend que de `0203` : contraintes d'une contre-passation (et, à l'origine, un index unique sur l'origine). `0205_contre_passations_multiples.sql` lève cette unicité (ADR 0021 point 4, révisé le 2026-11-25) : une écriture validée peut être contre-passée plusieurs fois ; l'index sur l'origine devient non unique.
+`0206_dossier_contexte.sql` (ADR 0027) ajoute au dossier pays, devise de tenue, échelle, fuseau, langue, forme juridique (`UPDATE` accordé, pays et devise figés par déclencheur dès la première écriture ou le premier brouillon), la table des identifiants légaux (`dossier_identifiant_legal`, ajout seul), remplace `CHECK devise <> 'XOF'` des lignes par un déclencheur qui compare à `dossier.devise_tenue`, et admet le format canonique 4. `0207_version_parametres_fiscaux.sql` (ADR 0030) ajoute `brouillon.version_parametres` et contrôle la forme de `ecriture_validee.version_parametres` (`sn-2025.1`, `sn-2025.1+d2`). `0204_contre_passation.sql` (PR 13c) ne dépend que de `0203` : contraintes d'une contre-passation (et, à l'origine, un index unique sur l'origine). `0205_contre_passations_multiples.sql` lève cette unicité (ADR 0021 point 4, révisé le 2026-11-25) : une écriture validée peut être contre-passée plusieurs fois ; l'index sur l'origine devient non unique.
 `0450_taches_courriel.sql` (PR 9b) ajoute la nature `courriel` à la table `tache` de `0400`, `0451_alertes.sql` (PR 9c) ses sujets d'alerte : numéros supérieurs à celui de la voie dont elles dépendent, hors de sa plage.
 
 `sqlx migrate` accepte des versions non contiguës et les applique dans l'ordre croissant sur une
@@ -673,3 +673,12 @@ une modification y est revue par toutes les voies.
 `Cargo.lock` se **régénère**, il ne se fusionne pas à la main : en cas de conflit, reprendre la
 version de `main` puis relancer `cargo build` (ou `cargo update -p <crate>` pour la seule
 dépendance ajoutée). De même, `.sqlx/` se régénère par `cargo sqlx prepare --workspace`.
+
+## Paramètres fiscaux par pays (ADR 0030)
+
+Code : `src/parametres_fiscaux.rs` (versions que voit un dossier, version enregistrée), crate `crates/fiscal` (socle, paquets de pays, registre ; `api` ne nomme aucun pays), migration `0207`.
+
+- **Registre** : `Application` porte `fiscal::Registre::officiel()` (validé au démarrage : le binaire refuse de démarrer s'il est invalide) ; `Requete::registre_fiscal()` le donne au cas d'usage ; les tests le substituent (`Application::remplacer_registre_fiscal`). Le pays vient du contexte du dossier (ADR 0027).
+- **Version choisie par la date comptable** de l'écriture : `ParametresDuDossier::applicable(date)`. La saisie contrôle les étiquettes contre elle (valides ce jour-là), le brouillon enregistre `version_parametres`, la validation (unitaire, lot) la recalcule, **recontrôle les étiquettes** (422 `etiquette_invalide`) et l'enregistre dans l'écriture (colonne et clé `parametres=` du contenu haché). La contre-passation reprend la version de son origine. Les relectures (éditions, contre-passation) utilisent la **version enregistrée**, sans égard aux dates de validité.
+- **Aucune version applicable** (date antérieure à la première version du pays, pays sans paquet) : l'écriture sans étiquette se valide, sans version ; une ligne étiquetée est refusée (422 `parametres_fiscaux_absents` à la saisie, `validation_parametres_fiscaux_absents` à la validation).
+- Les vues du brouillon et de l'écriture validée rendent `version_parametres` (absent si aucune).

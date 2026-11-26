@@ -881,6 +881,9 @@ struct VueEcriture {
     #[serde(skip_serializing_if = "Option::is_none")]
     date_valeur_comptable: Option<String>,
     libelle: String,
+    /// Version des paramètres fiscaux enregistrée par l'écriture (ADR 0030).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version_parametres: Option<String>,
     rang: i64,
     empreinte: String,
     empreinte_precedente: String,
@@ -905,6 +908,7 @@ fn vue_ecriture(e: &EcritureStockee) -> VueEcriture {
         date: interne::date(e.date),
         date_valeur_comptable: e.date_valeur_comptable.map(interne::date),
         libelle: e.libelle.clone(),
+        version_parametres: e.version_parametres.clone(),
         rang: e.rang,
         empreinte: e.empreinte.to_string(),
         empreinte_precedente: e.precedente.to_string(),

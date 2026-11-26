@@ -17,6 +17,7 @@ pub mod banc;
 pub mod brouillard;
 pub mod envoi;
 pub mod facteurs;
+pub mod paquets_de_test;
 pub mod pieces;
 pub mod referentiel;
 pub mod serveur;

@@ -368,6 +368,9 @@ struct VueBrouillon {
     #[serde(skip_serializing_if = "Option::is_none")]
     date_valeur_comptable: Option<String>,
     libelle: String,
+    /// Version des paramètres fiscaux appliquée à la dernière saisie (ADR 0030).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version_parametres: Option<String>,
     a_revoir: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     a_revoir_par: Option<String>,
@@ -388,6 +391,7 @@ fn vue(b: &BrouillonStocke) -> VueBrouillon {
         date: interne::date(b.contenu.date),
         date_valeur_comptable: b.contenu.date_valeur_comptable.map(interne::date),
         libelle: b.contenu.libelle.clone(),
+        version_parametres: b.contenu.version_parametres.clone(),
         a_revoir: b.a_revoir,
         a_revoir_par: b.a_revoir_par.map(|u| u.to_string()),
         version: b.version,
