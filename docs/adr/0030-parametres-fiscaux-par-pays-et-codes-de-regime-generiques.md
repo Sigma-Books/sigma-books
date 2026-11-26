@@ -93,9 +93,9 @@ Motifs : le format haché lit un motif **préfixé du code de son régime** (`<r
 - L'**interface** est traitée par un autre chantier ; les changements de contrat sont listés dans la PR d'implémentation : codes de régime et de motif (table du point 4), `version_parametres` dans les vues du brouillon et de l'écriture validée, codes 422 `etiquette_invalide`, `parametres_fiscaux_absents` (saisie) et `validation_parametres_fiscaux_absents` (validation).
 
 ### 8. Ce qui est livré, et dans quel ordre
-- **PR 2 (crate `fiscal`, API)** : socle, paquets de pays, registre, sélection par date, version enregistrée, validité dans le temps, codes génériques, rétention de la version (lue seulement par la PR 3), **point d'extension** pour les versions de dossier (`ParametresDuDossier::nouveau(.., propres)`, `Portee::Dossier`, vérification de continuité) et règle de non-changement du pays.
+- **PR 2 (crate `fiscal`, API)** : socle, paquets de pays, registre, sélection par date, version enregistrée, validité dans le temps, codes génériques, rétention de la version (lue seulement par la PR 3), **point d'extension** pour les versions de dossier (`ParametresDuDossier::nouveau(.., propres)`, `Portee::Dossier`, `Registre::verifier_version_de_dossier` : base, continuité, date d'effet libre), **table `parametres_fiscaux_dossier`** (ajout seul, RLS ; migration `0208`) et règle de non-changement du pays (409 `dossier_parametres_fiscaux_propres`, route de modification du contexte et déclencheur).
 - **PR 3** : rétention des pièces tirée du paquet.
-- **PR 4 (à venir)** : surcharge par dossier (table, route de création, route de lecture, action Cedar, ré-authentification, audit chaîné, contrôle de la date d'effet). Jusque-là, aucun dossier n'a de version propre.
+- **PR 4 (à venir)** : surcharge par dossier (lecture des versions propres aux points de contrôle, route de création, route de lecture, action Cedar, ré-authentification, audit chaîné, contrôle de la date d'effet). Jusque-là, aucun dossier n'a de version propre.
 
 ## Conséquences
 - Un dossier applique les paramètres de son pays, à la date de chaque écriture ; l'écriture les enregistre et les protège dans la chaîne.
