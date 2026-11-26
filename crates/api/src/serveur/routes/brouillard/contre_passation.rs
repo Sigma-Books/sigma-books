@@ -3,8 +3,8 @@
 //!
 //! # Ce qui est dans `compta-core`, ce qui est ici
 //! L'écriture miroir (sens inversés ; mêmes comptes, montants, devises, tiers, **justification**,
-//! **étiquette fiscale** copiée telle quelle par `Ligne::miroir`, version de paramètres), la date
-//! minimale (pas avant l'origine) et les contrôles de la validation
+//! **étiquette fiscale** copiée telle quelle par `Ligne::miroir`, version de paramètres) et les
+//! contrôles de la validation (la date n'est pas bornée par celle de l'origine)
 //! sont ceux de [`compta_core::contre_passer`]. `api` fournit les **faits** : l'origine relue
 //! (`reconstituer`), le compteur du journal pour l'exercice de la
 //! **nouvelle date**, la tête de chaîne.
@@ -106,9 +106,6 @@ async fn exiger_contre_passeur(tx: &mut TransactionTenant) -> Result<(), ErreurA
 /// Traduit un refus de `compta-core` propre à la contre-passation, ou le motif de validation.
 pub(super) fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -> ErreurApi {
     match e {
-        ErreurValidation::DateAnterieureAOrigine { .. } => {
-            refus(MotifValidation::DateAnterieureAOrigine, None)
-        }
         ErreurValidation::EcritureInconnue(_) => ErreurApi::Introuvable,
         autre => {
             let (motif, ligne) = motif_validation(autre, exercices);
@@ -123,7 +120,7 @@ pub(super) fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -
 /// [`compta_core::Livre::contre_passer`] (propriété des tests).
 ///
 /// # Errors
-/// 409 (période, exercice…), 422 (date avant l'origine, écriture invalide).
+/// 409 (période, exercice…), 422 (écriture invalide).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn decider_contre_passation(
     origine: &EcritureValidee,

@@ -367,14 +367,25 @@ fn contre_passation_liee_dans_les_deux_sens_et_repetable() {
     assert_eq!(d.livre.contre_passations(&origine), [cp, seconde]);
 }
 
+/// Une contre-passation peut être datée avant l'origine (Tryton `move.py:399-445`, Odoo
+/// `account_move_reversal.py:93-100` : aucune borne) ; elle prend le numéro suivant du journal.
 #[test]
-fn contre_passation_refusee_avant_l_origine_ou_inconnue() {
+fn contre_passation_acceptee_avant_l_origine() {
     let mut d = Dossier::nouveau();
     let origine = d.valider(achat()).unwrap();
-    assert!(matches!(
-        d.contre_passer(&origine, date!(2026 - 03 - 09)),
-        Err(ErreurValidation::DateAnterieureAOrigine { .. })
-    ));
+    let cp = d.contre_passer(&origine, date!(2026 - 03 - 09)).unwrap();
+    assert_eq!(cp.to_string(), "AC-2026-000002");
+    let validee = d.livre.ecriture(&cp).unwrap();
+    assert_eq!(validee.date(), date!(2026 - 03 - 09));
+    assert_eq!(validee.origine(), Some(&origine));
+    // Elle relit comme toute contre-passation (contrôles structurels de la reconstitution).
+    assert_eq!(d.livre.contre_passations(&origine), [cp]);
+}
+
+#[test]
+fn contre_passation_refusee_si_l_origine_est_inconnue() {
+    let mut d = Dossier::nouveau();
+    let origine = d.valider(achat()).unwrap();
     let inconnue: NumeroEcriture = "AC-2026-000099".parse().unwrap();
     assert_eq!(
         d.contre_passer(&inconnue, date!(2026 - 04 - 01)),

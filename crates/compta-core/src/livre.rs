@@ -28,6 +28,8 @@
 //!
 //! Comme Tryton (`account.move.post`, `cancel(reversal=True)`) : le numéro est attribué à la
 //! validation, la contre-passation inverse débit et crédit et garde le lien vers l'origine.
+//! La date d'une contre-passation n'est pas bornée par celle de l'origine (Tryton
+//! `move.py:399-445`, Odoo `account_move_reversal.py:93-100`).
 //! Écarté : l'annulation par montants négatifs de Tryton (`reversal=False`), contraire à
 //! l'invariant 2. L'AUDCIF (art. 20) parle d'« inscription en négatif des éléments erronés » :
 //! la forme de la correction est soumise à l'expert-comptable (spec §26).
@@ -173,14 +175,6 @@ pub enum ErreurValidation {
         date: Date,
         /// Date attendue (absente si aucune période ne convient).
         attendue: Option<Date>,
-    },
-    /// Contre-passation datée avant l'écriture d'origine.
-    #[error("la contre-passation ({date}) ne peut précéder l'écriture d'origine ({origine})")]
-    DateAnterieureAOrigine {
-        /// Date demandée.
-        date: Date,
-        /// Date de l'écriture d'origine.
-        origine: Date,
     },
 }
 
@@ -567,8 +561,8 @@ impl Livre {
     /// Délègue à [`crate::validation::contre_passer`], avec l'écriture d'origine tirée du livre.
     ///
     /// # Errors
-    /// Écriture inconnue, date antérieure à l'origine, ou invariant non
-    /// respecté à la date choisie. Le livre n'est pas modifié.
+    /// Écriture inconnue, ou invariant non respecté à la date choisie (qui peut précéder la
+    /// date de l'origine). Le livre n'est pas modifié.
     pub fn contre_passer(
         &mut self,
         origine: &NumeroEcriture,

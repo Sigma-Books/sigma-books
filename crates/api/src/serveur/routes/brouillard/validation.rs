@@ -1436,18 +1436,28 @@ mod tests {
                 .ends_with("-000003")
         );
         assert_eq!(seconde.validation.ecriture().origine(), Some(&numero));
-        // Une date antérieure à l'origine : refus stable.
+        // Une date antérieure à l'origine est acceptée (aucun moteur ne l'interdit) : même
+        // numérotation, même origine.
         let avant = decider_contre_passation(
             &origine,
             date!(2026 - 03 - 01),
             libelle,
             &contexte,
-            1,
+            3,
             &tete,
             date!(2026 - 03 - 20),
         )
-        .unwrap_err();
-        assert_eq!(avant, refus(MotifValidation::DateAnterieureAOrigine, None));
+        .unwrap();
+        assert!(
+            avant
+                .validation
+                .ecriture()
+                .numero()
+                .to_string()
+                .ends_with("-000004")
+        );
+        assert_eq!(avant.validation.ecriture().origine(), Some(&numero));
+        assert_eq!(avant.validation.ecriture().date(), date!(2026 - 03 - 01));
     }
 
     proptest! {

@@ -138,8 +138,8 @@ pub fn valider(
 /// ne peut pas vérifier qu'elle est à jour.
 ///
 /// # Errors
-/// Date antérieure à l'origine, invariant non respecté à la date
-/// choisie, compteur inadapté.
+/// Invariant non respecté à la date choisie (qui peut précéder celle de l'origine : aucun moteur
+/// ne l'interdit), compteur inadapté.
 pub fn contre_passer(
     origine: &EcritureValidee,
     date: Date,
@@ -165,18 +165,14 @@ pub fn contre_passer(
     })
 }
 
-/// Écriture miroir de `origine`, après les contrôles propres à la contre-passation.
+/// Écriture miroir de `origine`. La date n'est pas bornée par celle de l'origine : Tryton
+/// (`move.py:399-445`, `_cancel_default`) et Odoo (`account_move_reversal.py:17` et `93-100`,
+/// date de contre-passation libre) ne le font pas.
 pub(crate) fn miroir(
     origine: &EcritureValidee,
     date: Date,
     libelle: TexteCourt,
 ) -> Result<EcritureEquilibree, ErreurValidation> {
-    if date < origine.date() {
-        return Err(ErreurValidation::DateAnterieureAOrigine {
-            date,
-            origine: origine.date(),
-        });
-    }
     let mut miroir = EcritureBrouillon::nouvelle(origine.journal().clone(), date, libelle);
     for ligne in origine.lignes() {
         miroir.ajouter_ligne(ligne.miroir());

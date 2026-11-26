@@ -314,13 +314,11 @@ pub enum MotifValidation {
     EcritureInvalide,
     /// Contenu qui ne se relit pas à l'identique du format canonique.
     NonRepresentable,
-    /// Contre-passation datée avant l'écriture d'origine.
-    DateAnterieureAOrigine,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 26] = [
+    pub const TOUS: [Self; 25] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -346,7 +344,6 @@ impl MotifValidation {
         Self::MontantEchelleExcessive,
         Self::EcritureInvalide,
         Self::NonRepresentable,
-        Self::DateAnterieureAOrigine,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -395,7 +392,6 @@ impl MotifValidation {
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
-            Self::DateAnterieureAOrigine => "date_anterieure_a_l_origine",
         }
     }
 }

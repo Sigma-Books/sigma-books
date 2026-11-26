@@ -207,21 +207,19 @@ fn contre_passer_a_partir_de_l_origine_fournie() {
     .decomposer();
     assert_eq!(seconde.numero().to_string(), "AC-2026-000003");
     assert_eq!(seconde.origine(), Some(origine.numero()));
-    // Datée avant l'origine.
-    assert_eq!(
-        contre_passer(
-            &origine,
-            date!(2026 - 03 - 09),
-            t("Trop tôt"),
-            &d.contexte(),
-            &suivant,
-            date!(2026 - 04 - 03),
-        ),
-        Err(ErreurValidation::DateAnterieureAOrigine {
-            date: date!(2026 - 03 - 09),
-            origine: date!(2026 - 03 - 10),
-        })
-    );
+    // Datée avant l'origine : acceptée (aucun moteur ne l'interdit).
+    let (avant, _) = contre_passer(
+        &origine,
+        date!(2026 - 03 - 09),
+        t("Avant l'origine"),
+        &d.contexte(),
+        &suivant,
+        date!(2026 - 04 - 03),
+    )
+    .unwrap()
+    .decomposer();
+    assert_eq!(avant.date(), date!(2026 - 03 - 09));
+    assert_eq!(avant.origine(), Some(origine.numero()));
     // Compteur de l'exercice suivant pour une contre-passation de l'exercice en cours.
     assert!(matches!(
         contre_passer(

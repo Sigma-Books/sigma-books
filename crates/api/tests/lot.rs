@@ -480,7 +480,7 @@ async fn contre_passation_refus() {
         .await;
         assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{corps}");
     }
-    // Date antérieure à l'origine : 422 ; date hors de tout exercice : 422.
+    // Date hors de tout exercice : 422 (une date antérieure à l'origine, elle, est acceptée).
     let r = b
         .contre_passer_le(b.valideur, id, "2000-01-01", "Motif")
         .await;
