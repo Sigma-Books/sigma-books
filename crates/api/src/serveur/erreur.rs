@@ -190,6 +190,9 @@ pub enum MotifConflit {
     DossierDejaEcritures,
     /// Le dossier a un brouillon : changer le pays ou la devise réinterpréterait ses montants.
     DossierBrouillardNonVide,
+    /// Le dossier a des versions de paramètres fiscaux propres (table en ajout seul) : son pays
+    /// ne change plus (ADR 0030).
+    DossierParametresFiscauxPropres,
     /// La devise de tenue du dossier a changé pendant l'attente du verrou : réessayer.
     ContexteDossierModifie,
     /// Brouillon saisi sous une autre devise de tenue ou une autre échelle que celles du dossier.
@@ -198,7 +201,7 @@ pub enum MotifConflit {
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 33] = [
+    pub const TOUS: [Self; 34] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -230,6 +233,7 @@ impl MotifConflit {
         Self::MembreDUnAutreCabinet,
         Self::DossierDejaEcritures,
         Self::DossierBrouillardNonVide,
+        Self::DossierParametresFiscauxPropres,
         Self::ContexteDossierModifie,
         Self::BrouillonDeviseTenuePerimee,
     ];
@@ -268,6 +272,7 @@ impl MotifConflit {
             Self::CompteExistant => "compte_existant",
             Self::MembreDUnAutreCabinet => "membre_d_un_autre_cabinet",
             Self::DossierDejaEcritures => "dossier_deja_ecritures",
+            Self::DossierParametresFiscauxPropres => "dossier_parametres_fiscaux_propres",
             Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
             Self::ContexteDossierModifie => "contexte_dossier_modifie",
             Self::BrouillonDeviseTenuePerimee => "brouillon_devise_tenue_perimee",
@@ -326,6 +331,12 @@ pub enum MotifValidation {
     MontantEchelleExcessive,
     /// Montant de ligne qui a plus de décimales que l'échelle de la devise de tenue du dossier.
     MontantEchelleTenue,
+    /// Étiquette fiscale refusée par la version des paramètres fiscaux de la date comptable
+    /// (régime, motif ou taux que cette version ne connaît pas ou que sa validité exclut).
+    EtiquetteInvalide,
+    /// Ligne étiquetée alors qu'aucune version des paramètres fiscaux du pays ne s'applique à la
+    /// date comptable (ADR 0030).
+    ParametresFiscauxAbsents,
     /// Autre invalidité de l'écriture (montant, texte).
     EcritureInvalide,
     /// Contenu qui ne se relit pas à l'identique du format canonique.
@@ -342,7 +353,7 @@ pub enum MotifValidation {
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 29] = [
+    pub const TOUS: [Self; 31] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -366,6 +377,8 @@ impl MotifValidation {
         Self::DateValeurNonAnterieure,
         Self::MontantEchelleExcessive,
         Self::MontantEchelleTenue,
+        Self::EtiquetteInvalide,
+        Self::ParametresFiscauxAbsents,
         Self::EcritureInvalide,
         Self::NonRepresentable,
         Self::PaysInconnu,
@@ -418,6 +431,8 @@ impl MotifValidation {
             Self::DateValeurNonAnterieure => "validation_date_valeur_non_anterieure",
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
             Self::MontantEchelleTenue => "validation_montant_echelle_devise_tenue",
+            Self::EtiquetteInvalide => "etiquette_invalide",
+            Self::ParametresFiscauxAbsents => "validation_parametres_fiscaux_absents",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
             Self::PaysInconnu => "pays_inconnu",

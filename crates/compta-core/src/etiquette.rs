@@ -6,7 +6,7 @@
 //! dans le contenu haché de l'écriture : elle ne peut plus changer une fois l'écriture validée.
 //!
 //! **Pureté.** `compta-core` ne connaît aucun régime ni aucun motif : ce sont des paramètres
-//! fiscaux, qui vivent dans `fiscal-sn` (CLAUDE.md, règle 9). Le constructeur
+//! fiscaux, qui vivent dans `fiscal` (CLAUDE.md, règle 9). Le constructeur
 //! [`EtiquetteFiscale::nouvelle`] reçoit donc un [`ReferentielFiscal`] (un trait) qui décrit le
 //! régime demandé ([`ProfilRegime`]) et confirme l'appartenance du motif. Les valeurs stockées
 //! sont des codes opaques, **stables** : ni lien vers une configuration modifiable, ni taux
@@ -21,7 +21,7 @@
 //!
 //! Règles de cohérence interne : une opération exonérée n'a pas de ligne de taxe, donc un motif
 //! n'accompagne qu'une ligne de **base** ; le code d'un motif est préfixé par le code de son
-//! régime suivi de `-` (`EXO361-7` pour le régime `EXO361`) ; un taux est un décimal exact,
+//! régime suivi de `-` (`EXO_SANS_DEDUCTION-7` pour le régime `EXO_SANS_DEDUCTION`) ; un taux est un décimal exact,
 //! strictement positif et au plus 100, sans zéro superflu.
 
 use std::fmt;
@@ -190,7 +190,7 @@ fn code_bien_forme(texte: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-')
 }
 
-/// Code d'un régime de TVA (liste fermée de `fiscal-sn`), par exemple `IMP18`.
+/// Code d'un régime de TVA (liste fermée du socle de `fiscal`), par exemple `TAXABLE_NORMAL`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CodeRegime(String);
 
@@ -220,7 +220,7 @@ impl fmt::Display for CodeRegime {
     }
 }
 
-/// Code d'un motif d'exonération (liste fermée de `fiscal-sn`), par exemple `EXO361-7`.
+/// Code d'un motif d'exonération (liste fermée du socle de `fiscal`), par exemple `EXO_SANS_DEDUCTION-7`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CodeMotif(String);
 
@@ -344,7 +344,7 @@ impl ProfilRegime {
 }
 
 /// Paramètres fiscaux dont `compta-core` a besoin pour contrôler une étiquette. Implémenté par
-/// `fiscal-sn` ; `compta-core` n'en connaît aucune valeur.
+/// `fiscal` ; `compta-core` n'en connaît aucune valeur.
 pub trait ReferentielFiscal {
     /// Profil du régime, `None` s'il est absent de la liste fermée.
     fn profil_regime(&self, code: &CodeRegime) -> Option<ProfilRegime>;
@@ -509,7 +509,7 @@ fn controle_interne(
 }
 
 /// Étiquette **relue** d'un contenu déjà validé et haché (export, vérificateur autonome) : seule
-/// la cohérence interne est contrôlée, pas l'appartenance aux listes de `fiscal-sn`.
+/// la cohérence interne est contrôlée, pas l'appartenance aux listes de `fiscal`.
 ///
 /// Ce type ne peut pas être posé sur une [`Ligne`] : il ne sert qu'à lire et à écrire le format
 /// canonique. Impossible de s'en servir pour fabriquer une écriture validable :
@@ -845,7 +845,12 @@ mod tests {
 
     #[test]
     fn codes() {
-        for ok in ["IMP18", "EXO361-7", "EXO380-a", "A"] {
+        for ok in [
+            "TAXABLE_NORMAL",
+            "EXO_SANS_DEDUCTION-7",
+            "EXO_AVEC_DEDUCTION-a",
+            "A",
+        ] {
             assert!(CodeRegime::parse(ok).is_ok(), "{ok}");
         }
         for ko in ["", "-A", "_A", "A B", "é", "A=B", &"A".repeat(33), "A\n"] {
@@ -855,7 +860,7 @@ mod tests {
 
     #[test]
     fn relire_controle_la_forme_seulement() {
-        let r = || regime("EXO361");
+        let r = || regime("EXO_SANS_DEDUCTION");
         assert!(
             EtiquetteRelue::nouvelle(
                 NatureEtiquette::Base,
@@ -863,11 +868,16 @@ mod tests {
                 r(),
                 None,
                 None,
-                Some(motif("EXO361-7"))
+                Some(motif("EXO_SANS_DEDUCTION-7"))
             )
             .is_ok()
         );
-        for m in ["EXO361", "EXO361-", "EXO380-a", "EXO3617"] {
+        for m in [
+            "EXO_SANS_DEDUCTION",
+            "EXO_SANS_DEDUCTION-",
+            "EXO_AVEC_DEDUCTION-a",
+            "EXO_SANS_DEDUCTION7",
+        ] {
             assert!(
                 EtiquetteRelue::nouvelle(
                     NatureEtiquette::Base,

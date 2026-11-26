@@ -10,8 +10,9 @@ use compta_core::{
     CodeExercice, CodeJournal, CodeMotif, CodeRegime, CompteReference, Compteur, Contexte, Cours,
     Devise, DeviseTenue, EcritureBrouillon, EcritureValidee, EtiquetteFiscale, Exercices,
     Exigibilite, FinPremierExercice, IdTiers, Journal, Journaux, Justification, Ligne, Livre,
-    Montant, NatureEtiquette, NumeroCompte, NumeroEcriture, PlanComptes, ReferencePiece, Sens,
-    SensNormal, SensTva, TauxTva, TexteCourt, TypeJournal, VersionParametres,
+    Montant, NatureEtiquette, NumeroCompte, NumeroEcriture, PlanComptes, ProfilRegime,
+    ReferencePiece, ReferentielFiscal, Sens, SensNormal, SensTva, TauxTva, TexteCourt, TypeJournal,
+    VersionParametres,
 };
 use integrite::IdDossier;
 use time::Date;
@@ -340,7 +341,38 @@ pub fn dossier_de_reference() -> Dossier {
     d
 }
 
-/// Étiquette fiscale contrôlée par les données de `fiscal-sn` (régime, taux, exigibilité, motif).
+/// Référentiel fiscal **de test** : il admet les codes des vecteurs publiés (écriture v3, export v4
+/// et v5 : `IMP18`, `IMP_ENC`, `EXO361`, `EXO361-n`), qui datent d'avant les codes génériques de l'ADR 0030.
+/// Les vecteurs publiés ne changent pas (ADR 0030 point 6) et `integrite` ne dépend d'aucune crate
+/// de paramètres fiscaux : le vérificateur n'a pas de liste de codes.
+struct ReferentielDesVecteurs;
+
+impl ReferentielFiscal for ReferentielDesVecteurs {
+    fn profil_regime(&self, code: &CodeRegime) -> Option<ProfilRegime> {
+        match code.as_str() {
+            "IMP18" => Some(ProfilRegime::nouveau(
+                false,
+                true,
+                vec![TauxTva::parse("18").unwrap()],
+                vec![Exigibilite::Debit, Exigibilite::Encaissement],
+            )),
+            "IMP_ENC" => Some(ProfilRegime::nouveau(
+                false,
+                true,
+                vec![TauxTva::parse("18").unwrap(), TauxTva::parse("10").unwrap()],
+                vec![Exigibilite::Encaissement],
+            )),
+            "EXO361" => Some(ProfilRegime::nouveau(true, false, vec![], vec![])),
+            _ => None,
+        }
+    }
+
+    fn motif_admis(&self, regime: &CodeRegime, motif: &CodeMotif) -> bool {
+        regime.as_str() == "EXO361" && motif.as_str().starts_with("EXO361-")
+    }
+}
+
+/// Étiquette fiscale contrôlée par le référentiel des vecteurs (régime, taux, exigibilité, motif).
 pub fn etiquette(
     nature: NatureEtiquette,
     sens: SensTva,
@@ -356,7 +388,7 @@ pub fn etiquette(
         taux.map(|t| TauxTva::parse(t).unwrap()),
         exigibilite,
         motif.map(|m| CodeMotif::parse(m).unwrap()),
-        &fiscal_sn::ReferentielTva::charger().unwrap(),
+        &ReferentielDesVecteurs,
     )
     .unwrap()
 }

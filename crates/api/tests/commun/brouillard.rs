@@ -95,6 +95,7 @@ pub async fn doter(
         ],
         devise_tenue: "XOF".to_owned(),
         decimales_tenue: 0,
+        version_parametres: None,
     };
     let id = Uuid::new_v4();
     creer(&mut tx, id, &contenu, time::OffsetDateTime::now_utc())

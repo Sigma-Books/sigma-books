@@ -172,6 +172,15 @@ pub struct Application {
     //
     // Voie pièces (PR 12) : stockage objet des pièces ([`Application::brancher_pieces`]).
     pieces: OnceLock<Pieces>,
+    /// Paramètres fiscaux par pays (ADR 0030) : le registre officiel, chargé et validé à la
+    /// construction. Une erreur n'est pas avalée : elle est conservée
+    /// ([`Application::erreur_registre_fiscal`]) et chaque requête qui en a besoin répond 500 ;
+    /// le binaire charge le même registre avant de démarrer et **refuse de démarrer** s'il est
+    /// invalide (`main.rs`), de sorte que ce cas n'arrive pas en service.
+    fiscal_officiel: Result<fiscal::Registre, fiscal::ErreurFiscale>,
+    /// Registre substitué (tests : paquet d'un autre pays).
+    #[cfg(any(test, feature = "tests-postgres"))]
+    fiscal_remplace: OnceLock<fiscal::Registre>,
 }
 
 /// Connexions du pool des lectures à instantané unique ([`Application::pool_lectures`]).
@@ -235,7 +244,39 @@ impl Application {
             facteurs: facteurs::EtatFacteurs::new(&reglages.facteurs, &reglages.origine),
             reglages,
             pieces: OnceLock::new(),
+            fiscal_officiel: fiscal::Registre::officiel(),
+            #[cfg(any(test, feature = "tests-postgres"))]
+            fiscal_remplace: OnceLock::new(),
         })
+    }
+
+    /// Substitue le registre des paramètres fiscaux, une seule fois, avant de servir. **Réservé
+    /// aux tests** (paquet d'un autre pays) : absent d'un binaire de production.
+    ///
+    /// # Errors
+    /// Le registre rendu s'il était déjà substitué.
+    #[cfg(any(test, feature = "tests-postgres"))]
+    pub fn remplacer_registre_fiscal(
+        &self,
+        registre: fiscal::Registre,
+    ) -> Result<(), fiscal::Registre> {
+        self.fiscal_remplace.set(registre)
+    }
+
+    /// Registre des paramètres fiscaux par pays.
+    #[must_use]
+    pub fn registre_fiscal(&self) -> Option<&fiscal::Registre> {
+        #[cfg(any(test, feature = "tests-postgres"))]
+        if let Some(r) = self.fiscal_remplace.get() {
+            return Some(r);
+        }
+        self.fiscal_officiel.as_ref().ok()
+    }
+
+    /// Erreur de chargement du registre officiel, s'il est invalide.
+    #[must_use]
+    pub fn erreur_registre_fiscal(&self) -> Option<&fiscal::ErreurFiscale> {
+        self.fiscal_officiel.as_ref().err()
     }
 
     /// Branche le service des pièces (ADR 0015), une seule fois, avant de servir. Sans lui,

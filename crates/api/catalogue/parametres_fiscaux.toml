@@ -1,0 +1,10 @@
+# Catalogue « paramètres fiscaux du dossier » (ADR 0030 ; migration `0208`) : exceptions du test
+# de catalogue (crates/api/tests/catalogue.rs). Table de dossier à la règle commune (RLS forcée,
+# politique « cabinet ET dossier du contexte »).
+
+[[ajout_seul]]
+nom = "parametres_fiscaux_dossier"
+justification = """
+Version de paramètres fiscaux propre à un dossier (ADR 0030) : une surcharge est une NOUVELLE \
+version datée, jamais une modification ; une écriture validée en cite l'identifiant dans son \
+contenu haché. Ni UPDATE ni DELETE pour le rôle applicatif."""

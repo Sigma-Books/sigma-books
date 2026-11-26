@@ -17,6 +17,7 @@ pub mod banc;
 pub mod brouillard;
 pub mod envoi;
 pub mod facteurs;
+pub mod paquets_de_test;
 pub mod pieces;
 pub mod referentiel;
 pub mod serveur;
@@ -283,6 +284,17 @@ pub fn contexte_dossier_sn() -> api::contexte_dossier::ContexteDossier {
         langue: "fr".to_owned(),
         forme_juridique: None,
     }
+}
+
+/// Registre officiel des paramètres fiscaux, chargé une fois pour les tests.
+pub fn registre_fiscal() -> &'static fiscal::Registre {
+    static R: std::sync::OnceLock<fiscal::Registre> = std::sync::OnceLock::new();
+    R.get_or_init(|| fiscal::Registre::officiel().unwrap())
+}
+
+/// Versions des paramètres fiscaux d'un dossier du Sénégal, pour relire des écritures.
+pub fn fiscal_sn() -> api::parametres_fiscaux::ParametresDuDossier<'static> {
+    api::parametres_fiscaux::ParametresDuDossier::nouveau(registre_fiscal(), "SN", &[])
 }
 
 /// Devise de tenue XOF (sans décimale), pour relire des écritures d'un dossier de test.

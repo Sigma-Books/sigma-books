@@ -83,8 +83,9 @@ async fn demarrer() -> Result<(), String> {
     // Référentiel officiel copié dans chaque nouveau dossier (voie comptabilité, PR 11) :
     // invalide, le serveur ne démarre pas.
     api::base::referentiel::Modele::officiel().map_err(|e| e.to_string())?;
-    // Régimes et motifs de TVA de `fiscal-sn` (étiquette fiscale du brouillard, PR 13a).
-    api::serveur::routes::brouillard::referentiel_tva().map_err(|e| e.to_string())?;
+    // Socle et paquets de pays des paramètres fiscaux (ADR 0030) : invalides, le serveur ne
+    // démarre pas.
+    fiscal::Registre::officiel().map_err(|e| e.to_string())?;
     // Le message d'une erreur de connexion ne cite pas l'URL (ni son mot de passe).
     let pool = ouvrir_pool_application(&config.base.url_application, ReglagesPool::default())
         .await

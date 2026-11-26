@@ -22,7 +22,6 @@ use commun::banc::{Banc, aujourd, banc, banc_avec, banque, caisse, code, contenu
 use api::base::referentiel::{EtatReferentiel, Modele, muter};
 use api::base::validation as base;
 use api::base::{ContexteTenant, ouvrir_transaction};
-use api::serveur::routes::brouillard::referentiel_tva;
 use api::serveur::routes::brouillard::validation::reconstituer;
 use axum::http::StatusCode;
 use commun::ajouter_affecte;
@@ -239,7 +238,7 @@ async fn echelle_excessive_refusee() {
 async fn etiquette_fiscale_en_format_v3() {
     let b = banc().await;
     let etiquetee = format!(
-        r#"{{"compte":"{}","sens":"debit","montant":"1000","etiquette":{{"nature":"base","sens":"collectee","regime":"IMP18","taux":"18","exigibilite":"debit"}}}}"#,
+        r#"{{"compte":"{}","sens":"debit","montant":"1000","etiquette":{{"nature":"base","sens":"collectee","regime":"TAXABLE_NORMAL","taux":"18","exigibilite":"debit"}}}}"#,
         caisse()
     );
     let (id, v) = b
@@ -255,7 +254,7 @@ async fn etiquette_fiscale_en_format_v3() {
     assert_eq!(r.json()["format"], 3);
     let chaine = b.chaine().await;
     assert!(chaine[0].2.starts_with("ecriture v3\n"));
-    assert!(chaine[0].2.contains("fiscal-regime=IMP18\n"));
+    assert!(chaine[0].2.contains("fiscal-regime=TAXABLE_NORMAL\n"));
     assert!(chaine[0].2.contains("fiscal-taux=18\n"));
     // Sans étiquette : format v1 (le v2 d'une écriture à date de valeur est dans la parité).
     let (id, v, _) = b.pret("Sans étiquette").await;
@@ -1061,7 +1060,7 @@ async fn relues(b: &Banc) -> Vec<(base::EcritureStockee, compta_core::EcritureVa
     let mut rendues = Vec::new();
     for id in ids {
         let e = base::lire(&mut tx, id).await.unwrap().unwrap();
-        let v = reconstituer(&e, referentiel_tva().unwrap(), &commun::tenue_xof()).unwrap();
+        let v = reconstituer(&e, &commun::fiscal_sn(), &commun::tenue_xof()).unwrap();
         rendues.push((e, v));
     }
     tx.annuler().await.unwrap();
@@ -1077,7 +1076,7 @@ async fn la_chaine_de_la_base_est_celle_de_l_export() {
     }
     // Une écriture à étiquette fiscale (export v4).
     let etiquetee = format!(
-        r#"{{"compte":"{}","sens":"debit","montant":"500","etiquette":{{"nature":"base","sens":"collectee","regime":"IMP18","taux":"18","exigibilite":"debit"}}}}"#,
+        r#"{{"compte":"{}","sens":"debit","montant":"500","etiquette":{{"nature":"base","sens":"collectee","regime":"TAXABLE_NORMAL","taux":"18","exigibilite":"debit"}}}}"#,
         caisse()
     );
     let (id, v) = b

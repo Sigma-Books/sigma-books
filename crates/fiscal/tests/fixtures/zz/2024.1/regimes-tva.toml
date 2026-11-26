@@ -1,0 +1,35 @@
+[[regime]]
+code = "TAXABLE_NORMAL"
+libelle = "Taxable (factice)"
+article = "F10"
+pages = [5]
+deduction = "oui"
+exigibilite = "delai_apres_evenement"
+source_deduction = "FACTICE"
+source_exigibilite = "FACTICE"
+source_ligne_taxe = "FACTICE"
+a_valider = false
+
+[[regime]]
+code = "EXO_SANS_DEDUCTION"
+libelle = "Exonéré (factice)"
+article = "F20"
+pages = [6]
+deduction = "non"
+exigibilite = "sans_objet"
+source_deduction = "FACTICE"
+source_exigibilite = "FACTICE"
+source_ligne_taxe = "FACTICE"
+a_valider = false
+
+[[regime]]
+code = "HORS_CHAMP"
+libelle = "Hors champ (factice)"
+article = "F30"
+pages = [7]
+deduction = "sans_objet"
+exigibilite = "sans_objet"
+source_deduction = "FACTICE"
+source_exigibilite = "FACTICE"
+source_ligne_taxe = "FACTICE"
+a_valider = false

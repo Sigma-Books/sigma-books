@@ -35,6 +35,15 @@ pub struct Banc {
 }
 
 pub async fn banc_avec(horloge: Option<&HorlogeTest>) -> Banc {
+    banc_complet(horloge, None).await
+}
+
+/// Banc dont le registre des paramètres fiscaux est substitué (paquet d'un autre pays).
+pub async fn banc_avec_registre(registre: fiscal::Registre) -> Banc {
+    banc_complet(None, Some(registre)).await
+}
+
+async fn banc_complet(horloge: Option<&HorlogeTest>, registre: Option<fiscal::Registre>) -> Banc {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
     let f = doter(&env.application, c.cabinet, c.dossier, c.administrateur).await;
@@ -57,6 +66,9 @@ pub async fn banc_avec(horloge: Option<&HorlogeTest>) -> Banc {
             etat
         }
     };
+    if let Some(r) = registre {
+        assert!(etat.remplacer_registre_fiscal(r).is_ok());
+    }
     Banc {
         routeur: routeur(&etat),
         env,

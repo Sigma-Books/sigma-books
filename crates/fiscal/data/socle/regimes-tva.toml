@@ -1,0 +1,121 @@
+# Socle des régimes de TVA : liste FERMÉE et STABLE des codes génériques de l'étiquette fiscale
+# d'une ligne d'écriture, communs à tous les pays (ADR 0019 et 0030). Ces codes entrent dans le
+# contenu haché des écritures : on en ajoute, on n'en retire ni n'en renomme jamais (un test fige
+# la liste). Le taux n'est jamais dans un code : un régime taxable cite des RÔLES de taux
+# (`normal`, `reduit`), dont chaque version de paramètres d'un pays donne la valeur.
+#
+# Ce fichier fixe ce que `compta-core` suppose d'un code, quel que soit le pays :
+# - exonere : opération exonérée (un motif est alors obligatoire, interdit sinon) ;
+# - ligne_taxe : le régime comporte une ligne de TVA dans l'écriture (sinon seule la base est
+#   étiquetée) ;
+# - roles_taux : rôles de taux admis (vide : l'étiquette n'a pas de taux) ;
+# - exigibilites_etiquette : valeurs d'exigibilité que porte l'étiquette (`debit`,
+#   `encaissement`) ; vide : l'étiquette n'en porte pas.
+# Une version de paramètres peut n'offrir qu'une partie de ces régimes ; elle ne peut ni en créer
+# ni changer leur nature. Un régime propre à un pays que ce socle ne couvre pas s'ajoute ICI.
+#
+# Fait générateur, pages et articles sont des faits du pays : ils sont dans le paquet du pays.
+
+[[regime]]
+code = "TAXABLE_NORMAL"
+nature = "Opération imposable au taux normal"
+exonere = false
+ligne_taxe = true
+roles_taux = ["normal"]
+exigibilites_etiquette = ["debit", "encaissement"]
+
+[[regime]]
+code = "TAXABLE_REDUIT"
+nature = "Opération imposable au taux réduit"
+exonere = false
+ligne_taxe = true
+roles_taux = ["reduit"]
+exigibilites_etiquette = ["debit", "encaissement"]
+
+[[regime]]
+code = "TAXABLE_ENCAISSEMENT"
+nature = "Opération imposable dont le fait générateur est l'encaissement"
+exonere = false
+ligne_taxe = true
+roles_taux = ["normal", "reduit"]
+exigibilites_etiquette = ["encaissement"]
+
+[[regime]]
+code = "EXO_SANS_DEDUCTION"
+nature = "Opération exonérée sans droit à déduction"
+exonere = true
+ligne_taxe = false
+roles_taux = []
+exigibilites_etiquette = []
+
+[[regime]]
+code = "EXO_AVEC_DEDUCTION"
+nature = "Opération exonérée ou exemptée ouvrant droit à déduction"
+exonere = true
+ligne_taxe = false
+roles_taux = []
+exigibilites_etiquette = []
+
+[[regime]]
+code = "HORS_CHAMP"
+nature = "Opération hors du champ de la taxe"
+exonere = false
+ligne_taxe = false
+roles_taux = []
+exigibilites_etiquette = []
+
+[[regime]]
+code = "AUTOLIQUIDATION"
+nature = "Taxe due par le destinataire"
+exonere = false
+ligne_taxe = true
+roles_taux = ["normal", "reduit"]
+exigibilites_etiquette = []
+
+[[regime]]
+code = "COLLECTE_NUM"
+nature = "Taxe collectée et reversée par un intermédiaire ou un fournisseur étranger (services numériques)"
+exonere = false
+ligne_taxe = true
+roles_taux = ["normal", "reduit"]
+exigibilites_etiquette = []
+
+[[regime]]
+code = "PRECOMPTE"
+nature = "Précompte de taxe"
+exonere = false
+ligne_taxe = true
+roles_taux = ["normal", "reduit"]
+exigibilites_etiquette = ["encaissement"]
+
+[[regime]]
+code = "MARGE"
+nature = "Régime de la marge"
+exonere = false
+ligne_taxe = true
+roles_taux = ["normal", "reduit"]
+exigibilites_etiquette = ["debit", "encaissement"]
+
+[[regime]]
+code = "SUSPENSION"
+nature = "Achat ou importation en suspension de taxe"
+exonere = false
+ligne_taxe = false
+roles_taux = []
+exigibilites_etiquette = []
+
+[[regime]]
+code = "REGUL"
+nature = "Régularisation de déduction"
+exonere = false
+ligne_taxe = true
+roles_taux = []
+exigibilites_etiquette = []
+
+[[regime]]
+code = "REMB_ANNUL"
+nature = "Remboursement ou imputation de taxe collectée (erreur, créance irrécouvrable, annulation)"
+exonere = false
+ligne_taxe = true
+roles_taux = []
+exigibilites_etiquette = []

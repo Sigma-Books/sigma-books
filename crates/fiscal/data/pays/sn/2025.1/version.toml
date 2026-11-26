@@ -1,0 +1,29 @@
+# Paramètres fiscaux du Sénégal, version 2025.1 (ADR 0030). Cette version est IMMUABLE : une
+# correction ou une loi de finances nouvelle est une NOUVELLE version (répertoire voisin), jamais
+# une retouche de ce fichier (un test fige l'empreinte de chaque fichier publié, `../EMPREINTES`).
+
+pays = "SN"
+version = "2025.1"
+# Premier jour de l'édition consolidée de janvier 2025 du CGI (intègre la LFI 2025). À confirmer
+# par le fiscaliste si une écriture antérieure devait être étiquetée (spec §26).
+date_effet = "2025-01-01"
+source = "CGI du Sénégal consolidé, DGID, janvier 2025 (loi n° 2012-31 et lois modificatives, LFI 2025 comprise) ; la loi n° 2025-17 du 27/09/2025 ne modifie pas la TVA"
+
+[[document]]
+id = "cgi-sn-2025-01"
+titre = "Code général des impôts du Sénégal, version consolidée DGID, janvier 2025"
+# Plage de pages PDF du chapitre TVA (art. 351 à 390 et suivants) : toute page citée y figure.
+pages_min = 157
+pages_max = 210
+
+[taux.normal]
+valeur = "18"
+source = "art. 369, p. 184"
+
+[taux.reduit]
+valeur = "10"
+source = "art. 369 al. 2, p. 184 (hébergement touristique agréé)"
+
+[retention]
+annees_min = 10
+source = "AUDCIF art. 24, p. PDF 24 ; CGI du Sénégal art. 637, p. PDF 306 (ADR 0015)"

@@ -45,13 +45,14 @@ use super::validation::{
     Decision, VueAvertissement, donnee, donnee_audit_avertissements, finaliser, motif_validation,
     reconstituer, refus, vues_avertissements,
 };
-use super::{corps, referentiel_tva, sans_parametres};
+use super::{corps, sans_parametres};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::brouillard::RolePiece;
 use crate::base::organisation::{lire_appartenance, lire_contexte_du_dossier};
 use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, Tete};
+use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::pieces::interne;
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{ErreurApi, MotifValidation};
@@ -173,7 +174,7 @@ pub(super) async fn contre_passer(
     let date = date_lue(&c.date).ok_or(ErreurApi::RequeteInvalide)?;
     let libelle = TexteCourt::parse(&c.libelle).map_err(|_| ErreurApi::RequeteInvalide)?;
     let motif_saisi = motif_saisi(c.motif.as_deref())?;
-    let tva = referentiel_tva()?;
+    let registre = requete.registre_fiscal()?;
     let utilisateur = tx.contexte().id_utilisateur().uuid();
 
     // 1. Verrous, dans l'ordre de l'ADR 0020 : calendrier, comptes et tiers, pièces, tête,
@@ -219,7 +220,8 @@ pub(super) async fn contre_passer(
     // une), la date du jour est celle du fuseau relu.
     let courant = lire_contexte_du_dossier(tx).await?;
     let tenue = courant.tenue()?;
-    let origine = reconstituer(&stockee, tva, &tenue)?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &courant.pays, &[]);
+    let origine = reconstituer(&stockee, &fiscal, &tenue)?;
     let recalcule = EcritureCanonique::depuis(&origine).serialiser();
     if recalcule != stockee.canonique
         || chainer(&stockee.precedente, recalcule.as_bytes()) != stockee.empreinte

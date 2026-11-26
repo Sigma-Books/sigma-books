@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE brouillon\n        SET journal_id = $4, date_comptable = $5, date_valeur_comptable = $6, libelle = $7,\n            version = version + 1, modifie_par = $8, modifie_le = $9\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3\n        RETURNING version\n        ",
+  "query": "\n        UPDATE brouillon\n        SET journal_id = $4, date_comptable = $5, date_valeur_comptable = $6, libelle = $7,\n            version = version + 1, modifie_par = $8, modifie_le = $9,\n            version_parametres = $10\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3\n        RETURNING version\n        ",
   "describe": {
     "columns": [
       {
@@ -25,12 +25,13 @@
         "Date",
         "Text",
         "Uuid",
-        "Timestamptz"
+        "Timestamptz",
+        "Text"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "0a4635099d18ba4f814f8793a0de24c392d16a39f1c24cb186012a66604c6a99"
+  "hash": "ff6ae193dc546abe9015ce1979cf5f1df59e34c73cded7de5cdf3ac6c34216df"
 }

@@ -38,7 +38,7 @@ Les règles complètes sont dans **`docs/collaboration.md`**. L'essentiel :
 6. **L'IA propose, l'humain valide** : le code IA n'a aucun accès en écriture au journal validé ; il écrit uniquement dans le brouillard.
 7. **Refus par défaut** : tout accès passe par une politique Cedar explicite. L'isolation multi-tenant est assurée à trois niveaux (Cedar, requête, RLS PostgreSQL).
 8. **Aucun secret dans le dépôt**, même factice réaliste. Valeurs d'exemple uniquement dans `*.example`.
-9. **Numéros de comptes et paramètres fiscaux** : uniquement depuis les fichiers de données de `crates/syscohada` et `crates/fiscal-sn`, chaque entrée citant sa source (document, page). Aucun numéro de compte codé en dur ailleurs.
+9. **Numéros de comptes et paramètres fiscaux** : uniquement depuis les fichiers de données de `crates/syscohada` et `crates/fiscal` (socle commun et paquets de pays, ADR 0030), chaque entrée citant sa source (document, page). Aucun numéro de compte codé en dur ailleurs.
 10. **Pas de copie de textes de tiers** : les documents de référence (PDF OHADA, CGI…) ne sont **jamais** ajoutés au dépôt. Ils sont consultables localement (voir ci-dessous). On n'en reprend que des faits (numéros, intitulés, taux) avec citation.
 11. **Code porté d'un autre projet** (Tryton, Odoo, OCA, ERPNext…) : uniquement sous licence compatible AGPL-3.0, avec attribution dans `docs/provenance/`. En cas de doute sur la licence : ne pas porter, signaler.
 12. **Ne jamais désactiver, contourner ou affaiblir un contrôle de la CI** (lint, test, audit, licence, secrets) pour faire passer une PR.

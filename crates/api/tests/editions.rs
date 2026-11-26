@@ -22,7 +22,6 @@ use std::sync::Arc;
 use api::base::referentiel::charger;
 use api::base::validation as base;
 use api::base::{ContexteTenant, ouvrir_transaction};
-use api::serveur::routes::brouillard::referentiel_tva;
 use api::serveur::routes::brouillard::validation::reconstituer;
 use api::serveur::{Application, routeur};
 use authz::Autorisation;
@@ -204,8 +203,7 @@ impl Banc {
         let mut validees = Vec::new();
         for id in ids {
             let e = base::lire(&mut tx, id).await.unwrap().unwrap();
-            validees
-                .push(reconstituer(&e, referentiel_tva().unwrap(), &commun::tenue_xof()).unwrap());
+            validees.push(reconstituer(&e, &commun::fiscal_sn(), &commun::tenue_xof()).unwrap());
         }
         let referentiel = charger(&mut tx).await.unwrap().unwrap();
         let exercice = referentiel.exercices().exercices().first().unwrap().clone();
