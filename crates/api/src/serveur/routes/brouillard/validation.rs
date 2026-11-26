@@ -165,7 +165,7 @@ fn brouillon_de(
     lignes: &[LigneStockee],
     empreintes: &[String],
     tva: &ReferentielTva,
-    tenue: &DeviseTenue,
+    tenue: DeviseTenue,
 ) -> Result<EcritureBrouillon, ErreurBase> {
     let incoherent = || ErreurBase::Donnee("écriture stockée incohérente");
     let journal = CodeJournal::parse(code_journal).map_err(|_| incoherent())?;
@@ -173,7 +173,7 @@ fn brouillon_de(
     let mut e = EcritureBrouillon::nouvelle(journal, date, libelle);
     e.mentionner_date_valeur_comptable(date_valeur);
     for l in lignes {
-        e.ajouter_ligne(ligne_depuis_stockee(l, tva, tenue)?);
+        e.ajouter_ligne(ligne_depuis_stockee(l, tva, &tenue)?);
     }
     if !empreintes.is_empty() {
         let refs = empreintes
@@ -263,7 +263,7 @@ pub fn reconstituer_colonnes(
         c.lignes,
         empreintes,
         tva,
-        tenue,
+        *tenue,
     )?;
     let equilibree = brouillon.valider_equilibre().map_err(|_| incoherent())?;
     let numero = NumeroEcriture::parse(c.numero).map_err(|_| incoherent())?;
@@ -295,7 +295,7 @@ pub fn equilibree_du_brouillon(
         &c.lignes,
         &[],
         tva,
-        tenue,
+        *tenue,
     )?;
     Ok(brouillon.valider_equilibre().ok())
 }
@@ -380,7 +380,7 @@ pub fn preparer(
         &b.contenu.lignes,
         empreintes,
         tva,
-        tenue,
+        *tenue,
     )
     .map_err(|_| donnee())?;
     let ecriture = brouillon
@@ -1451,7 +1451,7 @@ mod tests {
                 // Côté `Livre`.
                 let brouillon = brouillon_de(
                     &b.contenu.journal, date, date_valeur, &b.contenu.libelle, None,
-                    &b.contenu.lignes, &empreintes, tva, &tenue_xof(),
+                    &b.contenu.lignes, &empreintes, tva, tenue_xof(),
                 ).unwrap();
                 let attendu: Result<(NumeroEcriture, String), ErreurApi> = match brouillon.valider_equilibre() {
                     Err(r) => Err(refus(motif_ecriture(r.erreur()), None)),
@@ -1534,7 +1534,7 @@ mod tests {
             ],
             &empreintes,
             referentiel_tva().unwrap(),
-            &tenue_xof(),
+            tenue_xof(),
         )
         .unwrap();
         let mut livre = Livre::new();
@@ -1749,7 +1749,7 @@ mod tests {
                     // Même moteur que `Livre` : on rejoue l'écriture dans le livre.
                     let brouillon = brouillon_de(
                         &b.contenu.journal, DATES[date], None, &b.contenu.libelle, None,
-                        &b.contenu.lignes, &empreintes, tva, &tenue_xof(),
+                        &b.contenu.lignes, &empreintes, tva, tenue_xof(),
                     ).unwrap();
                     let eq = brouillon.valider_equilibre().unwrap();
                     let exercice = contexte.exercices.exercice_contenant(DATES[date]).unwrap().code().clone();

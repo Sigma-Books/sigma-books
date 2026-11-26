@@ -306,7 +306,7 @@ async fn la_base_refuse_une_ligne_dans_la_devise_de_tenue() {
 async fn creation_et_lecture_du_contexte_par_l_api() {
     let b = banc().await;
     let chemin = format!("/api/cabinets/{}/dossiers", b.c.cabinet);
-    let annee = i32::from(aujourd_hui().year());
+    let annee = aujourd_hui().year();
     let corps = |extra: Value| {
         let mut c = json!({"nom": "SARL Kinshasa", "nature": "reprise", "annee": annee});
         c.as_object_mut()

@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pays, devise_tenue, decimales_tenue, fuseau, langue, forme_juridique FROM dossier WHERE cabinet_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pays",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "pays"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "devise_tenue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "devise_tenue"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "decimales_tenue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "decimales_tenue"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "fuseau",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "fuseau"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "langue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "langue"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "forme_juridique",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "forme_juridique"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1930a3a509536035daf8fdc3a441020a6c24875573b0320e5027d32dd1c6ff58"
+}

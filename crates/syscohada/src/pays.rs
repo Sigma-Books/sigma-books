@@ -271,6 +271,8 @@ impl PackPays {
     ///
     /// # Errors
     /// [`ErreurPack`] si le texte est illisible ou incohérent.
+    // Une seule passe de validation, table par table : la découper n'éclairerait pas.
+    #[allow(clippy::too_many_lines)]
     pub fn depuis_toml(texte: &str) -> Result<Self, ErreurPack> {
         let f: Fichier = toml::from_str(texte).map_err(|e| ErreurPack::Syntaxe(e.to_string()))?;
         let incoherent = |m: String| ErreurPack::Incoherent(m);

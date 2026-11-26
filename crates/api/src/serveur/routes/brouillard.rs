@@ -680,7 +680,7 @@ async fn contenu_controle(
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
     let tva = referentiel_tva()?;
     let tenue = lire_contexte_du_dossier(tx).await?.tenue()?;
-    let controle = saisie::controler(c, &referentiel, tva, &tenue)?;
+    let controle = saisie::controler(c, &referentiel, tva, tenue)?;
     let contenu = controle.contenu;
     let visee = brouillard::verrouiller_date(tx, contenu.date)
         .await?

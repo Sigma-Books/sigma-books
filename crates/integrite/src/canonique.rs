@@ -481,11 +481,10 @@ impl<'a> Lecteur<'a> {
         };
         let tenue = if version >= 4 {
             let devise = self.valeur("devise-tenue", Devise::parse)?;
-            let decimales = self.valeur("decimales-tenue", |v| match v.as_bytes() {
+            self.valeur("decimales-tenue", |v| match v.as_bytes() {
                 &[c] if c.is_ascii_digit() => DeviseTenue::nouvelle(devise, c - b'0'),
                 _ => Err(compta_core::ErreurMontant::EchelleInvalide(u8::MAX)),
-            })?;
-            decimales
+            })?
         } else {
             tenue_heritee().ok_or(ErreurCanonique::Attendu {
                 ligne: 0,
@@ -510,7 +509,7 @@ impl<'a> Lecteur<'a> {
         loop {
             match self.suivante() {
                 Some((_, l)) if l == LIGNE => {
-                    let (ligne, etiquette) = self.ligne(version >= 3, &tenue, version >= 4)?;
+                    let (ligne, etiquette) = self.ligne(version >= 3, tenue, version >= 4)?;
                     lignes.push(ligne);
                     etiquettes.push(etiquette);
                 }
@@ -587,7 +586,7 @@ impl<'a> Lecteur<'a> {
     fn ligne(
         &mut self,
         avec_etiquette: bool,
-        tenue: &DeviseTenue,
+        tenue: DeviseTenue,
         echelle_stricte: bool,
     ) -> Result<(Ligne, Option<EtiquetteRelue>), ErreurCanonique> {
         let compte = self.valeur("compte", NumeroCompte::parse)?;
@@ -602,7 +601,7 @@ impl<'a> Lecteur<'a> {
             cle: "montant",
         };
         let montant = if echelle_stricte {
-            Montant::parse_tenue(montant, tenue)
+            Montant::parse_tenue(montant, &tenue)
         } else {
             Montant::parse(montant, tenue.devise())
         }
@@ -617,13 +616,12 @@ impl<'a> Lecteur<'a> {
                 let montant_devise =
                     self.valeur("montant-devise", |v| Montant::parse(v, devise))?;
                 let cours = self.valeur("cours", Cours::parse)?;
-                let l =
-                    Ligne::en_devise(compte, sens, montant_devise, cours, tenue).map_err(|_| {
-                        ErreurCanonique::ValeurInvalide {
-                            ligne: ligne_montant,
-                            cle: "montant-devise",
-                        }
-                    })?;
+                let l = Ligne::en_devise(compte, sens, montant_devise, cours, &tenue).map_err(
+                    |_| ErreurCanonique::ValeurInvalide {
+                        ligne: ligne_montant,
+                        cle: "montant-devise",
+                    },
+                )?;
                 if l.montant() != montant {
                     return Err(ErreurCanonique::ContreValeurIncoherente {
                         ligne: ligne_montant,
@@ -631,7 +629,7 @@ impl<'a> Lecteur<'a> {
                 }
                 l
             }
-            None => Ligne::en_devise_tenue(compte, sens, montant, tenue)
+            None => Ligne::en_devise_tenue(compte, sens, montant, &tenue)
                 .map_err(|_| montant_invalide())?,
         };
         let ligne = match self.valeur_optionnelle("tiers", IdTiers::parse)? {

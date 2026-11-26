@@ -182,7 +182,7 @@ fn ligne(
     position: usize,
     referentiel: &ReferentielDossier,
     tva: &ReferentielTva,
-    tenue: &DeviseTenue,
+    tenue: DeviseTenue,
 ) -> Result<Ligne, ErreurApi> {
     let numero = NumeroCompte::parse(&c.compte)
         .map_err(|_| refus(RefusSaisie::CompteInconnu, Some(position)))?;
@@ -207,7 +207,7 @@ fn ligne(
         (Some(m), None) => {
             // Échelle de la devise de tenue : plus de décimales que l'échelle est refusé
             // (ADR 0027), un format invalide reste un montant invalide.
-            let montant = Montant::parse_tenue(m, tenue).map_err(|e| match e {
+            let montant = Montant::parse_tenue(m, &tenue).map_err(|e| match e {
                 ErreurMontant::EchelleExcessive { .. } => {
                     refus(RefusSaisie::MontantEchelleTenue, Some(position))
                 }
@@ -216,7 +216,7 @@ fn ligne(
             if hors_borne(&montant.valeur().to_string()) {
                 return Err(montant_invalide());
             }
-            Ligne::en_devise_tenue(numero.clone(), sens, montant, tenue)
+            Ligne::en_devise_tenue(numero.clone(), sens, montant, &tenue)
                 .map_err(|_| montant_invalide())?
         }
         (None, Some(d)) => {
@@ -227,7 +227,7 @@ fn ligne(
             {
                 return Err(montant_invalide());
             }
-            let ligne = Ligne::en_devise(numero.clone(), sens, montant, cours, tenue)
+            let ligne = Ligne::en_devise(numero.clone(), sens, montant, cours, &tenue)
                 .map_err(|_| montant_invalide())?;
             // Contre-valeur en devise de tenue calculée par le moteur.
             if hors_borne(&ligne.montant().valeur().to_string()) {
@@ -267,7 +267,7 @@ pub(super) fn controler(
     corps: &CorpsContenu,
     referentiel: &ReferentielDossier,
     tva: &ReferentielTva,
-    tenue: &DeviseTenue,
+    tenue: DeviseTenue,
 ) -> Result<Controle, ErreurApi> {
     let libelle = TexteCourt::parse(&corps.libelle).map_err(|_| ErreurApi::RequeteInvalide)?;
     let date = date_lue(&corps.date).ok_or(ErreurApi::RequeteInvalide)?;
