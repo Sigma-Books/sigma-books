@@ -26,6 +26,11 @@
 	import { api } from '#lib/application.ts';
 	import { executerSensible } from '#lib/reauthentification.svelte.ts';
 	import { ROLES_SAISIE, ROLES_VALIDATION_LOT } from '#lib/contexte-dossier.ts';
+	import {
+		bandeauAvertissements,
+		lireAvertissements,
+		type BandeauAvertissements
+	} from '#lib/api/avertissements.ts';
 	import { afficherDate } from '#lib/dates.ts';
 	import { ecart, formaterMontant } from '#lib/montants.ts';
 	import type { Regional } from '#lib/regional.ts';
@@ -57,6 +62,8 @@
 	let erreurs = $state<Record<string, ErreurApi>>({});
 	let validees = $state<{ id: string; numero: string }[]>([]);
 	let info = $state<string | null>(null);
+	/** Bandeau d'information (non bloquant) : avertissements de la dernière validation réussie. */
+	let avertissements = $state<BandeauAvertissements | null>(null);
 	let erreurListe = $state<ErreurApi | null>(null);
 	let aSupprimer = $state<string | null>(null);
 
@@ -123,6 +130,7 @@
 		occupes = [...occupes, id];
 		delete erreurs[id];
 		info = null;
+		avertissements = null;
 		validees = [];
 		try {
 			await travail();
@@ -142,6 +150,11 @@
 			retirerDeLaListe([r.id]);
 			validees = [{ id: v.id, numero: v.numero }];
 			info = `Écriture validée sous le numéro ${v.numero}.`;
+			avertissements = bandeauAvertissements(
+				[{ numero: v.numero, avertissements: lireAvertissements(v.avertissements) }],
+				regional,
+				false
+			);
 		});
 	}
 
@@ -209,6 +222,7 @@
 	async function confirmerLot(): Promise<void> {
 		erreurLot = null;
 		refusLot = [];
+		avertissements = null;
 		enCoursLot = true;
 		const elements: ElementLot[] = [];
 		for (const id of selectionVisible) {
@@ -231,6 +245,14 @@
 					? ` ${lot.exclues_a_revoir} écriture${lot.exclues_a_revoir > 1 ? 's' : ''} « à revoir » ${lot.exclues_a_revoir > 1 ? 'restent' : 'reste'} au brouillard.`
 					: '';
 			info = `${lot.ecritures.length} écriture${lot.ecritures.length > 1 ? 's' : ''} validée${lot.ecritures.length > 1 ? 's' : ''}.${exclues}`;
+			avertissements = bandeauAvertissements(
+				lot.ecritures.map((e) => ({
+					numero: e.numero,
+					avertissements: lireAvertissements(e.avertissements)
+				})),
+				regional,
+				true
+			);
 			phase = 'aucune';
 		} catch (e) {
 			if (!(e instanceof ErreurApi)) throw e;
@@ -301,6 +323,17 @@
 				{#if validees.length > 20}… ({validees.length} au total){/if}
 			</p>
 		{/if}
+	</div>
+{/if}
+{#if avertissements}
+	<div class="message message-avertissement" role="status">
+		<p><strong>{avertissements.titre}</strong></p>
+		<ul>
+			{#each avertissements.lignes as ligne, i (i)}
+				<li>{ligne}</li>
+			{/each}
+		</ul>
+		{#if avertissements.suite}<p>{avertissements.suite}</p>{/if}
 	</div>
 {/if}
 {#if erreurListe}

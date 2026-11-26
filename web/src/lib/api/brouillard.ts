@@ -83,6 +83,8 @@ export interface Validation {
 	empreinte: string;
 	format: number;
 	date_validation: string;
+	/** Avertissements de la validation : à lire par `lireAvertissements` (jamais bloquants). */
+	avertissements?: unknown;
 }
 
 export interface LotValide {
@@ -143,6 +145,8 @@ export interface ContrePassation {
 	empreinte: string;
 	format: number;
 	date_validation: string;
+	/** Avertissements de la contre-passation : à lire par `lireAvertissements`. */
+	avertissements?: unknown;
 }
 
 const estSens = (v: unknown): v is Sens => v === 'debit' || v === 'credit';

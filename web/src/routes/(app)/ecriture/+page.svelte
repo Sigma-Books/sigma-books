@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import { bandeauAvertissements, lireAvertissements } from '#lib/api/avertissements.ts';
 	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import {
 		contrePasser,
@@ -107,6 +108,14 @@
 			: relue.contre_passations.length}
 	{@const origine = e.origine ? lireUuid(e.origine) : null}
 	{@const peut = ROLES_VALIDATION_LOT.includes(contexte.membre.role)}
+	{@const bandeau =
+		faite === null
+			? null
+			: bandeauAvertissements(
+					[{ numero: faite.numero, avertissements: lireAvertissements(faite.avertissements) }],
+					contexte.regional,
+					false
+				)}
 	<h1>Écriture {e.numero}</h1>
 	<NavigationDossier
 		cabinet={contexte.cabinet}
@@ -219,6 +228,14 @@
 					{faite.numero}
 				</a>.
 			</p>
+			{#if bandeau}
+				<p><strong>{bandeau.titre}</strong></p>
+				<ul>
+					{#each bandeau.lignes as ligne, i (i)}
+						<li>{ligne}</li>
+					{/each}
+				</ul>
+			{/if}
 			<p class="aide">
 				Le formulaire est fermé pour éviter une double contre-passation : rechargez la page pour en
 				faire une autre.
