@@ -3,6 +3,7 @@
 	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import {
 		contrePasser,
+		motifContrePassation,
 		lireEcriture,
 		type ContrePassation,
 		type Ecriture
@@ -28,7 +29,6 @@
 	let date = $state('');
 	let libelle = $state('');
 	let motif = $state('');
-	let confirmeRepetition = $state(false);
 	let enCours = $state(false);
 	let erreur = $state<ErreurApi | null>(null);
 	let erreurRelecture = $state<ErreurApi | null>(null);
@@ -59,10 +59,13 @@
 		erreur = null;
 		erreurRelecture = null;
 		try {
-			faite = await contrePasser(api, cabinet, dossier, ecriture.id, { date, libelle, motif });
+			faite = await contrePasser(api, cabinet, dossier, ecriture.id, {
+				date,
+				libelle,
+				motif: motifContrePassation(motif, ecriture.numero)
+			});
 			faitesDepuis += 1;
 			motif = '';
-			confirmeRepetition = false;
 			try {
 				relue = await lireEcriture(api, cabinet, dossier, ecriture.id);
 			} catch (e) {
@@ -257,38 +260,26 @@
 				<input id="cp-libelle" type="text" maxlength="200" bind:value={libelle} required />
 			</div>
 			<div class="champ">
-				<label for="cp-motif">Motif (obligatoire, conservé au journal d’audit)</label>
+				<label for="cp-motif">Motif (facultatif, conservé au journal d’audit)</label>
 				<input
 					id="cp-motif"
 					type="text"
+					placeholder={motifContrePassation('', e.numero)}
 					aria-describedby="cp-motif-aide"
 					bind:value={motif}
-					required
 				/>
 				<span class="aide" id="cp-motif-aide">
-					{octetsMotif} / {MOTIF_MAX} octets{octetsMotif > MOTIF_MAX
+					Sans motif saisi, le motif ci-dessus est enregistré. {octetsMotif} / {MOTIF_MAX} octets{octetsMotif >
+					MOTIF_MAX
 						? ' : motif trop long, raccourcissez-le'
 						: ''}
 				</span>
 			</div>
-			{#if nombre > 0}
-				<label class="case">
-					<input type="checkbox" bind:checked={confirmeRepetition} />
-					Je confirme vouloir contre-passer une écriture déjà contre-passée {nombre} fois.
-				</label>
-			{/if}
 			{#if erreur}
 				<MessageMetier {erreur} contexte="La contre-passation a échoué." />
 			{/if}
 			<p>
-				<button
-					type="submit"
-					class="bouton"
-					disabled={enCours ||
-						motif.trim() === '' ||
-						octetsMotif > MOTIF_MAX ||
-						(nombre > 0 && !confirmeRepetition)}
-				>
+				<button type="submit" class="bouton" disabled={enCours || octetsMotif > MOTIF_MAX}>
 					Contre-passer
 				</button>
 			</p>
@@ -338,14 +329,6 @@
 	.num {
 		text-align: right;
 		font-variant-numeric: tabular-nums;
-	}
-
-	.case {
-		display: flex;
-		align-items: center;
-		gap: var(--espace-2);
-		min-height: var(--cible-min);
-		margin-bottom: var(--espace-3);
 	}
 
 	input[type='date'],

@@ -13,7 +13,8 @@ import {
 	estObjet,
 	tableauDe
 } from './gardes.ts';
-import type { Garde, Uuid } from './types.ts';
+import { traduire } from '../i18n/index.ts';
+import { estCodeJournal, type Garde, type Uuid } from './types.ts';
 
 export type Sens = 'debit' | 'credit';
 
@@ -256,14 +257,12 @@ export const estContrePassation: Garde<ContrePassation> = (v): v is ContrePassat
 /** Lot de 100 écritures au plus (`LOT_MAX` du serveur). */
 export const LOT_MAX = 100;
 
-const CODE_JOURNAL = /^[A-Z0-9]{1,8}$/;
-
 function base(cabinet: Uuid, dossier: Uuid): string {
 	return `/api/cabinets/${cabinet}/dossiers/${dossier}`;
 }
 
 export interface FiltreBrouillard {
-	/** Code du journal (`[A-Z0-9]{1,8}`), vide pour tous. */
+	/** Code du journal (voir `estCodeJournal`), vide pour tous. */
 	journal?: string;
 	periode?: Uuid | null;
 	apres?: string | null;
@@ -272,7 +271,7 @@ export interface FiltreBrouillard {
 /** Paramètres de la liste ; une valeur de forme invalide est ignorée plutôt que d'être envoyée. */
 export function parametresBrouillard(filtre: FiltreBrouillard, limite = 50): string {
 	const p = new URLSearchParams();
-	if (filtre.journal !== undefined && CODE_JOURNAL.test(filtre.journal))
+	if (filtre.journal !== undefined && estCodeJournal(filtre.journal))
 		p.set('journal', filtre.journal);
 	if (filtre.periode) p.set('periode', filtre.periode);
 	if (filtre.apres) p.set('apres', filtre.apres);
@@ -448,6 +447,15 @@ export function lireEcriture(
 	ecriture: Uuid
 ): Promise<Ecriture> {
 	return api.lire(`${base(cabinet, dossier)}/ecritures/${ecriture}`, estEcriture);
+}
+
+/**
+ * Motif envoyé pour une contre-passation. Le serveur exige un motif non blanc (journal d'audit) ;
+ * l'interface le rend facultatif, comme Odoo (`account.move.reversal`, raison facultative) et
+ * Tryton (`CancelMoves`, description facultative) : sans saisie, « Contre-passation de <numéro> ».
+ */
+export function motifContrePassation(saisie: string, numero: string): string {
+	return saisie.trim() === '' ? traduire('contre_passation.motif_defaut', { numero }) : saisie;
 }
 
 export interface CorpsContrePassation {

@@ -5,10 +5,11 @@ import {
 	estEcriture,
 	estLotValide,
 	estPageBrouillard,
+	motifContrePassation,
 	parametresBrouillard
 } from './brouillard.ts';
 import { nomPieceSur } from './pieces.ts';
-import { lireUuid } from './types.ts';
+import { CODE_JOURNAL_MAX, estCodeJournal, lireUuid } from './types.ts';
 
 const ID = '0b6f2f0e-8a3a-4a39-9d0c-3d6a8d6d3c11';
 
@@ -103,4 +104,23 @@ test('nom de pièce sûr : sans chemin, sans contrôle, borné en octets', () =>
 	assert.equal(nomPieceSur('../../etc/passwd'), '.._.._etc_passwd');
 	assert.equal(nomPieceSur('a\u0000b\nc.pdf'), 'abc.pdf');
 	assert.ok(new TextEncoder().encode(nomPieceSur('é'.repeat(300))).length <= 255);
+});
+
+test('le motif d’une contre-passation est facultatif : un motif par défaut est généré', () => {
+	assert.equal(motifContrePassation('', 'OD-2026-000001'), 'Contre-passation de OD-2026-000001');
+	assert.equal(
+		motifContrePassation('  \t', 'OD-2026-000001'),
+		'Contre-passation de OD-2026-000001'
+	);
+	assert.equal(motifContrePassation('Erreur de période', 'OD-2026-000001'), 'Erreur de période');
+});
+
+test('le code de journal suit le contrat de l’API (1 à 8 majuscules ou chiffres)', () => {
+	assert.equal(CODE_JOURNAL_MAX, 8);
+	assert.equal(estCodeJournal('OD'), true);
+	assert.equal(estCodeJournal('A'.repeat(8)), true);
+	assert.equal(estCodeJournal('A'.repeat(9)), false);
+	assert.equal(estCodeJournal(''), false);
+	assert.equal(estCodeJournal('od'), false);
+	assert.equal(parametresBrouillard({ journal: 'A'.repeat(9) }), 'limite=50');
 });
