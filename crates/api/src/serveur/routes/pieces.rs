@@ -376,8 +376,8 @@ async fn deposer(
     stocker(tx, dossier, pieces, registre, contenu, None, &confirmes).await
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Écrit l'objet, **puis** la ligne (ADR 0015), et rend la trace de l'action.
+#[allow(clippy::too_many_arguments)]
 async fn stocker(
     tx: &mut TransactionTenant,
     dossier: &DossierAutorise,
@@ -389,10 +389,10 @@ async fn stocker(
 ) -> Result<Resultat, ErreurApi> {
     let cabinet = tx.contexte().id_cabinet();
     let instant = maintenant();
-    // Rétention : paramètre du paquet du pays du dossier à la date du dépôt (ADR 0030), relevée
-    // par le réglage d'instance.
+    // Rétention : paramètre du paquet du pays du dossier à la date du dépôt, **dans le fuseau du
+    // dossier** (ADR 0027 et 0030), relevée par le réglage d'instance.
     let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &[]);
-    let annees = fiscal.retention_des_pieces(instant.date());
+    let annees = fiscal.retention_des_pieces(dossier.contexte().date_du_jour(instant)?);
     let retenir = pieces.fin_de_retention(instant, annees);
     let cle = CleObjet::nouvelle(cabinet, dossier.id());
     let depot = pieces

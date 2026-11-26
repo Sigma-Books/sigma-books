@@ -15,10 +15,10 @@ use super::{
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
-    a_des_parametres_fiscaux_propres, affecter_utilisateur_du_contexte, creer_dossier,
-    ecritures_du_dossier, inserer_identifiants_legaux, lire_appartenance, lire_cabinet,
-    lire_dossier_visible, lire_identifiants_legaux, lister_dossiers_visibles, modifier_contexte,
-    remplacer_identifiants_legaux, verrouiller_dossier_pour_modification,
+    a_des_parametres_fiscaux_propres, a_des_pieces, affecter_utilisateur_du_contexte,
+    creer_dossier, ecritures_du_dossier, inserer_identifiants_legaux, lire_appartenance,
+    lire_cabinet, lire_dossier_visible, lire_identifiants_legaux, lister_dossiers_visibles,
+    modifier_contexte, remplacer_identifiants_legaux, verrouiller_dossier_pour_modification,
 };
 use crate::contexte_dossier::{
     ContexteDossier, IdentifiantLegal, ModificationContexte, controler_identifiants,
@@ -606,6 +606,13 @@ async fn modifier(
     if nouveau.pays != actuel.pays && a_des_parametres_fiscaux_propres(tx).await? {
         return Err(ErreurApi::Conflit {
             motif: MotifConflit::DossierParametresFiscauxPropres,
+            nombre: None,
+        });
+    }
+    // Ni le pays d'un dossier qui a des pièces : leur rétention est celle du pays au dépôt.
+    if nouveau.pays != actuel.pays && a_des_pieces(tx).await? {
+        return Err(ErreurApi::Conflit {
+            motif: MotifConflit::DossierPiecesPresentes,
             nombre: None,
         });
     }
