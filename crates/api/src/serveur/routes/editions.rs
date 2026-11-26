@@ -46,16 +46,17 @@ use compta_core::{
 use serde::Serialize;
 use time::Date;
 
+use super::brouillard::date_lue;
 use super::brouillard::validation::{
     ColonnesValidee, equilibree_du_brouillon, reconstituer_colonnes,
 };
-use super::brouillard::{date_lue, referentiel_tva};
 use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
 use crate::base::brouillard::decimal_canonique;
 use crate::base::editions::{brouillons_entre, brouillons_par_journal_et_date, validees_entre};
 use crate::base::organisation::{lire_contexte_du_dossier, lire_dossier_visible};
 use crate::base::referentiel::charger;
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
+use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::pieces::interne;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
 use crate::serveur::pipeline::Garde;
@@ -286,9 +287,9 @@ async fn lire_donnees(
     requete: &Requete<'_>,
     p: &Parametres,
 ) -> Result<Donnees, ErreurApi> {
-    let tva = referentiel_tva()?;
+    let registre = requete.registre_fiscal()?;
     let mut instantane = ouvrir_transaction_lecture(requete.pool, *tx.contexte()).await?;
-    let lu = lire_dans_instantane(&mut instantane, p, tva, requete.editions_max).await;
+    let lu = lire_dans_instantane(&mut instantane, p, registre, requete.editions_max).await;
     instantane.annuler().await?;
     lu
 }
@@ -296,11 +297,13 @@ async fn lire_donnees(
 async fn lire_dans_instantane(
     instantane: &mut TransactionTenant,
     p: &Parametres,
-    tva: &fiscal_sn::ReferentielTva,
+    registre: &fiscal::Registre,
     borne: i64,
 ) -> Result<Donnees, ErreurApi> {
     let referentiel = charger(instantane).await?.ok_or(ErreurApi::Introuvable)?;
-    let tenue = lire_contexte_du_dossier(instantane).await?.tenue()?;
+    let contexte = lire_contexte_du_dossier(instantane).await?;
+    let tenue = contexte.tenue()?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &contexte.pays, &[]);
     let exercice = choisir_exercice(referentiel.exercices(), p)?;
     let du = p.du.unwrap_or_else(|| exercice.debut());
     let au = p.au.unwrap_or_else(|| exercice.fin());
@@ -333,7 +336,7 @@ async fn lire_dans_instantane(
                     lignes: &e.lignes,
                 },
                 &e.empreintes,
-                tva,
+                &fiscal,
                 &tenue,
             )
             .map_err(|_| donnee())?,
@@ -350,7 +353,7 @@ async fn lire_dans_instantane(
             // Le brouillard déséquilibré ou illisible n'entre pas dans une édition provisoire : il
             // est compté et signalé, jamais cause d'échec (on ne peut pas l'atteindre par la
             // saisie, mais une version du référentiel peut avoir retiré une valeur stockée).
-            match equilibree_du_brouillon(b, tva, &tenue) {
+            match equilibree_du_brouillon(b, &fiscal, &tenue) {
                 Ok(Some(e)) => brouillard.push(e),
                 Ok(None) => exclus.desequilibres += 1,
                 Err(_) => exclus.illisibles += 1,

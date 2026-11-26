@@ -42,18 +42,16 @@ use compta_core::{
     Avertissement, CodeExercice, CodeJournal, CodeMotif, CodeRegime, Compteur, Contexte, Cours,
     Devise, DeviseTenue, EcritureBrouillon, EcritureEquilibree, EcritureValidee, ErreurEcriture,
     ErreurPlan, EtiquetteFiscale, Exercices, Exigibilite, IdTiers, Justification, Ligne, Montant,
-    NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva, StatutPeriode,
-    TauxTva, TexteCourt, Validation, VersionParametres,
+    NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, ReferentielFiscal, Sens,
+    SensTva, StatutPeriode, TauxTva, TexteCourt, Validation, VersionParametres,
 };
-use fiscal_sn::ReferentielTva;
+use fiscal::ParametresFiscaux;
 use integrite::{EcritureCanonique, Empreinte, chainer};
 use serde::Serialize;
 use time::Date;
 use uuid::Uuid;
 
-use super::{
-    CorpsVersion, VueLigne, conflit, corps, referentiel_tva, sans_parametres, trace_de, vue_ligne,
-};
+use super::{CorpsVersion, VueLigne, conflit, corps, sans_parametres, trace_de, vue_ligne};
 use crate::base::brouillard::{
     self, BrouillonStocke, ContenuStocke, LigneStockee, RolePiece, decimal_canonique,
 };
@@ -65,6 +63,7 @@ use crate::base::validation::{
     self as base, Circonstances, EcritureStockee, Inscription, PieceVerrouillee, Tete,
 };
 use crate::base::{ErreurBase, TransactionTenant, ouvrir_transaction_lecture};
+use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::pieces::interne;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit, MotifValidation};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
@@ -89,13 +88,45 @@ pub(super) fn donnee() -> ErreurApi {
 
 // --- Reconstitution d'une ligne ou d'une écriture ----------------------------------------
 
+/// Étiquette fiscale rebâtie d'une étiquette stockée, contrôlée contre le référentiel : `Err(true)`
+/// si le référentiel la refuse (code, motif ou taux que la version ne connaît pas), `Err(false)`
+/// si la donnée n'a pas la forme d'une étiquette.
+fn etiquette_stockee(
+    e: &crate::base::brouillard::EtiquetteStockee,
+    fiscal: &dyn ReferentielFiscal,
+) -> Result<EtiquetteFiscale, bool> {
+    let forme = |_| false;
+    let nature = NatureEtiquette::depuis_code(&e.nature).ok_or(false)?;
+    let sens = SensTva::depuis_code(&e.sens).ok_or(false)?;
+    let regime = CodeRegime::parse(&e.regime).map_err(forme)?;
+    let taux = e
+        .taux
+        .as_deref()
+        .map(TauxTva::parse)
+        .transpose()
+        .map_err(forme)?;
+    let exigibilite = e
+        .exigibilite
+        .as_deref()
+        .map(|x| Exigibilite::depuis_code(x).ok_or(false))
+        .transpose()?;
+    let motif = e
+        .motif
+        .as_deref()
+        .map(CodeMotif::parse)
+        .transpose()
+        .map_err(forme)?;
+    EtiquetteFiscale::nouvelle(nature, sens, regime, taux, exigibilite, motif, fiscal)
+        .map_err(|_| true)
+}
+
 /// Ligne de `compta-core` rebâtie d'une ligne stockée (brouillon ou écriture validée).
 ///
 /// # Errors
 /// Donnée stockée qui n'a pas la forme d'une ligne (jamais produite par l'API).
 pub fn ligne_depuis_stockee(
     l: &LigneStockee,
-    tva: &ReferentielTva,
+    fiscal: Option<&dyn ReferentielFiscal>,
     tenue: &DeviseTenue,
 ) -> Result<Ligne, ErreurBase> {
     let incoherent = || ErreurBase::Donnee("ligne stockée incohérente");
@@ -128,30 +159,8 @@ pub fn ligne_depuis_stockee(
         ligne = ligne.avec_tiers(IdTiers::parse(&t.to_string()).map_err(|_| incoherent())?);
     }
     if let Some(e) = &l.etiquette {
-        let nature = NatureEtiquette::depuis_code(&e.nature).ok_or_else(incoherent)?;
-        let sens = SensTva::depuis_code(&e.sens).ok_or_else(incoherent)?;
-        let regime = CodeRegime::parse(&e.regime).map_err(|_| incoherent())?;
-        let taux = e
-            .taux
-            .as_deref()
-            .map(TauxTva::parse)
-            .transpose()
-            .map_err(|_| incoherent())?;
-        let exigibilite = e
-            .exigibilite
-            .as_deref()
-            .map(|x| Exigibilite::depuis_code(x).ok_or_else(incoherent))
-            .transpose()?;
-        let motif = e
-            .motif
-            .as_deref()
-            .map(CodeMotif::parse)
-            .transpose()
-            .map_err(|_| incoherent())?;
-        ligne = ligne.avec_etiquette(
-            EtiquetteFiscale::nouvelle(nature, sens, regime, taux, exigibilite, motif, tva)
-                .map_err(|_| incoherent())?,
-        );
+        let fiscal = fiscal.ok_or_else(incoherent)?;
+        ligne = ligne.avec_etiquette(etiquette_stockee(e, fiscal).map_err(|_| incoherent())?);
     }
     Ok(ligne)
 }
@@ -166,7 +175,7 @@ fn brouillon_de(
     version_parametres: Option<&str>,
     lignes: &[LigneStockee],
     empreintes: &[String],
-    tva: &ReferentielTva,
+    fiscal: Option<&dyn ReferentielFiscal>,
     tenue: DeviseTenue,
 ) -> Result<EcritureBrouillon, ErreurBase> {
     let incoherent = || ErreurBase::Donnee("écriture stockée incohérente");
@@ -175,7 +184,7 @@ fn brouillon_de(
     let mut e = EcritureBrouillon::nouvelle(journal, date, libelle);
     e.mentionner_date_valeur_comptable(date_valeur);
     for l in lignes {
-        e.ajouter_ligne(ligne_depuis_stockee(l, tva, &tenue)?);
+        e.ajouter_ligne(ligne_depuis_stockee(l, fiscal, &tenue)?);
     }
     if !empreintes.is_empty() {
         let refs = empreintes
@@ -199,7 +208,7 @@ fn brouillon_de(
 /// Donnée relue incohérente.
 pub fn reconstituer(
     e: &EcritureStockee,
-    tva: &ReferentielTva,
+    fiscal: &ParametresDuDossier<'_>,
     tenue: &DeviseTenue,
 ) -> Result<EcritureValidee, ErreurBase> {
     let empreintes: Vec<String> = e.pieces.iter().map(|p| p.empreinte.clone()).collect();
@@ -216,7 +225,7 @@ pub fn reconstituer(
             lignes: &e.lignes,
         },
         &empreintes,
-        tva,
+        fiscal,
         tenue,
     )
 }
@@ -252,10 +261,13 @@ pub struct ColonnesValidee<'a> {
 pub fn reconstituer_colonnes(
     c: &ColonnesValidee<'_>,
     empreintes: &[String],
-    tva: &ReferentielTva,
+    fiscal: &ParametresDuDossier<'_>,
     tenue: &DeviseTenue,
 ) -> Result<EcritureValidee, ErreurBase> {
     let incoherent = || ErreurBase::Donnee("écriture validée incohérente");
+    // Relecture « telle qu'enregistrée » : la version de l'écriture, sans égard aux dates de
+    // validité (une contre-passation copie l'étiquette de son origine, ADR 0019 point 1).
+    let version = fiscal.enregistree(c.version_parametres, c.date)?;
     let brouillon = brouillon_de(
         c.journal,
         c.date,
@@ -264,7 +276,7 @@ pub fn reconstituer_colonnes(
         c.version_parametres,
         c.lignes,
         empreintes,
-        tva,
+        version.map(|v| v as &dyn ReferentielFiscal),
         *tenue,
     )?;
     let equilibree = brouillon.valider_equilibre().map_err(|_| incoherent())?;
@@ -285,7 +297,7 @@ pub fn reconstituer_colonnes(
 /// Donnée relue incohérente (journal, texte, ligne).
 pub fn equilibree_du_brouillon(
     c: &ContenuStocke,
-    tva: &ReferentielTva,
+    fiscal: &ParametresDuDossier<'_>,
     tenue: &DeviseTenue,
 ) -> Result<Option<EcritureEquilibree>, ErreurBase> {
     // Brouillon saisi sous une autre devise de tenue : ses montants ne sont pas ceux du dossier,
@@ -293,6 +305,8 @@ pub fn equilibree_du_brouillon(
     if c.devise_tenue != tenue.devise().code() || c.decimales_tenue != tenue.decimales() {
         return Err(ErreurBase::Donnee("brouillon d'une autre devise de tenue"));
     }
+    // Édition provisoire : la version qui s'appliquerait à la date du brouillon.
+    let vue = fiscal.applicable(c.date).map(|v| v.a_la_date(c.date));
     let brouillon = brouillon_de(
         &c.journal,
         c.date,
@@ -301,7 +315,7 @@ pub fn equilibree_du_brouillon(
         None,
         &c.lignes,
         &[],
-        tva,
+        vue.as_ref().map(|v| v as &dyn ReferentielFiscal),
         *tenue,
     )?;
     Ok(brouillon.valider_equilibre().ok())
@@ -372,7 +386,7 @@ pub fn exiger_meme_tenue(c: &ContenuStocke, tenue: &DeviseTenue) -> Result<(), E
 pub fn preparer(
     b: &BrouillonStocke,
     empreintes: &[String],
-    tva: &ReferentielTva,
+    fiscal: &ParametresDuDossier<'_>,
     tenue: &DeviseTenue,
     exercices: &Exercices,
 ) -> Result<Preparee, ErreurApi> {
@@ -393,15 +407,28 @@ pub fn preparer(
             return Err(refus(MotifValidation::MontantEchelleTenue, Some(i)));
         }
     }
+    // Version des paramètres fiscaux : celle de la date comptable (ADR 0030). Les étiquettes sont
+    // recontrôlées contre elle, même si le brouillon a été saisi sous une autre version.
+    let version = fiscal.applicable(b.contenu.date);
+    let vue = version.map(|v| v.a_la_date(b.contenu.date));
+    for (i, l) in b.contenu.lignes.iter().enumerate() {
+        let Some(e) = &l.etiquette else { continue };
+        let Some(vue) = &vue else {
+            return Err(refus(MotifValidation::ParametresFiscauxAbsents, Some(i)));
+        };
+        if etiquette_stockee(e, vue) == Err(true) {
+            return Err(refus(MotifValidation::EtiquetteInvalide, Some(i)));
+        }
+    }
     let brouillon = brouillon_de(
         &b.contenu.journal,
         b.contenu.date,
         b.contenu.date_valeur_comptable,
         &b.contenu.libelle,
-        None,
+        version.map(ParametresFiscaux::identifiant),
         &b.contenu.lignes,
         empreintes,
-        tva,
+        vue.as_ref().map(|v| v as &dyn ReferentielFiscal),
         *tenue,
     )
     .map_err(|_| donnee())?;
@@ -539,13 +566,13 @@ pub(super) fn finaliser(validation: Validation, tete: &Tete) -> Result<Decision,
 pub fn appliquer(
     b: &BrouillonStocke,
     empreintes: &[String],
-    tva: &ReferentielTva,
+    fiscal: &ParametresDuDossier<'_>,
     contexte: &Contexte<'_>,
     dernier: impl FnOnce(&CodeJournal, &CodeExercice) -> u32,
     tete: &Tete,
     date_validation: Date,
 ) -> Result<Decision, ErreurApi> {
-    let p = preparer(b, empreintes, tva, &contexte.tenue, contexte.exercices)?;
+    let p = preparer(b, empreintes, fiscal, &contexte.tenue, contexte.exercices)?;
     let d = match p.exercice() {
         Some(e) => dernier(p.journal(), e),
         None => 0,
@@ -702,7 +729,7 @@ pub(super) async fn valider(
         return Err(ErreurApi::Introuvable);
     }
     let CorpsVersion { version } = corps(requete.corps)?;
-    let tva = referentiel_tva()?;
+    let registre = requete.registre_fiscal()?;
     let utilisateur = tx.contexte().id_utilisateur().uuid();
 
     // 1. Verrous, dans l'ordre de l'ADR 0011 et de l'ADR 0020 : calendrier, brouillon, comptes et
@@ -742,7 +769,8 @@ pub(super) async fn valider(
     // Avant tout contrôle de forme : un brouillon d'une autre devise de tenue est périmé (409),
     // pas « invalide » ; la devise est relue après le verrou de la tête ci-dessous.
     exiger_meme_tenue(&b.contenu, &tenue)?;
-    let preparee = preparer(&b, &empreintes, tva, &tenue, referentiel.exercices())?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &[]);
+    let preparee = preparer(&b, &empreintes, &fiscal, &tenue, referentiel.exercices())?;
     let journal_id = referentiel
         .id_journal(preparee.journal())
         .ok_or_else(donnee)?;
@@ -1109,6 +1137,22 @@ mod tests {
         }
     }
 
+    /// Registre officiel, chargé une fois pour les tests.
+    fn registre() -> &'static fiscal::Registre {
+        static R: std::sync::OnceLock<fiscal::Registre> = std::sync::OnceLock::new();
+        R.get_or_init(|| fiscal::Registre::officiel().unwrap())
+    }
+
+    /// Versions d'un dossier du Sénégal.
+    fn fiscal() -> ParametresDuDossier<'static> {
+        ParametresDuDossier::nouveau(registre(), "SN", &[])
+    }
+
+    /// Version 2025.1 du Sénégal.
+    fn ref_sn() -> &'static ParametresFiscaux {
+        &registre().versions_du_pays("SN")[0]
+    }
+
     fn stockee(sens: &'static str, compte: &str, montant: &str) -> LigneStockee {
         LigneStockee {
             compte: compte.to_owned(),
@@ -1200,6 +1244,7 @@ mod tests {
                 libelle: "Nominal".to_owned(),
                 devise_tenue: "XOF".to_owned(),
                 decimales_tenue: 0,
+                version_parametres: None,
                 lignes: vec![
                     stockee("debit", &d.caisse, "1000"),
                     stockee("credit", &d.banque, "1000.00"),
@@ -1222,7 +1267,7 @@ mod tests {
         let r = appliquer(
             &b,
             &["b".repeat(64)],
-            referentiel_tva().unwrap(),
+            &fiscal(),
             &contexte,
             |_, _| 230,
             &tete,
@@ -1278,6 +1323,7 @@ mod tests {
                 libelle: "Échelle".to_owned(),
                 devise_tenue: "XOF".to_owned(),
                 decimales_tenue: 0,
+                version_parametres: None,
                 lignes: vec![
                     stockee("debit", &d.caisse, debit),
                     stockee("credit", &d.banque, credit),
@@ -1300,7 +1346,7 @@ mod tests {
         appliquer(
             &b,
             &["b".repeat(64)],
-            referentiel_tva().unwrap(),
+            &fiscal(),
             &contexte,
             |_, _| 0,
             &tete,
@@ -1378,6 +1424,7 @@ mod tests {
                     libelle: "Tardive".to_owned(),
                     devise_tenue: "XOF".to_owned(),
                     decimales_tenue: 0,
+                    version_parametres: None,
                     lignes: vec![
                         stockee("debit", &d.caisse, "1000"),
                         stockee("credit", &d.banque, "1000"),
@@ -1396,7 +1443,7 @@ mod tests {
             appliquer(
                 &b,
                 &["c".repeat(64)],
-                referentiel_tva().unwrap(),
+                &fiscal(),
                 &contexte,
                 |_, _| 0,
                 &tete,
@@ -1418,7 +1465,7 @@ mod tests {
         #[test]
         fn l_application_est_celle_du_livre(ops in operations()) {
             let d = decor();
-            let tva = referentiel_tva().unwrap();
+            let fiscal = fiscal();
             let etat = d.inst.etat();
             let contexte = Contexte {
                 plan: &etat.plan,
@@ -1463,6 +1510,7 @@ mod tests {
                         lignes,
                         devise_tenue: "XOF".to_owned(),
                         decimales_tenue: 0,
+                        version_parametres: None,
                     },
                     a_revoir: false,
                     a_revoir_par: None,
@@ -1481,7 +1529,7 @@ mod tests {
                 let resultat = appliquer(
                     &b,
                     &empreintes,
-                    tva,
+                    &fiscal,
                     &contexte,
                     |j, e| derniers.get(&(j.clone(), e.clone())).copied().unwrap_or(0),
                     &tete,
@@ -1490,8 +1538,8 @@ mod tests {
 
                 // Côté `Livre`.
                 let brouillon = brouillon_de(
-                    &b.contenu.journal, date, date_valeur, &b.contenu.libelle, None,
-                    &b.contenu.lignes, &empreintes, tva, tenue_xof(),
+                    &b.contenu.journal, date, date_valeur, &b.contenu.libelle, Some("sn-2025.1"),
+                    &b.contenu.lignes, &empreintes, Some(ref_sn()), tenue_xof(),
                 ).unwrap();
                 let attendu: Result<(NumeroEcriture, String), ErreurApi> = match brouillon.valider_equilibre() {
                     Err(r) => Err(refus(motif_ecriture(r.erreur()), None)),
@@ -1567,13 +1615,13 @@ mod tests {
             date!(2026 - 03 - 15),
             None,
             "Origine",
-            None,
+            Some("sn-2025.1"),
             &[
                 stockee("debit", &d.caisse, "1000"),
                 stockee("credit", &d.banque, "1000"),
             ],
             &empreintes,
-            referentiel_tva().unwrap(),
+            Some(ref_sn()),
             tenue_xof(),
         )
         .unwrap();
@@ -1674,7 +1722,7 @@ mod tests {
             ) {
                 use super::super::contre_passation::decider_contre_passation;
                 let d = decor();
-                let tva = referentiel_tva().unwrap();
+                let fiscal = fiscal();
                 let etat = d.inst.etat();
                 let contexte = Contexte {
                     plan: &etat.plan,
@@ -1762,6 +1810,7 @@ mod tests {
                             libelle: "Parité".to_owned(),
                                                     devise_tenue: "XOF".to_owned(),
                             decimales_tenue: 0,
+                            version_parametres: None,
     lignes: vec![
                                 stockee("debit", &d.caisse, "1000"),
                                 stockee("credit", &d.banque, "1000"),
@@ -1781,7 +1830,7 @@ mod tests {
                     let resultat = appliquer(
                         &b,
                         &empreintes,
-                        tva,
+                        &fiscal,
                         &contexte,
                         |j, e| derniers.get(&(j.clone(), e.clone())).copied().unwrap_or(0),
                         &tete,
@@ -1790,8 +1839,8 @@ mod tests {
                     if let Ok(r) = resultat {
                         // Même moteur que `Livre` : on rejoue l'écriture dans le livre.
                         let brouillon = brouillon_de(
-                            &b.contenu.journal, DATES[date], None, &b.contenu.libelle, None,
-                            &b.contenu.lignes, &empreintes, tva, tenue_xof(),
+                            &b.contenu.journal, DATES[date], None, &b.contenu.libelle, Some("sn-2025.1"),
+                            &b.contenu.lignes, &empreintes, Some(ref_sn()), tenue_xof(),
                         ).unwrap();
                         let eq = brouillon.valider_equilibre().unwrap();
                         let exercice = contexte.exercices.exercice_contenant(DATES[date]).unwrap().code().clone();

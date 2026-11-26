@@ -42,6 +42,7 @@ use crate::base::organisation::{
 };
 use crate::base::referentiel::charger;
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
+use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::pieces::interne;
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
@@ -53,7 +54,6 @@ mod saisie;
 pub mod validation;
 
 pub(crate) use saisie::date_lue;
-pub use saisie::referentiel_tva;
 
 /// Cas d'usage du module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -676,14 +676,17 @@ fn donnees_liste(trace: &mut Trace, noms: &[&'static str; 10], ids: &[String]) {
 async fn contenu_controle(
     tx: &mut TransactionTenant,
     c: &saisie::CorpsContenu,
+    registre: &fiscal::Registre,
 ) -> Result<ContenuStocke, ErreurApi> {
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
-    let tva = referentiel_tva()?;
     // Verrou partagé sur la ligne du dossier, tenu jusqu'à la fin de la transaction : une
     // modification du contexte (pays, devise) attend que ce brouillon soit enregistré, puis le
     // voit et refuse (ADR 0027 ; ordre des verrous : ligne du dossier, périodes, audit).
-    let tenue = lire_contexte_verrouille_en_partage(tx).await?.tenue()?;
-    let controle = saisie::controler(c, &referentiel, tva, tenue)?;
+    let contexte = lire_contexte_verrouille_en_partage(tx).await?;
+    let tenue = contexte.tenue()?;
+    // Paramètres fiscaux du pays du dossier, à la date comptable (ADR 0030).
+    let fiscal = ParametresDuDossier::nouveau(registre, &contexte.pays, &[]);
+    let controle = saisie::controler(c, &referentiel, &fiscal, tenue)?;
     let contenu = controle.contenu;
     let visee = brouillard::verrouiller_date(tx, contenu.date)
         .await?
@@ -746,7 +749,7 @@ async fn creer(
     if c.version.is_some() {
         return Err(ErreurApi::RequeteInvalide);
     }
-    let contenu = contenu_controle(tx, &c).await?;
+    let contenu = contenu_controle(tx, &c, requete.registre_fiscal()?).await?;
     let id = Uuid::new_v4();
     brouillard::creer(tx, id, &contenu, maintenant()).await?;
     let b = relire(tx, id).await?;
@@ -768,7 +771,7 @@ async fn modifier(
     sans_parametres(requete)?;
     let c: saisie::CorpsContenu = corps(requete.corps)?;
     let version = c.version.ok_or(ErreurApi::RequeteInvalide)?;
-    let contenu = contenu_controle(tx, &c).await?;
+    let contenu = contenu_controle(tx, &c, requete.registre_fiscal()?).await?;
     verrouiller_a_la_version(tx, id, version).await?;
     let avant = relire(tx, id).await?;
     // Un brouillon saisi sous une autre devise de tenue ne se modifie pas : il se refait.

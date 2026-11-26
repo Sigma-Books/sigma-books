@@ -259,7 +259,7 @@ pub async fn brouillons_entre(
     let entetes = sqlx::query!(
         r#"
         SELECT b.id, b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,
-               b.libelle, b.devise_tenue, b.decimales_tenue
+               b.libelle, b.devise_tenue, b.decimales_tenue, b.version_parametres
         FROM brouillon b
         JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id
                       AND j.id = b.journal_id
@@ -327,6 +327,7 @@ pub async fn brouillons_entre(
                 devise_tenue: b.devise_tenue,
                 decimales_tenue: u8::try_from(b.decimales_tenue)
                     .map_err(|_| ErreurBase::Donnee("échelle de brouillon invalide"))?,
+                version_parametres: b.version_parametres,
             })
         })
         .collect::<Result<Vec<_>, ErreurBase>>()?;

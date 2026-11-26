@@ -343,6 +343,20 @@ pub struct Requete<'a> {
     pub chemin: &'a RawPathParams,
     /// Service des pièces, s'il est branché (voie pièces, PR 12).
     pub pieces: Option<&'a crate::pieces::Pieces>,
+    /// Registre des paramètres fiscaux par pays (ADR 0030) ; absent seulement si les données
+    /// embarquées sont invalides (le serveur refuse alors de démarrer).
+    pub fiscal: Option<&'a fiscal::Registre>,
+}
+
+impl Requete<'_> {
+    /// Registre des paramètres fiscaux.
+    ///
+    /// # Errors
+    /// 500 (catégorie `donnee`) si le registre n'est pas disponible.
+    pub fn registre_fiscal(&self) -> Result<&fiscal::Registre, ErreurApi> {
+        self.fiscal
+            .ok_or(ErreurApi::Interne(CategorieErreur::Donnee))
+    }
 }
 
 /// Résultat d'un cas d'usage : la réponse, et les traces à inscrire au journal d'audit avant

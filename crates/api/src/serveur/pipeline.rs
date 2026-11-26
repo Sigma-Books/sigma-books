@@ -705,6 +705,7 @@ async fn traiter_requete(
         editions_max: etat.reglages.editions_ecritures_max,
         chemin: &parametres,
         pieces: etat.pieces(),
+        fiscal: etat.registre_fiscal(),
     };
     let resultat = executer(route.cas_usage, &mut tx, &garde, &requete).await?;
     // Une réponse d'erreur du cas d'usage (409 d'un lot refusé, par exemple) n'écrit rien : la

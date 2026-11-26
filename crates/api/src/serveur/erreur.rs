@@ -326,6 +326,12 @@ pub enum MotifValidation {
     MontantEchelleExcessive,
     /// Montant de ligne qui a plus de décimales que l'échelle de la devise de tenue du dossier.
     MontantEchelleTenue,
+    /// Étiquette fiscale refusée par la version des paramètres fiscaux de la date comptable
+    /// (régime, motif ou taux que cette version ne connaît pas ou que sa validité exclut).
+    EtiquetteInvalide,
+    /// Ligne étiquetée alors qu'aucune version des paramètres fiscaux du pays ne s'applique à la
+    /// date comptable (ADR 0030).
+    ParametresFiscauxAbsents,
     /// Autre invalidité de l'écriture (montant, texte).
     EcritureInvalide,
     /// Contenu qui ne se relit pas à l'identique du format canonique.
@@ -342,7 +348,7 @@ pub enum MotifValidation {
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 29] = [
+    pub const TOUS: [Self; 31] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -366,6 +372,8 @@ impl MotifValidation {
         Self::DateValeurNonAnterieure,
         Self::MontantEchelleExcessive,
         Self::MontantEchelleTenue,
+        Self::EtiquetteInvalide,
+        Self::ParametresFiscauxAbsents,
         Self::EcritureInvalide,
         Self::NonRepresentable,
         Self::PaysInconnu,
@@ -418,6 +426,8 @@ impl MotifValidation {
             Self::DateValeurNonAnterieure => "validation_date_valeur_non_anterieure",
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
             Self::MontantEchelleTenue => "validation_montant_echelle_devise_tenue",
+            Self::EtiquetteInvalide => "etiquette_invalide",
+            Self::ParametresFiscauxAbsents => "validation_parametres_fiscaux_absents",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
             Self::PaysInconnu => "pays_inconnu",

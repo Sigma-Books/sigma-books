@@ -172,6 +172,11 @@ pub struct Application {
     //
     // Voie pièces (PR 12) : stockage objet des pièces ([`Application::brancher_pieces`]).
     pieces: OnceLock<Pieces>,
+    /// Paramètres fiscaux par pays (ADR 0030) : le registre officiel, chargé et validé à la
+    /// construction (`None` s'il est invalide : le binaire le contrôle et refuse de démarrer).
+    fiscal_officiel: Option<fiscal::Registre>,
+    /// Registre substitué (tests : paquet d'un autre pays).
+    fiscal_remplace: OnceLock<fiscal::Registre>,
 }
 
 /// Connexions du pool des lectures à instantané unique ([`Application::pool_lectures`]).
@@ -235,7 +240,27 @@ impl Application {
             facteurs: facteurs::EtatFacteurs::new(&reglages.facteurs, &reglages.origine),
             reglages,
             pieces: OnceLock::new(),
+            fiscal_officiel: fiscal::Registre::officiel().ok(),
+            fiscal_remplace: OnceLock::new(),
         })
+    }
+
+    /// Substitue le registre des paramètres fiscaux, une seule fois, avant de servir (tests :
+    /// paquet d'un autre pays).
+    ///
+    /// # Errors
+    /// Le registre rendu s'il était déjà substitué.
+    pub fn remplacer_registre_fiscal(
+        &self,
+        registre: fiscal::Registre,
+    ) -> Result<(), fiscal::Registre> {
+        self.fiscal_remplace.set(registre)
+    }
+
+    /// Registre des paramètres fiscaux par pays.
+    #[must_use]
+    pub fn registre_fiscal(&self) -> Option<&fiscal::Registre> {
+        self.fiscal_remplace.get().or(self.fiscal_officiel.as_ref())
     }
 
     /// Branche le service des pièces (ADR 0015), une seule fois, avant de servir. Sans lui,

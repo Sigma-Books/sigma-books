@@ -19,6 +19,7 @@ pub mod envoi;
 pub mod facteurs;
 pub mod horodatage;
 pub mod instance;
+pub mod parametres_fiscaux;
 pub mod pieces;
 pub mod serveur;
 pub mod verification;

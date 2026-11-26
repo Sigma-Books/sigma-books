@@ -20,7 +20,6 @@ mod commun;
 
 use api::base::validation as base;
 use api::base::{ContexteTenant, ouvrir_transaction};
-use api::serveur::routes::brouillard::referentiel_tva;
 use api::serveur::routes::brouillard::validation::reconstituer;
 use axum::http::StatusCode;
 use commun::banc::{Banc, aujourd, banc, banc_avec, banque, caisse, contenu};
@@ -280,7 +279,7 @@ async fn relues(b: &Banc) -> Vec<compta_core::EcritureValidee> {
     let mut rendues = Vec::new();
     for id in ids {
         let e = base::lire(&mut tx, id).await.unwrap().unwrap();
-        rendues.push(reconstituer(&e, referentiel_tva().unwrap(), &commun::tenue_xof()).unwrap());
+        rendues.push(reconstituer(&e, &commun::fiscal_sn(), &commun::tenue_xof()).unwrap());
     }
     tx.annuler().await.unwrap();
     rendues
@@ -356,7 +355,7 @@ async fn un_export_sans_jeton_est_integre_et_en_v4_avec_une_etiquette_fiscale() 
     assert!(rapport.anomalies.is_empty(), "{:?}", rapport.anomalies);
     // Une écriture à étiquette fiscale : export v4.
     let etiquetee = format!(
-        r#"{{"compte":"{}","sens":"debit","montant":"500","etiquette":{{"nature":"base","sens":"collectee","regime":"IMP18","taux":"18","exigibilite":"debit"}}}}"#,
+        r#"{{"compte":"{}","sens":"debit","montant":"500","etiquette":{{"nature":"base","sens":"collectee","regime":"TAXABLE_NORMAL","taux":"18","exigibilite":"debit"}}}}"#,
         caisse()
     );
     let (id, v) = b

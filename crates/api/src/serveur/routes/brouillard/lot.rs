@@ -41,12 +41,13 @@ use super::validation::{
     donnee_audit_avertissements, exiger_meme_tenue, preparer, roles_des_pieces,
     vues_avertissements,
 };
-use super::{conflit, corps, referentiel_tva, sans_parametres, trace_de};
+use super::{conflit, corps, sans_parametres, trace_de};
 use crate::base::TransactionTenant;
 use crate::base::brouillard::{self, BrouillonStocke};
 use crate::base::organisation::{lire_appartenance, lire_cabinet, lire_contexte_du_dossier};
 use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, PieceVerrouillee, Tete};
+use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::pieces::interne;
 use crate::serveur::erreur::{ErreurApi, MotifConflit, RefusLot, reponse_lot_refuse};
 use crate::serveur::pipeline::{DossierAutorise, Garde};
@@ -142,7 +143,7 @@ pub(super) async fn valider_par_lot(
 ) -> Result<Resultat, ErreurApi> {
     sans_parametres(requete)?;
     let demandees = elements(requete)?;
-    let tva = referentiel_tva()?;
+    let registre = requete.registre_fiscal()?;
     let utilisateur = tx.contexte().id_utilisateur().uuid();
 
     // Ré-authentification : recontrôlée ici, même si Cedar se trompait.
@@ -207,6 +208,7 @@ pub(super) async fn valider_par_lot(
     base::verrouiller_comptes_et_tiers(tx, &comptes, &tiers).await?;
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
     let tenue = dossier.contexte().tenue()?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &[]);
     let toutes_pieces: Vec<Uuid> = candidates
         .iter()
         .flat_map(|b| b.pieces.iter().map(|l| l.piece))
@@ -227,7 +229,7 @@ pub(super) async fn valider_par_lot(
         let controle = controler_pieces(&b, &pieces).and_then(|()| {
             exiger_meme_tenue(&b.contenu, &tenue)?;
             let empreintes: Vec<String> = pieces.iter().map(|p| p.empreinte.clone()).collect();
-            let preparee = preparer(&b, &empreintes, tva, &tenue, referentiel.exercices())?;
+            let preparee = preparer(&b, &empreintes, &fiscal, &tenue, referentiel.exercices())?;
             let journal_id = referentiel
                 .id_journal(preparee.journal())
                 .ok_or_else(donnee)?;

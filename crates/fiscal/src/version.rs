@@ -903,3 +903,24 @@ impl ReferentielFiscal for VueAuJour<'_> {
             .any(|m| &m.regime == regime && &m.code == motif)
     }
 }
+
+/// Relecture « telle qu'enregistrée » : tous les régimes et motifs de la version, sans égard aux
+/// dates de validité. Elle sert à relire une écriture déjà validée (et sa contre-passation, qui
+/// copie l'étiquette de l'origine sans la recontrôler à sa propre date, ADR 0019 point 1) ; le
+/// contrôle d'une écriture **nouvelle** passe par [`ParametresFiscaux::a_la_date`].
+impl ReferentielFiscal for ParametresFiscaux {
+    fn profil_regime(&self, code: &CodeRegime) -> Option<ProfilRegime> {
+        self.regime(code.as_str()).map(|r| {
+            ProfilRegime::nouveau(
+                r.exonere,
+                r.ligne_taxe,
+                r.taux.clone(),
+                r.exigibilites_etiquette.clone(),
+            )
+        })
+    }
+
+    fn motif_admis(&self, regime: &CodeRegime, motif: &CodeMotif) -> bool {
+        self.motifs_du_regime(regime).any(|m| &m.code == motif)
+    }
+}

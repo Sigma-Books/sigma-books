@@ -341,7 +341,7 @@ async fn contre_passation_nominale() {
     let b = banc().await;
     // Une écriture avec étiquette fiscale (format v3), justifiée par une pièce.
     let etiquetee = format!(
-        r#"{{"compte":"{}","sens":"debit","montant":"1000","etiquette":{{"nature":"base","sens":"collectee","regime":"IMP18","taux":"18","exigibilite":"debit"}}}}"#,
+        r#"{{"compte":"{}","sens":"debit","montant":"1000","etiquette":{{"nature":"base","sens":"collectee","regime":"TAXABLE_NORMAL","taux":"18","exigibilite":"debit"}}}}"#,
         caisse()
     );
     let (id, v) = b
@@ -376,7 +376,7 @@ async fn contre_passation_nominale() {
             (
                 caisse().to_owned(),
                 "credit".to_owned(),
-                Some("IMP18".to_owned())
+                Some("TAXABLE_NORMAL".to_owned())
             ),
             (banque().to_owned(), "debit".to_owned(), None),
         ]

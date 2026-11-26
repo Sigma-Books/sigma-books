@@ -14,34 +14,19 @@
 //! fiche. Un fournisseur passe sur 4011, 4091 ou 4081 (fiche 40), pas sur 411 (fiche 41) ni
 //! sur un compte sans fiche.
 
-use std::sync::OnceLock;
-
 use compta_core::{
     CodeJournal, CodeMotif, CodeRegime, Cours, Devise, DeviseTenue, EcritureBrouillon,
     ErreurEtiquette, ErreurMontant, ErreurPlan, EtiquetteFiscale, Exigibilite, IdTiers, Ligne,
-    Montant, NatureEtiquette, NumeroCompte, Sens, SensTva, TauxTva, TexteCourt,
+    Montant, NatureEtiquette, NumeroCompte, ReferentielFiscal, Sens, SensTva, TauxTva, TexteCourt,
 };
-use fiscal_sn::ReferentielTva;
 use serde::Deserialize;
 use time::{Date, Month};
 use uuid::Uuid;
 
-use crate::base::ErreurBase;
 use crate::base::brouillard::{ContenuStocke, LIGNES_MAX, LigneStockee, RefusSaisie};
 use crate::base::referentiel::{ReferentielDossier, types_de_tiers_admis};
+use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::serveur::erreur::ErreurApi;
-
-/// Référentiel de TVA de `fiscal-sn`, chargé et validé une fois (le serveur le charge au
-/// démarrage et refuse de démarrer s'il est invalide).
-///
-/// # Errors
-/// [`ErreurBase::Donnee`] si les données embarquées sont invalides.
-pub fn referentiel_tva() -> Result<&'static ReferentielTva, ErreurBase> {
-    static TVA: OnceLock<Option<ReferentielTva>> = OnceLock::new();
-    TVA.get_or_init(|| ReferentielTva::charger().ok())
-        .as_ref()
-        .ok_or(ErreurBase::Donnee("référentiel de TVA invalide"))
-}
 
 /// Corps de la création et de la modification (`version` : modification seulement).
 #[derive(Debug, Deserialize)]
@@ -138,7 +123,7 @@ fn motif_etiquette(e: &ErreurEtiquette) -> RefusSaisie {
 
 fn etiquette(
     c: &CorpsEtiquette,
-    tva: &ReferentielTva,
+    fiscal: Option<&dyn ReferentielFiscal>,
     ligne: usize,
 ) -> Result<EtiquetteFiscale, ErreurApi> {
     let invalide = ErreurApi::RequeteInvalide;
@@ -163,7 +148,10 @@ fn etiquette(
         .map(CodeMotif::parse)
         .transpose()
         .map_err(|e| sur(&e))?;
-    EtiquetteFiscale::nouvelle(nature, sens, regime, taux, exigibilite, motif, tva)
+    // Aucune version des paramètres fiscaux à la date de l'écriture : l'étiquette n'a aucun
+    // référentiel (ADR 0030 point 3).
+    let fiscal = fiscal.ok_or_else(|| refus(RefusSaisie::ParametresFiscauxAbsents, Some(ligne)))?;
+    EtiquetteFiscale::nouvelle(nature, sens, regime, taux, exigibilite, motif, fiscal)
         .map_err(|e| sur(&e))
 }
 
@@ -181,7 +169,7 @@ fn ligne(
     c: &CorpsLigne,
     position: usize,
     referentiel: &ReferentielDossier,
-    tva: &ReferentielTva,
+    fiscal: Option<&dyn ReferentielFiscal>,
     tenue: DeviseTenue,
 ) -> Result<Ligne, ErreurApi> {
     let numero = NumeroCompte::parse(&c.compte)
@@ -254,19 +242,20 @@ fn ligne(
         ligne = ligne.avec_tiers(id_tiers);
     }
     if let Some(e) = &c.etiquette {
-        ligne = ligne.avec_etiquette(etiquette(e, tva, position)?);
+        ligne = ligne.avec_etiquette(etiquette(e, fiscal, position)?);
     }
     Ok(ligne)
 }
 
-/// Contrôle une saisie contre le référentiel du dossier relu et celui de la TVA.
+/// Contrôle une saisie contre le référentiel du dossier relu et les paramètres fiscaux de la
+/// date comptable.
 ///
 /// # Errors
 /// 400 pour une forme invalide, 422 pour une saisie invalide en soi (un code par motif).
 pub(super) fn controler(
     corps: &CorpsContenu,
     referentiel: &ReferentielDossier,
-    tva: &ReferentielTva,
+    fiscal: &ParametresDuDossier<'_>,
     tenue: DeviseTenue,
 ) -> Result<Controle, ErreurApi> {
     let libelle = TexteCourt::parse(&corps.libelle).map_err(|_| ErreurApi::RequeteInvalide)?;
@@ -294,11 +283,21 @@ pub(super) fn controler(
     if corps.lignes.len() > LIGNES_MAX {
         return Err(refus(RefusSaisie::TropDeLignes, None));
     }
+    // Version des paramètres fiscaux de la date comptable : contrôle les étiquettes (valides ce
+    // jour-là) et s'enregistre avec le brouillon.
+    let version = fiscal.applicable(date);
+    let vue = version.map(|v| v.a_la_date(date));
     let mut ecriture = EcritureBrouillon::nouvelle(code, date, libelle.clone());
     ecriture.mentionner_date_valeur_comptable(date_valeur);
     let mut lignes = Vec::with_capacity(corps.lignes.len());
     for (i, c) in corps.lignes.iter().enumerate() {
-        let l = ligne(c, i + 1, referentiel, tva, tenue)?;
+        let l = ligne(
+            c,
+            i + 1,
+            referentiel,
+            vue.as_ref().map(|v| v as &dyn ReferentielFiscal),
+            tenue,
+        )?;
         lignes.push(LigneStockee::depuis(&l)?);
         ecriture.ajouter_ligne(l);
     }
@@ -312,6 +311,7 @@ pub(super) fn controler(
             lignes,
             devise_tenue: tenue.devise().code().to_owned(),
             decimales_tenue: tenue.decimales(),
+            version_parametres: version.map(|v| v.identifiant().to_owned()),
         },
     })
 }
@@ -343,10 +343,5 @@ mod tests {
         assert!(hors_borne("100000000000000000000.5"));
         assert!(hors_borne("-100000000000000000000"));
         assert!(!hors_borne("0.5"));
-    }
-
-    #[test]
-    fn le_referentiel_de_tva_se_charge() {
-        assert!(referentiel_tva().is_ok());
     }
 }

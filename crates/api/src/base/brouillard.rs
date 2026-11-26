@@ -129,6 +129,9 @@ pub enum RefusSaisie {
     EtiquetteExigibiliteManquante,
     /// Étiquette fiscale : exigibilité non admise.
     EtiquetteExigibiliteNonAdmise,
+    /// Étiquette fiscale sans aucune version des paramètres fiscaux du pays à la date comptable
+    /// (écriture antérieure à la première version, ou pays sans paquet) : ADR 0030.
+    ParametresFiscauxAbsents,
 }
 
 impl RefusSaisie {
@@ -162,11 +165,12 @@ impl RefusSaisie {
             Self::EtiquetteTauxNonAdmis => "etiquette_taux_non_admis",
             Self::EtiquetteExigibiliteManquante => "etiquette_exigibilite_manquante",
             Self::EtiquetteExigibiliteNonAdmise => "etiquette_exigibilite_non_admise",
+            Self::ParametresFiscauxAbsents => "parametres_fiscaux_absents",
         }
     }
 
     /// Tous les motifs (test de l'unicité des codes).
-    pub const TOUS: [Self; 26] = [
+    pub const TOUS: [Self; 27] = [
         Self::JournalInconnu,
         Self::JournalSansSaisie,
         Self::DateHorsExercice,
@@ -193,6 +197,7 @@ impl RefusSaisie {
         Self::EtiquetteTauxNonAdmis,
         Self::EtiquetteExigibiliteManquante,
         Self::EtiquetteExigibiliteNonAdmise,
+        Self::ParametresFiscauxAbsents,
     ];
 }
 
@@ -357,6 +362,9 @@ pub struct ContenuStocke {
     pub devise_tenue: String,
     /// Décimales de cette devise de tenue.
     pub decimales_tenue: u8,
+    /// Version des paramètres fiscaux appliquée à la dernière saisie (ADR 0030) : celle de la
+    /// date comptable, `None` si aucune ne s'applique. Informative : la validation la recalcule.
+    pub version_parametres: Option<String>,
 }
 
 /// Lien d'une pièce à un brouillon.
@@ -610,8 +618,8 @@ pub async fn creer(
         r#"
         INSERT INTO brouillon (cabinet_id, dossier_id, id, journal_id, date_comptable,
                                date_valeur_comptable, libelle, cree_par, cree_le, modifie_par,
-                               modifie_le, devise_tenue, decimales_tenue)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8, $9, $10, $11)
+                               modifie_le, devise_tenue, decimales_tenue, version_parametres)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8, $9, $10, $11, $12)
         "#,
         cabinet.uuid(),
         dossier.uuid(),
@@ -624,6 +632,7 @@ pub async fn creer(
         instant,
         contenu.devise_tenue,
         i16::from(contenu.decimales_tenue),
+        contenu.version_parametres,
     )
     .execute(tx.connexion())
     .await?;
@@ -666,7 +675,8 @@ pub async fn remplacer(
         r#"
         UPDATE brouillon
         SET journal_id = $4, date_comptable = $5, date_valeur_comptable = $6, libelle = $7,
-            version = version + 1, modifie_par = $8, modifie_le = $9
+            version = version + 1, modifie_par = $8, modifie_le = $9,
+            version_parametres = $10
         WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3
         RETURNING version
         "#,
@@ -679,6 +689,7 @@ pub async fn remplacer(
         contenu.libelle,
         auteur,
         instant,
+        contenu.version_parametres,
     )
     .fetch_optional(tx.connexion())
     .await?
@@ -992,6 +1003,7 @@ pub async fn contributeurs(
 ///
 /// # Errors
 /// Contexte sans dossier, ligne relue incohérente, erreur de PostgreSQL.
+#[allow(clippy::too_many_lines)]
 pub async fn lire(
     tx: &mut TransactionTenant,
     id: Uuid,
@@ -1001,7 +1013,8 @@ pub async fn lire(
         r#"
         SELECT b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,
                b.libelle, b.a_revoir, b.a_revoir_par, b.version, b.cree_par, b.cree_le,
-               b.modifie_par, b.modifie_le, b.devise_tenue, b.decimales_tenue
+               b.modifie_par, b.modifie_le, b.devise_tenue, b.decimales_tenue,
+               b.version_parametres
         FROM brouillon b
         JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id
                       AND j.id = b.journal_id
@@ -1083,6 +1096,7 @@ pub async fn lire(
             devise_tenue: b.devise_tenue,
             decimales_tenue: u8::try_from(b.decimales_tenue)
                 .map_err(|_| ErreurBase::Donnee("échelle de brouillon invalide"))?,
+            version_parametres: b.version_parametres,
         },
         a_revoir: b.a_revoir,
         a_revoir_par: b.a_revoir_par,

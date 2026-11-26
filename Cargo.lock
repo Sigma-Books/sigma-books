@@ -1750,7 +1750,6 @@ dependencies = [
  "cms",
  "compta-core",
  "der",
- "fiscal",
  "proptest",
  "rsa",
  "rust_decimal",

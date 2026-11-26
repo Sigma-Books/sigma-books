@@ -305,7 +305,7 @@ async fn chaque_refus_de_saisie() {
     .unwrap();
     let etiquette = |extra: &str| {
         format!(
-            r#"{{"compte":"{caisse}","sens":"debit","montant":"1000","etiquette":{{"nature":"base","sens":"collectee","regime":"IMP18"{extra}}}}}"#
+            r#"{{"compte":"{caisse}","sens":"debit","montant":"1000","etiquette":{{"nature":"base","sens":"collectee","regime":"TAXABLE_NORMAL"{extra}}}}}"#
         )
     };
     let regroupement = c.base.as_str();
@@ -450,7 +450,12 @@ async fn chaque_refus_de_saisie() {
         ),
         (
             "étiquette : régime inconnu",
-            corps(&j, &d, &[etiquette("").replace("IMP18", "XXX999")], ""),
+            corps(
+                &j,
+                &d,
+                &[etiquette("").replace("TAXABLE_NORMAL", "XXX999")],
+                "",
+            ),
             StatusCode::UNPROCESSABLE_ENTITY,
             "etiquette_regime_inconnu",
         ),
@@ -477,7 +482,7 @@ async fn chaque_refus_de_saisie() {
                 &j,
                 &d,
                 &[etiquette(
-                    r#","taux":"18","exigibilite":"debit","motif":"IMP18-1""#,
+                    r#","taux":"18","exigibilite":"debit","motif":"TAXABLE_NORMAL-1""#,
                 )],
                 "",
             ),
@@ -548,7 +553,10 @@ async fn chaque_refus_de_saisie() {
     );
     let r = b.creer(b.c.collaborateur, &bonne).await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
-    assert_eq!(r.json()["lignes"][0]["etiquette"]["regime"], "IMP18");
+    assert_eq!(
+        r.json()["lignes"][0]["etiquette"]["regime"],
+        "TAXABLE_NORMAL"
+    );
     assert_eq!(r.json()["lignes"][0]["etiquette"]["taux"], "18");
     // Seul le brouillon valide existe : rien n'a été écrit par les refus.
     assert_eq!(b.compter("brouillon").await, 1);
