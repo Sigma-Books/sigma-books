@@ -676,7 +676,7 @@ dépendance ajoutée). De même, `.sqlx/` se régénère par `cargo sqlx prepare
 
 ## Paramètres fiscaux par pays (ADR 0030)
 
-Code : `src/parametres_fiscaux.rs` (versions que voit un dossier, version enregistrée), crate `crates/fiscal` (socle, paquets de pays, registre ; `api` ne nomme aucun pays), migration `0207`.
+Code : `src/parametres_fiscaux.rs` (versions que voit un dossier, version enregistrée, rétention), crate `crates/fiscal` (socle, paquets de pays, registre ; `api` ne nomme aucun pays), migration `0207`.
 
 - **Registre** : `Application` porte `fiscal::Registre::officiel()` (validé au démarrage : le binaire refuse de démarrer s'il est invalide) ; `Requete::registre_fiscal()` le donne au cas d'usage ; les tests le substituent (`Application::remplacer_registre_fiscal`). Le pays vient du contexte du dossier (ADR 0027).
 - **Version choisie par la date comptable** de l'écriture : `ParametresDuDossier::applicable(date)`. La saisie contrôle les étiquettes contre elle (valides ce jour-là), le brouillon enregistre `version_parametres`, la validation (unitaire, lot) la recalcule, **recontrôle les étiquettes** (422 `etiquette_invalide`) et l'enregistre dans l'écriture (colonne et clé `parametres=` du contenu haché). La contre-passation reprend la version de son origine. Les relectures (éditions, contre-passation) utilisent la **version enregistrée**, sans égard aux dates de validité.
@@ -684,3 +684,4 @@ Code : `src/parametres_fiscaux.rs` (versions que voit un dossier, version enregi
 - Les vues du brouillon et de l'écriture validée rendent `version_parametres` (absent si aucune).
 - **Pays figé** : la modification du contexte refuse de changer le pays d'un dossier qui a une version de paramètres propre (409 `dossier_parametres_fiscaux_propres`) ; la table existe (migration `0208`), sa lecture et sa création arrivent avec la PR 4 (ADR 0030 point 8).
 - Le registre officiel n'est jamais avalé : `Application::erreur_registre_fiscal` le garde, le binaire refuse de démarrer s'il est invalide ; `remplacer_registre_fiscal` n'existe que pour les tests.
+- **Rétention des pièces** : celle du paquet du pays du dossier à la date du dépôt (plancher OHADA de dix ans à défaut de version) ; `SIGMA_PIECES_RETENTION_ANS` ne fait que la **relever**.

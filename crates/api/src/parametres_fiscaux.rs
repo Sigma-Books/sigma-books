@@ -14,6 +14,8 @@ use crate::base::ErreurBase;
 #[derive(Debug, Clone)]
 pub struct ParametresDuDossier<'a> {
     versions: VersionsDuDossier<'a>,
+    /// Plancher de rétention des pièces du socle (OHADA), à défaut de version applicable.
+    plancher_retention: u16,
 }
 
 impl<'a> ParametresDuDossier<'a> {
@@ -23,7 +25,16 @@ impl<'a> ParametresDuDossier<'a> {
     pub fn nouveau(registre: &'a Registre, pays: &str, propres: &'a [ParametresFiscaux]) -> Self {
         Self {
             versions: registre.versions_du_dossier(pays, propres),
+            plancher_retention: registre.socle().plancher_retention(),
         }
+    }
+
+    /// Années de rétention des pièces déposées ce jour-là : celles de la version applicable, à
+    /// défaut le plancher du socle.
+    #[must_use]
+    pub fn retention_des_pieces(&self, jour: Date) -> u16 {
+        self.applicable(jour)
+            .map_or(self.plancher_retention, |v| v.retention().annees_min)
     }
 
     /// Version qui s'applique à une date comptable, s'il y en a une.
@@ -99,5 +110,15 @@ mod tests {
             sn.enregistree(Some("sn-1999.1"), date!(2026 - 01 - 01))
                 .is_err()
         );
+    }
+
+    #[test]
+    fn la_retention_suit_la_version_puis_le_plancher() {
+        let registre = Registre::officiel().unwrap();
+        let sn = ParametresDuDossier::nouveau(&registre, "SN", &[]);
+        assert_eq!(sn.retention_des_pieces(date!(2026 - 03 - 15)), 10);
+        // Pays sans paquet : plancher OHADA du socle.
+        let autre = ParametresDuDossier::nouveau(&registre, "GA", &[]);
+        assert_eq!(autre.retention_des_pieces(date!(2026 - 03 - 15)), 10);
     }
 }
