@@ -41,7 +41,7 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
   - **Admis** : 52 Banques (p. PDF 417), 53 Établissements financiers et assimilés (p. 419), 55 Instruments de monnaie électronique (p. 424-425), 57 Caisse (p. 428).
   - **Exclus** : 50 et 51 (p. 413, 415) ; 54, qui fonctionne contre le 52 ou le 53 (p. 420) ; 56, une dette dont la contrepartie est le 52 (p. 426) ; 585 et 588, comptes de passage des virements internes à solder, ligne de contrepartie et jamais compte d'un journal (p. 430-431) ; 59, dépréciations (p. 433).
   - **Exclusion explicite** (`journal_tresorerie = false`, l'emporte sur l'héritage) : 526 et 536, intérêts courus : ni encaisse ni avoir disponible. Les fiches des comptes 52 et 53 (p. PDF 416 et 418) ne font que les lister en subdivision.
-  - **581, 582 : en attente du mainteneur** (régies d'avances et accréditifs, cas ambigu, p. 430) ; exclus d'ici là.
+  - **581, 582 : exclus, confirmé** (fiche du compte 58, p. 430-431) : débités « par le crédit des comptes de trésorerie » (avances aux régisseurs, accréditifs), ils sont des contreparties de la trésorerie, pas de la trésorerie. Consensus Odoo/Tryton : voir le commentaire de `data/comptes.toml`.
 - **`tiers`** et **`page_tiers`** : types de tiers (spec §5.3) admis sur le compte et ses sous-comptes comme compte collectif d'un tiers ; la marque la plus proche s'applique. La page est celle de la fiche « Contenu et fonctionnement des comptes » qui fonde la marque.
   - **40** « Fournisseurs et comptes rattachés » (p. PDF 380, « tiers auxquels l'entité a recours pour ses achats ») : `fournisseur` ;
   - **41** « Clients et comptes rattachés » (p. PDF 384, « tiers auxquels l'entité vend les biens ou services ») : `client` ;

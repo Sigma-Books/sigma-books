@@ -258,8 +258,8 @@ fn le_plan_du_dossier_reprend_tout_le_referentiel() {
 /// Comptes admis en journal de trésorerie, et leur fiche de fonctionnement (AUDCIF, Titre VII,
 /// ch. 3) : 52 Banques, 53 Établissements financiers, 55 Monnaie électronique, 57 Caisse.
 const ADMIS: [(&str, u16); 4] = [("52", 417), ("53", 419), ("55", 424), ("57", 428)];
-/// Comptes de la classe 5 exclus (motifs dans data/comptes.toml) ; 581 et 582 en attente du
-/// mainteneur.
+/// Comptes de la classe 5 exclus (motifs dans data/comptes.toml) ; 581 et 582 : exclus,
+/// confirmé.
 const EXCLUS: [&str; 9] = ["50", "51", "54", "56", "581", "582", "585", "588", "59"];
 /// Sous-comptes d'intérêts courus des comptes admis, exclus explicitement (ni encaisse ni avoir
 /// disponible), avec la page de la fiche du compte parent.
