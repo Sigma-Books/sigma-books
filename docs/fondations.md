@@ -214,7 +214,7 @@ Le navigateur n'exécute que du JavaScript ou du WebAssembly. Les options :
 - Modèle de menaces et décisions d'architecture (ADR) publics dans le dépôt.
 
 ### 3.13 Conformité
-- Loi sénégalaise n° 2008-12 sur les données personnelles : déclaration auprès de la CDP, registre des traitements, contrat de sous-traitance avec les cabinets.
+- Loi de protection des données personnelles **du pays du dossier** : déclaration auprès de l'autorité du pays (au Sénégal : loi n° 2008-12, déclaration auprès de la CDP), registre des traitements, contrat de sous-traitance avec les cabinets.
 - AUDCIF : conservation des pièces et des livres pendant 10 ans, numérotation chronologique, intangibilité après clôture.
 - Certification ISO/IEC 27001 visée à moyen terme pour l'offre SaaS.
 
@@ -277,7 +277,7 @@ Tendance nette : le **SaaS multi-tenant** domine les nouveaux acteurs. L'install
 Le choix de Rust aide directement : un **binaire unique** et une base PostgreSQL suffisent pour installer Sigma Books, ce qui rend l'auto-hébergement et les instances dédiées simples à maintenir.
 
 ### 5.3 Souveraineté des données
-L'hébergement de l'offre Cloud (centre de données au Sénégal ou fournisseur cloud international) reste à décider. Les critères : exigences de la CDP, latence, disponibilité, coût, et attentes des cabinets. L'instance dédiée permet de répondre aux clients qui exigent un hébergement local.
+L'hébergement de l'offre Cloud (centre de données au Sénégal ou fournisseur cloud international) reste à décider. Les critères : exigences de l'autorité de protection des données selon le pays des dossiers (au Sénégal, la CDP), latence, disponibilité, coût, et attentes des cabinets. L'instance dédiée permet de répondre aux clients qui exigent un hébergement local.
 
 ---
 
@@ -385,7 +385,7 @@ La v1 est le logiciel comptable complet. Le plan de développement détaillé (l
 |---|---|
 | Langage | **Rust** (backend et moteur) ; TypeScript strict + SvelteKit (interface) ; Astro (site public) |
 | Contributions | **CLA** standard (modèle inspiré d'Apache), géré par le bot CLA Assistant |
-| Hébergement de l'offre Cloud | **Grand fournisseur cloud, région Europe**, au lancement. Transfert hors du Sénégal couvert par la déclaration CDP avant le premier client. Instances dédiées hébergées au Sénégal proposées ensuite. |
+| Hébergement de l'offre Cloud | **Grand fournisseur cloud, région Europe**, au lancement. Transfert hors du pays du client couvert par la déclaration auprès de l'autorité de protection des données de ce pays (au Sénégal, la CDP) avant le premier client. Instances dédiées hébergées au Sénégal proposées ensuite. |
 | Marque | **Recherche d'antériorité** sur « Sigma Books », puis dépôt **OAPI** |
 | IA | Prompts **publics** ; données d'évaluation réelles **toujours privées** |
 | Publication du code | **Public dès le premier commit** |

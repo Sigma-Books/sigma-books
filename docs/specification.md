@@ -45,8 +45,8 @@
 | Nature du produit | Logiciel de tenue comptable complet, multi-dossiers, avec lecture IA des pièces |
 | Client payant | Cabinets d'expertise comptable et de tenue ; entreprises dotées d'un comptable interne |
 | Référentiel | SYSCOHADA révisé (AUDCIF 2017), **Système Normal**. Le Système Minimal de Trésorerie n'est **pas proposé** en v1 (aucun champ ni option tant qu'il n'est pas implémenté). |
-| Pays v1 | Sénégal. Le modèle est multi-pays dès la conception (paramètres fiscaux par pays, versionnés). |
-| Devise | XOF ; opérations en devises étrangères gérées (§6.6). |
+| Pays v1 | Sénégal. Le modèle est multi-pays dès la conception (paramètres fiscaux par pays, versionnés ; principe 14 du §2, ADR 0027). |
+| Devise de tenue | **Paramètre du dossier** (ADR 0027), par défaut celle du pays : XOF au Sénégal. Opérations en devises étrangères gérées (§6.6). |
 | Langue | Français. |
 | Licence | AGPL-3.0-or-later ; marque « Sigma Books » réservée. |
 
@@ -106,6 +106,10 @@
 **Sécurité** (détail : Fondations §3)
 11. Refus par défaut ; triple isolation entre tenants ; documents traités en bac à sable ; intégrité prouvable par chaîne de hachage.
 12. **Cloisonnement** : chaque cabinet, et dans un cabinet chaque dossier, est un espace étanche. Aucune donnée d'un dossier (pièces, empreintes, écritures, tiers, règles apprises, contexte transmis à l'IA) n'est lue, comparée ni utilisée pour un autre dossier. Notamment, la recherche de doublons et le stockage des pièces se font **dans le dossier seulement**.
+
+**Méthode de conception** (décisions du mainteneur)
+13. **Consensus des moteurs de référence** : si Odoo et Tryton ont à peu près le même mécanisme, Sigma fait pareil ; les textes OHADA priment seulement s'ils tranchent explicitement ; Sigma n'ajoute pas de contrôle **bloquant** plus strict que ces moteurs sans raison documentée (ADR 0026, ADR 0029). Un écart volontaire (séparation des tâches par défaut, étiquette fiscale dans le contenu haché…) est une décision du mainteneur, consignée dans un ADR.
+14. **Multi-pays dès la conception** : le socle SYSCOHADA est commun aux États de l'OHADA ; ce qui varie d'un pays à l'autre (devise de tenue et son échelle, fuseau, langue, types d'identifiants légaux, paramètres fiscaux) est une **donnée sourcée du pack pays** ou un **paramètre versionné**, jamais une constante ni une colonne propre à un pays (ADR 0027 ; ADR à venir sur les paramètres fiscaux par pays). Le Sénégal est le premier pays livré (§0).
 
 ---
 
@@ -167,7 +171,7 @@ Cabinet (tenant)
 | `cloturee` | **Clôture informatique** (AUDCIF art. 22 3°) : irréversible, aucune réouverture ; les périodes se clôturent dans l'ordre. La dernière période d'un exercice se clôture avec lui. |
 
 - **Échéance de la clôture informatique** : au plus tard le dernier jour du **troisième mois** qui suit la fin de la période (art. 22 3° : « au moins trimestrielle et mise en œuvre au plus tard à la fin du trimestre qui suit », lecture prudente) ; pour la dernière période de l'exercice, le dernier jour du **quatrième mois** qui suit la fin de l'exercice (délai d'arrêté des comptes, art. 23), ce qui laisse passer les écritures d'inventaire.
-- Alerte avant l'échéance ; une fois l'échéance passée, plus aucune validation dans la période tant qu'elle n'est pas clôturée.
+- Alerte avant l'échéance ; une fois l'échéance passée, la validation **réussit avec l'avertissement** `echeance_de_cloture_depassee` : l'échéance n'est plus un blocage (ADR 0029, point 1, qui suit Odoo et Tryton : aucun délai automatique, seulement des verrous posés par un humain). Le verrouillage et la clôture informatique par un humain restent bloquants. Le délai est un **paramètre** (3 mois par défaut, 4 pour la dernière période), non une constante.
 
 ---
 
@@ -198,7 +202,7 @@ Journaux par défaut (codes modifiables) :
 | AN | À-nouveaux | à-nouveaux (généré uniquement) |
 
 ### 5.3 Tiers
-Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associé, autre), compte collectif, compte auxiliaire, conditions de paiement, devise, statut fiscal (assujetti TVA, soumis à retenue).
+Nom, identifiant fiscal et registre de commerce (types et libellés fournis par le pack du pays du dossier : NINEA et RCCM au Sénégal ; ADR 0027), adresse, contacts, type (client, fournisseur, salarié, associé, autre), compte collectif, compte auxiliaire, conditions de paiement, devise, statut fiscal (assujetti TVA, soumis à retenue).
 
 ### 5.4 Paramètres fiscaux (par pays, versionnés)
 - TVA : taux normal 18 % ; taux réduits et opérations exonérées **à sourcer dans le CGI** avant mise en production.
@@ -213,8 +217,8 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 - Chaque écriture enregistre la **version des paramètres** utilisée.
 
 ### 5.5 Devises
-- Devise de tenue : XOF.
-- Une ligne en devise conserve : devise, montant en devise, taux, montant en XOF.
+- Devise de tenue : **paramètre du dossier** (ADR 0027), par défaut celle du pays (XOF au Sénégal) ; son échelle (nombre de décimales) vient de la table des devises du pack pays.
+- Une ligne en devise conserve : devise, montant en devise, taux, contre-valeur en devise de tenue.
 - Table des cours (saisie manuelle ou import). Écarts de change à l'encaissement/décaissement et écarts de conversion à la clôture (§14.7).
 
 ---
@@ -236,22 +240,22 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 ```
 - **Brouillard** : l'écriture n'a pas de numéro définitif, n'apparaît dans les états qu'en mode « provisoire » (option d'affichage), et peut être modifiée ou supprimée. Chaque modification est journalisée (avant/après).
 - **Validation** : contrôle des invariants (§6.2), attribution du numéro définitif, calcul du hash, inscription au journal. Irréversible.
-- **Contre-passation** : écriture miroir, validée, liée à l'originale. Aucune écriture validée n'est jamais modifiée.
+- **Contre-passation** : écriture miroir, validée, liée à l'originale. Aucune écriture validée n'est jamais modifiée. Le motif est **facultatif** : absent, le serveur inscrit « Contre-passation de <numéro de l'origine> » (ADR 0021, point 4 ; ADR 0029, point 5).
 
 ### 6.2 Invariants vérifiés à la validation
-1. ∑D = ∑C en XOF. Si toutes les lignes sont dans une même devise étrangère, aussi dans cette devise. Une écriture qui mêle plusieurs devises, ou XOF et une devise (encaissement en EUR sur une banque en XOF), n'est équilibrée qu'en XOF ; l'écart de change se constate au règlement et à la clôture (§6.6).
+1. ∑D = ∑C en devise de tenue. Si toutes les lignes sont dans une même devise étrangère, aussi dans cette devise. Une écriture qui mêle plusieurs devises, ou la devise de tenue et une autre (encaissement en EUR sur une banque tenue en XOF), n'est équilibrée qu'en devise de tenue ; l'écart de change se constate au règlement et à la clôture (§6.6).
 2. Chaque ligne a un débit **ou** un crédit, strictement positif.
 3. Tous les comptes existent, sont actifs et sont des comptes de **mouvement** (pas un compte de regroupement).
 4. Une ligne sur un compte collectif porte un tiers.
 5. La date est dans une période `ouverte` d'un exercice `ouvert` (ou `en_cloture` pour les journaux OD/IN).
-   **Opération tardive** (AUDCIF art. 22 4°, exception à l'art. 16 al. 3) : une opération est datée de sa date de valeur comptable. **Seulement** si cette date tombe dans une période **clôturée** (clôture informatique, §4.3), dans un exercice clôturé, avant le dossier ou dans un exercice en clôture qui n'admet pas le journal, l'écriture est datée du **premier jour de la première période non clôturée** dont l'exercice admet le journal, qui doit être ouverte ; la **date de valeur comptable** est alors conservée à part, mentionnée distinctement dans les éditions et incluse dans le contenu haché. Une période seulement **verrouillée** n'est pas clôturée : pas de report, il faut la déverrouiller (motif journalisé) et dater l'écriture de sa date de valeur ; de même si la période d'accueil est verrouillée. Une période dont l'échéance de clôture est passée doit d'abord être clôturée. Une contre-passation de l'opération est une nouvelle opération, sans date de valeur comptable.
+   **Opération tardive** (AUDCIF art. 22 4°, exception à l'art. 16 al. 3) : une opération est datée de sa date de valeur comptable. **Seulement** si cette date tombe dans une période **clôturée** (clôture informatique, §4.3), dans un exercice clôturé, avant le dossier ou dans un exercice en clôture qui n'admet pas le journal, l'écriture est datée du **premier jour de la première période non clôturée** dont l'exercice admet le journal, qui doit être ouverte ; la **date de valeur comptable** est alors conservée à part, mentionnée distinctement dans les éditions et incluse dans le contenu haché. Une période seulement **verrouillée** n'est pas clôturée : pas de report, il faut la déverrouiller (motif journalisé) et dater l'écriture de sa date de valeur ; de même si la période d'accueil est verrouillée. Une période dont l'échéance de clôture est passée n'est **pas** refusée : avertissement non bloquant (§4.3, ADR 0029, point 1). Une contre-passation de l'opération est une nouvelle opération, sans date de valeur comptable ; sa date peut être **antérieure** à celle de l'écriture d'origine, pourvu qu'elle tombe dans une période ouverte (ADR 0029, point 2).
 6. Au moins une pièce rattachée, externe ou interne (§2, principe 2), quel que soit le journal.
-7. Le journal accepte ce type d'écriture (ex. une écriture du journal BQ1 mouvemente le compte de trésorerie associé).
+7. Le journal accepte ce type d'écriture. Une écriture d'un journal de trésorerie (ex. BQ1) devrait mouvementer son compte de trésorerie associé ; sinon la validation réussit avec l'**avertissement** `compte_tresorerie_absent` (ADR 0029, point 3).
 
 ### 6.3 Numérotation
 - Format : `{journal}-{exercice}-{séquence sur 6 chiffres}` (ex. `AC-2026-000231`), `{exercice}` étant l'année de clôture (§4.2).
 - Séquence continue sans trou par journal et par exercice, attribuée dans la même transaction que la validation (verrou sur la séquence).
-- **Chronologie** (AUDCIF art. 16 al. 3, art. 22 3° et 4°) : aucune écriture dans une période qui n'est pas ouverte ; la clôture informatique d'une période (§4.3) fige sa chronologie. Dans une période ouverte, l'ordre des numéros peut différer de celui des dates : les éditions classent par date puis par numéro. La date comptable est la date de la pièce interne, ou la date de **réception** de la pièce externe (art. 16 al. 3).
+- **Chronologie** (AUDCIF art. 16 al. 3, art. 22 3° et 4°) : aucune écriture dans une période qui n'est pas ouverte ; la clôture informatique d'une période (§4.3) fige sa chronologie ; le dépassement de l'échéance de clôture n'interdit pas la validation (avertissement, §4.3). Dans une période ouverte, l'ordre des numéros peut différer de celui des dates : les éditions classent par date puis par numéro. La date comptable est la date de la pièce interne, ou la date de **réception** de la pièce externe (art. 16 al. 3).
 
 ### 6.4 Chaîne de hachage
 - Pour chaque dossier : `hash_n = SHA-256(hash_{n-1} ‖ contenu canonique de l'écriture n)`. Le contenu canonique est une sérialisation déterministe (ordre des champs, format des montants, lignes triées par ordre).
@@ -265,8 +269,8 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 - Rôle de la pièce dans l'écriture : principale / complémentaire.
 
 ### 6.6 Écritures en devises
-- Ligne : montant devise, devise, cours, contre-valeur XOF (arrondie au franc).
-- Différence de règlement : écart de change en 676 (perte) / 776 (gain) — **à valider** (§26).
+- Ligne : montant devise, devise, cours, contre-valeur en devise de tenue (arrondie à l'échelle de la devise de tenue : au franc pour le XOF ; ADR 0027).
+- Différence de règlement : écart de change en 676 (perte) / 776 (gain) — **tranché** (§26, point 6).
 - Clôture : écarts de conversion (478 actif / 479 passif) et provision pour perte de change — **à valider** (§26).
 
 ---
@@ -289,7 +293,7 @@ Nom, NINEA, RCCM, adresse, contacts, type (client, fournisseur, salarié, associ
 ### 7.4 Import
 - CSV/Excel d'écritures via un profil d'import (même moteur de profils que l'export, §18.3).
 - FEC (18 colonnes).
-- Toute écriture importée arrive dans le brouillard, sauf la reprise d'historique (§18.1).
+- Toute écriture importée arrive dans le brouillard, sauf la reprise d'historique (§18.1), qui est, avec les à-nouveaux générés à la clôture (§15.3), l'une des deux exceptions à la validation humaine.
 
 ---
 
@@ -334,7 +338,7 @@ Les relevés CSV sont analysés sans IA (profil par banque ou opérateur). Contr
 ### 8.3 Champs extraits
 | Type | Champs |
 |---|---|
-| Facture | émetteur, destinataire, NINEA, n°, date, échéance, lignes (désignation, quantité, PU, HT, taux TVA), total HT, TVA par taux, TTC, retenues mentionnées, devise, mode de paiement |
+| Facture | émetteur, destinataire, identifiant fiscal, n°, date, échéance, lignes (désignation, quantité, PU, HT, taux TVA), total HT, TVA par taux, TTC, retenues mentionnées, devise, mode de paiement |
 | Reçu | commerçant, date, TTC, TVA, nature, moyen de paiement |
 | Relevé | établissement, n° de compte, période, soldes, mouvements (date, date de valeur, libellé, montant, sens, solde) |
 | Avis de virement | donneur d'ordre, bénéficiaire, montant, date, référence, motif |
@@ -344,11 +348,11 @@ Les relevés CSV sont analysés sans IA (profil par banque ou opérateur). Contr
 ### 8.4 Contrôles déterministes
 | Contrôle | Règle | Effet si échec |
 |---|---|---|
-| Arithmétique | ∑lignes = HT ; HT + TVA = TTC (tolérance 1 XOF) | Bloquant |
+| Arithmétique | ∑lignes = HT ; HT + TVA = TTC (tolérance 1 unité de la devise de tenue) | Bloquant |
 | Taux de TVA | Taux ∈ paramètres du pays | Alerte |
 | Date | Dans un exercice ouvert, pas dans le futur | Alerte |
-| NINEA | Format | Alerte |
-| Devise | ≠ XOF → cours requis | Bloquant |
+| Identifiant fiscal | Format, quand le pack du pays en fournit un sourcé (NINEA au Sénégal ; ADR 0027) | Alerte |
+| Devise | ≠ devise de tenue → cours requis | Bloquant |
 | Doublon logique | Même émetteur + même n° + même montant | Fusion proposée (§9) |
 | Relevé | Solde initial + mouvements = solde final | Bloquant |
 
@@ -611,7 +615,7 @@ Saisie assistée du montant de l'impôt (calcul fiscal hors v1) : D 891 / C 441.
 ### 15.3 À-nouveaux
 - Journal AN de N+1 : reprise des soldes des comptes de **bilan** (classes 1 à 5), détaillés par tiers pour les comptes auxiliaires (les lettrages ouverts restent rapprochables).
 - Résultat de l'exercice repris sur le compte 131 (bénéfice) ou 139 (perte), ou 130 « résultat en instance d'affectation » selon le paramètre du dossier (à valider, §26).
-- Les à-nouveaux sont générés et validés automatiquement (seule exception à la validation humaine, car ce sont des reprises mécaniques d'un exercice clôturé et vérifié).
+- Les à-nouveaux sont générés et validés automatiquement : avec la reprise d'historique d'un dossier existant (§7.4, §18.1), c'est l'une des **deux exceptions** à la validation humaine, car ce sont des reprises mécaniques de données arrêtées (exercice clôturé et vérifié pour les à-nouveaux ; balance d'ouverture et historique repris pour la reprise).
 
 ### 15.4 Erreur découverte après clôture
 Pas de réouverture. Correction dans l'exercice en cours (écriture sur exercice antérieur, mention en annexe).
@@ -799,7 +803,8 @@ Toute modification de prompt, de modèle ou de règle relance la suite ; une ré
 ```
 Cabinet, Utilisateur, Appartenance(utilisateur, cabinet, rôle), AccesDossier, Passkey, Session
 
-Dossier            ── forme juridique, NINEA, RCCM, pays, devise, paramètres
+Dossier            ── forme juridique, pays, devise de tenue et échelle, fuseau, langue,
+                      identifiants légaux (type du pack pays, valeur), paramètres
 Exercice           ── dates, statut, hash de clôture
 Periode            ── mois, statut, verrouillée_par, motif
 ParametresFiscaux  ── pays, version, contenu
@@ -854,7 +859,7 @@ Lots séquencés selon les dépendances. Durées indicatives pour une petite éq
 | **L3 — Tiers et trésorerie** | Tiers, lettrage, échéancier, balance âgée, comptes de trésorerie, import de relevés (CSV), rapprochement bancaire | 5 sem. | État de rapprochement à écart nul sur jeu de test |
 | **L4 — IA et portail** | Worker en bac à sable, pipeline IA, déduplication, file de validation, règles apprises, portail client, évaluations | 7 sem. | Seuils du §22.2 atteints |
 | **L5 — TVA, paie, notes de frais** | Calcul et liquidation de TVA, verrouillage, paie depuis récapitulatif, notes de frais, modèles et abonnements | 3 sem. | Scénarios TVA sur 12 mois |
-| **L6 — Fin d'exercice et clôture** | Immobilisations, assistant de fin d'exercice, devises, clôture, à-nouveaux, répartition du résultat | 6 sem. | Exercice complet clôturé et rouvert sur jeu de test |
+| **L6 — Fin d'exercice et clôture** | Immobilisations, assistant de fin d'exercice, devises, clôture, à-nouveaux, répartition du résultat | 6 sem. | Exercice complet clôturé sur jeu de test, à-nouveaux conformes à la balance de clôture, erreur découverte après clôture corrigée dans l'exercice suivant (§15.4) |
 | **L7 — États financiers** | Moteur de correspondance, Bilan, CdR, TFT, notes, PDF Typst, Excel, archivage | 5 sem. | Exemples du Guide AUDCIF reproduits exactement |
 | **L8 — Interopérabilité** | Reprise de données, FEC import/export, profils et préréglages, réversibilité | 3 sem. | Aller-retour FEC sans perte |
 | **L9 — Durcissement** | Pentest externe, bug bounty AarMe, performance, documentation utilisateur, sauvegarde/restauration testée | 4 sem. | Aucune vulnérabilité critique ou haute ouverte |
@@ -884,16 +889,16 @@ Ces points touchent à l'exactitude comptable et fiscale. Ils doivent être conf
 | 3 | Taux réduits et exonérations de TVA ; types, taux et comptes des retenues à la source (CGI Sénégal) | L5 |
 | 4 | Comptes de paie par rubrique ; compte de dette des notes de frais | L5 |
 | 5 | Coefficients et règles de pro rata du dégressif (CGI Sénégal) | L6 |
-| 6 | Comptes d'écarts de change et de conversion ; provision pour perte de change | L6 |
+| 6 | Comptes d'écarts de change et de conversion ; provision pour perte de change. ~~Écarts de change au règlement : 676 (perte) / 776 (gain)~~ **Tranché** : Odoo les désigne comme comptes de différence de change par défaut de `l10n_syscohada` (`addons/l10n_syscohada/models/template_syscohada.py:25-26`). **Reste ouvert** : écarts de conversion 478 / 479 et provision pour perte de change | L6 |
 | 7 | Compte de reprise du résultat à l'ouverture (130, 131/139) | L6 |
 | 8 | Référence d'article et champ d'application de la réserve légale (AUSCGIE) | L6 |
 | 9 | ~~Durée minimale et maximale d'un premier exercice~~ **Tranché** par le texte (AUDCIF art. 7, JO OHADA du 15/02/2017, p. 15) : voir §4.2 | L1 |
 | 10 | Impôt minimum forfaitaire et modalités de l'impôt sur le résultat | L6 |
 | 11 | Reclassements des soldes inversés selon les tableaux de correspondance | L7 |
-| 12 | Forme de la correction d'erreur : contre-passation par inversion du débit et du crédit (choix retenu) ou « inscription en négatif des éléments erronés » (AUDCIF art. 20, p. PDF 23) | L1 |
+| 12 | ~~Forme de la correction d'erreur : contre-passation par inversion du débit et du crédit (choix retenu) ou « inscription en négatif des éléments erronés » (AUDCIF art. 20, p. PDF 23)~~ **Tranché** : contre-passation par inversion du débit et du crédit (écriture miroir), ADR 0021, point 4 | L1 |
 | 13 | Colonnes des balances de travail en 2, 4 et 8 colonnes (la balance générale à 6 colonnes suit l'AUDCIF art. 19) | L1 |
 | 14 | Sens normal des comptes (règle du chiffre 9, AUDCIF p. PDF 216-217) et incohérence 5261/5265 entre la fiche du compte 52 (p. PDF 416) et la liste officielle | L1 |
-| 15 | Clôture informatique (AUDCIF art. 22 3°) : lecture du délai pour une période mensuelle (3 mois après la période, retenu, ou fin du trimestre civil suivant) ; échéance de la dernière période alignée sur l'arrêté des comptes (art. 23) pour les écritures d'inventaire | L1 |
+| 15 | Clôture informatique (AUDCIF art. 22 3°) : lecture du délai pour une période mensuelle (3 mois après la période, retenu, ou fin du trimestre civil suivant) ; échéance de la dernière période alignée sur l'arrêté des comptes (art. 23) pour les écritures d'inventaire. Le dépassement de l'échéance est désormais un avertissement et le délai un paramètre (ADR 0029, point 1) ; la lecture du délai reste à valider | L1 |
 
 ---
 
