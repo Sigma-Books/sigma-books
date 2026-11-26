@@ -612,6 +612,31 @@ pub async fn ecritures_du_dossier(tx: &mut TransactionTenant) -> Result<(bool, b
     Ok((l.validee, l.brouillon))
 }
 
+/// Vrai si le dossier du contexte a au moins une version de paramètres fiscaux propre (ADR 0030) :
+/// son pays ne change plus.
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, ou erreur de PostgreSQL.
+pub async fn a_des_parametres_fiscaux_propres(
+    tx: &mut TransactionTenant,
+) -> Result<bool, ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let l = sqlx::query!(
+        r#"SELECT EXISTS (SELECT 1 FROM parametres_fiscaux_dossier
+                           WHERE cabinet_id = $1 AND dossier_id = $2) AS "existe!""#,
+        cabinet,
+        dossier,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    Ok(l.existe)
+}
+
 /// Enregistre le contexte modifié du dossier du contexte (ADR 0027). Les contrôles (écritures
 /// existantes, ré-authentification) sont ceux du cas d'usage ; un déclencheur de la base refuse
 /// en dernier recours de changer pays, devise ou échelle d'un dossier qui a des écritures.

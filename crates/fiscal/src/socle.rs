@@ -117,6 +117,12 @@ impl Socle {
         if socle.retention.source.trim().is_empty() {
             return Err(ErreurFiscale::SansSource("retention".to_owned()));
         }
+        // Jamais de rétention nulle (ni démesurée : le réglage d'instance est borné à 100 ans).
+        if !(1..=100).contains(&socle.retention.plancher_annees) {
+            return Err(ErreurFiscale::PlancherInvalide(
+                socle.retention.plancher_annees,
+            ));
+        }
         let mut vus = BTreeSet::new();
         let mut liste = Vec::new();
         for r in regimes.regime {

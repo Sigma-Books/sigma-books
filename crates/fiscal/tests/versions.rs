@@ -206,33 +206,123 @@ fn deux_versions_le_meme_jour_sont_refusees() {
 }
 
 #[test]
-fn un_motif_ne_disparait_pas_et_ne_change_pas_de_regime() {
+fn un_motif_ne_disparait_pas_et_ne_change_pas_de_sens() {
     let socle = Socle::officiel().unwrap();
-    let sans = fixture("2026.1").replacen(
-        "[[motif]]\ncode = \"EXO_SANS_DEDUCTION-x2\"",
-        "[[motif_retire]]\ncode = \"EXO_SANS_DEDUCTION-x2\"",
-        1,
-    );
-    // Le motif x2 est retiré de la version suivante : refusé (champ inconnu ou continuité).
-    assert!(ParametresFiscaux::depuis_texte(&socle, Portee::Pack, &sans).is_err());
+    let deux = |suivante: String| {
+        Registre::depuis_versions(
+            Socle::officiel().unwrap(),
+            vec![
+                charger(Portee::Pack, &fixture("2024.1")),
+                charger(Portee::Pack, &suivante),
+            ],
+        )
+    };
+    // Rien ne change : continuité respectée.
+    assert!(deux(fixture("2026.1")).is_ok());
+    // Le motif x2 est retiré de la version suivante.
     let retire = {
         let t = fixture("2026.1");
         let i = t
             .find("[[motif]]\ncode = \"EXO_SANS_DEDUCTION-x2\"")
             .unwrap();
-        t[..i].to_owned()
+        let j = t.find("[[chevauchement]]").unwrap();
+        // Le chevauchement cible x2 : on le retire aussi pour que seule la continuité échoue.
+        format!("{}{}", &t[..i], &t[j..]).replace(
+            "motif = \"EXO_SANS_DEDUCTION-x2\"\nnote",
+            "motif = \"EXO_SANS_DEDUCTION-x1\"\nnote",
+        )
     };
-    let erreur = Registre::depuis_versions(
-        socle,
-        vec![
-            charger(Portee::Pack, &fixture("2024.1")),
-            charger(Portee::Pack, &retire),
-        ],
-    )
-    .unwrap_err();
     assert_eq!(
-        erreur,
+        deux(retire).unwrap_err(),
         ErreurFiscale::MotifRetire("EXO_SANS_DEDUCTION-x2".to_owned())
+    );
+    // Même code, mais autre article, autre alinéa ou autre droit à déduction : réaffecté.
+    for (avant, apres) in [
+        (
+            "article = \"F21\"\nalinea = \"2\"",
+            "article = \"F22\"\nalinea = \"2\"",
+        ),
+        (
+            "alinea = \"2\"\npages = [20]",
+            "alinea = \"9\"\npages = [20]",
+        ),
+        (
+            "libelle = \"Motif factice 2\"\ndeduction = \"non\"",
+            "libelle = \"Motif factice 2\"\ndeduction = \"oui\"",
+        ),
+    ] {
+        let t = fixture("2026.1");
+        assert!(t.contains(avant), "{avant}");
+        let changee = t.replacen(avant, apres, 1);
+        assert_eq!(
+            deux(changee).unwrap_err(),
+            ErreurFiscale::MotifRetire("EXO_SANS_DEDUCTION-x2".to_owned()),
+            "{apres}"
+        );
+    }
+    drop(socle);
+}
+
+#[test]
+fn le_registre_refuse_une_version_de_dossier() {
+    let propre = charger(Portee::Dossier(1), &fixture("2024.1"));
+    assert!(matches!(
+        Registre::depuis_versions(Socle::officiel().unwrap(), vec![propre]),
+        Err(ErreurFiscale::PorteeInattendue(_))
+    ));
+}
+
+#[test]
+fn une_version_de_dossier_exige_une_base_et_la_continuite() {
+    let registre = registre_factice();
+    let propre = |n: u32, texte: &str| charger(Portee::Dossier(n), texte);
+    let t = fixture("2024.1").replacen("2024-01-01", "2025-03-01", 1);
+    let premiere = propre(1, &t);
+    assert!(registre.verifier_version_de_dossier(&[], &premiere).is_ok());
+    // Un paquet de pays est refusé comme version de dossier.
+    let pack = charger(Portee::Pack, &fixture("2024.1"));
+    assert!(matches!(
+        registre.verifier_version_de_dossier(&[], &pack),
+        Err(ErreurFiscale::PorteeInattendue(_))
+    ));
+    // Pays sans paquet : pas de base.
+    let ailleurs = propre(1, &t.replace("pays = \"ZZ\"", "pays = \"YY\""));
+    assert_eq!(
+        registre.verifier_version_de_dossier(&[], &ailleurs),
+        Err(ErreurFiscale::PaysSansPaquet("YY".to_owned()))
+    );
+    // Version de base inconnue du paquet.
+    let inconnue = propre(
+        1,
+        &t.replace("version = \"2024.1\"", "version = \"2030.9\""),
+    );
+    assert!(matches!(
+        registre.verifier_version_de_dossier(&[], &inconnue),
+        Err(ErreurFiscale::Version(_))
+    ));
+    // Même date d'effet qu'une version de dossier existante.
+    let bis = propre(2, &t);
+    assert!(matches!(
+        registre.verifier_version_de_dossier(std::slice::from_ref(&premiere), &bis),
+        Err(ErreurFiscale::DateEffetEnDouble { .. })
+    ));
+    // Motif retiré par rapport à sa base, puis par rapport à la version de dossier précédente.
+    let sans_x2 = {
+        let i = t
+            .find("[[motif]]\ncode = \"EXO_SANS_DEDUCTION-x2\"")
+            .unwrap();
+        let j = t.find("[[chevauchement]]").unwrap();
+        format!("{}{}", &t[..i], &t[j..]).replace(
+            "motif = \"EXO_SANS_DEDUCTION-x2\"\nnote",
+            "motif = \"EXO_SANS_DEDUCTION-x1\"\nnote",
+        )
+    };
+    let amputee = propre(2, &sans_x2.replace("2025-03-01", "2025-06-01"));
+    assert_eq!(
+        registre.verifier_version_de_dossier(std::slice::from_ref(&premiere), &amputee),
+        Err(ErreurFiscale::MotifRetire(
+            "EXO_SANS_DEDUCTION-x2".to_owned()
+        ))
     );
 }
 

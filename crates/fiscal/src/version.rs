@@ -630,14 +630,19 @@ impl ParametresFiscaux {
     }
 
     /// Vérifie qu'une version **suivante** du même pays garde tous les motifs de celle-ci, avec
-    /// le même régime (un code de motif garde son sens, ADR 0030 point 4).
+    /// le même régime, le même article, le même alinéa et le même droit à déduction (un code de
+    /// motif garde son sens, ADR 0030 point 4).
     ///
     /// # Errors
     /// [`ErreurFiscale::MotifRetire`] pour le premier motif perdu ou réaffecté.
     pub fn verifier_continuite_avec(&self, suivante: &Self) -> Result<(), ErreurFiscale> {
         for m in &self.motifs {
             match suivante.motif(m.code.as_str()) {
-                Some(n) if n.regime == m.regime => {}
+                Some(n)
+                    if n.regime == m.regime
+                        && n.article == m.article
+                        && n.alinea == m.alinea
+                        && n.deduction == m.deduction => {}
                 _ => return Err(ErreurFiscale::MotifRetire(m.code.to_string())),
             }
         }

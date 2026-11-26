@@ -99,7 +99,17 @@ pub enum ErreurFiscale {
     /// Identifiant de version en double dans le registre.
     #[error("version en double : {0}")]
     VersionEnDouble(String),
-    /// Un code de motif d'une version précédente a disparu ou changé de régime.
+    /// Un code de motif d'une version précédente a disparu ou changé de régime, d'article,
+    /// d'alinéa ou de droit à déduction.
     #[error("motif {0} retiré ou réaffecté par rapport à la version précédente")]
     MotifRetire(String),
+    /// Version de dossier là où un paquet de pays est attendu (ou l'inverse).
+    #[error("portée de version inattendue : {0}")]
+    PorteeInattendue(String),
+    /// Version de dossier pour un pays qui n'a aucun paquet : elle n'aurait pas de base.
+    #[error("le pays {0} n'a aucun paquet : pas de version de dossier")]
+    PaysSansPaquet(String),
+    /// Plancher de rétention hors de 1 à 100 ans.
+    #[error("plancher de rétention invalide : {0} ans")]
+    PlancherInvalide(u16),
 }

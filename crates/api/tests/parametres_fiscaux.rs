@@ -10,7 +10,7 @@ mod commun;
 use axum::http::StatusCode;
 use commun::banc::{Banc, banc, banc_avec_registre, banque, caisse, code, contenu};
 use commun::brouillard::{aujourd_hui, journal_de_saisie, ligne, texte_date};
-use commun::paquets_de_test::registre_cm;
+use commun::paquets_de_test::{registre_cm, registre_cm_evolutif};
 use commun::serveur::{Reponse, envoyer, lire};
 use sqlx::Row;
 use time::Date;
@@ -129,43 +129,6 @@ async fn la_version_est_enregistree_a_la_validation_et_relue() {
 }
 
 #[tokio::test]
-async fn une_etiquette_echue_est_refusee_apres_sa_fin_mais_pas_avant() {
-    let b = banc().await;
-    let annee = aujourd_hui().year();
-    // EXO_AVEC_DEDUCTION-e finit le 2026-12-31 : valide en 2026, refusé à partir de 2027 ; le
-    // test suit l'année courante du banc (exercice de l'année en cours).
-    let date = texte_date(jour(annee, 6, 15));
-    let r = creer(
-        &b,
-        &corps(
-            &date,
-            exoneree("EXO_AVEC_DEDUCTION", "EXO_AVEC_DEDUCTION-e"),
-        ),
-    )
-    .await;
-    if annee <= 2026 {
-        assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
-    } else {
-        assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
-        assert_eq!(code(&r), "etiquette_motif_hors_regime");
-    }
-    // Un motif sans fin reste admis à toute date.
-    let r = creer(
-        &b,
-        &corps(
-            &date,
-            exoneree("EXO_AVEC_DEDUCTION", "EXO_AVEC_DEDUCTION-a"),
-        ),
-    )
-    .await;
-    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
-    // Les anciens codes propres au Sénégal sont retirés.
-    let r = creer(&b, &corps(&date, etiquetee("18", "IMP18"))).await;
-    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(code(&r), "etiquette_regime_inconnu");
-}
-
-#[tokio::test]
 async fn un_autre_pays_applique_son_paquet_sans_toucher_au_socle() {
     let annee = aujourd_hui().year();
     let registre = registre_cm(&[
@@ -276,33 +239,292 @@ async fn un_pays_sans_paquet_n_a_pas_de_version() {
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
 }
 
-#[tokio::test]
-async fn deux_dossiers_de_pays_differents_ne_se_melangent_pas() {
-    let annee = aujourd_hui().year();
-    let registre = registre_cm(&[("2024.1", jour(annee - 1, 1, 1), "15")]);
-    let b = banc_avec_registre(registre).await;
-    // Le dossier du banc reste au Sénégal ; l'autre dossier du cabinet passe au Cameroun (factice).
+async fn passer_en_cm(b: &Banc, cabinet: api::base::IdCabinet, dossier: api::base::IdDossier) {
     let mut tx = b.env.admin.begin().await.unwrap();
     sqlx::query(
         "SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)",
     )
-    .bind(b.c.cabinet.to_string())
-    .bind(b.c.autre_dossier.to_string())
+    .bind(cabinet.to_string())
+    .bind(dossier.to_string())
     .execute(&mut *tx)
     .await
     .unwrap();
     sqlx::query("UPDATE dossier SET pays = 'CM' WHERE cabinet_id = $1 AND id = $2")
-        .bind(b.c.cabinet.uuid())
-        .bind(b.c.autre_dossier.uuid())
+        .bind(cabinet.uuid())
+        .bind(dossier.uuid())
         .execute(&mut *tx)
         .await
         .unwrap();
     tx.commit().await.unwrap();
+}
+
+async fn creer_sur(
+    b: &Banc,
+    cabinet: api::base::IdCabinet,
+    dossier: api::base::IdDossier,
+    par: api::base::IdUtilisateur,
+    corps: &str,
+) -> Reponse {
+    envoyer(
+        &b.routeur,
+        &format!("/api/cabinets/{cabinet}/dossiers/{dossier}/brouillard"),
+        Some(par),
+        corps,
+        None,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn les_dossiers_de_pays_differents_et_les_cabinets_ne_se_melangent_pas() {
+    let annee = aujourd_hui().year();
+    let b = banc_avec_registre(registre_cm(&[("2024.1", jour(annee - 1, 1, 1), "15")])).await;
     let date = texte_date(jour(annee, 3, 15));
-    // Dossier du Sénégal : taux 18 admis, 15 refusé.
+    // 1. Dossier du banc (Sénégal) : taux 18 admis, 15 refusé.
     let r = creer(&b, &corps(&date, etiquetee("18", "TAXABLE_NORMAL"))).await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
     assert_eq!(r.json()["version_parametres"], "sn-2025.1");
     let r = creer(&b, &corps(&date, etiquetee("15", "TAXABLE_NORMAL"))).await;
     assert_eq!(code(&r), "etiquette_taux_non_admis");
+    // 2. Autre dossier du même cabinet, tenu au Cameroun (factice) : taux 15 admis, 18 refusé.
+    commun::referentiel::doter(
+        &b.env.application,
+        b.c.cabinet,
+        b.c.autre_dossier,
+        b.c.administrateur,
+    )
+    .await;
+    passer_en_cm(&b, b.c.cabinet, b.c.autre_dossier).await;
+    let r = creer_sur(
+        &b,
+        b.c.cabinet,
+        b.c.autre_dossier,
+        b.c.administrateur,
+        &corps(&date, etiquetee("15", "TAXABLE_NORMAL")),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    assert_eq!(r.json()["version_parametres"], "cm-2024.1");
+    let r = creer_sur(
+        &b,
+        b.c.cabinet,
+        b.c.autre_dossier,
+        b.c.administrateur,
+        &corps(&date, etiquetee("18", "TAXABLE_NORMAL")),
+    )
+    .await;
+    assert_eq!(code(&r), "etiquette_taux_non_admis");
+    // 3. Cabinet tiers, dossier au Cameroun : même résultat, et le cabinet du banc n'y accède pas.
+    let tiers = commun::creer_cabinet(&b.env.admin, "Tiers").await;
+    commun::referentiel::doter(
+        &b.env.application,
+        tiers.cabinet,
+        tiers.dossier,
+        tiers.administrateur,
+    )
+    .await;
+    passer_en_cm(&b, tiers.cabinet, tiers.dossier).await;
+    let r = creer_sur(
+        &b,
+        tiers.cabinet,
+        tiers.dossier,
+        tiers.collaborateur,
+        &corps(&date, etiquetee("15", "TAXABLE_NORMAL")),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    assert_eq!(r.json()["version_parametres"], "cm-2024.1");
+    let r = creer_sur(
+        &b,
+        tiers.cabinet,
+        tiers.dossier,
+        b.c.collaborateur,
+        &corps(&date, etiquetee("15", "TAXABLE_NORMAL")),
+    )
+    .await;
+    assert!(
+        r.statut == StatusCode::NOT_FOUND || r.statut == StatusCode::FORBIDDEN,
+        "{} {}",
+        r.statut,
+        r.texte()
+    );
+    // 4. Le dossier du banc n'a pas bougé : toujours le Sénégal.
+    let r = creer(&b, &corps(&date, etiquetee("18", "TAXABLE_NORMAL"))).await;
+    assert_eq!(r.json()["version_parametres"], "sn-2025.1");
+}
+
+// --- Validité dans le temps, recontrôle à la validation, contre-passation ----------------------
+
+/// Lot de validation (un brouillon), session fraîche par défaut.
+async fn lot(b: &Banc, id: Uuid, version: i32) -> Reponse {
+    envoyer(
+        &b.routeur,
+        &format!("{}/validation-par-lot", b.base()),
+        Some(b.valideur),
+        &format!(r#"{{"ecritures":[{{"ecriture":"{id}","version":{version}}}]}}"#),
+        None,
+    )
+    .await
+}
+
+async fn brouillon_en(b: &Banc, date: &str, etiquette: String) -> (Uuid, i32) {
+    let r = creer(b, &corps(date, etiquette)).await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    let id: Uuid = r.json()["id"].as_str().unwrap().parse().unwrap();
+    let (_, version) = b.lier(id, 1).await;
+    (id, version)
+}
+
+#[tokio::test]
+async fn un_motif_echu_est_refuse_a_la_saisie_apres_sa_fin() {
+    let annee = aujourd_hui().year();
+    let b = banc_avec_registre(registre_cm_evolutif(annee)).await;
+    tenir_en_cm(&b).await;
+    let mars = texte_date(jour(annee, 3, 15));
+    let aout = texte_date(jour(annee, 8, 15));
+    // Le motif x1 finit le 30 juin : valide en mars, refusé en août ; x2 n'a pas de fin.
+    let x1 = || exoneree("EXO_SANS_DEDUCTION", "EXO_SANS_DEDUCTION-x1");
+    assert_eq!(
+        creer(&b, &corps(&mars, x1())).await.statut,
+        StatusCode::CREATED
+    );
+    let r = creer(&b, &corps(&aout, x1())).await;
+    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    assert_eq!(code(&r), "etiquette_motif_hors_regime");
+    let x2 = exoneree("EXO_SANS_DEDUCTION", "EXO_SANS_DEDUCTION-x2");
+    assert_eq!(
+        creer(&b, &corps(&aout, x2)).await.statut,
+        StatusCode::CREATED
+    );
+    // Un régime disparu dans la version d'août est inconnu à cette date.
+    let r = creer(&b, &corps(&aout, etiquetee("16", "TAXABLE_NORMAL"))).await;
+    assert_eq!(code(&r), "etiquette_regime_inconnu");
+}
+
+#[tokio::test]
+async fn la_validation_recontrole_les_etiquettes_contre_la_version_de_la_date() {
+    let annee = aujourd_hui().year();
+    let b = banc_avec_registre(registre_cm_evolutif(annee)).await;
+    tenir_en_cm(&b).await;
+    let (id, v) = brouillon_en(
+        &b,
+        &texte_date(jour(annee, 3, 15)),
+        etiquetee("15", "TAXABLE_NORMAL"),
+    )
+    .await;
+    // La date passe en août, où le régime n'existe plus : la version applicable le refuse.
+    b.sql(&format!(
+        "UPDATE brouillon SET date_comptable = '{annee}-08-15' WHERE dossier_id = $1"
+    ))
+    .await;
+    let r = b.valider(id, v).await;
+    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    assert_eq!(code(&r), "etiquette_invalide");
+    assert_eq!(r.json()["ligne"], 1);
+    assert_eq!(b.compter("ecriture_validee").await, 0);
+    assert_eq!(b.compter("brouillon").await, 1);
+    // Par lot : tout ou rien, rien n'est écrit.
+    let r = lot(&b, id, v).await;
+    assert_ne!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert!(r.texte().contains("etiquette_invalide"), "{}", r.texte());
+    assert_eq!(b.compter("ecriture_validee").await, 0);
+}
+
+#[tokio::test]
+async fn la_validation_refuse_une_etiquette_sans_version_a_la_date() {
+    let b = banc().await;
+    let annee = aujourd_hui().year();
+    let (id, v) = brouillon_en(
+        &b,
+        &texte_date(jour(annee, 3, 15)),
+        etiquetee("18", "TAXABLE_NORMAL"),
+    )
+    .await;
+    // Avant la première version du Sénégal (2025-01-01) : aucune version ne s'applique.
+    b.sql("UPDATE brouillon SET date_comptable = '2024-06-15' WHERE dossier_id = $1")
+        .await;
+    let r = b.valider(id, v).await;
+    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    assert_eq!(code(&r), "validation_parametres_fiscaux_absents");
+    assert_eq!(r.json()["ligne"], 1);
+    assert_eq!(b.compter("ecriture_validee").await, 0);
+    let r = lot(&b, id, v).await;
+    assert_ne!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert!(
+        r.texte().contains("validation_parametres_fiscaux_absents"),
+        "{}",
+        r.texte()
+    );
+    assert_eq!(b.compter("ecriture_validee").await, 0);
+}
+
+#[tokio::test]
+async fn la_contre_passation_copie_la_version_meme_si_le_regime_a_disparu() {
+    let annee = aujourd_hui().year();
+    let b = banc_avec_registre(registre_cm_evolutif(annee)).await;
+    tenir_en_cm(&b).await;
+    let mars = texte_date(jour(annee, 3, 15));
+    let (id, v) = brouillon_en(&b, &mars, etiquetee("15", "TAXABLE_NORMAL")).await;
+    assert_eq!(b.valider(id, v).await.statut, StatusCode::OK);
+    // Contre-passation en août : la version d'août n'a plus le régime, la version de l'origine est
+    // copiée avec l'étiquette, sans recontrôle.
+    let aout = texte_date(jour(annee, 8, 15));
+    let cp = envoyer(
+        &b.routeur,
+        &format!("{}/{id}/contre-passation", b.ecritures()),
+        Some(b.valideur),
+        &format!(r#"{{"date":"{aout}","libelle":"Contre-passation","motif":"Erreur"}}"#),
+        None,
+    )
+    .await;
+    assert_eq!(cp.statut, StatusCode::CREATED, "{}", cp.texte());
+    assert_eq!(version_validee(&b, 2).await.as_deref(), Some("cm-2024.1"));
+    assert!(b.chaine_valide().await);
+    // La relecture (éditions, liste) suit la version enregistrée.
+    let r = lire(&b.routeur, &b.ecritures(), Some(b.auditeur)).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+}
+
+#[tokio::test]
+async fn le_pays_ne_change_plus_des_qu_une_version_propre_existe() {
+    let b = banc().await;
+    let chemin = format!(
+        "/api/cabinets/{}/dossiers/{}/contexte",
+        b.c.cabinet, b.c.dossier
+    );
+    let modifier =
+        |corps: &'static str| envoyer(&b.routeur, &chemin, Some(b.c.administrateur), corps, None);
+    sqlx::query(
+        "INSERT INTO parametres_fiscaux_dossier \
+             (cabinet_id, dossier_id, numero, pays, version, date_effet, contenu, empreinte, cree_par) \
+         VALUES ($1, $2, 1, 'SN', '2025.1', '2026-01-01', 'contenu', decode(repeat('00', 32), 'hex'), $3)",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .bind(b.c.administrateur.uuid())
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    // Changer le pays : refusé (409) ; la langue ou la forme juridique restent modifiables.
+    let r = modifier(r#"{"pays":"CM","devise":"XAF","fuseau":"Africa/Douala"}"#).await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "dossier_parametres_fiscaux_propres");
+    let r = modifier(r#"{"forme_juridique":"SARL"}"#).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    // Seconde barrière : le déclencheur refuse aussi un UPDATE direct.
+    let mut tx = b.env.admin.begin().await.unwrap();
+    sqlx::query(
+        "SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)",
+    )
+    .bind(b.c.cabinet.to_string())
+    .bind(b.c.dossier.to_string())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let direct = sqlx::query("UPDATE dossier SET pays = 'CM' WHERE cabinet_id = $1 AND id = $2")
+        .bind(b.c.cabinet.uuid())
+        .bind(b.c.dossier.uuid())
+        .execute(&mut *tx)
+        .await;
+    assert!(direct.is_err());
 }

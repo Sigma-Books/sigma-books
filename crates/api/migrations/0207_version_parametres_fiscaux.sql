@@ -10,11 +10,11 @@
 -- Brouillon : version appliquée à la dernière saisie (information : la validation la recalcule).
 ALTER TABLE brouillon
     ADD COLUMN version_parametres text
-        CHECK (version_parametres ~ '^[a-z]{2}-[0-9]{4}\.[0-9]{1,4}(\+d[0-9]{1,9})?$');
+        CHECK (version_parametres ~ '^[a-z]{2}-[0-9]{4}\.[0-9]{1,4}(\+d[0-9]{1,10})?$');
 GRANT UPDATE (version_parametres) ON brouillon TO sigma_application;
 
 -- Écriture validée : la colonne existe (0203) ; sa forme est contrôlée.
 ALTER TABLE ecriture_validee
     ADD CONSTRAINT ecriture_validee_version_parametres_check
         CHECK (version_parametres IS NULL
-               OR version_parametres ~ '^[a-z]{2}-[0-9]{4}\.[0-9]{1,4}(\+d[0-9]{1,9})?$');
+               OR version_parametres ~ '^[a-z]{2}-[0-9]{4}\.[0-9]{1,4}(\+d[0-9]{1,10})?$');

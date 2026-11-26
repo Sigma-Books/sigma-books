@@ -8,6 +8,8 @@ source = "FACTICE : texte inventé pour les tests"
 [[document]]
 id = "factice"
 titre = "Document factice"
+pages_min = 1
+pages_max = 50
 
 [taux.normal]
 valeur = "15"

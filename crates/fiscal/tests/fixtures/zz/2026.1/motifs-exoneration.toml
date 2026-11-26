@@ -3,6 +3,7 @@ code = "EXO_SANS_DEDUCTION-x1"
 regime = "EXO_SANS_DEDUCTION"
 article = "F21"
 alinea = "1"
+pages = [20]
 libelle = "Motif factice 1"
 deduction = "non"
 fin = "2025-12-31"
@@ -12,5 +13,13 @@ code = "EXO_SANS_DEDUCTION-x2"
 regime = "EXO_SANS_DEDUCTION"
 article = "F21"
 alinea = "2"
+pages = [20]
 libelle = "Motif factice 2"
 deduction = "non"
+
+[[chevauchement]]
+article = "F21"
+alinea = "3"
+pages = [21]
+motif = "EXO_SANS_DEDUCTION-x2"
+note = "Alinéa factice qui renvoie au motif x2."

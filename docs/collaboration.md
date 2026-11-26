@@ -54,7 +54,7 @@ Compte machine de Claude Code :
 - **Jalons** : un par lot, de `L0 — Fondations` à `L9 — Durcissement`.
 - **Étiquettes** (définies dans `.github/labels.yml`) :
   - `type:` bug, fonctionnalité, tâche, sécurité, documentation, dette
-  - `zone:` compta-core, syscohada, fiscal-sn, formats, integrite, ia, authz, api, worker, web, site, ci
+  - `zone:` compta-core, syscohada, fiscal-sn (la crate s'appelle `fiscal` depuis l'ADR 0030 ; l'étiquette est inchangée), formats, integrite, ia, authz, api, worker, web, site, ci
   - `priorité:` critique, haute, normale, basse
   - `statut:` à-préciser, bloqué, besoin-expert-comptable
   - `ia:généré` pour les PR produites par un agent
@@ -105,7 +105,7 @@ Les rulesets sont versionnés dans `scripts/github/` (`ruleset-main.json`, `rule
 
 ## 8. Revue de code
 - **CODEOWNERS** (`.github/CODEOWNERS`) attribue automatiquement les relecteurs par zone.
-- Zones sensibles (`compta-core`, `integrite`, `authz`, `api`, `fiscal-sn`, `syscohada`, `.github/`) : revue par `@Sigma-Books/core` obligatoire.
+- Zones sensibles (`compta-core`, `integrite`, `authz`, `api`, `fiscal`, `syscohada`, `.github/`) : revue par `@Sigma-Books/core` obligatoire.
 - Le relecteur vérifie : conformité à la spec et aux ADR, règles absolues de `CLAUDE.md`, tests (dont propriétés et cas de référence), sécurité (autorisation, isolation, entrées hostiles, secrets, dépendances), lisibilité.
 - **Code produit par une IA** : même exigence, avec une attention particulière aux tests qui « passent pour de mauvaises raisons », aux dépendances ajoutées et aux règles comptables.
 - Commentaires préfixés : `bloquant:`, `suggestion:`, `question:`, `détail:`.

@@ -190,6 +190,9 @@ pub enum MotifConflit {
     DossierDejaEcritures,
     /// Le dossier a un brouillon : changer le pays ou la devise réinterpréterait ses montants.
     DossierBrouillardNonVide,
+    /// Le dossier a des versions de paramètres fiscaux propres (table en ajout seul) : son pays
+    /// ne change plus (ADR 0030).
+    DossierParametresFiscauxPropres,
     /// La devise de tenue du dossier a changé pendant l'attente du verrou : réessayer.
     ContexteDossierModifie,
     /// Brouillon saisi sous une autre devise de tenue ou une autre échelle que celles du dossier.
@@ -198,7 +201,7 @@ pub enum MotifConflit {
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 33] = [
+    pub const TOUS: [Self; 34] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -230,6 +233,7 @@ impl MotifConflit {
         Self::MembreDUnAutreCabinet,
         Self::DossierDejaEcritures,
         Self::DossierBrouillardNonVide,
+        Self::DossierParametresFiscauxPropres,
         Self::ContexteDossierModifie,
         Self::BrouillonDeviseTenuePerimee,
     ];
@@ -268,6 +272,7 @@ impl MotifConflit {
             Self::CompteExistant => "compte_existant",
             Self::MembreDUnAutreCabinet => "membre_d_un_autre_cabinet",
             Self::DossierDejaEcritures => "dossier_deja_ecritures",
+            Self::DossierParametresFiscauxPropres => "dossier_parametres_fiscaux_propres",
             Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
             Self::ContexteDossierModifie => "contexte_dossier_modifie",
             Self::BrouillonDeviseTenuePerimee => "brouillon_devise_tenue_perimee",

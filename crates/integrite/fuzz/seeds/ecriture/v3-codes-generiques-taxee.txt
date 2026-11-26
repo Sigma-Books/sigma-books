@@ -1,0 +1,22 @@
+ecriture v3
+numero=VT-2026-000005
+date=2026-03-15
+date-validation=2026-03-16
+libelle=Vente avec codes génériques
+parametres=sn-2025.1
+piece=7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b7b
+ligne
+compte=4111
+sens=D
+montant=118000
+tiers=C002
+ligne
+compte=701
+sens=C
+montant=100000
+fiscal-nature=base
+fiscal-sens=collectee
+fiscal-regime=TAXABLE_ENCAISSEMENT
+fiscal-taux=18
+fiscal-exigibilite=encaissement
+fin

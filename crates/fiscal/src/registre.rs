@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use time::Date;
 
 use crate::erreur::ErreurFiscale;
-use crate::officiel::PAQUETS;
+use crate::officiel::{PAQUETS, VersionEmbarquee};
 use crate::socle::Socle;
 use crate::types::Portee;
 use crate::version::ParametresFiscaux;
@@ -25,13 +25,20 @@ impl Registre {
     /// # Errors
     /// [`ErreurFiscale`] si le socle ou un paquet est invalide.
     pub fn officiel() -> Result<Self, ErreurFiscale> {
+        Self::depuis_embarques(PAQUETS)
+    }
+
+    /// Charge des paquets embarqués : le répertoire (pays, version) et l'en-tête de chaque version
+    /// doivent dire la même chose.
+    pub(crate) fn depuis_embarques(
+        paquets: &[(&str, &[VersionEmbarquee])],
+    ) -> Result<Self, ErreurFiscale> {
         let socle = Socle::officiel()?;
         let mut versions = Vec::new();
-        for (pays, liste) in PAQUETS {
+        for (pays, liste) in paquets {
             for v in *liste {
                 let texte = v.fichiers.join("\n");
                 let p = ParametresFiscaux::depuis_texte(&socle, Portee::Pack, &texte)?;
-                // Le répertoire et l'en-tête disent la même chose.
                 if !p.pays().eq_ignore_ascii_case(pays) || p.version() != v.version {
                     return Err(ErreurFiscale::Version(format!("{pays}/{}", v.version)));
                 }
@@ -44,14 +51,18 @@ impl Registre {
     /// Registre de versions déjà chargées (paquets de test compris).
     ///
     /// # Errors
-    /// [`ErreurFiscale`] : version ou date d'effet en double dans un pays, motif retiré d'une
-    /// version à la suivante.
+    /// [`ErreurFiscale`] : version de portée dossier (le registre ne contient que des paquets de
+    /// pays), version ou date d'effet en double dans un pays, motif retiré d'une version à la
+    /// suivante.
     pub fn depuis_versions(
         socle: Socle,
         versions: Vec<ParametresFiscaux>,
     ) -> Result<Self, ErreurFiscale> {
         let mut pays: BTreeMap<String, Vec<ParametresFiscaux>> = BTreeMap::new();
         for v in versions {
+            if v.portee() != Portee::Pack {
+                return Err(ErreurFiscale::PorteeInattendue(v.identifiant().to_owned()));
+            }
             pays.entry(v.pays().to_owned()).or_default().push(v);
         }
         for (code, liste) in &mut pays {
@@ -86,6 +97,55 @@ impl Registre {
     #[must_use]
     pub fn versions_du_pays(&self, pays: &str) -> &[ParametresFiscaux] {
         self.pays.get(pays).map_or(&[], Vec::as_slice)
+    }
+
+    /// Contrôle qu'une version **de dossier** peut s'ajouter à celles qu'il a déjà (`propres`) :
+    /// portée dossier, pays qui a un paquet, version de base du paquet existante, date d'effet
+    /// libre, et continuité des motifs avec sa base et avec la version de dossier qui précède.
+    ///
+    /// # Errors
+    /// [`ErreurFiscale::PorteeInattendue`], [`ErreurFiscale::PaysSansPaquet`],
+    /// [`ErreurFiscale::Version`] (base absente), [`ErreurFiscale::DateEffetEnDouble`],
+    /// [`ErreurFiscale::MotifRetire`].
+    pub fn verifier_version_de_dossier(
+        &self,
+        propres: &[ParametresFiscaux],
+        nouvelle: &ParametresFiscaux,
+    ) -> Result<(), ErreurFiscale> {
+        if nouvelle.portee() == Portee::Pack {
+            return Err(ErreurFiscale::PorteeInattendue(
+                nouvelle.identifiant().to_owned(),
+            ));
+        }
+        let pack = self.versions_du_pays(nouvelle.pays());
+        if pack.is_empty() {
+            return Err(ErreurFiscale::PaysSansPaquet(nouvelle.pays().to_owned()));
+        }
+        let base = pack
+            .iter()
+            .find(|v| v.version() == nouvelle.version())
+            .ok_or_else(|| ErreurFiscale::Version(nouvelle.identifiant().to_owned()))?;
+        let memes: Vec<&ParametresFiscaux> = propres
+            .iter()
+            .filter(|p| p.pays() == nouvelle.pays())
+            .collect();
+        if memes
+            .iter()
+            .any(|p| p.date_effet() == nouvelle.date_effet())
+        {
+            return Err(ErreurFiscale::DateEffetEnDouble {
+                pays: nouvelle.pays().to_owned(),
+            });
+        }
+        base.verifier_continuite_avec(nouvelle)?;
+        if let Some(precedente) = memes
+            .iter()
+            .filter(|p| p.date_effet() < nouvelle.date_effet())
+            .max_by_key(|p| p.date_effet())
+        {
+            precedente.verifier_continuite_avec(nouvelle)?;
+        }
+        Ok(())
     }
 
     /// Versions applicables à un dossier : le paquet de son pays et ses versions propres

@@ -794,6 +794,39 @@ mod tests {
         assert!(EcritureCanonique::lire(&exo).is_ok());
     }
 
+    /// Codes génériques de l'ADR 0030 : soulignés, jusqu'à 21 caractères (`EXO_SANS_DEDUCTION-10`) ;
+    /// le format ne connaît aucune liste, seulement la forme du code et le préfixe du motif.
+    #[test]
+    fn codes_de_regime_generiques() {
+        let v3 = exemple_v3();
+        for (regime, motif) in [
+            ("EXO_SANS_DEDUCTION", "EXO_SANS_DEDUCTION-10"),
+            ("EXO_AVEC_DEDUCTION", "EXO_AVEC_DEDUCTION-e"),
+        ] {
+            let exo = v3.replace(
+                "fiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+                &format!("fiscal-regime={regime}\nfiscal-motif={motif}\nligne"),
+            );
+            let e = EcritureCanonique::lire(&exo).unwrap();
+            assert_eq!(e.serialiser(), exo);
+        }
+        let taxee = v3.replace("IMP18", "TAXABLE_ENCAISSEMENT");
+        let e = EcritureCanonique::lire(&taxee).unwrap();
+        assert_eq!(e.serialiser(), taxee);
+        assert_eq!(
+            e.etiquettes()[2].as_ref().unwrap().regime().as_str(),
+            "TAXABLE_ENCAISSEMENT"
+        );
+        // Motif d'un autre régime, ou code de plus de 32 caractères : refusés.
+        let hors = v3.replace(
+            "fiscal-regime=IMP18\nfiscal-taux=18\nfiscal-exigibilite=debit\nligne",
+            "fiscal-regime=EXO_SANS_DEDUCTION\nfiscal-motif=EXO_AVEC_DEDUCTION-a\nligne",
+        );
+        assert!(EcritureCanonique::lire(&hors).is_err());
+        let long = v3.replace("IMP18", &"A".repeat(33));
+        assert!(EcritureCanonique::lire(&long).is_err());
+    }
+
     /// Exemple v4 : dossier en CDF (deux décimales), une ligne en EUR dont la contre-valeur
     /// (100,55 EUR × 2 827,3333 = 284 288,363315) est arrondie au centime.
     fn exemple_v4() -> String {

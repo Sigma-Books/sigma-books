@@ -785,10 +785,11 @@ pub(super) async fn valider(
         &integrite::IdDossier::parse(&dossier.id().uuid().to_string()).map_err(|_| donnee())?,
     );
     let tete = base::verrouiller_tete(tx, &genese).await?;
-    // Devise de tenue relue **après** la tête : une modification du contexte du dossier prend le
-    // même verrou (ADR 0027) ; si elle est passée entre-temps, la validation se rejoue.
+    // Devise de tenue **et pays** relus après la tête : une modification du contexte du dossier
+    // prend le même verrou (ADR 0027) ; si elle est passée entre-temps, la validation se rejoue
+    // (la version des paramètres fiscaux a été choisie sur le pays lu avant les verrous).
     let courant = lire_contexte_du_dossier(tx).await?;
-    if courant.tenue()? != tenue {
+    if courant.tenue()? != tenue || courant.pays != dossier.contexte().pays {
         return Err(conflit(MotifConflit::ContexteDossierModifie));
     }
     // Instant relu **après** la tête : la validation a pu attendre, ou franchir minuit.

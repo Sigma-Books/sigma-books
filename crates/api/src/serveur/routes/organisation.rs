@@ -15,9 +15,9 @@ use super::{
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
-    affecter_utilisateur_du_contexte, creer_dossier, ecritures_du_dossier,
-    inserer_identifiants_legaux, lire_appartenance, lire_cabinet, lire_dossier_visible,
-    lire_identifiants_legaux, lister_dossiers_visibles, modifier_contexte,
+    a_des_parametres_fiscaux_propres, affecter_utilisateur_du_contexte, creer_dossier,
+    ecritures_du_dossier, inserer_identifiants_legaux, lire_appartenance, lire_cabinet,
+    lire_dossier_visible, lire_identifiants_legaux, lister_dossiers_visibles, modifier_contexte,
     remplacer_identifiants_legaux, verrouiller_dossier_pour_modification,
 };
 use crate::contexte_dossier::{
@@ -527,6 +527,7 @@ fn trace_de_modification(
 /// ligne jusqu'à leur validation en base). Ordre : tête, ligne du dossier, audit (pris par le
 /// pipeline). Un changement de pays exige que les identifiants légaux (fournis ou existants)
 /// restent admis par le nouveau pays. Une trace d'audit par champ modifié, au journal du dossier.
+#[allow(clippy::too_many_lines)]
 async fn modifier(
     tx: &mut TransactionTenant,
     garde: &Garde,
@@ -599,6 +600,14 @@ async fn modifier(
         if sensible && brouillon {
             return Err(conflit(MotifConflit::DossierBrouillardNonVide));
         }
+    }
+    // Le pays d'un dossier qui a une version de paramètres fiscaux propre ne change plus : la
+    // table, en ajout seul, deviendrait orpheline (ADR 0030).
+    if nouveau.pays != actuel.pays && a_des_parametres_fiscaux_propres(tx).await? {
+        return Err(ErreurApi::Conflit {
+            motif: MotifConflit::DossierParametresFiscauxPropres,
+            nombre: None,
+        });
     }
     // Liste finale : celle qui est fournie, sinon l'existante ; elle doit rester admise par le
     // pays (nouveau ou inchangé).

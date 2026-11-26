@@ -470,7 +470,7 @@ fn ligne_de_taxe_selon_le_regime() {
 }
 
 #[test]
-fn exo380_b_mentionne_l_exclusion_des_telecommunications() {
+fn le_motif_b_de_l_exoneration_avec_deduction_mentionne_l_exclusion_des_telecommunications() {
     let p = sn();
     let b = p.motif("EXO_AVEC_DEDUCTION-b").unwrap();
     assert!(b.libelle().contains("télécommunications"));

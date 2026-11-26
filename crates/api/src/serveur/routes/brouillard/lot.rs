@@ -272,7 +272,7 @@ pub(super) async fn valider_par_lot(
     let tete = base::verrouiller_tete(tx, &genese).await?;
     // Devise de tenue relue après la tête (ADR 0027) : voir la validation unitaire.
     let courant = lire_contexte_du_dossier(tx).await?;
-    if courant.tenue()? != tenue {
+    if courant.tenue()? != tenue || courant.pays != dossier.contexte().pays {
         return Err(conflit(MotifConflit::ContexteDossierModifie));
     }
     let instant = requete.horloge.maintenant();

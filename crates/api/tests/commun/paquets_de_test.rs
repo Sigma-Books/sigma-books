@@ -52,3 +52,32 @@ pub fn registre_cm(versions: &[(&str, Date, &str)]) -> Registre {
     }
     Registre::depuis_versions(socle, toutes).unwrap()
 }
+
+/// Paquet évolutif du pays CM autour de l'année `annee` : version 2024.1 (taux 15) jusqu'au 30 juin
+/// où le motif x1 s'éteint, version 2026.1 (taux 16) à partir du 1er juillet, **sans le régime
+/// `TAXABLE_NORMAL`** (régime disparu). Les dates suivent l'année injectée, jamais l'horloge.
+pub fn registre_cm_evolutif(annee: i32) -> Registre {
+    let socle = Socle::officiel().unwrap();
+    let jour = |m: u8, j: u8| {
+        Date::from_calendar_date(annee, time::Month::try_from(m).unwrap(), j).unwrap()
+    };
+    let echeance = format!("fin = \"{annee}-06-30\"");
+    let v1 = factice(
+        "2024.1",
+        Date::from_calendar_date(annee - 1, time::Month::January, 1).unwrap(),
+        "15",
+    )
+    .replace("fin = \"2025-12-31\"", &echeance);
+    let v2 = factice("2026.1", jour(7, 1), "16").replace("fin = \"2025-12-31\"", &echeance);
+    let debut = v2.find("[[regime]]\ncode = \"TAXABLE_NORMAL\"").unwrap();
+    let suite = v2[debut + 1..].find("[[regime]]").unwrap() + debut + 1;
+    let v2 = format!("{}{}", &v2[..debut], &v2[suite..]);
+    let mut toutes: Vec<ParametresFiscaux> = Registre::officiel()
+        .unwrap()
+        .versions_du_pays("SN")
+        .to_vec();
+    for t in [v1, v2] {
+        toutes.push(ParametresFiscaux::depuis_texte(&socle, Portee::Pack, &t).unwrap());
+    }
+    Registre::depuis_versions(socle, toutes).unwrap()
+}

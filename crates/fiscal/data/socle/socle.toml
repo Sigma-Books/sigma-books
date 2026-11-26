@@ -7,4 +7,4 @@ roles_taux = ["normal", "reduit"]
 [retention]
 # Plancher de conservation des pièces, en années, qu'aucune version ne peut baisser.
 plancher_annees = 10
-source = "AUDCIF art. 24 (ADR 0015 : dix ans, point de départ à confirmer)"
+source = "AUDCIF art. 24, p. PDF 24 (ADR 0015 : dix ans, point de départ à confirmer)"
