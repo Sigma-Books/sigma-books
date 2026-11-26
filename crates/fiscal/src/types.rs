@@ -22,6 +22,21 @@ pub enum Deduction {
     NonTrouve,
 }
 
+impl Deduction {
+    /// Nom dans les fichiers de données.
+    #[must_use]
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Self::Oui => "oui",
+            Self::Non => "non",
+            Self::NonSaufExceptions => "non_sauf_exceptions",
+            Self::OuiSiDeclaree => "oui_si_declaree",
+            Self::SansObjet => "sans_objet",
+            Self::NonTrouve => "non_trouve",
+        }
+    }
+}
+
 /// Règle légale d'exigibilité (l'article et le délai sont dans les sources du paquet).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +55,22 @@ pub enum ExigibiliteLegale {
     SansObjet,
     /// Non trouvée dans le texte de référence.
     NonTrouve,
+}
+
+impl ExigibiliteLegale {
+    /// Nom dans les fichiers de données.
+    #[must_use]
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Self::FaitGenerateur => "fait_generateur",
+            Self::Encaissement => "encaissement",
+            Self::General => "general",
+            Self::DeclarationPeriodique => "declaration_periodique",
+            Self::DelaiApresEvenement => "delai_apres_evenement",
+            Self::SansObjet => "sans_objet",
+            Self::NonTrouve => "non_trouve",
+        }
+    }
 }
 
 /// Rôle d'un taux : le socle les nomme, chaque version de paramètres donne leur valeur.
