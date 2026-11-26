@@ -1,33 +1,15 @@
-// Libellés français des valeurs codées rendues par l'API. Une valeur inconnue s'affiche telle
-// quelle : l'interface ne l'interprète pas.
+// Libellés des valeurs codées rendues par l'API (catalogue de messages, `i18n/`). Une valeur
+// inconnue s'affiche telle quelle : l'interface ne l'interprète pas.
 
-const ROLES: Record<string, string> = {
-	administrateur: 'Administrateur',
-	valideur: 'Valideur',
-	collaborateur: 'Collaborateur',
-	auditeur: 'Auditeur'
-};
+import { chercher } from './i18n/index.ts';
 
-const METHODES: Record<string, string> = {
-	passkey: 'Passkey',
-	secours: 'Mot de passe et TOTP',
-	code_recuperation: 'Code de récupération',
-	lien_enrolement: 'Lien d’enrôlement'
-};
-
-const NATURES: Record<string, string> = {
-	complete: 'Complète',
-	restreinte: 'Restreinte (enrôlement d’une passkey)',
-	enrolement: 'Enrôlement'
-};
-
-function libelle(table: Record<string, string>, valeur: string): string {
-	return Object.hasOwn(table, valeur) ? (table[valeur] ?? valeur) : valeur;
+function libelle(prefixe: string, valeur: string): string {
+	return chercher(`${prefixe}.${valeur}`) ?? valeur;
 }
 
-export const libelleRole = (role: string): string => libelle(ROLES, role);
-export const libelleMethode = (methode: string): string => libelle(METHODES, methode);
-export const libelleNature = (nature: string): string => libelle(NATURES, nature);
+export const libelleRole = (role: string): string => libelle('role', role);
+export const libelleMethode = (methode: string): string => libelle('methode', methode);
+export const libelleNature = (nature: string): string => libelle('nature_session', nature);
 
 /**
  * Rôles pour lesquels l'interface **affiche** la création d'un dossier (§20 « Créer un dossier »).
@@ -58,13 +40,5 @@ export const ROLES_PROPOSES: readonly string[] = [
 	'auditeur'
 ];
 
-const MOTIFS_REINITIALISATION: Record<string, string> = {
-	appareil_perdu: 'Appareil perdu',
-	facteurs_perdus: 'Moyens de connexion perdus',
-	compte_compromis: 'Compte compromis',
-	depart_reprise: 'Départ ou reprise du poste',
-	autre: 'Autre motif'
-};
-
 export const libelleMotifReinitialisation = (motif: string): string =>
-	libelle(MOTIFS_REINITIALISATION, motif);
+	libelle('reinitialisation', motif);

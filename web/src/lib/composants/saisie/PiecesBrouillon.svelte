@@ -20,18 +20,21 @@
 	} from '#lib/api/pieces.ts';
 	import { lireUuid, type Uuid } from '#lib/api/types.ts';
 	import { api } from '#lib/application.ts';
-	import { dateIso } from '#lib/dates.ts';
+	import { dateDuJour } from '#lib/dates.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import MessageMetier from '../MessageMetier.svelte';
 
 	interface Props {
 		cabinet: Uuid;
 		dossier: Uuid;
+		/** Fuseau du dossier : la date proposée pour une note est celle du jour dans ce fuseau. */
+		regional: Pick<Regional, 'fuseau'>;
 		brouillon: Brouillon;
 		/** Le brouillon relu après chaque changement (la version avance). */
 		surChangement: (brouillon: Brouillon) => void;
 	}
 
-	let { cabinet, dossier, brouillon, surChangement }: Props = $props();
+	let { cabinet, dossier, regional, brouillon, surChangement }: Props = $props();
 
 	let fichier = $state<File | null>(null);
 	let enCours = $state(false);
@@ -41,7 +44,8 @@
 	let disponibles = $state<Piece[] | null>(null);
 	let choisie = $state('');
 	let motifNote = $state('');
-	let dateNote = $state(dateIso(new Date()));
+	// svelte-ignore state_referenced_locally
+	let dateNote = $state(dateDuJour(regional.fuseau));
 
 	const roleParDefaut = $derived<RolePieceJointe>(
 		brouillon.pieces.some((p) => p.role === 'principale') ? 'complementaire' : 'principale'

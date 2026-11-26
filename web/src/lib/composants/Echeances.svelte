@@ -6,6 +6,7 @@
 <script lang="ts">
 	import type { EtatSession } from '#lib/api/types.ts';
 	import { dateHeure, heure, minutesRestantes } from '#lib/instants.ts';
+	import { regionalUtilisateur } from '#lib/regional.ts';
 
 	interface Props {
 		session: EtatSession;
@@ -13,6 +14,9 @@
 	}
 
 	let { session, prolonger }: Props = $props();
+
+	// Instants dans le fuseau et la langue du navigateur : ces écrans ne dépendent d'aucun dossier.
+	const regional = regionalUtilisateur();
 
 	const SEUIL_AVERTISSEMENT = 5;
 
@@ -42,9 +46,9 @@
 
 <p class="echeances">
 	Session : fin par inactivité à <time datetime={session.fin_inactivite}>
-		{heure(session.fin_inactivite)}
+		{heure(session.fin_inactivite, regional)}
 	</time>, au plus tard à
-	<time datetime={session.fin_absolue}>{dateHeure(session.fin_absolue)}</time>.
+	<time datetime={session.fin_absolue}>{dateHeure(session.fin_absolue, regional)}</time>.
 </p>
 
 {#if bientot}

@@ -1,7 +1,10 @@
-// Libellés et mises en forme des éditions : aucune logique comptable (les totaux, soldes et
+// Libellés (catalogue `i18n/`) et mises en forme des éditions : aucune logique comptable (les totaux, soldes et
 // l'équilibre viennent du serveur). Module pur, testé sous `node --test`.
 
+import { afficherDate } from './dates.ts';
+import { chercher, nombreEtUnite, traduire } from './i18n/index.ts';
 import { formaterMontant } from './montants.ts';
+import { localeDe, type Regional } from './regional.ts';
 import type {
 	AlerteBrouillard,
 	AlerteEcheance,
@@ -12,59 +15,40 @@ import type {
 	NatureEdition
 } from './api/editions.ts';
 
-export const LIBELLES_NATURE: Readonly<Record<NatureEdition, string>> = {
-	balance: 'Balance',
-	'grand-livre': 'Grand livre',
-	journaux: 'Journaux',
-	centralisateur: 'Centralisateur'
-};
-
-const LIBELLES_COLONNES: Readonly<Record<string, string>> = {
-	ouverture_debit: 'Ouverture débit',
-	ouverture_credit: 'Ouverture crédit',
-	mouvements_debit: 'Mouvements débit',
-	mouvements_credit: 'Mouvements crédit',
-	total_debit: 'Total débit',
-	total_credit: 'Total crédit',
-	solde_debiteur: 'Solde débiteur',
-	solde_crediteur: 'Solde créditeur'
-};
+/** Libellé d'une nature d'édition. */
+export const libelleEdition = (n: NatureEdition): string => traduire(`edition.nature.${n}`);
 
 /** Libellé d'une colonne de balance ; un nom inconnu est rendu tel quel. */
 export function libelleColonne(nom: string): string {
-	return Object.hasOwn(LIBELLES_COLONNES, nom) ? (LIBELLES_COLONNES[nom] ?? nom) : nom;
+	return chercher(`edition.colonne.${nom}`) ?? nom;
 }
 
-export const LIBELLES_FORMAT: Readonly<Record<FormatBalance, string>> = {
-	2: 'Balance de travail à 2 colonnes (soldes)',
-	4: 'Balance de travail à 4 colonnes (totaux et soldes)',
-	6: 'Balance générale à 6 colonnes (AUDCIF art. 19)',
-	8: 'Balance de travail à 8 colonnes'
-};
+export const libelleFormat = (f: FormatBalance): string => traduire(`edition.format.${f}`);
 
 export function titreBalance(b: Pick<Balance, 'format'>): string {
-	return LIBELLES_FORMAT[b.format];
+	return libelleFormat(b.format);
 }
 
-const MOIS = [
-	'janvier',
-	'février',
-	'mars',
-	'avril',
-	'mai',
-	'juin',
-	'juillet',
-	'août',
-	'septembre',
-	'octobre',
-	'novembre',
-	'décembre'
-];
+const MOIS = new Map<string, Intl.DateTimeFormat>();
 
-/** « mars 2026 » ; un mois hors 1 à 12 est rendu en nombre. */
-export function libelleMois(m: Pick<MoisCentralisateur, 'annee' | 'mois'>): string {
-	const nom = MOIS[m.mois - 1];
-	return nom === undefined ? `${m.annee}-${m.mois}` : `${nom} ${m.annee}`;
+/**
+ * « mars 2026 » : mois et année selon le locale du dossier (`Intl`, calendrier grégorien) ; un mois
+ * hors 1 à 12 est rendu en nombre.
+ */
+export function libelleMois(
+	m: Pick<MoisCentralisateur, 'annee' | 'mois'>,
+	r: Pick<Regional, 'langue' | 'pays'>
+): string {
+	if (!Number.isInteger(m.mois) || m.mois < 1 || m.mois > 12 || !Number.isInteger(m.annee)) {
+		return `${m.annee}-${m.mois}`;
+	}
+	const locale = localeDe(r);
+	let f = MOIS.get(locale);
+	if (f === undefined) {
+		f = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+		MOIS.set(locale, f);
+	}
+	return f.format(new Date(Date.UTC(m.annee, m.mois - 1, 1)));
 }
 
 export function messageBrouillonsExclus(exclus: {
@@ -74,36 +58,52 @@ export function messageBrouillonsExclus(exclus: {
 	const total = exclus.desequilibres + exclus.illisibles;
 	if (total === 0) return null;
 	const details = [
-		exclus.desequilibres > 0 ? `${exclus.desequilibres} déséquilibré(s)` : null,
-		exclus.illisibles > 0 ? `${exclus.illisibles} illisible(s)` : null
+		exclus.desequilibres > 0
+			? traduire('edition.exclus.desequilibres', { nombre: exclus.desequilibres })
+			: null,
+		exclus.illisibles > 0
+			? traduire('edition.exclus.illisibles', { nombre: exclus.illisibles })
+			: null
 	]
 		.filter((x) => x !== null)
 		.join(', ');
-	return `Édition provisoire incomplète : ${total} brouillon(s) n’ont pas pu être pris en compte (${details}).`;
+	return traduire('edition.exclus', { total, details });
 }
-
-const STATUTS: Readonly<Record<string, string>> = {
-	ouverte: 'ouverte',
-	verrouillee: 'verrouillée',
-	cloturee: 'clôturée'
-};
 
 export function libelleStatutPeriode(statut: string): string {
-	return Object.hasOwn(STATUTS, statut) ? (STATUTS[statut] ?? statut) : statut;
+	return chercher(`statut.${statut}`) ?? statut;
 }
 
-const pluriel = (n: number, mot: string): string => `${n} ${mot}${Math.abs(n) > 1 ? 's' : ''}`;
-
-export function messageAlerteBrouillard(a: AlerteBrouillard): string {
-	return `Journal ${a.journal} : ${pluriel(a.nombre, 'brouillon')} non validé(s) pour la période du ${a.debut_periode} au ${a.fin_periode}, en retard de ${pluriel(a.jours_de_retard, 'jour')} (le plus ancien date du ${a.plus_ancienne}).`;
+export function messageAlerteBrouillard(a: AlerteBrouillard, r: Regional): string {
+	return traduire('alerte.brouillard', {
+		journal: a.journal,
+		brouillons: nombreEtUnite(a.nombre, 'brouillon'),
+		debut: afficherDate(a.debut_periode, r),
+		fin: afficherDate(a.fin_periode, r),
+		retard: nombreEtUnite(a.jours_de_retard, 'jour'),
+		ancienne: afficherDate(a.plus_ancienne, r)
+	});
 }
 
-export function messageAlerteEcheance(a: AlerteEcheance): string {
-	const periode = `période du ${a.debut} au ${a.fin} (exercice ${a.exercice}, ${libelleStatutPeriode(a.statut)})`;
-	if (a.depassee) {
-		return `Échéance de clôture dépassée de ${pluriel(-a.jours_restants, 'jour')} pour la ${periode} : échéance le ${a.echeance}.`;
-	}
-	return `Échéance de clôture le ${a.echeance}, dans ${pluriel(a.jours_restants, 'jour')}, pour la ${periode}.`;
+export function messageAlerteEcheance(a: AlerteEcheance, r: Regional): string {
+	const periode = traduire('alerte.periode', {
+		debut: afficherDate(a.debut, r),
+		fin: afficherDate(a.fin, r),
+		exercice: a.exercice,
+		statut: libelleStatutPeriode(a.statut)
+	});
+	const echeance = afficherDate(a.echeance, r);
+	return a.depassee
+		? traduire('alerte.echeance_depassee', {
+				jours: nombreEtUnite(-a.jours_restants, 'jour'),
+				periode,
+				echeance
+			})
+		: traduire('alerte.echeance_proche', {
+				jours: nombreEtUnite(a.jours_restants, 'jour'),
+				periode,
+				echeance
+			});
 }
 
 /** Montant à afficher ou exporter : « -0 » (ou « -0.00 ») devient « 0 ». Chaîne exacte, sans calcul. */
@@ -135,6 +135,9 @@ export function editionVide(
 	}
 }
 
-/** Montant d'une édition pour l'affichage (groupes de milliers, « -0 » ramené à « 0 »). */
-export const afficherMontant = (montant: string): string =>
-	formaterMontant(normaliserZero(montant));
+/**
+ * Montant d'une édition pour l'affichage : devise et locale du dossier (échelle, séparateurs), « -0 »
+ * ramené à « 0 ».
+ */
+export const afficherMontant = (montant: string, r: Regional): string =>
+	formaterMontant(normaliserZero(montant), r);

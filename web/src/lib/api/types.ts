@@ -44,6 +44,17 @@ export interface CabinetMembre {
 export interface Dossier {
 	id: Uuid;
 	nom: string;
+	/**
+	 * Contexte régional du dossier (`pays`, `devise`, `decimales`, `fuseau`, `langue`). Facultatif
+	 * tant que l'API ne le renvoie pas partout : l'interface le lit par `lireRegional`
+	 * (`regional.ts`), qui remplace chaque champ absent par sa valeur par défaut. Une fois l'API
+	 * déployée, ces champs deviennent obligatoires ici et dans `estDossier`.
+	 */
+	pays?: string;
+	devise?: string;
+	decimales?: number;
+	fuseau?: string;
+	langue?: string;
 }
 
 /** Une session de l'utilisateur (`GET /api/moi/sessions`). */

@@ -30,14 +30,17 @@
 		csvCentralisateur,
 		csvGrandLivre,
 		csvJournaux,
-		nomFichierEdition
+		nomFichierEdition,
+		optionsCsvParDefaut,
+		SEPARATEURS_CSV,
+		SEPARATEURS_DECIMAUX,
+		type ContexteCsv,
+		type OptionsCsv
 	} from '#lib/csv.ts';
 	import { afficherDate } from '#lib/dates.ts';
-	import {
-		editionVide,
-		LIBELLES_NATURE,
-		messageBrouillonsExclus
-	} from '#lib/editions-affichage.ts';
+	import { editionVide, libelleEdition, messageBrouillonsExclus } from '#lib/editions-affichage.ts';
+	import { traduire } from '#lib/i18n/index.ts';
+	import { lireRegional, type Regional } from '#lib/regional.ts';
 	import { enregistrerFichier } from '#lib/telechargement.ts';
 	import '#lib/styles/editions.css';
 	import type { PageProps } from './$types';
@@ -59,6 +62,8 @@
 	let filtre = $state<FiltreEdition>({ ...FILTRE_VIDE });
 	let etat = $state<Etat>({ phase: 'repos' });
 	let erreurExport = $state<string | null>(null);
+	/** Options du CSV : celles du locale du dossier tant que l'utilisateur n'y touche pas. */
+	let optionsCsv = $state<OptionsCsv>(optionsCsvParDefaut(lireRegional({})));
 	/** Numéro de la dernière demande : une réponse tardive d'une demande périmée est ignorée. */
 	let demande = 0;
 
@@ -75,6 +80,9 @@
 		etat = { phase: 'repos' };
 		erreurExport = null;
 		filtre = { ...FILTRE_VIDE };
+	});
+	$effect.pre(() => {
+		if (data.contenu?.ok) optionsCsv = optionsCsvParDefaut(data.contenu.valeur.contexte.regional);
 	});
 
 	async function afficher(cabinet: Uuid, dossier: Uuid): Promise<void> {
@@ -107,29 +115,31 @@
 		}
 	}
 
-	function csvDe(a: Affichee): string {
+	function csvDe(a: Affichee, c: ContexteCsv): string {
 		switch (a.nature) {
 			case 'balance':
-				return csvBalance(a.edition);
+				return csvBalance(a.edition, c);
 			case 'grand-livre':
-				return csvGrandLivre(a.edition);
+				return csvGrandLivre(a.edition, c);
 			case 'journaux':
-				return csvJournaux(a.edition);
+				return csvJournaux(a.edition, c);
 			case 'centralisateur':
-				return csvCentralisateur(a.edition);
+				return csvCentralisateur(a.edition, c);
 		}
 	}
 
-	function exporter(a: Affichee): void {
+	function exporter(a: Affichee, nomDossier: string, regional: Regional): void {
 		erreurExport = null;
 		const entete: EnteteEdition = a.edition;
 		try {
 			enregistrerFichier(
-				new Blob([csvDe(a)], { type: 'text/csv;charset=utf-8' }),
+				new Blob([csvDe(a, { nomDossier, regional, options: $state.snapshot(optionsCsv) })], {
+					type: 'text/csv;charset=utf-8'
+				}),
 				nomFichierEdition(a.nature, entete.exercice, entete.mode)
 			);
 		} catch {
-			erreurExport = 'Le fichier n’a pas pu être préparé.';
+			erreurExport = traduire('edition.export_impossible');
 		}
 	}
 </script>
@@ -156,6 +166,7 @@
 	<FormulaireEdition
 		bind:nature
 		bind:filtre
+		regional={contexte.regional}
 		exercices={valeur.exercices}
 		journaux={valeur.journaux}
 		enCours={etat.phase === 'chargement'}
@@ -183,10 +194,16 @@
 			{@const a = etat.affichee}
 			{@const exclus = messageBrouillonsExclus(a.edition.brouillons_exclus)}
 			<h3>
-				{LIBELLES_NATURE[a.nature]} — exercice {a.edition.exercice}, du
-				{afficherDate(a.edition.du)} au {afficherDate(a.edition.au)}
+				{libelleEdition(a.nature)} — {traduire('edition.exercice_code', {
+					code: a.edition.exercice
+				})}, du
+				{afficherDate(a.edition.du, contexte.regional)} au
+				{afficherDate(a.edition.au, contexte.regional)}
 				<span class="badge">{a.edition.mode === 'provisoire' ? 'PROVISOIRE' : 'Définitive'}</span>
 			</h3>
+			<p class="identite-edition">
+				<strong>{contexte.nomDossier.nom}</strong> — montants en {contexte.regional.devise}
+			</p>
 			{#if a.edition.mode === 'provisoire'}
 				<div class="message message-avertissement" role="status">
 					<p>
@@ -204,24 +221,63 @@
 				<p>Aucune écriture pour ces filtres.</p>
 			{:else}
 				<div class="barre-actions">
-					<button class="bouton bouton-secondaire" type="button" onclick={() => exporter(a)}>
+					<button
+						class="bouton bouton-secondaire"
+						type="button"
+						onclick={() => exporter(a, contexte.nomDossier.nom, contexte.regional)}
+					>
 						Exporter en CSV
 					</button>
 					<button class="bouton bouton-secondaire" type="button" onclick={() => window.print()}>
 						Imprimer
 					</button>
 				</div>
+				<details class="options-csv no-print">
+					<summary>{traduire('csv.options')}</summary>
+					<div class="grille-filtre">
+						<div class="champ">
+							<label for="csv-sep">{traduire('csv.option_separateur')}</label>
+							<select id="csv-sep" bind:value={optionsCsv.separateur}>
+								{#each SEPARATEURS_CSV as sep (sep)}
+									<option value={sep}>
+										{traduire(
+											sep === ';'
+												? 'csv.sep.pointvirgule'
+												: sep === ','
+													? 'csv.sep.virgule'
+													: 'csv.sep.tabulation'
+										)}
+									</option>
+								{/each}
+							</select>
+						</div>
+						<div class="champ">
+							<label for="csv-dec">{traduire('csv.option_decimal')}</label>
+							<select id="csv-dec" bind:value={optionsCsv.separateurDecimal}>
+								{#each SEPARATEURS_DECIMAUX as dec (dec)}
+									<option value={dec}>
+										{traduire(dec === ',' ? 'csv.dec.virgule' : 'csv.dec.point')}
+									</option>
+								{/each}
+							</select>
+						</div>
+					</div>
+					<label class="choix-bom">
+						<input type="checkbox" bind:checked={optionsCsv.bom} />
+						{traduire('csv.option_bom')}
+					</label>
+				</details>
 				{#if erreurExport !== null}
 					<div class="message message-erreur" role="alert"><p>{erreurExport}</p></div>
 				{/if}
 				{#if a.nature === 'balance'}
-					<TableBalance balance={a.edition} />
+					<TableBalance balance={a.edition} regional={contexte.regional} />
 				{:else if a.nature === 'grand-livre'}
-					<TableGrandLivre grandLivre={a.edition} />
+					<TableGrandLivre grandLivre={a.edition} regional={contexte.regional} />
 				{:else if a.nature === 'journaux'}
-					<TableJournaux journaux={a.edition} />
+					<TableJournaux journaux={a.edition} regional={contexte.regional} />
 				{:else}
-					<TableCentralisateur centralisateur={a.edition} />
+					<TableCentralisateur centralisateur={a.edition} regional={contexte.regional} />
 				{/if}
 			{/if}
 		{/if}

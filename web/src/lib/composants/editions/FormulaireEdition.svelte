@@ -6,19 +6,23 @@
 <script lang="ts">
 	import {
 		FORMATS_BALANCE,
-		MESSAGES_FILTRE,
+		messageFiltre,
 		NATURES_EDITION,
 		verifierFiltre,
 		type FiltreEdition,
 		type NatureEdition
 	} from '#lib/api/editions.ts';
 	import type { Exercice, Journal } from '#lib/api/referentiel.ts';
-	import { LIBELLES_FORMAT, LIBELLES_NATURE } from '#lib/editions-affichage.ts';
+	import { afficherDate } from '#lib/dates.ts';
+	import { libelleEdition, libelleFormat } from '#lib/editions-affichage.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import '#lib/styles/editions.css';
 
 	interface Props {
 		nature: NatureEdition;
 		filtre: FiltreEdition;
+		/** Locale du dossier : dates des exercices. */
+		regional: Regional;
 		exercices: Exercice[];
 		journaux: Journal[];
 		enCours: boolean;
@@ -28,6 +32,7 @@
 	let {
 		nature = $bindable(),
 		filtre = $bindable(),
+		regional,
 		exercices,
 		journaux,
 		enCours,
@@ -51,7 +56,7 @@
 			{#each NATURES_EDITION as n (n)}
 				<label>
 					<input type="radio" name="nature" value={n} bind:group={nature} />
-					{LIBELLES_NATURE[n]}
+					{libelleEdition(n)}
 				</label>
 			{/each}
 		</div>
@@ -63,7 +68,9 @@
 			<select id="f-exercice" bind:value={filtre.exercice}>
 				<option value="">Par défaut</option>
 				{#each exercices as e (e.id)}
-					<option value={e.code}>{e.code} ({e.debut} au {e.fin})</option>
+					<option value={e.code}>
+						{e.code} ({afficherDate(e.debut, regional)} au {afficherDate(e.fin, regional)})
+					</option>
 				{/each}
 			</select>
 		</div>
@@ -113,7 +120,7 @@
 				<label for="f-format">Format de la balance</label>
 				<select id="f-format" bind:value={filtre.format}>
 					{#each FORMATS_BALANCE as f (f)}
-						<option value={f}>{LIBELLES_FORMAT[f]}</option>
+						<option value={f}>{libelleFormat(f)}</option>
 					{/each}
 				</select>
 			</div>
@@ -145,7 +152,7 @@
 		<div class="message message-erreur" role="alert">
 			<ul>
 				{#each problemes as p (p)}
-					<li>{MESSAGES_FILTRE[p]}</li>
+					<li>{messageFiltre(p)}</li>
 				{/each}
 			</ul>
 		</div>

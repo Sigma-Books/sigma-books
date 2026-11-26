@@ -1,16 +1,21 @@
 // Contexte commun des écrans d'un dossier : cabinet et dossier lus dans l'URL (validés par
-// `lireUuid`), cabinet activé (rotation de session), rôle du membre et nom du dossier.
+// `lireUuid`), cabinet activé (rotation de session), rôle du membre, nom du dossier et contexte
+// régional du dossier (pays, devise, échelle décimale, fuseau, langue : `regional.ts`).
 
 import { activerCabinet, api, membreDuCabinet } from './application.ts';
 import { lireDossier } from './api/ressources.ts';
 import { tenter, type Resultat } from './api/resultat.ts';
 import { lireUuid, type CabinetMembre, type Dossier, type Uuid } from './api/types.ts';
+import { fixerLangue, nouvelleNavigation } from './i18n/index.ts';
+import { lireRegional, type Regional } from './regional.ts';
 
 export interface ContexteDossier {
 	cabinet: Uuid;
 	dossier: Uuid;
 	membre: CabinetMembre;
 	nomDossier: Dossier;
+	/** Devise, échelle, locale, fuseau et langue du dossier (valeurs par défaut si l'API n'en dit rien). */
+	regional: Regional;
 }
 
 /** Rôles auxquels l'interface propose la saisie (simple masquage : le serveur décide, §20). */
@@ -37,6 +42,7 @@ export async function chargerDossier<T>(
 	contenu: Resultat<{ contexte: ContexteDossier; valeur: T }> | null;
 	fil?: ReturnType<typeof filDepuis>;
 }> {
+	const jeton = nouvelleNavigation();
 	const cabinet = lireUuid(url.searchParams.get('cabinet'));
 	const dossier = lireUuid(url.searchParams.get('dossier'));
 	if (cabinet === null || dossier === null) return { contenu: null };
@@ -46,7 +52,11 @@ export async function chargerDossier<T>(
 			membreDuCabinet(cabinet),
 			lireDossier(api, cabinet, dossier)
 		]);
-		const contexte = { cabinet, dossier, membre, nomDossier };
+		// Seul point de raccordement du contexte régional : l'API de lecture du dossier.
+		const regional = lireRegional(nomDossier);
+		// Le chargement d'un autre dossier a pu commencer depuis : sa langue l'emporte alors.
+		fixerLangue(regional.langue, jeton);
+		const contexte = { cabinet, dossier, membre, nomDossier, regional };
 		return { contexte, valeur: await suite(contexte) };
 	});
 	return contenu.ok ? { contenu, fil: filDepuis(contenu.valeur.contexte) } : { contenu };

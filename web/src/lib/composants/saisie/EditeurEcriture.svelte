@@ -25,12 +25,15 @@
 		LIGNES_MAX,
 		soldePropose,
 		type EnteteSaisie,
-		type LigneSaisie
+		type LigneSaisie,
+		type ProblemeLocal
 	} from '#lib/api/saisie.ts';
 	import type { Uuid } from '#lib/api/types.ts';
 	import { api } from '#lib/application.ts';
-	import { dateIso } from '#lib/dates.ts';
-	import { formaterMontant } from '#lib/montants.ts';
+	import { dateDuJour } from '#lib/dates.ts';
+	import { traduire, type Cle } from '#lib/i18n/index.ts';
+	import { formaterMontant, versSaisie } from '#lib/montants.ts';
+	import { localeDe, separateurs, type Regional } from '#lib/regional.ts';
 	import {
 		actionClavier,
 		entreeSansAction,
@@ -42,6 +45,8 @@
 	interface Props {
 		cabinet: Uuid;
 		dossier: Uuid;
+		/** Devise, échelle, locale et fuseau du dossier : lecture et affichage des montants. */
+		regional: Regional;
 		comptes: Compte[];
 		journaux: Journal[];
 		tiers: Tiers[];
@@ -57,6 +62,7 @@
 	let {
 		cabinet,
 		dossier,
+		regional,
 		comptes,
 		journaux,
 		tiers,
@@ -68,8 +74,9 @@
 
 	const SEPARATEUR = ' — ';
 
+	/** Montant canonique remis dans le locale de saisie du dossier (`1500,5` en `fr`). */
 	function enMontantSaisi(canonique: string): string {
-		return canonique.replace('.', ',');
+		return versSaisie(canonique, regional);
 	}
 
 	// Le parent recrée l'éditeur (`{#key}`) quand le brouillon ouvert change : seule la valeur
@@ -87,7 +94,7 @@
 	// svelte-ignore state_referenced_locally
 	let entete = $state<EnteteSaisie>({
 		journal: brouillon?.journal ?? '',
-		date: brouillon?.date ?? dateIso(new Date()),
+		date: brouillon?.date ?? dateDuJour(regional.fuseau),
 		libelle: brouillon?.libelle ?? '',
 		dateValeur: brouillon?.date_valeur_comptable ?? ''
 	});
@@ -107,7 +114,7 @@
 	const tiersActifs = $derived(tiers.filter((t) => t.actif));
 	const comptesSaisissables = $derived(comptes.filter((c) => c.actif && c.mouvement));
 	const intituleDe = $derived(new Map(comptes.map((c) => [c.numero, c.intitule])));
-	const equilibre = $derived(equilibreIndicatif(lignes));
+	const equilibre = $derived(equilibreIndicatif(lignes, regional));
 
 	// Recherche de compte (F2).
 	let recherche = $state<{ ligne: number; texte: string } | null>(null);
@@ -176,7 +183,7 @@
 			if (ou.ligne === lignes.length - 1) ajouterLigne();
 			void focaliser(idChamp(ou.ligne + 1, 'compte'));
 		} else if (action === 'solde' && ou !== null) {
-			const solde = soldePropose(lignes, ou.ligne);
+			const solde = soldePropose(lignes, ou.ligne, regional);
 			const ligne = lignes[ou.ligne];
 			if (solde !== null && ligne !== undefined) {
 				ligne.debit = '';
@@ -212,14 +219,15 @@
 		}
 	}
 
-	const PROBLEMES = {
-		montant_ambigu:
-			'Montant ambigu (« 1,500 » : mille cinq cents ou un et demi ?) : écrivez 1500 ou 1,5.',
-		montant_illisible: 'Montant illisible : saisissez un nombre positif (ex. 1 500,50).',
-		debit_et_credit: 'Une ligne ne porte qu’un montant : débit ou crédit, pas les deux.',
-		montant_absent: 'Cette ligne n’a ni débit ni crédit.',
-		compte_absent: 'Cette ligne n’a pas de compte.'
-	} as const;
+	function messageProbleme(probleme: ProblemeLocal): string {
+		const cle: Cle = `saisie.probleme.${probleme}`;
+		return traduire(cle, {
+			exemple: formaterMontant(regional.decimales === 0 ? '1500' : '1500.5', regional),
+			decimal: separateurs(localeDe(regional)).decimal,
+			devise: regional.devise,
+			decimales: regional.decimales
+		});
+	}
 
 	async function enregistrer(): Promise<void> {
 		if (enCours) return;
@@ -227,9 +235,9 @@
 		erreurLocale = null;
 		ligneEnErreur = null;
 		message = null;
-		const construit = corpsEcriture(entete, lignes, courant?.version);
+		const construit = corpsEcriture(entete, lignes, regional, courant?.version);
 		if (!construit.ok) {
-			erreurLocale = `Ligne ${construit.ligne + 1} : ${PROBLEMES[construit.probleme]}`;
+			erreurLocale = `Ligne ${construit.ligne + 1} : ${messageProbleme(construit.probleme)}`;
 			ligneEnErreur = construit.ligne;
 			void focaliser(idChamp(construit.ligne, 'compte'));
 			return;
@@ -448,8 +456,8 @@
 			<tfoot>
 				<tr>
 					<th scope="row" colspan="3">Totaux (indicatifs)</th>
-					<td class="num">{formaterMontant(equilibre.debit)}</td>
-					<td class="num">{formaterMontant(equilibre.credit)}</td>
+					<td class="num">{formaterMontant(equilibre.debit, regional)}</td>
+					<td class="num">{formaterMontant(equilibre.credit, regional)}</td>
 					<td></td>
 				</tr>
 			</tfoot>
@@ -460,7 +468,8 @@
 		{#if equilibre.sens === 'equilibre'}
 			Écriture équilibrée (indicatif).
 		{:else}
-			Écart de {formaterMontant(equilibre.difference)} à porter au {equilibre.sens === 'debit'
+			Écart de {formaterMontant(equilibre.difference, regional)} à porter au {equilibre.sens ===
+			'debit'
 				? 'débit'
 				: 'crédit'} (indicatif : le serveur contrôle l’équilibre à la validation).
 		{/if}

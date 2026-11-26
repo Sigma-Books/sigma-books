@@ -1,6 +1,6 @@
 <!--
 	Liste du brouillard : filtres (journal, période), drapeau « à revoir », validation unitaire,
-	validation par lot (100 au plus, tout ou rien, ré-authentification), suppression.
+	validation par lot (`LOT_MAX` au plus, tout ou rien, ré-authentification), suppression.
 
 	Le serveur décide de tout : l'interface n'affiche que ses réponses et les motifs stables de ses
 	refus. Les totaux et l'équilibre affichés sont ceux qu'il renvoie.
@@ -28,12 +28,15 @@
 	import { ROLES_SAISIE, ROLES_VALIDATION_LOT } from '#lib/contexte-dossier.ts';
 	import { afficherDate } from '#lib/dates.ts';
 	import { ecart, formaterMontant } from '#lib/montants.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import MessageErreur from '../MessageErreur.svelte';
 	import MessageMetier from '../MessageMetier.svelte';
 
 	interface Props {
 		cabinet: Uuid;
 		dossier: Uuid;
+		/** Devise, échelle et locale du dossier : montants et dates affichés. */
+		regional: Regional;
 		role: string;
 		journaux: Journal[];
 		exercices: Exercice[];
@@ -41,7 +44,7 @@
 		filtre: { journal: string; periode: Uuid | null };
 	}
 
-	let { cabinet, dossier, role, journaux, exercices, initiale, filtre }: Props = $props();
+	let { cabinet, dossier, regional, role, journaux, exercices, initiale, filtre }: Props = $props();
 
 	// Le parent recrée la liste (`{#key}`) à chaque nouveau filtre : seule la valeur initiale compte.
 	// svelte-ignore state_referenced_locally
@@ -72,7 +75,7 @@
 		const l = parId.get(id);
 		return l === undefined
 			? 'Écriture inconnue'
-			: `${afficherDate(l.date)} · ${l.journal} · ${l.libelle}`;
+			: `${afficherDate(l.date, regional)} · ${l.journal} · ${l.libelle}`;
 	}
 
 	// --- Filtres ---------------------------------------------------------------------------
@@ -247,7 +250,7 @@
 		exercices.flatMap((x) =>
 			x.periodes.map((p) => ({
 				id: p.id,
-				libelle: `${x.code} · ${afficherDate(p.debut)} → ${afficherDate(p.fin)}`
+				libelle: `${x.code} · ${afficherDate(p.debut, regional)} → ${afficherDate(p.fin, regional)}`
 			}))
 		)
 	);
@@ -315,8 +318,8 @@
 	{#if peutLot}
 		<div class="barre-lot" role="group" aria-label="Validation par lot">
 			<span role="status" aria-live="polite">
-				{selectionVisible.length} sélectionnée{selectionVisible.length > 1 ? 's' : ''} (100 au plus par
-				lot)
+				{selectionVisible.length} sélectionnée{selectionVisible.length > 1 ? 's' : ''} ({LOT_MAX} au plus
+				par lot)
 			</span>
 			<button
 				type="button"
@@ -376,7 +379,7 @@
 						<th scope="col">
 							<input
 								type="checkbox"
-								aria-label="Sélectionner toutes les écritures affichées (100 au plus)"
+								aria-label={`Sélectionner toutes les écritures affichées (${LOT_MAX} au plus)`}
 								checked={selectionVisible.length > 0 &&
 									selectionVisible.length >= Math.min(affichees.length, LOT_MAX)}
 								disabled={occupation}
@@ -409,11 +412,11 @@
 								/>
 							</td>
 						{/if}
-						<td>{afficherDate(r.date)}</td>
+						<td>{afficherDate(r.date, regional)}</td>
 						<td>{r.journal}</td>
 						<td>{r.libelle}</td>
-						<td class="num">{formaterMontant(r.debit)}</td>
-						<td class="num">{formaterMontant(r.credit)}</td>
+						<td class="num">{formaterMontant(r.debit, regional)}</td>
+						<td class="num">{formaterMontant(r.credit, regional)}</td>
 						<td>
 							{#if r.a_revoir}<strong class="badge">À revoir</strong>{/if}
 							{#if e.sens !== 'equilibre'}<span class="badge badge-ecart">Déséquilibré</span>{/if}

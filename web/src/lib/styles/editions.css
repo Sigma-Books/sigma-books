@@ -124,6 +124,11 @@ fieldset.groupe legend {
 }
 
 @media print {
+	/* L'en-tête imprimé (`.identite-edition`) cite le dossier et la devise des montants. */
+	.identite-edition {
+		font-size: 1rem;
+	}
+
 	header.entete,
 	nav.onglets,
 	.no-print,
@@ -140,4 +145,19 @@ fieldset.groupe legend {
 	.table-edition {
 		font-size: 0.8rem;
 	}
+}
+
+.identite-edition {
+	margin: 0 0 var(--espace-3);
+}
+
+.options-csv {
+	margin-bottom: var(--espace-3);
+}
+
+.choix-bom {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--espace-2);
+	min-height: var(--cible-min);
 }

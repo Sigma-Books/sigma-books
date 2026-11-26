@@ -13,7 +13,7 @@
 	} from '#lib/api/integrite.ts';
 	import {
 		detailAnomalie,
-		MESSAGE_EXPORT_ANNULE,
+		messageExportAnnule,
 		messageAnomalie,
 		messageIntegrite
 	} from '#lib/api/messages-editions.ts';
@@ -115,7 +115,7 @@
 			// montre jamais le résultat d'un autre dossier.
 			if (issue.fait) enregistrerFichier(issue.valeur.contenu, issue.valeur.nom);
 			if (g !== generation) return;
-			if (!issue.fait) messageAction = MESSAGE_EXPORT_ANNULE;
+			if (!issue.fait) messageAction = messageExportAnnule();
 			else exportFait = issue.valeur;
 		} catch (erreur) {
 			if (!(erreur instanceof ErreurApi)) throw erreur;
@@ -181,8 +181,8 @@
 					<p>
 						<strong>Retard d’horodatage</strong> : des écritures attendent un jeton depuis plus de
 						24 h{#if e.horodatage.en_attente_depuis !== null}
-							(depuis le {dateHeure(e.horodatage.en_attente_depuis)}){/if}. Le jeton quotidien n’a
-						pas pu être obtenu : prévenez l’administrateur.
+							(depuis le {dateHeure(e.horodatage.en_attente_depuis, contexte.regional)}){/if}. Le
+						jeton quotidien n’a pas pu être obtenu : prévenez l’administrateur.
 					</p>
 				</div>
 			{/if}
@@ -198,8 +198,8 @@
 					{#if e.dernier_jeton === null}
 						Aucun jeton pour l’instant.
 					{:else}
-						du {dateHeure(e.dernier_jeton.date_jeton)}, autorité {e.dernier_jeton.autorite},
-						couvrant {e.dernier_jeton.nombre} écriture(s)
+						du {dateHeure(e.dernier_jeton.date_jeton, contexte.regional)}, autorité {e.dernier_jeton
+							.autorite}, couvrant {e.dernier_jeton.nombre} écriture(s)
 					{/if}
 				</dd>
 				<dt>Écritures sans jeton</dt>
@@ -207,7 +207,7 @@
 					{e.ecritures_sans_jeton}
 					{#if e.horodatage.en_attente_depuis !== null && !e.horodatage.retard}
 						<span class="aide">
-							(en attente depuis le {dateHeure(e.horodatage.en_attente_depuis)})
+							(en attente depuis le {dateHeure(e.horodatage.en_attente_depuis, contexte.regional)})
 						</span>
 					{/if}
 				</dd>
@@ -411,8 +411,8 @@
 					<tbody>
 						{#each jetons.valeur.jetons as j (j.id)}
 							<tr>
-								<td>{dateHeure(j.date_jeton)}</td>
-								<td>{dateHeure(j.obtenu_le)}</td>
+								<td>{dateHeure(j.date_jeton, contexte.regional)}</td>
+								<td>{dateHeure(j.obtenu_le, contexte.regional)}</td>
 								<td>{j.autorite}</td>
 								<td>{j.declencheur}</td>
 								<td class="num">{j.nombre}</td>

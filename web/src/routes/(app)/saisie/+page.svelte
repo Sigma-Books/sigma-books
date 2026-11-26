@@ -109,6 +109,7 @@
 		<EditeurEcriture
 			cabinet={contexte.cabinet}
 			dossier={contexte.dossier}
+			regional={contexte.regional}
 			comptes={valeur.comptes}
 			journaux={valeur.journaux}
 			tiers={valeur.tiers}
@@ -123,6 +124,7 @@
 		<PiecesBrouillon
 			cabinet={contexte.cabinet}
 			dossier={contexte.dossier}
+			regional={contexte.regional}
 			brouillon={ouvert}
 			surChangement={(b) => (ouvert = b)}
 		/>
@@ -139,7 +141,7 @@
 			<ul class="enregistrees">
 				{#each enregistrees as b (b.id)}
 					<li>
-						{afficherDate(b.date)} · {b.journal} · {b.libelle}
+						{afficherDate(b.date, contexte.regional)} · {b.journal} · {b.libelle}
 						<span class="aide">({b.lignes.length} lignes)</span>
 						<a
 							href={resolve(

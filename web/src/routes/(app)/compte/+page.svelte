@@ -19,12 +19,16 @@
 	import CodesRecuperation from '#lib/composants/CodesRecuperation.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import { dateHeure } from '#lib/instants.ts';
+	import { adopterRegionalUtilisateur } from '#lib/contexte-utilisateur.ts';
 	import { grouperSecret, uriOtpauthSure } from '#lib/libelles.ts';
 	import { enroler, ErreurPasskey, passkeysPrisesEnCharge } from '#lib/passkeys.ts';
 	import { executerSensible } from '#lib/reauthentification.svelte.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	// Instants dans le fuseau et la langue du navigateur : ces écrans ne dépendent d'aucun dossier.
+	const regional = adopterRegionalUtilisateur();
 
 	const complete = $derived(data.session.ok && data.session.valeur.nature === 'complete');
 
@@ -215,8 +219,8 @@
 						<div>
 							<strong>{passkey.nom}</strong>
 							<span class="aide">
-								créée le {dateHeure(passkey.cree_le)}, {passkey.derniere_utilisation
-									? `utilisée le ${dateHeure(passkey.derniere_utilisation)}`
+								créée le {dateHeure(passkey.cree_le, regional)}, {passkey.derniere_utilisation
+									? `utilisée le ${dateHeure(passkey.derniere_utilisation, regional)}`
 									: 'jamais utilisée'}
 							</span>
 						</div>
@@ -267,7 +271,12 @@
 				<p>La méthode de secours doit être enregistrée à nouveau (clé du serveur changée).</p>
 			</div>
 		{:else}
-			<p>Mot de passe et code TOTP, enregistrés le {dateHeure(facteurs.secours.modifie_le)}.</p>
+			<p>
+				Mot de passe et code TOTP, enregistrés le {dateHeure(
+					facteurs.secours.modifie_le,
+					regional
+				)}.
+			</p>
 		{/if}
 		<p class="aide">Codes de récupération restants : {facteurs.codes_restants}.</p>
 	{/if}

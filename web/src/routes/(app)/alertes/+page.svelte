@@ -113,11 +113,11 @@
 		{#if alertes?.ok === true}
 			{#if peutDireAucuneAlerte(total, alertes, integrite)}
 				<div class="message message-succes" role="status">
-					<p>Aucune alerte au {afficherDate(alertes.valeur.date_du_jour)}.</p>
+					<p>Aucune alerte au {afficherDate(alertes.valeur.date_du_jour, contexte.regional)}.</p>
 				</div>
 			{:else if total > 0}
 				<p role="status">
-					{total} alerte(s) au {afficherDate(alertes.valeur.date_du_jour)}.
+					{total} alerte(s) au {afficherDate(alertes.valeur.date_du_jour, contexte.regional)}.
 				</p>
 			{/if}
 		{/if}
@@ -130,7 +130,10 @@
 				<p>
 					Des écritures attendent un jeton d’horodatage depuis plus de 24 h
 					{#if integrite.valeur.horodatage.en_attente_depuis !== null}
-						(depuis le {dateHeure(integrite.valeur.horodatage.en_attente_depuis)}){/if}.
+						(depuis le {dateHeure(
+							integrite.valeur.horodatage.en_attente_depuis,
+							contexte.regional
+						)}){/if}.
 					<a href={resolve(`integrite/?cabinet=${contexte.cabinet}&dossier=${contexte.dossier}`)}>
 						Voir l’écran Intégrité
 					</a>
@@ -152,7 +155,9 @@
 		{:else}
 			<ul class="alertes">
 				{#each alertes.valeur.brouillard_non_valide as a, i (i)}
-					<li class="message message-avertissement">{messageAlerteBrouillard(a)}</li>
+					<li class="message message-avertissement">
+						{messageAlerteBrouillard(a, contexte.regional)}
+					</li>
 				{/each}
 			</ul>
 		{/if}
@@ -172,7 +177,7 @@
 			<ul class="alertes">
 				{#each alertes.valeur.echeances_de_cloture as a, i (i)}
 					<li class={a.depassee ? 'message message-erreur' : 'message message-avertissement'}>
-						{messageAlerteEcheance(a)}
+						{messageAlerteEcheance(a, contexte.regional)}
 					</li>
 				{/each}
 			</ul>

@@ -30,6 +30,7 @@
 		<ListeBrouillard
 			cabinet={contexte.cabinet}
 			dossier={contexte.dossier}
+			regional={contexte.regional}
 			role={contexte.membre.role}
 			journaux={valeur.journaux}
 			exercices={valeur.exercices}
