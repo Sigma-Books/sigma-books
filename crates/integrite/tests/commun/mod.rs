@@ -8,10 +8,10 @@ use std::collections::BTreeMap;
 
 use compta_core::{
     CodeExercice, CodeJournal, CodeMotif, CodeRegime, CompteReference, Compteur, Contexte, Cours,
-    Devise, EcritureBrouillon, EcritureValidee, EtiquetteFiscale, Exercices, Exigibilite,
-    FinPremierExercice, IdTiers, Journal, Journaux, Justification, Ligne, Livre, Montant,
-    NatureEtiquette, NumeroCompte, NumeroEcriture, PlanComptes, ReferencePiece, Sens, SensNormal,
-    SensTva, TauxTva, TexteCourt, TypeJournal, VersionParametres,
+    Devise, DeviseTenue, EcritureBrouillon, EcritureValidee, EtiquetteFiscale, Exercices,
+    Exigibilite, FinPremierExercice, IdTiers, Journal, Journaux, Justification, Ligne, Livre,
+    Montant, NatureEtiquette, NumeroCompte, NumeroEcriture, PlanComptes, ReferencePiece, Sens,
+    SensNormal, SensTva, TauxTva, TexteCourt, TypeJournal, VersionParametres,
 };
 use integrite::IdDossier;
 use time::Date;
@@ -29,11 +29,21 @@ pub fn j(code: &str) -> CodeJournal {
     CodeJournal::parse(code).unwrap()
 }
 
+pub fn devise_xof() -> Devise {
+    Devise::parse("XOF").unwrap()
+}
+
+/// Devise de tenue des dossiers de test : le franc CFA, sans décimale.
+pub fn tenue_xof() -> DeviseTenue {
+    DeviseTenue::nouvelle(devise_xof(), 0).unwrap()
+}
+
 pub fn xof(sens: Sens, compte: &str, montant: &str) -> Ligne {
-    Ligne::en_xof(
+    Ligne::en_devise_tenue(
         n(compte),
         sens,
-        Montant::parse(montant, Devise::XOF).unwrap(),
+        Montant::parse(montant, devise_xof()).unwrap(),
+        &tenue_xof(),
     )
     .unwrap()
 }
@@ -48,10 +58,16 @@ pub struct Dossier {
     exercices: Exercices,
     pub livre: Livre,
     compteurs: BTreeMap<(CodeJournal, CodeExercice), Compteur>,
+    tenue: DeviseTenue,
 }
 
 impl Dossier {
     pub fn nouveau() -> Self {
+        Self::nouveau_en(tenue_xof())
+    }
+
+    /// Dossier de test tenu dans la devise de tenue donnée.
+    pub fn nouveau_en(tenue: DeviseTenue) -> Self {
         let references = [
             ("41", SensNormal::Debiteur, false, false),
             ("411", SensNormal::Debiteur, true, false),
@@ -102,6 +118,7 @@ impl Dossier {
             exercices,
             livre: Livre::new(),
             compteurs: BTreeMap::new(),
+            tenue,
         }
     }
 
@@ -201,6 +218,7 @@ impl Dossier {
             journaux: &self.journaux,
             exercices: &self.exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: self.tenue,
         };
         let (numero, suivant) = self
             .livre
@@ -221,6 +239,7 @@ impl Dossier {
             journaux: &self.journaux,
             exercices: &self.exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: self.tenue,
         };
         let (numero, suivant) = self
             .livre
@@ -275,8 +294,8 @@ pub fn dossier_de_reference() -> Dossier {
         date!(2026 - 02 - 03),
         "Règlement",
         vec![
-            Ligne::en_devise(n("521"), Sens::Debit, eur, cours).unwrap(),
-            Ligne::en_devise(n("4111"), Sens::Credit, eur, cours)
+            Ligne::en_devise(n("521"), Sens::Debit, eur, cours, &tenue_xof()).unwrap(),
+            Ligne::en_devise(n("4111"), Sens::Credit, eur, cours, &tenue_xof())
                 .unwrap()
                 .avec_tiers(IdTiers::parse("C001").unwrap()),
         ],
@@ -462,4 +481,79 @@ pub fn jetons_de_reference() -> Vec<integrite::JetonExporte> {
             der: include_bytes!("../vecteurs/horodatage/reference-sectigo-6.tst").to_vec(),
         },
     ]
+}
+
+/// Identifiant du dossier du vecteur v5 (tenu en CDF).
+pub fn dossier_cdf_id() -> IdDossier {
+    IdDossier::parse("dossier-cdf").unwrap()
+}
+
+/// Devise de tenue du vecteur v5 : le franc congolais (RDC), deux décimales.
+pub fn tenue_cdf() -> DeviseTenue {
+    DeviseTenue::nouvelle(Devise::parse("CDF").unwrap(), 2).unwrap()
+}
+
+fn cdf(sens: Sens, compte: &str, montant: &str) -> Ligne {
+    Ligne::en_devise_tenue(
+        n(compte),
+        sens,
+        Montant::parse(montant, Devise::parse("CDF").unwrap()).unwrap(),
+        &tenue_cdf(),
+    )
+    .unwrap()
+}
+
+/// Dossier de référence du vecteur v5 (ADR 0027), tenu en CDF : une vente taxée avec centimes
+/// et étiquettes fiscales, une opération en EUR dont la contre-valeur est arrondie au centime,
+/// puis la contre-passation de la vente.
+pub fn dossier_de_reference_v5() -> Dossier {
+    use NatureEtiquette::{Base, Taxe};
+    let mut d = Dossier::nouveau_en(tenue_cdf());
+    let vente = d.valider(
+        "VT",
+        date!(2026 - 01 - 15),
+        "Vente taxable à 18 %",
+        vec![
+            cdf(Sens::Debit, "4111", "118000.55").avec_tiers(IdTiers::parse("C001").unwrap()),
+            cdf(Sens::Credit, "701", "100000.47").avec_etiquette(etiquette(
+                Base,
+                SensTva::Collectee,
+                "IMP18",
+                Some("18"),
+                Some(Exigibilite::Debit),
+                None,
+            )),
+            cdf(Sens::Credit, "4431", "18000.08").avec_etiquette(etiquette(
+                Taxe,
+                SensTva::Collectee,
+                "IMP18",
+                Some("18"),
+                Some(Exigibilite::Debit),
+                None,
+            )),
+        ],
+        piece("9a"),
+    );
+    let eur = Montant::parse("100.55", Devise::parse("EUR").unwrap()).unwrap();
+    let cours = Cours::parse("2827.3333").unwrap();
+    d.valider(
+        "OD",
+        date!(2026 - 02 - 01),
+        "Achat en euros payé depuis la banque",
+        vec![
+            Ligne::en_devise(n("605"), Sens::Debit, eur, cours, &tenue_cdf()).unwrap(),
+            Ligne::en_devise(n("521"), Sens::Credit, eur, cours, &tenue_cdf()).unwrap(),
+        ],
+        piece("8b"),
+    );
+    d.contre_passer(&vente, date!(2026 - 03 - 05));
+    d
+}
+
+/// Export (v5) du dossier de référence v5, sans jeton.
+pub fn export_de_reference_v5() -> Vec<u8> {
+    let d = dossier_de_reference_v5();
+    let mut sortie = Vec::new();
+    integrite::exporter(&dossier_cdf_id(), d.ecritures(), &[], &mut sortie).unwrap();
+    sortie
 }

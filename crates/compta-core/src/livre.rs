@@ -457,6 +457,12 @@ impl EcritureValidee {
         self.origine.as_ref()
     }
 
+    /// Devise de tenue et échelle de l'écriture (celles de ses lignes, identiques).
+    #[must_use]
+    pub fn tenue(&self) -> &DeviseTenue {
+        self.lignes[0].tenue()
+    }
+
     /// Total des débits (égal au total des crédits) en devise de tenue.
     #[must_use]
     pub fn total(&self) -> Decimal {

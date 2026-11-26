@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use compta_core::{
-    Avertissement, Balance, CodeExercice, CodeJournal, Compteur, Contexte, Devise,
+    Avertissement, Balance, CodeExercice, CodeJournal, Compteur, Contexte, Devise, DeviseTenue,
     EcritureBrouillon, EcritureValidee, ErreurValidation, Exercices, Filtre, FinPremierExercice,
     FormatBalance, IdTiers, Journal, Journaux, Justification, Ligne, Livre, Mode, Montant,
     NumeroCompte, NumeroEcriture, PlanComptes, ReferencePiece, Regroupement, Sens, TexteCourt,
@@ -132,7 +132,13 @@ fn xof(montant: u64) -> Decimal {
 }
 
 fn ligne(compte: &str, sens: Sens, montant: u64) -> Ligne {
-    Ligne::en_xof(n(compte), sens, Montant::nouveau(xof(montant), Devise::XOF)).unwrap()
+    Ligne::en_devise_tenue(
+        n(compte),
+        sens,
+        Montant::nouveau(xof(montant), Devise::parse("XOF").unwrap()),
+        &DeviseTenue::nouvelle(Devise::parse("XOF").unwrap(), 0).unwrap(),
+    )
+    .unwrap()
 }
 
 fn debit(compte: &str, montant: u64) -> Ligne {
@@ -243,6 +249,7 @@ impl Dossier {
             journaux: &self.journaux,
             exercices: &self.exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: DeviseTenue::nouvelle(Devise::parse("XOF").unwrap(), 0).unwrap(),
         };
         let (numero, suivant) = self
             .livre
@@ -280,6 +287,7 @@ impl Dossier {
             journaux: &self.journaux,
             exercices: &self.exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: DeviseTenue::nouvelle(Devise::parse("XOF").unwrap(), 0).unwrap(),
         };
         let (numero, suivant) = self
             .livre
