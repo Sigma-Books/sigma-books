@@ -8,6 +8,7 @@ import type { ClientApi } from './client.ts';
 import { chaines, entier, estObjet, tableauDe } from './gardes.ts';
 import type { Garde, Uuid } from './types.ts';
 import { estDateIso } from '../dates.ts';
+import { traduire, type Cle } from '../i18n/index.ts';
 
 export type ModeEdition = 'definitif' | 'provisoire';
 export type FormatBalance = 2 | 4 | 6 | 8;
@@ -299,8 +300,8 @@ export const FILTRE_VIDE: FiltreEdition = {
 /** Nombre maximal d'éléments d'une liste de filtre (`LISTE_MAX` du serveur). */
 export const LISTE_MAX = 50;
 
-const MOTIF_COMPTE = /^[1-9][0-9A-Za-z-]{0,31}$/;
 const MOTIF_JOURNAL = /^[A-Z0-9]{1,16}$/;
+const MOTIF_COMPTE = /^[1-9][0-9A-Za-z-]{0,31}$/;
 const MOTIF_EXERCICE = /^\d{4}$/;
 
 /** Éléments d'une liste saisie (virgules et espaces), sans doublon, dans l'ordre. */
@@ -318,16 +319,11 @@ export type ProblemeFiltre =
 	| 'trop_de_comptes'
 	| 'trop_de_journaux';
 
-export const MESSAGES_FILTRE: Readonly<Record<ProblemeFiltre, string>> = {
-	exercice: 'Le code de l’exercice est une année à quatre chiffres (2026).',
-	du: 'La date de début n’est pas une date valide (AAAA-MM-JJ).',
-	au: 'La date de fin n’est pas une date valide (AAAA-MM-JJ).',
-	bornes_inversees: 'La date de début est postérieure à la date de fin.',
-	comptes: 'Un numéro de compte du filtre est illisible.',
-	journaux: 'Un code de journal du filtre est illisible (majuscules et chiffres).',
-	trop_de_comptes: `Au plus ${LISTE_MAX} comptes dans le filtre.`,
-	trop_de_journaux: `Au plus ${LISTE_MAX} journaux dans le filtre.`
-};
+/** Message d'un problème de filtre, dans la langue courante (catalogue `i18n/`). */
+export function messageFiltre(p: ProblemeFiltre): string {
+	const cle: Cle = `filtre.${p}`;
+	return traduire(cle, { max: p === 'journaux' ? 16 : LISTE_MAX });
+}
 
 /**
  * Contrôles de confort du filtre (le serveur valide de toute façon : 400 `requete_invalide`).

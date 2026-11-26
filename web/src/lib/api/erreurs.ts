@@ -5,6 +5,8 @@
 // Une ressource d'autrui et une ressource absente donnent le même 404 (ADR 0011) : l'interface
 // les présente de la même façon (« introuvable »), sans rien supposer de plus.
 
+import { traduire, type Cle } from '../i18n/index.ts';
+
 /** Codes émis par le serveur (`ErreurApi::code`). */
 export const CODES_SERVEUR = [
 	'requete_invalide',
@@ -200,64 +202,23 @@ export function lireDetailRefus(corps: unknown): DetailRefus | null {
 	return { motif, nombre: entierOuNul(o.nombre), ligne: entierOuNul(o.ligne), refus };
 }
 
-const MESSAGES_MOTIFS: Record<MotifServeur, string> = {
-	mot_de_passe_trop_court: 'Le mot de passe est trop court (12 caractères au moins).',
-	mot_de_passe_trop_long: 'Le mot de passe est trop long (128 caractères au plus).',
-	mot_de_passe_compromis: 'Ce mot de passe figure dans une liste de mots de passe compromis.',
-	code_invalide: 'Le code est invalide ou a déjà été utilisé.',
-	jeton_enrolement_invalide: 'La préparation a expiré. Recommencez l’enrôlement.',
-	facteurs_refuses: 'La vérification a échoué.',
-	lien_invalide: 'Ce lien est invalide, expiré ou déjà utilisé.',
-	aucune_passkey: 'Aucune passkey n’est enregistrée sur ce compte.',
-	passkey_refusee: 'La passkey n’a pas été acceptée. Recommencez.',
-	passkey_deja_enregistree: 'Cet appareil ou cette clé est déjà enregistré.',
-	passkeys_max: 'Le nombre maximal de passkeys est atteint.',
-	dernier_facteur: 'Impossible : ce serait votre dernier moyen de connexion.',
-	deja_membre: 'Cette personne est déjà membre du cabinet.',
-	invitation_en_cours: 'Une invitation est déjà en attente pour cette adresse.',
-	invitation_non_en_attente: 'Cette invitation n’est plus en attente.',
-	action_sur_soi_meme: 'Cette action ne peut pas porter sur votre propre compte.',
-	dernier_administrateur: 'Impossible : le cabinet doit garder un administrateur actif.',
-	reinitialisation_en_cours: 'Une réinitialisation est déjà en attente pour ce membre.',
-	reinitialisation_non_en_attente: 'Cette réinitialisation n’est plus en attente.',
-	compte_existant:
-		'Un compte existe déjà pour cette adresse. Connectez-vous, puis acceptez l’invitation.',
-	membre_d_un_autre_cabinet:
-		'Ce membre appartient aussi à un autre cabinet : sa réinitialisation est impossible ici.',
-	aucun_changement: 'Rien à changer : l’état demandé est déjà celui du serveur.'
-};
-
-/** Message en français, sans aucune donnée de la requête ni de la réponse. */
+/**
+ * Message dans la langue courante, sans aucune donnée de la requête ni de la réponse. Le type de
+ * la clé (`motif.${MotifServeur}`) fait vérifier à la compilation que chaque motif a son message.
+ */
 export function messageErreur(erreur: ErreurApi): string {
-	if (erreur.motif !== null) return MESSAGES_MOTIFS[erreur.motif];
+	if (erreur.motif !== null) {
+		const cle: Cle = `motif.${erreur.motif}`;
+		return traduire(cle);
+	}
 	switch (erreur.code) {
-		case 'requete_invalide':
-			return 'La demande est invalide.';
-		case 'non_authentifie':
-			return 'Votre session est fermée ou a expiré. Reconnectez-vous.';
-		case 'interdit':
-			return 'Action refusée par le serveur.';
-		case 'introuvable':
-			return 'Élément introuvable.';
-		case 'methode_non_admise':
-			return 'Opération non prise en charge par le serveur.';
-		case 'corps_trop_grand':
-			return 'La demande est trop volumineuse.';
 		case 'trop_de_requetes':
 			return erreur.reessayerDans === null
-				? 'Trop de demandes. Réessayez dans un instant.'
-				: `Trop de demandes. Réessayez dans ${erreur.reessayerDans} s.`;
-		case 'erreur_interne':
-			return 'Erreur du serveur. Réessayez plus tard.';
-		case 'delai_depasse':
-			return 'Le serveur n’a pas répondu à temps. Réessayez.';
-		case 'reseau':
-			return 'Serveur injoignable. Vérifiez votre connexion.';
-		case 'reponse_invalide':
-			return 'Réponse inattendue du serveur.';
-		case 'conflit':
-			return 'Action impossible dans l’état actuel.';
-		case 'refus':
-			return 'La saisie a été refusée.';
+				? traduire('erreur.trop_de_requetes')
+				: traduire('erreur.trop_de_requetes_delai', { secondes: erreur.reessayerDans });
+		default: {
+			const cle: Cle = `erreur.${erreur.code}`;
+			return traduire(cle);
+		}
 	}
 }

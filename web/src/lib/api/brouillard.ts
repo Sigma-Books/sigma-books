@@ -256,6 +256,8 @@ export const estContrePassation: Garde<ContrePassation> = (v): v is ContrePassat
 /** Lot de 100 écritures au plus (`LOT_MAX` du serveur). */
 export const LOT_MAX = 100;
 
+const CODE_JOURNAL = /^[A-Z0-9]{1,8}$/;
+
 function base(cabinet: Uuid, dossier: Uuid): string {
 	return `/api/cabinets/${cabinet}/dossiers/${dossier}`;
 }
@@ -266,8 +268,6 @@ export interface FiltreBrouillard {
 	periode?: Uuid | null;
 	apres?: string | null;
 }
-
-const CODE_JOURNAL = /^[A-Z0-9]{1,8}$/;
 
 /** Paramètres de la liste ; une valeur de forme invalide est ignorée plutôt que d'être envoyée. */
 export function parametresBrouillard(filtre: FiltreBrouillard, limite = 50): string {

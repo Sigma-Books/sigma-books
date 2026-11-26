@@ -9,6 +9,7 @@
 	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import { seDeconnecter } from '#lib/application.ts';
 	import Echeances from '#lib/composants/Echeances.svelte';
+	import { langueCourante } from '#lib/i18n/index.ts';
 	import DialogueReauthentification from '#lib/composants/DialogueReauthentification.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import type { LayoutProps } from './$types';
@@ -25,6 +26,9 @@
 	// Chaque requête prolonge la session côté serveur : les échéances sont relues après chaque
 	// navigation (la première lecture est celle du chargement initial).
 	afterNavigate(({ from }) => {
+		// La langue des textes est celle du dossier affiché : `lang` du document la suit (lecteurs
+		// d'écran, césure, guillemets).
+		document.documentElement.lang = langueCourante();
 		if (from !== null) void invalidate('sigma:session');
 	});
 
