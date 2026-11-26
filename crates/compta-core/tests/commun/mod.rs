@@ -147,6 +147,7 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         }
     }
 
@@ -184,18 +185,29 @@ impl Dossier {
         ecriture: EcritureEquilibree,
         date_validation: Date,
     ) -> Result<NumeroEcriture, ErreurValidation> {
+        self.valider_le_avec_avertissements(ecriture, date_validation)
+            .map(|(numero, _)| numero)
+    }
+
+    /// Valide une écriture à une date de validation donnée et rend ses avertissements.
+    pub fn valider_le_avec_avertissements(
+        &mut self,
+        ecriture: EcritureEquilibree,
+        date_validation: Date,
+    ) -> Result<(NumeroEcriture, Vec<compta_core::Avertissement>), ErreurValidation> {
         let compteur = self.compteur(ecriture.journal(), ecriture.date());
         let contexte = Contexte {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
-        let (numero, suivant) = self
+        let (numero, suivant, avertissements) = self
             .livre
-            .valider(ecriture, &contexte, &compteur, date_validation)
+            .valider_avec_avertissements(ecriture, &contexte, &compteur, date_validation)
             .map_err(|refus| refus.decomposer().1)?;
         self.enregistrer(suivant);
-        Ok(numero)
+        Ok((numero, avertissements))
     }
 
     /// Contre-passe une écriture validée.
@@ -209,6 +221,7 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
         let (numero, suivant) = self.livre.contre_passer(
             origine,

@@ -447,7 +447,7 @@ fn vue_periode(
     let echeance = match p.statut() {
         compta_core::StatutPeriode::Cloturee => None,
         _ => Some(
-            echeance_de_cloture(exercice, p)
+            echeance_de_cloture(exercice, p, crate::base::referentiel::delai_cloture())
                 .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?
                 .to_string(),
         ),

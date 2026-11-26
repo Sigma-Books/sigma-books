@@ -268,8 +268,6 @@ pub enum MotifValidation {
     PeriodeVerrouillee,
     /// Période clôturée.
     PeriodeCloturee,
-    /// Échéance de la clôture informatique dépassée.
-    EcheanceDeCloture,
     /// Exercice clôturé.
     ExerciceCloture,
     /// Exercice en clôture, journal non admis.
@@ -278,8 +276,6 @@ pub enum MotifValidation {
     DateValeurPeriodeOuverte,
     /// Date de valeur comptable dans une période verrouillée.
     DateValeurPeriodeVerrouillee,
-    /// Date de valeur comptable dans une période dont l'échéance est passée.
-    DateValeurPeriodeEchue,
     /// Période qui doit accueillir l'opération tardive verrouillée.
     PeriodeAccueilVerrouillee,
     /// Opération tardive mal datée.
@@ -302,8 +298,6 @@ pub enum MotifValidation {
     TiersManquant,
     /// Aucune pièce justificative.
     JustificationManquante,
-    /// Journal de trésorerie sans mouvement de son compte.
-    CompteTresorerieAbsent,
     /// Journal inconnu.
     JournalInconnu,
     /// Journal qui n'accepte pas la saisie.
@@ -318,21 +312,17 @@ pub enum MotifValidation {
     EcritureInvalide,
     /// Contenu qui ne se relit pas à l'identique du format canonique.
     NonRepresentable,
-    /// Contre-passation datée avant l'écriture d'origine.
-    DateAnterieureAOrigine,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 28] = [
+    pub const TOUS: [Self; 24] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
-        Self::EcheanceDeCloture,
         Self::ExerciceCloture,
         Self::ExerciceEnCloture,
         Self::DateValeurPeriodeOuverte,
         Self::DateValeurPeriodeVerrouillee,
-        Self::DateValeurPeriodeEchue,
         Self::PeriodeAccueilVerrouillee,
         Self::OperationTardiveMalDatee,
         Self::SequenceEpuisee,
@@ -344,7 +334,6 @@ impl MotifValidation {
         Self::CompteDeRegroupement,
         Self::TiersManquant,
         Self::JustificationManquante,
-        Self::CompteTresorerieAbsent,
         Self::JournalInconnu,
         Self::JournalSansSaisie,
         Self::DateHorsExercice,
@@ -352,7 +341,6 @@ impl MotifValidation {
         Self::MontantEchelleExcessive,
         Self::EcritureInvalide,
         Self::NonRepresentable,
-        Self::DateAnterieureAOrigine,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -361,12 +349,10 @@ impl MotifValidation {
         match self {
             Self::PeriodeVerrouillee
             | Self::PeriodeCloturee
-            | Self::EcheanceDeCloture
             | Self::ExerciceCloture
             | Self::ExerciceEnCloture
             | Self::DateValeurPeriodeOuverte
             | Self::DateValeurPeriodeVerrouillee
-            | Self::DateValeurPeriodeEchue
             | Self::PeriodeAccueilVerrouillee
             | Self::OperationTardiveMalDatee
             | Self::SequenceEpuisee => StatusCode::CONFLICT,
@@ -380,12 +366,10 @@ impl MotifValidation {
         match self {
             Self::PeriodeVerrouillee => "periode_verrouillee",
             Self::PeriodeCloturee => "periode_cloturee",
-            Self::EcheanceDeCloture => "echeance_de_cloture_depassee",
             Self::ExerciceCloture => "exercice_cloture",
             Self::ExerciceEnCloture => "exercice_en_cloture",
             Self::DateValeurPeriodeOuverte => "date_valeur_dans_periode_ouverte",
             Self::DateValeurPeriodeVerrouillee => "date_valeur_dans_periode_verrouillee",
-            Self::DateValeurPeriodeEchue => "date_valeur_dans_periode_echue",
             Self::PeriodeAccueilVerrouillee => "periode_accueil_verrouillee",
             Self::OperationTardiveMalDatee => "operation_tardive_mal_datee",
             Self::SequenceEpuisee => "sequence_epuisee",
@@ -397,7 +381,6 @@ impl MotifValidation {
             Self::CompteDeRegroupement => "validation_compte_de_regroupement",
             Self::TiersManquant => "tiers_manquant",
             Self::JustificationManquante => "justification_manquante",
-            Self::CompteTresorerieAbsent => "compte_tresorerie_absent",
             Self::JournalInconnu => "validation_journal_inconnu",
             Self::JournalSansSaisie => "validation_journal_sans_saisie",
             Self::DateHorsExercice => "validation_date_hors_exercice",
@@ -405,7 +388,6 @@ impl MotifValidation {
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
-            Self::DateAnterieureAOrigine => "date_anterieure_a_l_origine",
         }
     }
 }

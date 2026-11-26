@@ -810,7 +810,9 @@ async fn alertes(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Re
         jours_de_retard: a.jours_de_retard,
     })
     .collect();
-    let echeances = exercices.echeances_de_cloture().map_err(|_| donnee())?;
+    let echeances = exercices
+        .echeances_de_cloture(crate::base::referentiel::delai_cloture())
+        .map_err(|_| donnee())?;
     let echeances_de_cloture = echeances
         .into_iter()
         // Période terminée, non clôturée, échéance proche ou dépassée.

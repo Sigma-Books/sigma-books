@@ -40,14 +40,16 @@ pub use etiquette::{
     controler_taxes_et_comptes, totaux_taxe,
 };
 pub use exercice::{
-    CodeExercice, Deverrouillage, EcheanceCloture, ErreurExercice, ErreurReconstitutionExercices,
-    Exercice, Exercices, FinPremierExercice, LigneExercice, LignePeriode, Periode, StatutExercice,
-    StatutPeriode, echeance_de_cloture,
+    CodeExercice, DELAI_CLOTURE_PAR_DEFAUT, DelaiCloture, Deverrouillage, EcheanceCloture,
+    ErreurExercice, ErreurReconstitutionExercices, Exercice, Exercices, FinPremierExercice,
+    LigneExercice, LignePeriode, Periode, StatutExercice, StatutPeriode, echeance_de_cloture,
 };
 pub use journal::{
     CodeJournal, ErreurJournal, Journal, Journaux, ModeleJournal, TypeJournal, journaux_par_defaut,
 };
-pub use livre::{Contexte, EcritureValidee, ErreurReconstitution, ErreurValidation, Livre};
+pub use livre::{
+    Avertissement, Contexte, EcritureValidee, ErreurReconstitution, ErreurValidation, Livre,
+};
 pub use montant::{Cours, Devise, ErreurMontant, Montant};
 pub use numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 pub use plan::{Compte, CompteReference, ErreurPlan, GenreCompte, PlanComptes, SensNormal, Usage};

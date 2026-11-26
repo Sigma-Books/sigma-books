@@ -39,8 +39,8 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use compta_core::{
-    CodeExercice, CodeJournal, CodeMotif, CodeRegime, Compteur, Contexte, Cours, Devise,
-    EcritureBrouillon, EcritureEquilibree, EcritureValidee, ErreurEcriture, ErreurPlan,
+    Avertissement, CodeExercice, CodeJournal, CodeMotif, CodeRegime, Compteur, Contexte, Cours,
+    Devise, EcritureBrouillon, EcritureEquilibree, EcritureValidee, ErreurEcriture, ErreurPlan,
     EtiquetteFiscale, Exercices, Exigibilite, IdTiers, Justification, Ligne, Montant,
     NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva, StatutPeriode,
     TauxTva, TexteCourt, Validation, VersionParametres,
@@ -404,7 +404,6 @@ pub(super) fn motif_validation(
     let motif = match e {
         V::JournalInconnu(_) => MotifValidation::JournalInconnu,
         V::JournalSansSaisie(_) => MotifValidation::JournalSansSaisie,
-        V::CompteTresorerieAbsent { .. } => MotifValidation::CompteTresorerieAbsent,
         V::DateHorsExercice(_) => MotifValidation::DateHorsExercice,
         V::ExerciceCloture(_) => MotifValidation::ExerciceCloture,
         V::ExerciceEnCloture(_) => MotifValidation::ExerciceEnCloture,
@@ -427,11 +426,9 @@ pub(super) fn motif_validation(
         V::JustificationManquante => MotifValidation::JustificationManquante,
         V::Equilibre(e) => motif_ecriture(e),
         V::Numerotation(_) => MotifValidation::SequenceEpuisee,
-        V::EcheanceDepassee { .. } => MotifValidation::EcheanceDeCloture,
         V::DateValeurNonAnterieure { .. } => MotifValidation::DateValeurNonAnterieure,
         V::DateValeurDansPeriodeOuverte(_) => MotifValidation::DateValeurPeriodeOuverte,
         V::DateValeurDansPeriodeVerrouillee(_) => MotifValidation::DateValeurPeriodeVerrouillee,
-        V::DateValeurDansPeriodeEchue { .. } => MotifValidation::DateValeurPeriodeEchue,
         V::PeriodeAccueilVerrouillee(_) => MotifValidation::PeriodeAccueilVerrouillee,
         V::DateComptableTardive { .. } => MotifValidation::OperationTardiveMalDatee,
         // Compteur inadapté ou désynchronisé, contre-passation, calcul de date : impossibles ici.
@@ -590,6 +587,67 @@ pub(super) struct VueValidation {
     pub(super) empreinte: String,
     pub(super) format: i16,
     pub(super) date_validation: String,
+    /// Avertissements de la validation (écriture validée malgré tout) : voir
+    /// [`vues_avertissements`].
+    pub(super) avertissements: Vec<VueAvertissement>,
+}
+
+/// Avertissement renvoyé avec une validation réussie (`compta-core`, [`Avertissement`]) : code
+/// stable et détails utiles à l'utilisateur.
+#[derive(Debug, Serialize)]
+pub(super) struct VueAvertissement {
+    code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    periode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    echeance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compte: Option<String>,
+}
+
+/// Code stable d'un avertissement (réponse et audit).
+fn code_avertissement(a: &Avertissement) -> &'static str {
+    match a {
+        Avertissement::EcheanceDeClotureDepassee { .. } => "echeance_de_cloture_depassee",
+        Avertissement::CompteTresorerieAbsent { .. } => "compte_tresorerie_absent",
+    }
+}
+
+/// Donnée d'audit `avertissements` : les **codes** seulement (jamais de date, de compte ni de
+/// montant), séparés par des virgules ; `None` sans avertissement. L'avertissement est dans la
+/// trace d'audit, jamais dans l'écriture ni dans son contenu haché.
+pub(super) fn donnee_audit_avertissements(
+    avertissements: &[Avertissement],
+) -> Option<(&'static str, String)> {
+    (!avertissements.is_empty()).then(|| {
+        let codes: Vec<&str> = avertissements.iter().map(code_avertissement).collect();
+        ("avertissements", codes.join(","))
+    })
+}
+
+/// Avertissements d'une validation, en vues stables.
+pub(super) fn vues_avertissements(avertissements: &[Avertissement]) -> Vec<VueAvertissement> {
+    avertissements
+        .iter()
+        .map(|a| match a {
+            Avertissement::EcheanceDeClotureDepassee { periode, echeance } => VueAvertissement {
+                code: code_avertissement(a),
+                periode: Some(interne::date(*periode)),
+                echeance: Some(interne::date(*echeance)),
+                journal: None,
+                compte: None,
+            },
+            Avertissement::CompteTresorerieAbsent { journal, compte } => VueAvertissement {
+                code: code_avertissement(a),
+                periode: None,
+                echeance: None,
+                journal: Some(journal.as_str().to_owned()),
+                compte: Some(compte.as_str().to_owned()),
+            },
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -664,6 +722,7 @@ pub(super) async fn valider(
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
+        delai_cloture: crate::base::referentiel::delai_cloture(),
     };
     let date_validation = instant.date();
     let decision = decider(preparee, &contexte, dernier, &tete, date_validation)?;
@@ -707,6 +766,9 @@ pub(super) async fn valider(
         .donnees
         .push(("empreinte", decision.empreinte.to_string()));
     trace.donnees.push(("format", decision.format.to_string()));
+    trace.donnees.extend(donnee_audit_avertissements(
+        decision.validation.avertissements(),
+    ));
     let vue = VueValidation {
         id: id.to_string(),
         numero: numero.to_string(),
@@ -714,6 +776,7 @@ pub(super) async fn valider(
         empreinte: decision.empreinte.to_string(),
         format: decision.format,
         date_validation: interne::date(date_validation),
+        avertissements: vues_avertissements(decision.validation.avertissements()),
     };
     Ok(Resultat {
         reponse: (StatusCode::OK, Json(vue)).into_response(),
@@ -1062,6 +1125,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
+            delai_cloture: crate::base::referentiel::delai_cloture(),
         };
         let journal = etat
             .journaux
@@ -1132,6 +1196,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: &d.clos,
+            delai_cloture: crate::base::referentiel::delai_cloture(),
         };
         let journal = etat
             .journaux
@@ -1200,6 +1265,7 @@ mod tests {
                 plan: &etat.plan,
                 journaux: &etat.journaux,
                 exercices: &d.clos,
+                delai_cloture: crate::base::referentiel::delai_cloture(),
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
@@ -1313,7 +1379,8 @@ mod tests {
     }
 
     #[test]
-    fn une_contre_passation_nominale_se_numerote_et_refuse_le_double() {
+    #[allow(clippy::too_many_lines)]
+    fn une_contre_passation_nominale_se_numerote_et_accepte_la_repetition_et_une_date_anterieure() {
         use super::super::contre_passation::decider_contre_passation;
         let d = decor();
         let etat = d.inst.etat();
@@ -1321,6 +1388,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
+            delai_cloture: crate::base::referentiel::delai_cloture(),
         };
         let journal = etat
             .journaux
@@ -1404,18 +1472,28 @@ mod tests {
                 .ends_with("-000003")
         );
         assert_eq!(seconde.validation.ecriture().origine(), Some(&numero));
-        // Une date antérieure à l'origine : refus stable.
+        // Une date antérieure à l'origine est acceptée (aucun moteur ne l'interdit) : même
+        // numérotation, même origine.
         let avant = decider_contre_passation(
             &origine,
             date!(2026 - 03 - 01),
             libelle,
             &contexte,
-            1,
+            3,
             &tete,
             date!(2026 - 03 - 20),
         )
-        .unwrap_err();
-        assert_eq!(avant, refus(MotifValidation::DateAnterieureAOrigine, None));
+        .unwrap();
+        assert!(
+            avant
+                .validation
+                .ecriture()
+                .numero()
+                .to_string()
+                .ends_with("-000004")
+        );
+        assert_eq!(avant.validation.ecriture().origine(), Some(&numero));
+        assert_eq!(avant.validation.ecriture().date(), date!(2026 - 03 - 01));
     }
 
     proptest! {
@@ -1438,6 +1516,7 @@ mod tests {
                 plan: &etat.plan,
                 journaux: &etat.journaux,
                 exercices: &d.clos,
+                delai_cloture: crate::base::referentiel::delai_cloture(),
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());

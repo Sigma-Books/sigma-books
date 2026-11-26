@@ -261,6 +261,7 @@ impl Cas {
             plan: &plan,
             journaux: &journaux,
             exercices: &exercices,
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
         let compteur = Compteur::nouveau(j("OD"), exercice.code().clone());
         let (numero, _) = livre

@@ -117,7 +117,9 @@ pub fn corps(cas: Cas) -> &'static str {
         // Corps d'exemple refusés dès la lecture (400) : le harnais d'isolation atteint le cas
         // d'usage sans valider ni contre-passer (les cas réels : `tests/lot.rs`).
         Cas::ValiderParLot => r#"{"ecritures":[]}"#,
-        Cas::ContrePasser => r#"{"date":"2026-11-19","libelle":"Contre-passation","motif":""}"#,
+        // Motif avec un caractère de contrôle : refusé dès la lecture du corps (400). Un motif vide
+        // est accepté depuis que le motif est facultatif.
+        Cas::ContrePasser => r#"{"date":"2026-11-19","libelle":"Contre-passation","motif":"a\nb"}"#,
         Cas::Lister | Cas::Lire | Cas::ListerEcritures | Cas::LireEcriture => "",
     }
 }

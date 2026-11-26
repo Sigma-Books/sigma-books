@@ -52,6 +52,15 @@ use uuid::Uuid;
 
 use super::{ErreurBase, IdDossier, TransactionTenant};
 
+/// Délai de clôture informatique du dossier (échéance des périodes : alerte, avertissement de
+/// validation). **Seule source** de l'API : tant que le contexte pays du dossier n'existe pas, c'est
+/// le délai par défaut de `compta-core` ; l'ADR sur le contexte du dossier fera lire le délai du
+/// pays ici, et nulle part ailleurs.
+#[must_use]
+pub const fn delai_cloture() -> compta_core::DelaiCloture {
+    compta_core::DELAI_CLOTURE_PAR_DEFAUT
+}
+
 // --- Tiers minimal (pur) -------------------------------------------------------------------
 
 /// Type d'un tiers (spec §5.3).

@@ -453,6 +453,58 @@ async fn contre_passation_nominale() {
     assert!(audits.last().unwrap().contains(&numero_seconde));
 }
 
+/// Motif facultatif (Odoo `account_move_reversal.py:18`, Tryton `CancelMoves`) : absent, `null`,
+/// vide ou blanc, le serveur inscrit « Contre-passation de <numéro de l'origine> » en audit.
+#[tokio::test]
+async fn contre_passation_sans_motif_prend_le_motif_par_defaut() {
+    let b = banc().await;
+    let (id, v, _) = b.pret("Origine").await;
+    assert_eq!(b.valider(id, v).await.statut, StatusCode::OK);
+    let origine = lire(
+        &b.routeur,
+        &format!("{}/{id}", b.ecritures()),
+        Some(b.auditeur),
+    )
+    .await
+    .json()["numero"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for (i, motif) in [
+        "",
+        r#","motif":null"#,
+        r#","motif":"""#,
+        r#","motif":"   ""#,
+    ]
+    .iter()
+    .enumerate()
+    {
+        let corps = format!(r#"{{"date":"{}","libelle":"x"{motif}}}"#, aujourd());
+        let r = envoyer(
+            &b.routeur,
+            &format!("{}/{id}/contre-passation", b.ecritures()),
+            Some(b.valideur),
+            &corps,
+            None,
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::CREATED, "{corps} : {}", r.texte());
+        let audits = b.audits().await;
+        let derniere = audits.last().unwrap();
+        assert!(
+            derniere.contains(&format!("Contre-passation de {origine}")),
+            "{i} : {derniere}"
+        );
+    }
+    assert_eq!(b.compter("ecriture_validee").await, 5);
+    // Un motif de 400 octets exactement est accepté.
+    let r = b
+        .contre_passer_le(b.valideur, id, &aujourd(), &"a".repeat(400))
+        .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    assert!(b.chaine_valide().await);
+}
+
 #[tokio::test]
 async fn contre_passation_refus() {
     let b = banc().await;
@@ -463,13 +515,21 @@ async fn contre_passation_refus() {
         let r = b.contre_passer_le(u, id, &aujourd(), "Motif").await;
         assert_eq!(r.statut, StatusCode::FORBIDDEN);
     }
-    // Corps invalides : motif absent ou vide, date mal formée, champ inconnu.
+    // Corps invalides : date mal formée, champ inconnu, motif de plus de 400 octets ou avec
+    // un caractère de contrôle (un motif absent ou vide est accepté : voir
+    // `contre_passation_sans_motif_prend_le_motif_par_defaut`).
+    let trop_long = format!(
+        r#"{{"date":"2026-11-20","libelle":"x","motif":"{}"}}"#,
+        "a".repeat(401)
+    );
+    let avec_controle = r#"{"date":"2026-11-20","libelle":"x","motif":"a\nb"}"#.to_owned();
     for corps in [
-        r#"{"date":"2026-11-20","libelle":"x"}"#,
-        r#"{"date":"2026-11-20","libelle":"x","motif":"  "}"#,
-        r#"{"date":"20/11/2026","libelle":"x","motif":"m"}"#,
-        r#"{"date":"2026-11-20","libelle":"x","motif":"m","autre":1}"#,
+        r#"{"date":"20/11/2026","libelle":"x","motif":"m"}"#.to_owned(),
+        r#"{"date":"2026-11-20","libelle":"x","motif":"m","autre":1}"#.to_owned(),
+        trop_long,
+        avec_controle,
     ] {
+        let corps = corps.as_str();
         let r = envoyer(
             &b.routeur,
             &format!("{}/{id}/contre-passation", b.ecritures()),
@@ -480,7 +540,7 @@ async fn contre_passation_refus() {
         .await;
         assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{corps}");
     }
-    // Date antérieure à l'origine : 422 ; date hors de tout exercice : 422.
+    // Date hors de tout exercice : 422 (une date antérieure à l'origine, elle, est acceptée).
     let r = b
         .contre_passer_le(b.valideur, id, "2000-01-01", "Motif")
         .await;

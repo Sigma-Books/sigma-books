@@ -3,8 +3,8 @@
 //!
 //! # Ce qui est dans `compta-core`, ce qui est ici
 //! L'écriture miroir (sens inversés ; mêmes comptes, montants, devises, tiers, **justification**,
-//! **étiquette fiscale** copiée telle quelle par `Ligne::miroir`, version de paramètres), la date
-//! minimale (pas avant l'origine) et les contrôles de la validation
+//! **étiquette fiscale** copiée telle quelle par `Ligne::miroir`, version de paramètres) et les
+//! contrôles de la validation (la date n'est pas bornée par celle de l'origine)
 //! sont ceux de [`compta_core::contre_passer`]. `api` fournit les **faits** : l'origine relue
 //! (`reconstituer`), le compteur du journal pour l'exercice de la
 //! **nouvelle date**, la tête de chaîne.
@@ -23,7 +23,9 @@
 //! # Droits
 //! Administrateur et valideur (§20), rôle relu en base. Pas de ré-authentification (liste de
 //! l'invariant Cedar) ni de séparation des tâches : la contre-passation est validée aussitôt
-//! (spec §6.1, risque F1.16 accepté, question 10 a). Un motif est obligatoire, au journal d'audit.
+//! (spec §6.1, risque F1.16 accepté, question 10 a). Le motif est **facultatif** (Odoo
+//! `wizard/account_move_reversal.py:18`, Tryton `CancelMoves` : aucun motif exigé) ; absent ou blanc,
+//! le serveur inscrit « Contre-passation de <numéro de l'origine> ». Il va au journal d'audit.
 //! Une origine, contre-passation comprise, peut être contre-passée plusieurs fois.
 
 use authz::Role;
@@ -39,7 +41,10 @@ use time::Date;
 use uuid::Uuid;
 
 use super::saisie::date_lue;
-use super::validation::{Decision, donnee, finaliser, motif_validation, reconstituer, refus};
+use super::validation::{
+    Decision, VueAvertissement, donnee, donnee_audit_avertissements, finaliser, motif_validation,
+    reconstituer, refus, vues_avertissements,
+};
 use super::{corps, referentiel_tva, sans_parametres};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
@@ -61,7 +66,9 @@ const MOTIF_MAX: usize = 400;
 struct CorpsContrePassation {
     date: String,
     libelle: String,
-    motif: String,
+    /// Facultatif : absent, `null` ou blanc, le serveur le remplace par un motif par défaut.
+    #[serde(default)]
+    motif: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,16 +81,25 @@ struct VueContrePassation {
     empreinte: String,
     format: i16,
     date_validation: String,
+    avertissements: Vec<VueAvertissement>,
 }
 
-/// Motif : non blanc, au plus [`MOTIF_MAX`] octets, sans caractère de contrôle.
-fn motif(texte: &str) -> Result<String, ErreurApi> {
-    if !texte.trim().is_empty() && texte.len() <= MOTIF_MAX && !texte.chars().any(char::is_control)
-    {
-        Ok(texte.to_owned())
+/// Motif saisi : `None` s'il est absent ou blanc (le défaut est posé après la lecture de
+/// l'origine) ; sinon au plus [`MOTIF_MAX`] octets UTF-8 et sans caractère de contrôle.
+fn motif_saisi(texte: Option<&str>) -> Result<Option<String>, ErreurApi> {
+    let Some(texte) = texte.filter(|t| !t.trim().is_empty()) else {
+        return Ok(None);
+    };
+    if texte.len() <= MOTIF_MAX && !texte.chars().any(char::is_control) {
+        Ok(Some(texte.to_owned()))
     } else {
         Err(ErreurApi::RequeteInvalide)
     }
+}
+
+/// Motif par défaut, sans donnée personnelle : le numéro de l'origine seul.
+fn motif_par_defaut(numero_origine: &str) -> String {
+    format!("Contre-passation de {numero_origine}")
 }
 
 /// Rôle relu en base : administrateur ou valideur (§20).
@@ -102,9 +118,6 @@ async fn exiger_contre_passeur(tx: &mut TransactionTenant) -> Result<(), ErreurA
 /// Traduit un refus de `compta-core` propre à la contre-passation, ou le motif de validation.
 pub(super) fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -> ErreurApi {
     match e {
-        ErreurValidation::DateAnterieureAOrigine { .. } => {
-            refus(MotifValidation::DateAnterieureAOrigine, None)
-        }
         ErreurValidation::EcritureInconnue(_) => ErreurApi::Introuvable,
         autre => {
             let (motif, ligne) = motif_validation(autre, exercices);
@@ -119,7 +132,7 @@ pub(super) fn erreur(e: &ErreurValidation, exercices: &compta_core::Exercices) -
 /// [`compta_core::Livre::contre_passer`] (propriété des tests).
 ///
 /// # Errors
-/// 409 (période, exercice…), 422 (date avant l'origine, écriture invalide).
+/// 409 (période, exercice…), 422 (écriture invalide).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn decider_contre_passation(
     origine: &EcritureValidee,
@@ -159,7 +172,7 @@ pub(super) async fn contre_passer(
     let c: CorpsContrePassation = corps(requete.corps)?;
     let date = date_lue(&c.date).ok_or(ErreurApi::RequeteInvalide)?;
     let libelle = TexteCourt::parse(&c.libelle).map_err(|_| ErreurApi::RequeteInvalide)?;
-    let motif = motif(&c.motif)?;
+    let motif_saisi = motif_saisi(c.motif.as_deref())?;
     let tva = referentiel_tva()?;
     let utilisateur = tx.contexte().id_utilisateur().uuid();
 
@@ -170,6 +183,7 @@ pub(super) async fn contre_passer(
     // Les lignes et les liens d'une écriture validée sont définitifs : leur lecture sans verrou
     // désigne ce qu'il faut verrouiller ; l'origine est relue après la tête de chaîne.
     let provisoire = base::lire(tx, id).await?.ok_or(ErreurApi::Introuvable)?;
+    let motif = motif_saisi.unwrap_or_else(|| motif_par_defaut(&provisoire.numero));
     let comptes: Vec<String> = provisoire.lignes.iter().map(|l| l.compte.clone()).collect();
     let tiers: Vec<Uuid> = provisoire.lignes.iter().filter_map(|l| l.tiers).collect();
     base::verrouiller_comptes_et_tiers(tx, &comptes, &tiers).await?;
@@ -213,6 +227,7 @@ pub(super) async fn contre_passer(
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
+        delai_cloture: crate::base::referentiel::delai_cloture(),
     };
     let date_validation = instant.date();
     let decision = decider_contre_passation(
@@ -269,6 +284,9 @@ pub(super) async fn contre_passer(
         .donnees
         .push(("empreinte", decision.empreinte.to_string()));
     trace.donnees.push(("format", decision.format.to_string()));
+    trace.donnees.extend(donnee_audit_avertissements(
+        decision.validation.avertissements(),
+    ));
     let vue = VueContrePassation {
         id: nouveau.to_string(),
         numero: numero.to_string(),
@@ -278,9 +296,37 @@ pub(super) async fn contre_passer(
         empreinte: decision.empreinte.to_string(),
         format: decision.format,
         date_validation: interne::date(date_validation),
+        avertissements: vues_avertissements(decision.validation.avertissements()),
     };
     Ok(Resultat {
         reponse: (StatusCode::CREATED, Json(vue)).into_response(),
         traces: vec![trace],
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn le_motif_est_facultatif_et_borne() {
+        assert_eq!(motif_saisi(None).unwrap(), None);
+        assert_eq!(motif_saisi(Some("")).unwrap(), None);
+        assert_eq!(motif_saisi(Some("  \t ")).unwrap(), None);
+        assert_eq!(
+            motif_saisi(Some("Erreur de saisie")).unwrap().as_deref(),
+            Some("Erreur de saisie")
+        );
+        // 400 octets UTF-8 : accepté ; 401 : refusé ; « é » compte pour deux octets.
+        assert!(motif_saisi(Some(&"a".repeat(400))).unwrap().is_some());
+        assert!(motif_saisi(Some(&"a".repeat(401))).is_err());
+        assert!(motif_saisi(Some(&"é".repeat(200))).unwrap().is_some());
+        assert!(motif_saisi(Some(&"é".repeat(201))).is_err());
+        // Caractère de contrôle : refusé.
+        assert!(motif_saisi(Some("a\nb")).is_err());
+        assert_eq!(
+            motif_par_defaut("AC-2026-000001"),
+            "Contre-passation de AC-2026-000001"
+        );
+    }
 }

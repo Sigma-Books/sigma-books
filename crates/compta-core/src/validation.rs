@@ -58,7 +58,7 @@ use time::Date;
 use crate::ecriture::{EcritureBrouillon, EcritureEquilibree, Refus};
 #[cfg(doc)]
 use crate::livre::Livre;
-use crate::livre::{Contexte, EcritureValidee, ErreurValidation, controler};
+use crate::livre::{Avertissement, Contexte, EcritureValidee, ErreurValidation, controler};
 use crate::numerotation::{Compteur, NumeroEcriture};
 use crate::texte::TexteCourt;
 
@@ -72,6 +72,7 @@ use crate::texte::TexteCourt;
 pub struct Validation {
     ecriture: EcritureValidee,
     compteur: Compteur,
+    avertissements: Vec<Avertissement>,
 }
 
 impl Validation {
@@ -85,6 +86,13 @@ impl Validation {
     #[must_use]
     pub fn compteur(&self) -> &Compteur {
         &self.compteur
+    }
+
+    /// Avertissements de la validation (échéance de clôture dépassée, compte de trésorerie non
+    /// mouvementé) : l'écriture est validée, l'utilisateur en est informé.
+    #[must_use]
+    pub fn avertissements(&self) -> &[Avertissement] {
+        &self.avertissements
     }
 
     /// Récupère l'écriture et le compteur, au moment de les inscrire.
@@ -107,11 +115,15 @@ pub fn valider(
     compteur: &Compteur,
     date_validation: Date,
 ) -> Result<Validation, Refus<EcritureEquilibree, ErreurValidation>> {
-    let (ecriture, compteur) =
+    let (ecriture, compteur, avertissements) =
         valider_avec(ecriture, None, contexte, compteur, date_validation, |_| {
             Ok(())
         })?;
-    Ok(Validation { ecriture, compteur })
+    Ok(Validation {
+        ecriture,
+        compteur,
+        avertissements,
+    })
 }
 
 /// Contre-passe l'écriture `origine` à partir de faits fournis : écriture miroir dans le même
@@ -126,8 +138,8 @@ pub fn valider(
 /// ne peut pas vérifier qu'elle est à jour.
 ///
 /// # Errors
-/// Date antérieure à l'origine, invariant non respecté à la date
-/// choisie, compteur inadapté.
+/// Invariant non respecté à la date choisie (qui peut précéder celle de l'origine : aucun moteur
+/// ne l'interdit), compteur inadapté.
 pub fn contre_passer(
     origine: &EcritureValidee,
     date: Date,
@@ -137,7 +149,7 @@ pub fn contre_passer(
     date_validation: Date,
 ) -> Result<Validation, ErreurValidation> {
     let miroir = miroir(origine, date, libelle)?;
-    let (ecriture, compteur) = valider_avec(
+    let (ecriture, compteur, avertissements) = valider_avec(
         miroir,
         Some(origine.numero().clone()),
         contexte,
@@ -146,21 +158,21 @@ pub fn contre_passer(
         |_| Ok(()),
     )
     .map_err(|refus| refus.decomposer().1)?;
-    Ok(Validation { ecriture, compteur })
+    Ok(Validation {
+        ecriture,
+        compteur,
+        avertissements,
+    })
 }
 
-/// Écriture miroir de `origine`, après les contrôles propres à la contre-passation.
+/// Écriture miroir de `origine`. La date n'est pas bornée par celle de l'origine : Tryton
+/// (`move.py:399-445`, `_cancel_default`) et Odoo (`account_move_reversal.py:17` et `93-100`,
+/// date de contre-passation libre) ne le font pas.
 pub(crate) fn miroir(
     origine: &EcritureValidee,
     date: Date,
     libelle: TexteCourt,
 ) -> Result<EcritureEquilibree, ErreurValidation> {
-    if date < origine.date() {
-        return Err(ErreurValidation::DateAnterieureAOrigine {
-            date,
-            origine: origine.date(),
-        });
-    }
     let mut miroir = EcritureBrouillon::nouvelle(origine.journal().clone(), date, libelle);
     for ligne in origine.lignes() {
         miroir.ajouter_ligne(ligne.miroir());
@@ -186,9 +198,12 @@ pub(crate) fn valider_avec(
     compteur: &Compteur,
     date_validation: Date,
     controle_compteur: impl FnOnce(&Compteur) -> Result<(), ErreurValidation>,
-) -> Result<(EcritureValidee, Compteur), Refus<EcritureEquilibree, ErreurValidation>> {
+) -> Result<
+    (EcritureValidee, Compteur, Vec<Avertissement>),
+    Refus<EcritureEquilibree, ErreurValidation>,
+> {
     let numeroter = || {
-        let exercice = controler(&ecriture, contexte, date_validation)?;
+        let (exercice, avertissements) = controler(&ecriture, contexte, date_validation)?;
         let justification = ecriture
             .justification()
             .cloned()
@@ -203,12 +218,13 @@ pub(crate) fn valider_avec(
         }
         controle_compteur(compteur)?;
         let (numero, suivant) = compteur.suivant()?;
-        Ok((numero, justification, suivant))
+        Ok((numero, justification, suivant, avertissements))
     };
     match numeroter() {
-        Ok((numero, justification, suivant)) => Ok((
+        Ok((numero, justification, suivant, avertissements)) => Ok((
             EcritureValidee::assembler(ecriture, numero, justification, date_validation, origine),
             suivant,
+            avertissements,
         )),
         Err(erreur) => Err(Refus::nouveau(ecriture, erreur)),
     }

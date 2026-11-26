@@ -200,6 +200,7 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
         let (numero, suivant) = self
             .livre
@@ -219,6 +220,7 @@ impl Dossier {
             plan: &self.plan,
             journaux: &self.journaux,
             exercices: &self.exercices,
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
         let (numero, suivant) = self
             .livre

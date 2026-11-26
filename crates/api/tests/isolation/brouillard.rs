@@ -121,7 +121,7 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             ),
         ],
         // Contre-passation (PR 13c) : l'écriture d'un autre dossier ou cabinet est absente (404) ;
-        // le corps d'exemple (motif vide) est refusé dès la lecture (400).
+        // le corps d'exemple (motif avec caractère de contrôle) est refusé dès la lecture (400).
         (
             Methode::Post,
             "/api/cabinets/{cabinet}/dossiers/{dossier}/ecritures/{ecriture}/contre-passation",

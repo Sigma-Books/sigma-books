@@ -313,21 +313,35 @@ async fn validation_dans_une_periode_cloturee_refusee() {
     assert!(b.chaine_valide().await);
 }
 
+/// L'échéance de la clôture informatique (AUDCIF art. 22 3°) n'est plus un refus : la validation
+/// réussit et renvoie un avertissement (l'alerte est dans les éditions). Seule une période
+/// verrouillée ou clôturée par un humain bloque.
 #[tokio::test]
-async fn echeance_de_cloture_depassee() {
+async fn echeance_de_cloture_depassee_avertit_sans_bloquer() {
     let horloge = HorlogeTest::default();
     let b = banc_avec(Some(&horloge)).await;
     let (id, v, _) = b.pret("Tardive").await;
     // Deux ans plus tard : l'échéance de la clôture informatique de la période est dépassée.
     horloge.avancer(time::Duration::days(800));
-    refuse(
-        &b,
-        id,
-        v,
-        StatusCode::CONFLICT,
-        "echeance_de_cloture_depassee",
-    )
-    .await;
+    let r = b.valider(id, v).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let corps = r.json();
+    let avertissements = corps["avertissements"].as_array().unwrap();
+    assert_eq!(avertissements.len(), 1, "{corps}");
+    assert_eq!(avertissements[0]["code"], "echeance_de_cloture_depassee");
+    assert!(avertissements[0]["echeance"].is_string());
+    assert!(avertissements[0]["periode"].is_string());
+    assert_eq!(b.compter("ecriture_validee").await, 1);
+}
+
+/// Dans le délai, la validation renvoie une liste d'avertissements vide.
+#[tokio::test]
+async fn validation_dans_le_delai_sans_avertissement() {
+    let b = banc().await;
+    let (id, v, _) = b.pret("Dans le délai").await;
+    let r = b.valider(id, v).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert_eq!(r.json()["avertissements"], serde_json::json!([]));
 }
 
 #[tokio::test]
@@ -734,7 +748,7 @@ async fn justification_manquante() {
 }
 
 #[tokio::test]
-async fn journal_de_tresorerie_sans_son_compte() {
+async fn journal_de_tresorerie_sans_son_compte_avertit() {
     let b = banc().await;
     let (journal, treso) = Modele::officiel()
         .unwrap()
@@ -762,14 +776,29 @@ async fn journal_de_tresorerie_sans_son_compte() {
     let (id, v) = b
         .pret_avec(&contenu(&journal, &aujourd(), &lignes, ""))
         .await;
-    refuse(
-        &b,
-        id,
-        v,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "compte_tresorerie_absent",
-    )
-    .await;
+    // Ni Tryton ni Odoo ne l'imposent : l'écriture est validée, avec un avertissement.
+    let r = b.valider(id, v).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let corps = r.json();
+    let avertissements = corps["avertissements"].as_array().unwrap();
+    assert_eq!(avertissements.len(), 1, "{corps}");
+    assert_eq!(avertissements[0]["code"], "compte_tresorerie_absent");
+    assert_eq!(avertissements[0]["journal"], journal.as_str());
+    assert_eq!(avertissements[0]["compte"], treso.as_str());
+    assert_eq!(b.compter("ecriture_validee").await, 1);
+    // Tracé en audit par son code, hors du contenu haché.
+    let audits: Vec<String> =
+        sqlx::query_scalar("SELECT contenu FROM audit_dossier WHERE dossier_id = $1 ORDER BY rang")
+            .bind(b.c.dossier.uuid())
+            .fetch_all(&b.env.admin)
+            .await
+            .unwrap();
+    let derniere = audits.last().unwrap();
+    assert!(derniere.contains("avertissements") && derniere.contains("compte_tresorerie_absent"));
+    for (_, _, texte, _, _) in b.chaine().await {
+        assert!(!texte.contains("avertissement") && !texte.contains("tresorerie_absent"));
+    }
+    assert!(b.chaine_valide().await);
 }
 
 #[tokio::test]
