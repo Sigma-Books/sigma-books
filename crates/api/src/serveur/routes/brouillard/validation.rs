@@ -404,7 +404,6 @@ pub(super) fn motif_validation(
     let motif = match e {
         V::JournalInconnu(_) => MotifValidation::JournalInconnu,
         V::JournalSansSaisie(_) => MotifValidation::JournalSansSaisie,
-        V::CompteTresorerieAbsent { .. } => MotifValidation::CompteTresorerieAbsent,
         V::DateHorsExercice(_) => MotifValidation::DateHorsExercice,
         V::ExerciceCloture(_) => MotifValidation::ExerciceCloture,
         V::ExerciceEnCloture(_) => MotifValidation::ExerciceEnCloture,
@@ -602,6 +601,10 @@ pub(super) struct VueAvertissement {
     periode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     echeance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compte: Option<String>,
 }
 
 /// Avertissements d'une validation, en vues stables.
@@ -613,6 +616,15 @@ pub(super) fn vues_avertissements(avertissements: &[Avertissement]) -> Vec<VueAv
                 code: "echeance_de_cloture_depassee",
                 periode: Some(interne::date(*periode)),
                 echeance: Some(interne::date(*echeance)),
+                journal: None,
+                compte: None,
+            },
+            Avertissement::CompteTresorerieAbsent { journal, compte } => VueAvertissement {
+                code: "compte_tresorerie_absent",
+                periode: None,
+                echeance: None,
+                journal: Some(journal.as_str().to_owned()),
+                compte: Some(compte.as_str().to_owned()),
             },
         })
         .collect()

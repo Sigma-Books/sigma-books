@@ -248,10 +248,18 @@ fn invariant_7_journal_inconnu_a_nouveaux_et_tresorerie() {
             ligne("7011", Sens::Credit, "1"),
         ],
     );
-    assert!(matches!(
-        d.valider(banque_sans_banque),
-        Err(ErreurValidation::CompteTresorerieAbsent { .. })
-    ));
+    // Invariant 7 assoupli : validée, avec un avertissement (ni Tryton `move.py:449-538` ni
+    // Odoo `account_move.py:2863-2893` n'imposent le compte de trésorerie).
+    let (_, avertissements) = d
+        .valider_le_avec_avertissements(banque_sans_banque, date!(2026 - 03 - 10))
+        .unwrap();
+    assert_eq!(
+        avertissements,
+        vec![Avertissement::CompteTresorerieAbsent {
+            journal: j("BQ1"),
+            compte: n("521"),
+        }]
+    );
     let banque = equilibree(
         "BQ1",
         date!(2026 - 03 - 10),

@@ -536,25 +536,6 @@ fn refuser_les_ecritures_non_conformes(d: &mut Dossier) {
         ),
         Err(ErreurValidation::JournalSansSaisie(j("AN")))
     );
-    // Une écriture du journal de banque mouvemente le compte de banque.
-    let sans_banque = vec![
-        debit(CAISSE, 118_000),
-        credit(CLIENTS, 118_000).avec_tiers(tiers("CLI-003")),
-    ];
-    assert_eq!(
-        d.soumettre(
-            "BQ1",
-            jour,
-            jour,
-            "Encaissement",
-            Some(piece("d1")),
-            sans_banque
-        ),
-        Err(ErreurValidation::CompteTresorerieAbsent {
-            journal: j("BQ1"),
-            compte: n(BANQUE)
-        })
-    );
     assert_eq!(d.livre.ecritures().len(), avant);
     // Une écriture de janvier validée le 1er mai, après l'échéance du 30 avril (fin du troisième
     // mois qui suit la période), n'est plus refusée : elle est validée avec un avertissement
@@ -586,6 +567,28 @@ fn refuser_les_ecritures_non_conformes(d: &mut Dossier) {
             echeance: date!(2026 - 04 - 30)
         }]
     );
+    // Une écriture du journal de banque qui ne mouvemente pas le compte de banque est validée,
+    // avec un avertissement (ni Tryton ni Odoo n'imposent le compte de trésorerie).
+    let mut encaissement = EcritureBrouillon::nouvelle(j("BQ1"), jour, t("Encaissement"));
+    encaissement.ajouter_ligne(debit(CAISSE, 118_000));
+    encaissement.ajouter_ligne(credit(CLIENTS, 118_000).avec_tiers(tiers("CLI-003")));
+    encaissement.justifier(piece("d1"));
+    let compteur = d.compteur(&j("BQ1"), jour);
+    let validation = compta_core::valider(
+        encaissement.valider_equilibre().unwrap(),
+        &contexte,
+        &compteur,
+        jour,
+    )
+    .unwrap();
+    assert_eq!(
+        validation.avertissements(),
+        [Avertissement::CompteTresorerieAbsent {
+            journal: j("BQ1"),
+            compte: n(BANQUE)
+        }]
+    );
+    assert_eq!(d.livre.ecritures().len(), avant);
 }
 
 /// Solde final (débiteur, créditeur) de chaque compte de la balance.

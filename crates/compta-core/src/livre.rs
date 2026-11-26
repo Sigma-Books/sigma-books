@@ -24,7 +24,8 @@
 //!   verrouille ou clôture une période, comme dans Tryton (`period.py:387-441`) et Odoo
 //!   (`company.py:76-100`, `account_move.py:2844-2860`).
 //! - **Avertissements** ([`Avertissement`]) : contrôles qui n'empêchent pas la validation et que
-//!   l'appelant renvoie à l'utilisateur (échéance de clôture dépassée).
+//!   l'appelant renvoie à l'utilisateur (échéance de clôture dépassée ; écriture d'un journal de
+//!   trésorerie qui ne mouvemente pas son compte).
 //!
 //! Comme Tryton (`account.move.post`, `cancel(reversal=True)`) : le numéro est attribué à la
 //! validation, la contre-passation inverse débit et crédit et garde le lien vers l'origine.
@@ -62,14 +63,6 @@ pub enum ErreurValidation {
     /// Journal qui n'accepte pas d'écriture saisie (à-nouveaux, générés uniquement ; inv. 7).
     #[error("le journal {0} n'accepte pas de saisie")]
     JournalSansSaisie(CodeJournal),
-    /// Écriture d'un journal de trésorerie qui ne mouvemente pas son compte (inv. 7).
-    #[error("l'écriture du journal {journal} ne mouvemente pas son compte de trésorerie {compte}")]
-    CompteTresorerieAbsent {
-        /// Journal de trésorerie.
-        journal: CodeJournal,
-        /// Compte de trésorerie associé.
-        compte: NumeroCompte,
-    },
     /// Date hors de tout exercice du dossier (inv. 5).
     #[error("aucun exercice ne contient la date {0}")]
     DateHorsExercice(Date),
@@ -179,8 +172,10 @@ pub enum ErreurValidation {
 }
 
 /// Contrôle qui **n'empêche pas** la validation : l'écriture est validée et l'appelant renvoie
-/// l'avertissement à l'utilisateur (comme les moteurs de référence, qui n'imposent aucun délai
-/// automatique : Tryton `period.py:387-441`, Odoo `company.py:76-100`).
+/// l'avertissement à l'utilisateur (comme les moteurs de référence, qui n'imposent ni délai
+/// automatique de clôture, Tryton `period.py:387-441` et Odoo `company.py:76-100`, ni compte de
+/// trésorerie dans une écriture de journal de banque ou de caisse, Tryton `move.py:449-538`
+/// (`post`) et Odoo `account_move.py:2863-2893`, `account_move_line.py:1500-1516`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Avertissement {
     /// L'échéance de la clôture informatique de la période de l'écriture est dépassée
@@ -191,6 +186,14 @@ pub enum Avertissement {
         periode: Date,
         /// Échéance de clôture.
         echeance: Date,
+    },
+    /// L'écriture d'un journal de trésorerie ne mouvemente pas le compte de trésorerie du
+    /// journal (inv. 7, assoupli : ni Tryton ni Odoo ne l'imposent).
+    CompteTresorerieAbsent {
+        /// Journal de trésorerie.
+        journal: CodeJournal,
+        /// Compte de trésorerie associé.
+        compte: NumeroCompte,
     },
 }
 
@@ -806,11 +809,12 @@ pub(crate) fn controler(
     if ecriture.justification().is_none() {
         return Err(ErreurValidation::JustificationManquante);
     }
-    // Invariant 7 : une écriture d'un journal de trésorerie mouvemente son compte.
+    // Invariant 7, assoupli : une écriture d'un journal de trésorerie qui ne mouvemente pas son
+    // compte est validée, avec un avertissement.
     if let Some(tresorerie) = journal.compte_tresorerie()
         && !ecriture.lignes().iter().any(|l| l.compte() == tresorerie)
     {
-        return Err(ErreurValidation::CompteTresorerieAbsent {
+        avertissements.push(Avertissement::CompteTresorerieAbsent {
             journal: code.clone(),
             compte: tresorerie.clone(),
         });

@@ -748,7 +748,7 @@ async fn justification_manquante() {
 }
 
 #[tokio::test]
-async fn journal_de_tresorerie_sans_son_compte() {
+async fn journal_de_tresorerie_sans_son_compte_avertit() {
     let b = banc().await;
     let (journal, treso) = Modele::officiel()
         .unwrap()
@@ -776,14 +776,16 @@ async fn journal_de_tresorerie_sans_son_compte() {
     let (id, v) = b
         .pret_avec(&contenu(&journal, &aujourd(), &lignes, ""))
         .await;
-    refuse(
-        &b,
-        id,
-        v,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "compte_tresorerie_absent",
-    )
-    .await;
+    // Ni Tryton ni Odoo ne l'imposent : l'écriture est validée, avec un avertissement.
+    let r = b.valider(id, v).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let corps = r.json();
+    let avertissements = corps["avertissements"].as_array().unwrap();
+    assert_eq!(avertissements.len(), 1, "{corps}");
+    assert_eq!(avertissements[0]["code"], "compte_tresorerie_absent");
+    assert_eq!(avertissements[0]["journal"], journal.as_str());
+    assert_eq!(avertissements[0]["compte"], treso.as_str());
+    assert_eq!(b.compter("ecriture_validee").await, 1);
 }
 
 #[tokio::test]

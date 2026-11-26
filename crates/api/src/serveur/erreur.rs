@@ -298,8 +298,6 @@ pub enum MotifValidation {
     TiersManquant,
     /// Aucune pièce justificative.
     JustificationManquante,
-    /// Journal de trésorerie sans mouvement de son compte.
-    CompteTresorerieAbsent,
     /// Journal inconnu.
     JournalInconnu,
     /// Journal qui n'accepte pas la saisie.
@@ -318,7 +316,7 @@ pub enum MotifValidation {
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 25] = [
+    pub const TOUS: [Self; 24] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -336,7 +334,6 @@ impl MotifValidation {
         Self::CompteDeRegroupement,
         Self::TiersManquant,
         Self::JustificationManquante,
-        Self::CompteTresorerieAbsent,
         Self::JournalInconnu,
         Self::JournalSansSaisie,
         Self::DateHorsExercice,
@@ -384,7 +381,6 @@ impl MotifValidation {
             Self::CompteDeRegroupement => "validation_compte_de_regroupement",
             Self::TiersManquant => "tiers_manquant",
             Self::JustificationManquante => "justification_manquante",
-            Self::CompteTresorerieAbsent => "compte_tresorerie_absent",
             Self::JournalInconnu => "validation_journal_inconnu",
             Self::JournalSansSaisie => "validation_journal_sans_saisie",
             Self::DateHorsExercice => "validation_date_hors_exercice",
