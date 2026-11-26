@@ -1,7 +1,7 @@
 # 0019 — Étiquette fiscale de la ligne d'écriture
 
 - **Statut :** proposée
-- **Amendé par l'ADR 0030 (2026-11-26) :** les codes de régime et de motif propres au Sénégal (`IMP18`, `IMP10`, `EXO361`, `EXO380`, `AUTOLIQ_REPFISC`, `IMP_ENC`, `EXO361-n`, `EXO380-x`) sont remplacés, **avant toute validation de production**, par des codes génériques (`TAXABLE_NORMAL`, `EXO_SANS_DEDUCTION`…) ; les listes sont celles du socle et des paquets de pays de la crate `fiscal`. Le point 3 (ajout seul) vaut de nouveau pour ces codes après la première validation en production. Les points 4 et 5 sont lus avec les nouveaux codes ; la date de fin d'`EXO380-e` est appliquée (ADR 0030 point 4).
+- **Amendé par l'ADR 0030 (2026-11-26) :** les codes de régime et de motif propres au Sénégal (`IMP18`, `IMP10`, `EXO361`, `EXO380`, `AUTOLIQ_REPFISC`, `IMP_ENC`, `EXO361-n`, `EXO380-x`) sont remplacés, **avant toute validation de production**, par des codes génériques (`TAXABLE_NORMAL`, `EXO_SANS_DEDUCTION`…) ; les listes sont celles du socle et des paquets de pays de la crate `fiscal` (la crate `fiscal-sn` citée plus bas est **renommée `fiscal`**). Le point 3 (ajout seul) vaut de nouveau pour ces codes après la première validation en production. Les points 4 et 5 sont lus avec les nouveaux codes ; la date de fin d'`EXO380-e` est appliquée (ADR 0030 point 4).
 - **Date :** 2026-11-20
 
 ## Contexte
