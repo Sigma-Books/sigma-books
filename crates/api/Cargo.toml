@@ -72,5 +72,9 @@ proptest.workspace = true
 # Lecture du nonce dans la requête figée des vecteurs (tests du client d'horodatage).
 der.workspace = true
 x509-tsp.workspace = true
+# Autorité d'horodatage locale de la démonstration (L2-37) : jetons RFC 3161 signés en test.
+cms.workspace = true
+x509-cert.workspace = true
+spki = "0.8"
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "sync", "test-util"] }
 toml.workspace = true
