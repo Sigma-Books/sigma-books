@@ -1,4 +1,4 @@
-# 0029 — Règles de gestion alignées sur Odoo et Tryton : trois assouplissements, deux renvois (format canonique figé)
+# 0029 — Règles de gestion alignées sur Odoo et Tryton : quatre assouplissements, deux renvois (format canonique figé)
 
 - **Statut :** proposée
 - **Date :** 2026-11-26
@@ -11,6 +11,8 @@ Principe du mainteneur : si Odoo et Tryton, validés par leur communauté, ont �
 2. **Contre-passation datée avant l'origine : acceptée.** Moteurs : Tryton `move.py:399-445`, Odoo `wizard/account_move_reversal.py:17` et `93-100`.
 3. **Journal de trésorerie : le compte du journal absent de l'écriture avertit** (`compte_tresorerie_absent`), sans bloquer. Moteurs : Tryton `move.py:449-538`, Odoo `account_move.py:2863-2893` et `account_move_line.py:1500-1516`.
 4. **Renvoyés, non faits : ligne à zéro et numéro à largeur variable.** Les moteurs les admettent (Tryton `move.py:489-497` rapproche automatiquement les lignes à zéro, contrainte `credit * debit == 0` l. 1080-1083, tri par longueur puis texte l. 171-173 ; Odoo `sequence_mixin.py:334-346`, numéro qui s'allonge), mais les deux touchent le **format canonique haché**, déclaré figé (`docs/integrite/format-v1.md` : « Ce format est **figé** », l. 5) : `numero=` porte « rang sur 6 chiffres » (l. 22), `montant=` est « strictement positif » (l. 33), `crates/integrite` relit par `NumeroEcriture::parse` (6 chiffres exactement) et `Ligne::en_xof` (montant > 0), et les migrations `0202` et `0203` portent `CHECK (montant > 0)`, `sequence BETWEEN 1 AND 999999` et `numero ~ '…-[0-9]{6}$'`. Les assouplir exige un nouveau format (v5, version de l'écriture canonique et de l'export), des migrations et un amendement de la spec §6.2 (invariant 2) et §6.3 : décision d'architecture à part, hors de cette PR. Le plafond de 999 999 écritures par journal et exercice reste donc en vigueur, ainsi que le refus d'une ligne à zéro.
+
+5. **Motif de contre-passation facultatif** (ajout du 2026-11-26) : absent ou blanc, le serveur inscrit « Contre-passation de <numéro de l'origine> » ; fourni, il tient en 400 octets UTF-8 au plus, sans caractère de contrôle. Moteurs : Odoo `account_move_reversal.py:18`, Tryton `CancelMoves` (`move.py`, assistant d'annulation : aucun motif). Complète l'ADR 0021, point 4 (note ajoutée).
 
 ## Conséquences
 - La spec contient encore les anciennes règles : §4.3 (l. 170, « plus aucune validation dans la période »), §6.2 invariants 5 et 7, et §6.3 (opération tardive : « une période dont l'échéance de clôture est passée doit d'abord être clôturée », l. 247). `docs/specification.md` n'est pas modifié ici (il ne l'est que sur instruction explicite) : amendement à demander au mainteneur.
