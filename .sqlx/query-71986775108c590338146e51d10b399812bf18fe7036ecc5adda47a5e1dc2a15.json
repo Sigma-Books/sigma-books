@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             EXISTS (SELECT 1 FROM ecriture_validee WHERE cabinet_id = $1 AND dossier_id = $2)\n               AS \"validee!\",\n             EXISTS (SELECT 1 FROM brouillon WHERE cabinet_id = $1 AND dossier_id = $2)\n               AS \"brouillon!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "validee!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "brouillon!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "71986775108c590338146e51d10b399812bf18fe7036ecc5adda47a5e1dc2a15"
+}

@@ -430,13 +430,26 @@ struct CorpsModification {
     devise: Option<String>,
     fuseau: Option<String>,
     langue: Option<String>,
-    #[serde(default, deserialize_with = "double_option")]
-    forme_juridique: Option<Option<String>>,
+    #[serde(default)]
+    forme_juridique: ChampTexte,
 }
 
-/// Distingue un champ absent (`None`) d'un champ à `null` (`Some(None)`).
-fn double_option<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
-    Option::<String>::deserialize(d).map(Some)
+/// Champ texte d'une modification : absent (conservé), `null` (effacé) ou une valeur.
+#[derive(Debug, Default)]
+enum ChampTexte {
+    #[default]
+    Absent,
+    Efface,
+    Valeur(String),
+}
+
+impl<'de> Deserialize<'de> for ChampTexte {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match Option::<String>::deserialize(d)? {
+            None => Self::Efface,
+            Some(v) => Self::Valeur(v),
+        })
+    }
 }
 
 /// Défense en profondeur : appartenance **active** lue en base, de rôle `administrateur`
@@ -476,7 +489,11 @@ async fn modifier(
         devise: c.devise.as_deref(),
         fuseau: c.fuseau.as_deref(),
         langue: c.langue.as_deref(),
-        forme_juridique: c.forme_juridique.as_ref().map(Option::as_deref),
+        forme_juridique: match &c.forme_juridique {
+            ChampTexte::Absent => None,
+            ChampTexte::Efface => Some(None),
+            ChampTexte::Valeur(v) => Some(Some(v.as_str())),
+        },
     };
     if modification.est_vide() {
         return Err(ErreurApi::RequeteInvalide);
