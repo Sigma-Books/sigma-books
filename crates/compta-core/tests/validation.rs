@@ -486,7 +486,7 @@ fn validation_avertie_apres_l_echeance() {
     let (_, avertissements) = d
         .valider_le_avec_avertissements(achat(), date!(2026 - 06 - 30))
         .unwrap();
-    assert!(avertissements.is_empty());
+    assert_eq!(avertissements, []);
     let (_, avertissements) = d
         .valider_le_avec_avertissements(achat(), date!(2026 - 07 - 01))
         .unwrap();
@@ -504,7 +504,7 @@ fn validation_avertie_apres_l_echeance() {
     let (_, avertissements) = d
         .valider_le_avec_avertissements(decembre.clone(), date!(2027 - 04 - 30))
         .unwrap();
-    assert!(avertissements.is_empty());
+    assert_eq!(avertissements, []);
     let (_, avertissements) = d
         .valider_le_avec_avertissements(decembre, date!(2027 - 05 - 01))
         .unwrap();
@@ -553,7 +553,7 @@ fn l_avertissement_suit_le_delai_du_contexte() {
     );
     // Avec le délai par défaut, le même jour n'avertit pas.
     let v = compta_core::valider(achat(), &d.contexte(), &compteur, date!(2026 - 05 - 01)).unwrap();
-    assert!(v.avertissements().is_empty());
+    assert_eq!(v.avertissements(), []);
 }
 
 fn achat_tardif(date: time::Date, date_valeur: time::Date) -> compta_core::EcritureEquilibree {

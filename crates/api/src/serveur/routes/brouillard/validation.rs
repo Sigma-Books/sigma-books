@@ -1356,7 +1356,8 @@ mod tests {
     }
 
     #[test]
-    fn une_contre_passation_nominale_se_numerote_et_refuse_le_double() {
+    #[allow(clippy::too_many_lines)]
+    fn une_contre_passation_nominale_se_numerote_et_accepte_la_repetition_et_une_date_anterieure() {
         use super::super::contre_passation::decider_contre_passation;
         let d = decor();
         let etat = d.inst.etat();
