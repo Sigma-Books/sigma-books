@@ -7,14 +7,14 @@ import { lireDossier } from './api/ressources.ts';
 import { tenter, type Resultat } from './api/resultat.ts';
 import { lireUuid, type CabinetMembre, type Dossier, type Uuid } from './api/types.ts';
 import { fixerLangue, nouvelleNavigation } from './i18n/index.ts';
-import { lireRegional, type Regional } from './regional.ts';
+import { regionalDuDossier, type Regional } from './regional.ts';
 
 export interface ContexteDossier {
 	cabinet: Uuid;
 	dossier: Uuid;
 	membre: CabinetMembre;
 	nomDossier: Dossier;
-	/** Devise, échelle, locale, fuseau et langue du dossier (valeurs par défaut si l'API n'en dit rien). */
+	/** Pays, devise de tenue, échelle, fuseau et langue du dossier, tels que l'API les renvoie. */
 	regional: Regional;
 }
 
@@ -52,8 +52,9 @@ export async function chargerDossier<T>(
 			membreDuCabinet(cabinet),
 			lireDossier(api, cabinet, dossier)
 		]);
-		// Seul point de raccordement du contexte régional : l'API de lecture du dossier.
-		const regional = lireRegional(nomDossier);
+		// Seul point de raccordement du contexte régional : l'API de lecture du dossier, dont
+		// `estDossier` a déjà exigé les cinq réglages (sinon `reponse_invalide`).
+		const regional = regionalDuDossier(nomDossier);
 		// Le chargement d'un autre dossier a pu commencer depuis : sa langue l'emporte alors.
 		fixerLangue(regional.langue, jeton);
 		const contexte = { cabinet, dossier, membre, nomDossier, regional };

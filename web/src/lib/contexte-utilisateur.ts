@@ -3,10 +3,10 @@
 // qu'un chargement de dossier encore en cours ne puisse plus changer la langue.
 
 import { fixerLangue, nouvelleNavigation } from './i18n/index.ts';
-import { regionalUtilisateur, type Regional } from './regional.ts';
+import { regionalUtilisateur, type Affichage } from './regional.ts';
 
 /** Adopte la langue du navigateur pour cet écran et rend le contexte régional de l'utilisateur. */
-export function adopterRegionalUtilisateur(): Regional {
+export function adopterRegionalUtilisateur(): Affichage {
 	const regional = regionalUtilisateur();
 	fixerLangue(regional.langue, nouvelleNavigation());
 	return regional;

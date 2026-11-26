@@ -9,6 +9,27 @@ import { ErreurApi } from './erreurs.ts';
 import { creerDossier, listerDossiers, revoquerSession } from './ressources.ts';
 import { estDossier, lireUuid, type Uuid } from './types.ts';
 
+/** Corps minimal d'une création (pays obligatoire, ouverture du premier exercice). */
+const CREATION = {
+	nom: 'SARL Exemple',
+	pays: 'SN',
+	nature: 'reprise',
+	annee: 2026
+} as const;
+
+/** Réponse d'une création : le dossier avec son contexte (ADR 0027). */
+const DOSSIER_CREE = {
+	id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+	nom: 'SARL Exemple',
+	pays: 'SN',
+	devise: 'XOF',
+	decimales: 0,
+	fuseau: 'Africa/Dakar',
+	langue: 'fr',
+	forme_juridique: null,
+	identifiants_legaux: []
+};
+
 const CABINET = lireUuid('0b0f6c43-7c47-4a43-9d1e-2f4f6f0a1b2c') as Uuid;
 
 interface Appel {
@@ -86,7 +107,7 @@ function fauxServeur(
 			return json(200, []);
 		}
 		if (appel.chemin === `/api/cabinets/${CABINET}/dossiers` && appel.methode === 'POST') {
-			return json(201, { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', nom: 'SARL Exemple' });
+			return json(201, DOSSIER_CREE);
 		}
 		if (appel.chemin.startsWith('/api/moi/sessions/') && appel.methode === 'DELETE') {
 			return new Response(null, { status: 204 });
@@ -153,7 +174,7 @@ describe('session et jeton anti-CSRF', () => {
 		const serveur = fauxServeur();
 		const api = creerClient({ fetch: serveur.fetch });
 
-		await creerDossier(api, CABINET, 'SARL Exemple');
+		await creerDossier(api, CABINET, CREATION);
 		await revoquerSession(api, lireUuid('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee') as Uuid);
 
 		assert.deepEqual(
@@ -165,7 +186,7 @@ describe('session et jeton anti-CSRF', () => {
 			]
 		);
 		const post = serveur.appels[1];
-		assert.equal(post?.init.body, JSON.stringify({ nom: 'SARL Exemple' }));
+		assert.equal(post?.init.body, JSON.stringify(CREATION));
 		assert.equal(new Headers(post?.init.headers).get('content-type'), 'application/json');
 	});
 
@@ -173,7 +194,7 @@ describe('session et jeton anti-CSRF', () => {
 		const serveur = fauxServeur();
 		const api = creerClient({ fetch: serveur.fetch });
 
-		await Promise.all([creerDossier(api, CABINET, 'A'), creerDossier(api, CABINET, 'B')]);
+		await Promise.all([creerDossier(api, CABINET, CREATION), creerDossier(api, CABINET, CREATION)]);
 
 		assert.equal(serveur.appels.filter((a) => a.chemin === '/api/session').length, 1);
 	});
@@ -201,7 +222,7 @@ describe('rotation', () => {
 		await api.ouvrirSession();
 
 		await api.tourner(CABINET);
-		await creerDossier(api, CABINET, 'SARL Exemple');
+		await creerDossier(api, CABINET, CREATION);
 
 		const rotation = serveur.appels.find((a) => a.chemin === '/api/session/rotation');
 		assert.equal(rotation?.methode, 'POST');
@@ -293,7 +314,7 @@ describe('rotation', () => {
 		await api.ouvrirSession();
 
 		await api.tourner(CABINET);
-		await creerDossier(api, CABINET, 'X');
+		await creerDossier(api, CABINET, CREATION);
 
 		assert.equal(surNonAuthentifie.mock.callCount(), 0);
 		assert.deepEqual(
@@ -316,7 +337,7 @@ describe('reprises après une rotation faite ailleurs (autre onglet)', () => {
 		await api.ouvrirSession();
 		serveur.etat.jeton = 'j9'; // le cookie a tourné dans un autre onglet
 
-		const dossier = await creerDossier(api, CABINET, 'SARL Exemple');
+		const dossier = await creerDossier(api, CABINET, CREATION);
 
 		assert.equal(dossier.nom, 'SARL Exemple');
 		assert.deepEqual(
@@ -338,7 +359,7 @@ describe('reprises après une rotation faite ailleurs (autre onglet)', () => {
 		const api = creerClient({ fetch: serveur.fetch });
 		await api.ouvrirSession();
 
-		await assert.rejects(creerDossier(api, CABINET, 'X'), (e: unknown) => {
+		await assert.rejects(creerDossier(api, CABINET, CREATION), (e: unknown) => {
 			assert.ok(e instanceof ErreurApi);
 			assert.equal(e.code, 'interdit');
 			assert.equal(e.statut, 403);
@@ -386,7 +407,7 @@ describe('autre session (déconnexion puis connexion dans un autre onglet)', () 
 		serveur.etat.jeton = 'u2';
 		serveur.etat.idSession = '22222222-3333-4444-8555-666666666666';
 
-		await assert.rejects(creerDossier(api, CABINET, 'Dossier de l’utilisateur 1'), {
+		await assert.rejects(creerDossier(api, CABINET, CREATION), {
 			code: 'non_authentifie'
 		});
 
@@ -424,7 +445,10 @@ describe('non authentifié', () => {
 		await api.ouvrirSession();
 		serveur.etat.session = false;
 
-		await assert.rejects(creerDossier(api, CABINET, 'X'), { code: 'non_authentifie', statut: 401 });
+		await assert.rejects(creerDossier(api, CABINET, CREATION), {
+			code: 'non_authentifie',
+			statut: 401
+		});
 
 		assert.deepEqual(
 			serveur.appels.slice(1).map((a) => [a.methode, a.chemin]),
@@ -521,7 +545,7 @@ describe('traduction des erreurs', () => {
 			appel.methode === 'POST' ? json(403, { erreur: 'interdit', csrf: 'csrf-j1' }) : undefined
 		);
 		const api = creerClient({ fetch: serveur.fetch });
-		await assert.rejects(creerDossier(api, CABINET, 'X'), (e: unknown) => {
+		await assert.rejects(creerDossier(api, CABINET, CREATION), (e: unknown) => {
 			assert.ok(e instanceof ErreurApi);
 			assert.equal(e.message, 'interdit');
 			assert.doesNotMatch(JSON.stringify(e) + String(e), /csrf-|j1/);

@@ -34,6 +34,17 @@ export interface OptionsCsv {
 	decimales: number;
 }
 
+/**
+ * Options avant qu'un dossier soit chargé : l'écran ne montre alors aucun formulaire, et les options
+ * du dossier (locale, échelle de sa devise) les remplacent dès qu'il l'est.
+ */
+export const OPTIONS_CSV_SANS_DOSSIER: Readonly<OptionsCsv> = {
+	separateur: ';',
+	separateurDecimal: ',',
+	bom: true,
+	decimales: 0
+};
+
 /** Options par défaut d'un dossier : celles qu'attend un tableur réglé sur son locale. */
 export function optionsCsvParDefaut(r: Regional): OptionsCsv {
 	const decimal = separateurs(localeDe(r)).decimal === '.' ? '.' : ',';

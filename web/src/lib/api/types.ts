@@ -4,6 +4,7 @@
 // devient une erreur `reponse_invalide`, jamais une donnée affichée à moitié. Les noms des champs
 // sont ceux du serveur (`crates/api/src/serveur/routes.rs`, `moi.rs`).
 
+import { estDecimales, estDevise, estFuseau, estLangue, estPays } from '../regional.ts';
 /** Identifiant exposé par l'API (UUID, ADR 0011), vérifié par `lireUuid`. */
 export type Uuid = string & { readonly __marque: 'Uuid' };
 
@@ -53,21 +54,31 @@ export function estCodeJournal(texte: string): boolean {
 	return MOTIF_CODE_JOURNAL.test(texte);
 }
 
-/** Un dossier visible (`GET /api/cabinets/{c}/dossiers[/{d}]`). */
+/** Un identifiant légal d'un dossier : un type du pack du pays (code défini par le pack) et sa valeur. */
+export interface IdentifiantLegal {
+	type: string;
+	valeur: string;
+}
+
+/**
+ * Un dossier visible (`GET /api/cabinets/{c}/dossiers[/{d}]`, ADR 0027). Le contexte du dossier
+ * (`pays`, `devise`, `decimales`, `fuseau`, `langue`) est **obligatoire** : une réponse qui en
+ * manque est une erreur de contrat (`reponse_invalide`), jamais complétée par une valeur
+ * supposée. Les identifiants légaux ne sont rendus que par la lecture d'un dossier, la création
+ * et la modification du contexte, pas par la liste.
+ */
 export interface Dossier {
 	id: Uuid;
 	nom: string;
-	/**
-	 * Contexte régional du dossier (`pays`, `devise`, `decimales`, `fuseau`, `langue`). Facultatif
-	 * tant que l'API ne le renvoie pas partout : l'interface le lit par `lireRegional`
-	 * (`regional.ts`), qui remplace chaque champ absent par sa valeur par défaut. Une fois l'API
-	 * déployée, ces champs deviennent obligatoires ici et dans `estDossier`.
-	 */
-	pays?: string;
-	devise?: string;
-	decimales?: number;
-	fuseau?: string;
-	langue?: string;
+	pays: string;
+	/** Devise de tenue (ISO 4217). */
+	devise: string;
+	/** Échelle décimale de la devise de tenue. */
+	decimales: number;
+	fuseau: string;
+	langue: string;
+	forme_juridique: string | null;
+	identifiants_legaux?: IdentifiantLegal[];
 }
 
 /** Une session de l'utilisateur (`GET /api/moi/sessions`). */
@@ -132,8 +143,25 @@ export function estCabinetMembre(valeur: unknown): valeur is CabinetMembre {
 	return estObjet(valeur) && estId(valeur.id) && chaines(valeur, ['nom', 'role']);
 }
 
+export function estIdentifiantLegal(valeur: unknown): valeur is IdentifiantLegal {
+	return estObjet(valeur) && chaines(valeur, ['type', 'valeur']);
+}
+
 export function estDossier(valeur: unknown): valeur is Dossier {
-	return estObjet(valeur) && estId(valeur.id) && typeof valeur.nom === 'string';
+	return (
+		estObjet(valeur) &&
+		estId(valeur.id) &&
+		typeof valeur.nom === 'string' &&
+		estPays(valeur.pays) &&
+		estDevise(valeur.devise) &&
+		estDecimales(valeur.decimales) &&
+		estFuseau(valeur.fuseau) &&
+		estLangue(valeur.langue) &&
+		chaineOuNul(valeur.forme_juridique) &&
+		(valeur.identifiants_legaux === undefined ||
+			(Array.isArray(valeur.identifiants_legaux) &&
+				valeur.identifiants_legaux.every(estIdentifiantLegal)))
+	);
 }
 
 export function estSessionListee(valeur: unknown): valeur is SessionListee {

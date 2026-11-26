@@ -11,11 +11,11 @@ import {
 	messageBrouillonsExclus
 } from './editions-affichage.ts';
 import { fixerLangue } from './i18n/index.ts';
-import { lireRegional } from './regional.ts';
+import { regionalDe } from './regional-exemples.ts';
 import { estNomFichierSur } from './telechargement.ts';
 
-const FR = lireRegional({});
-const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
+const FR = regionalDe({});
+const EN = regionalDe({ langue: 'en', pays: 'CM', devise: 'XAF' });
 
 describe('affichage des éditions', () => {
 	it('colonnes et mois', () => {
@@ -29,8 +29,8 @@ describe('affichage des éditions', () => {
 	it('les mois suivent le locale du dossier (Intl, aucun nom de mois en dur)', () => {
 		const mars = { annee: 2026, mois: 3 };
 		assert.equal(libelleMois(mars, EN), 'March 2026');
-		assert.equal(libelleMois(mars, lireRegional({ langue: 'pt', pays: 'GW' })), 'março de 2026');
-		assert.equal(libelleMois(mars, lireRegional({ langue: 'es', pays: 'GQ' })), 'marzo de 2026');
+		assert.equal(libelleMois(mars, regionalDe({ langue: 'pt', pays: 'GW' })), 'março de 2026');
+		assert.equal(libelleMois(mars, regionalDe({ langue: 'es', pays: 'GQ' })), 'marzo de 2026');
 		assert.equal(libelleMois({ annee: 2026, mois: 8 }, FR), 'août 2026');
 		assert.equal(libelleMois({ annee: 2026, mois: 12 }, FR), 'décembre 2026');
 	});
@@ -122,6 +122,6 @@ describe('édition vide et zéro', () => {
 		assert.equal(normaliserZero('-0.000'), '0');
 		assert.equal(normaliserZero('-0.5'), '-0.5');
 		assert.equal(afficherMontant('-0', FR), '0');
-		assert.equal(afficherMontant('-0.00', lireRegional({ decimales: 2 })), '0,00');
+		assert.equal(afficherMontant('-0.00', regionalDe({ decimales: 2 })), '0,00');
 	});
 });

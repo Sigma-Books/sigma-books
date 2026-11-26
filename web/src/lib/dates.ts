@@ -36,7 +36,10 @@ const FORMATS = new Map<string, Intl.DateTimeFormat>();
  * année sur quatre chiffres ; toute autre forme est rendue telle quelle. Une date de calendrier n'a
  * pas de fuseau : le calcul est fait en UTC pour ne jamais la décaler d'un jour.
  */
-export function afficherDate(texte: string, r: Pick<Regional, 'langue' | 'pays'>): string {
+export function afficherDate(
+	texte: string,
+	r: Pick<Regional, 'langue'> & { pays?: string }
+): string {
 	const m = FORME.exec(texte);
 	if (m === null || !estDateIso(texte)) return texte;
 	const locale = localeDe(r);

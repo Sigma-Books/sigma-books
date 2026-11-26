@@ -13,11 +13,11 @@ import {
 	type ContexteCsv,
 	type OptionsCsv
 } from './csv.ts';
-import { lireRegional } from './regional.ts';
+import { regionalDe } from './regional-exemples.ts';
 
-const FR = lireRegional({});
-const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
-const CDF = lireRegional({ langue: 'fr', pays: 'CD', devise: 'CDF', decimales: 2 });
+const FR = regionalDe({});
+const EN = regionalDe({ langue: 'en', pays: 'CM', devise: 'XAF' });
+const CDF = regionalDe({ langue: 'fr', pays: 'CD', devise: 'CDF', decimales: 2 });
 const O: OptionsCsv = optionsCsvParDefaut(FR);
 const contexte = (regional = FR, nomDossier = 'Société Test'): ContexteCsv => ({
 	nomDossier,
@@ -231,7 +231,7 @@ describe('options du CSV', () => {
 			decimales: 0
 		});
 		assert.equal(optionsCsvParDefaut(CDF).decimales, 2);
-		assert.equal(optionsCsvParDefaut(lireRegional({ langue: 'pt', pays: 'GW' })).separateur, ';');
+		assert.equal(optionsCsvParDefaut(regionalDe({ langue: 'pt', pays: 'GW' })).separateur, ';');
 	});
 
 	it('séparateur, séparateur décimal et BOM sont réglables', () => {

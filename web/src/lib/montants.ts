@@ -32,9 +32,9 @@ const GROUPE_INITIAL = /^\d{1,3}$/;
  * - le séparateur de milliers (une espace, ou le séparateur du locale : `,` en `en`, `.` en `pt` et
  *   `es`) n'est admis que dans la partie entière, entre des groupes d'**exactement trois chiffres**
  *   (`1,500` en `en`, pas `1500,50` ni `12,5`) ;
- * - la partie décimale ne dépasse pas l'échelle de la devise (`regional.decimales`) : en XOF, XAF,
- *   KMF et GNF (échelle 0) `1,500` et `1.500` sont refusés plutôt que lus 1,5 ; en CDF (échelle 2)
- *   `1,500` aussi. Le point reste une décimale (pavé numérique) quand il n'est ni le séparateur
+ * - la partie décimale ne dépasse pas l'échelle de la devise (`regional.decimales`) : avec une
+ *   échelle 0 `1,500` et `1.500` sont refusés plutôt que lus 1,5 ; avec une échelle 2 `1,500`
+ *   aussi. Le point reste une décimale (pavé numérique) quand il n'est ni le séparateur
  *   décimal ni celui des milliers du locale.
  */
 export function diagnostiquerMontant(saisie: string, r: Regional): LectureMontant {
@@ -174,7 +174,7 @@ export function formaterMontant(canonique: string, r: Regional): string {
 /** Espace insécable entre le montant et le code de la devise. */
 const ESPACE_INSECABLE = '\u00a0';
 
-/** Montant suivi du code de sa devise (`1 500 XOF`), pour les phrases et les totaux isolés. */
+/** Montant suivi du code de sa devise (`1 500 <devise>`), pour les phrases et les totaux isolés. */
 export function formaterMontantDevise(canonique: string, r: Regional): string {
 	return `${formaterMontant(canonique, r)}${ESPACE_INSECABLE}${r.devise}`;
 }

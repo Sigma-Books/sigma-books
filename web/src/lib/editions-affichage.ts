@@ -37,7 +37,7 @@ const MOIS = new Map<string, Intl.DateTimeFormat>();
  */
 export function libelleMois(
 	m: Pick<MoisCentralisateur, 'annee' | 'mois'>,
-	r: Pick<Regional, 'langue' | 'pays'>
+	r: Pick<Regional, 'langue'> & { pays?: string }
 ): string {
 	if (!Number.isInteger(m.mois) || m.mois < 1 || m.mois > 12 || !Number.isInteger(m.annee)) {
 		return `${m.annee}-${m.mois}`;

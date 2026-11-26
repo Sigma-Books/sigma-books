@@ -6,7 +6,7 @@
 //   `chargerDossier`) ; avant tout dossier, le français. Aucune dépendance : pas de bibliothèque d'i18n.
 // Module pur, testé sous `node --test`.
 
-import type { Langue } from '../regional.ts';
+import { LANGUE_DE_REFERENCE, langueSupportee, type Langue } from '../regional.ts';
 import { en } from './en.ts';
 import { es } from './es.ts';
 import { fr, type Cle } from './fr.ts';
@@ -21,7 +21,7 @@ type Catalogue = Readonly<Partial<Record<Cle, string>>>;
 /** Catalogues par langue (le français est complet, les autres retombent sur lui). */
 export const CATALOGUES: Readonly<Record<Langue, Catalogue>> = { fr, en, pt, es };
 
-let courante: Langue = 'fr';
+let courante: string = LANGUE_DE_REFERENCE;
 let generation = 0;
 
 /**
@@ -40,14 +40,14 @@ export function nouvelleNavigation(): number {
  * navigation. Avec le jeton d'une navigation, ne fait rien (et rend `false`) si une navigation
  * plus récente a commencé depuis : une langue périmée ne remplace jamais la bonne.
  */
-export function fixerLangue(langue: Langue, jeton: number = generation): boolean {
+export function fixerLangue(langue: string, jeton: number = generation): boolean {
 	if (jeton !== generation) return false;
 	courante = langue;
 	if (typeof document !== 'undefined') document.documentElement.lang = langue;
 	return true;
 }
 
-export function langueCourante(): Langue {
+export function langueCourante(): string {
 	return courante;
 }
 
@@ -58,14 +58,18 @@ function remplir(modele: string, params: Parametres | undefined): string {
 	);
 }
 
-function modeleDe(cle: string, langue: Langue): string | null {
-	const propre = CATALOGUES[langue];
-	if (Object.hasOwn(propre, cle)) return (propre as Record<string, string>)[cle] ?? null;
+function modeleDe(cle: string, langue: string): string | null {
+	// Langue sans catalogue (le dossier peut en déclarer une autre) : le catalogue de référence.
+	const supportee = langueSupportee(langue);
+	const propre = supportee === null ? undefined : CATALOGUES[supportee];
+	if (propre !== undefined && Object.hasOwn(propre, cle)) {
+		return (propre as Record<string, string>)[cle] ?? null;
+	}
 	return Object.hasOwn(fr, cle) ? ((fr as Record<string, string>)[cle] ?? null) : null;
 }
 
 /** Message d'une clé connue, dans la langue demandée (courante par défaut). */
-export function traduire(cle: Cle, params?: Parametres, langue: Langue = courante): string {
+export function traduire(cle: Cle, params?: Parametres, langue: string = courante): string {
 	return remplir(modeleDe(cle, langue) ?? cle, params);
 }
 
@@ -77,7 +81,7 @@ export function traduire(cle: Cle, params?: Parametres, langue: Langue = courant
 export function chercher(
 	cle: string,
 	params?: Parametres,
-	langue: Langue = courante
+	langue: string = courante
 ): string | null {
 	const modele = modeleDe(cle, langue);
 	return modele === null ? null : remplir(modele, params);
@@ -87,9 +91,13 @@ export function chercher(
 export function nombreEtUnite(
 	nombre: number,
 	unite: 'jour' | 'brouillon',
-	langue: Langue = courante
+	langue: string = courante
 ): string {
 	const categorie =
-		new Intl.PluralRules(langue).select(Math.abs(nombre)) === 'one' ? 'one' : 'other';
+		new Intl.PluralRules(langueSupportee(langue) ?? LANGUE_DE_REFERENCE).select(
+			Math.abs(nombre)
+		) === 'one'
+			? 'one'
+			: 'other';
 	return `${nombre} ${traduire(`unite.${unite}.${categorie}`, undefined, langue)}`;
 }
