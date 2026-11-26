@@ -33,5 +33,6 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0027 | Pays, devise de tenue et paramètres du dossier : contexte du dossier, pack pays, format haché v4 (export v5), fuseau, modification du contexte avant la première écriture | Proposée |
 | 0028 | Séparation des tâches : activée par défaut, appliquée tant que le paramètre du cabinet est actif (clarifie les ADR 0014 et 0020) | Proposée |
 | 0029 | Règles de gestion alignées sur Odoo et Tryton : échéance de clôture, date de contre-passation, compte de trésorerie sans blocage, motif de contre-passation facultatif ; ligne à zéro et numéro à largeur variable renvoyés (format canonique figé) | Proposée |
+| 0030 | Paramètres fiscaux par pays et codes de régime génériques : crate `fiscal`, versions datées immuables, version enregistrée à la validation, surcharge par dossier, régimes `TAXABLE_*`/`EXO_*` | Proposée |
 
 Modèle : copier `0000-modele.md`.
