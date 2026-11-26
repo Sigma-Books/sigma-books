@@ -40,6 +40,19 @@ export interface CabinetMembre {
 	role: string;
 }
 
+/**
+ * Longueur maximale d'un code de journal : `CODE_MAX` de `crates/compta-core/src/journal.rs`
+ * (`CodeJournal::parse`, 1 à 8 majuscules ou chiffres). Le brouillard et les éditions la partagent.
+ */
+export const CODE_JOURNAL_MAX = 8;
+
+const MOTIF_CODE_JOURNAL = new RegExp(`^[A-Z0-9]{1,${CODE_JOURNAL_MAX}}$`);
+
+/** Vrai si le texte a la forme d'un code de journal du serveur. */
+export function estCodeJournal(texte: string): boolean {
+	return MOTIF_CODE_JOURNAL.test(texte);
+}
+
 /** Un dossier visible (`GET /api/cabinets/{c}/dossiers[/{d}]`). */
 export interface Dossier {
 	id: Uuid;

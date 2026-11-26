@@ -22,7 +22,7 @@
 	} from '#lib/api/brouillard.ts';
 	import { messageMotif } from '#lib/api/messages.ts';
 	import type { Exercice, Journal } from '#lib/api/referentiel.ts';
-	import { lireUuid, type Uuid } from '#lib/api/types.ts';
+	import { estCodeJournal, lireUuid, type Uuid } from '#lib/api/types.ts';
 	import { api } from '#lib/application.ts';
 	import { executerSensible } from '#lib/reauthentification.svelte.ts';
 	import { ROLES_SAISIE, ROLES_VALIDATION_LOT } from '#lib/contexte-dossier.ts';
@@ -88,7 +88,7 @@
 	async function filtrer(evenement: SubmitEvent): Promise<void> {
 		evenement.preventDefault();
 		let requete = `cabinet=${cabinet}&dossier=${dossier}`;
-		if (/^[A-Z0-9]{1,8}$/.test(journalChoisi)) requete += `&journal=${journalChoisi}`;
+		if (estCodeJournal(journalChoisi)) requete += `&journal=${journalChoisi}`;
 		const periode = lireUuid(periodeChoisie);
 		if (periode !== null) requete += `&periode=${periode}`;
 		await goto(resolve(`brouillard/?${requete}`));

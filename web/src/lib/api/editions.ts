@@ -6,7 +6,7 @@
 
 import type { ClientApi } from './client.ts';
 import { chaines, entier, estObjet, tableauDe } from './gardes.ts';
-import type { Garde, Uuid } from './types.ts';
+import { CODE_JOURNAL_MAX, estCodeJournal, type Garde, type Uuid } from './types.ts';
 import { estDateIso } from '../dates.ts';
 import { traduire, type Cle } from '../i18n/index.ts';
 
@@ -300,7 +300,6 @@ export const FILTRE_VIDE: FiltreEdition = {
 /** Nombre maximal d'éléments d'une liste de filtre (`LISTE_MAX` du serveur). */
 export const LISTE_MAX = 50;
 
-const MOTIF_JOURNAL = /^[A-Z0-9]{1,16}$/;
 const MOTIF_COMPTE = /^[1-9][0-9A-Za-z-]{0,31}$/;
 const MOTIF_EXERCICE = /^\d{4}$/;
 
@@ -322,7 +321,7 @@ export type ProblemeFiltre =
 /** Message d'un problème de filtre, dans la langue courante (catalogue `i18n/`). */
 export function messageFiltre(p: ProblemeFiltre): string {
 	const cle: Cle = `filtre.${p}`;
-	return traduire(cle, { max: p === 'journaux' ? 16 : LISTE_MAX });
+	return traduire(cle, { max: p === 'journaux' ? CODE_JOURNAL_MAX : LISTE_MAX });
 }
 
 /**
@@ -347,7 +346,7 @@ export function verifierFiltre(f: FiltreEdition, nature: NatureEdition): Problem
 	}
 	const journaux = lireListe(f.journaux);
 	if (journaux.length > LISTE_MAX) problemes.push('trop_de_journaux');
-	else if (!journaux.every((j) => MOTIF_JOURNAL.test(j))) problemes.push('journaux');
+	else if (!journaux.every((j) => estCodeJournal(j))) problemes.push('journaux');
 	return problemes;
 }
 
