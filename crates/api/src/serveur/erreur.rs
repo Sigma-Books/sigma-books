@@ -268,8 +268,6 @@ pub enum MotifValidation {
     PeriodeVerrouillee,
     /// Période clôturée.
     PeriodeCloturee,
-    /// Échéance de la clôture informatique dépassée.
-    EcheanceDeCloture,
     /// Exercice clôturé.
     ExerciceCloture,
     /// Exercice en clôture, journal non admis.
@@ -278,8 +276,6 @@ pub enum MotifValidation {
     DateValeurPeriodeOuverte,
     /// Date de valeur comptable dans une période verrouillée.
     DateValeurPeriodeVerrouillee,
-    /// Date de valeur comptable dans une période dont l'échéance est passée.
-    DateValeurPeriodeEchue,
     /// Période qui doit accueillir l'opération tardive verrouillée.
     PeriodeAccueilVerrouillee,
     /// Opération tardive mal datée.
@@ -324,15 +320,13 @@ pub enum MotifValidation {
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 28] = [
+    pub const TOUS: [Self; 26] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
-        Self::EcheanceDeCloture,
         Self::ExerciceCloture,
         Self::ExerciceEnCloture,
         Self::DateValeurPeriodeOuverte,
         Self::DateValeurPeriodeVerrouillee,
-        Self::DateValeurPeriodeEchue,
         Self::PeriodeAccueilVerrouillee,
         Self::OperationTardiveMalDatee,
         Self::SequenceEpuisee,
@@ -361,12 +355,10 @@ impl MotifValidation {
         match self {
             Self::PeriodeVerrouillee
             | Self::PeriodeCloturee
-            | Self::EcheanceDeCloture
             | Self::ExerciceCloture
             | Self::ExerciceEnCloture
             | Self::DateValeurPeriodeOuverte
             | Self::DateValeurPeriodeVerrouillee
-            | Self::DateValeurPeriodeEchue
             | Self::PeriodeAccueilVerrouillee
             | Self::OperationTardiveMalDatee
             | Self::SequenceEpuisee => StatusCode::CONFLICT,
@@ -380,12 +372,10 @@ impl MotifValidation {
         match self {
             Self::PeriodeVerrouillee => "periode_verrouillee",
             Self::PeriodeCloturee => "periode_cloturee",
-            Self::EcheanceDeCloture => "echeance_de_cloture_depassee",
             Self::ExerciceCloture => "exercice_cloture",
             Self::ExerciceEnCloture => "exercice_en_cloture",
             Self::DateValeurPeriodeOuverte => "date_valeur_dans_periode_ouverte",
             Self::DateValeurPeriodeVerrouillee => "date_valeur_dans_periode_verrouillee",
-            Self::DateValeurPeriodeEchue => "date_valeur_dans_periode_echue",
             Self::PeriodeAccueilVerrouillee => "periode_accueil_verrouillee",
             Self::OperationTardiveMalDatee => "operation_tardive_mal_datee",
             Self::SequenceEpuisee => "sequence_epuisee",

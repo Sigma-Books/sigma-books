@@ -39,8 +39,8 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use compta_core::{
-    CodeExercice, CodeJournal, CodeMotif, CodeRegime, Compteur, Contexte, Cours, Devise,
-    EcritureBrouillon, EcritureEquilibree, EcritureValidee, ErreurEcriture, ErreurPlan,
+    Avertissement, CodeExercice, CodeJournal, CodeMotif, CodeRegime, Compteur, Contexte, Cours,
+    Devise, EcritureBrouillon, EcritureEquilibree, EcritureValidee, ErreurEcriture, ErreurPlan,
     EtiquetteFiscale, Exercices, Exigibilite, IdTiers, Justification, Ligne, Montant,
     NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva, StatutPeriode,
     TauxTva, TexteCourt, Validation, VersionParametres,
@@ -427,11 +427,9 @@ pub(super) fn motif_validation(
         V::JustificationManquante => MotifValidation::JustificationManquante,
         V::Equilibre(e) => motif_ecriture(e),
         V::Numerotation(_) => MotifValidation::SequenceEpuisee,
-        V::EcheanceDepassee { .. } => MotifValidation::EcheanceDeCloture,
         V::DateValeurNonAnterieure { .. } => MotifValidation::DateValeurNonAnterieure,
         V::DateValeurDansPeriodeOuverte(_) => MotifValidation::DateValeurPeriodeOuverte,
         V::DateValeurDansPeriodeVerrouillee(_) => MotifValidation::DateValeurPeriodeVerrouillee,
-        V::DateValeurDansPeriodeEchue { .. } => MotifValidation::DateValeurPeriodeEchue,
         V::PeriodeAccueilVerrouillee(_) => MotifValidation::PeriodeAccueilVerrouillee,
         V::DateComptableTardive { .. } => MotifValidation::OperationTardiveMalDatee,
         // Compteur inadapté ou désynchronisé, contre-passation, calcul de date : impossibles ici.
@@ -590,6 +588,34 @@ pub(super) struct VueValidation {
     pub(super) empreinte: String,
     pub(super) format: i16,
     pub(super) date_validation: String,
+    /// Avertissements de la validation (écriture validée malgré tout) : voir
+    /// [`vues_avertissements`].
+    pub(super) avertissements: Vec<VueAvertissement>,
+}
+
+/// Avertissement renvoyé avec une validation réussie (`compta-core`, [`Avertissement`]) : code
+/// stable et détails utiles à l'utilisateur.
+#[derive(Debug, Serialize)]
+pub(super) struct VueAvertissement {
+    code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    periode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    echeance: Option<String>,
+}
+
+/// Avertissements d'une validation, en vues stables.
+pub(super) fn vues_avertissements(avertissements: &[Avertissement]) -> Vec<VueAvertissement> {
+    avertissements
+        .iter()
+        .map(|a| match a {
+            Avertissement::EcheanceDeClotureDepassee { periode, echeance } => VueAvertissement {
+                code: "echeance_de_cloture_depassee",
+                periode: Some(interne::date(*periode)),
+                echeance: Some(interne::date(*echeance)),
+            },
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -664,6 +690,7 @@ pub(super) async fn valider(
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
+        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
     };
     let date_validation = instant.date();
     let decision = decider(preparee, &contexte, dernier, &tete, date_validation)?;
@@ -714,6 +741,7 @@ pub(super) async fn valider(
         empreinte: decision.empreinte.to_string(),
         format: decision.format,
         date_validation: interne::date(date_validation),
+        avertissements: vues_avertissements(decision.validation.avertissements()),
     };
     Ok(Resultat {
         reponse: (StatusCode::OK, Json(vue)).into_response(),
@@ -1062,6 +1090,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
         let journal = etat
             .journaux
@@ -1132,6 +1161,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: &d.clos,
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
         let journal = etat
             .journaux
@@ -1200,6 +1230,7 @@ mod tests {
                 plan: &etat.plan,
                 journaux: &etat.journaux,
                 exercices: &d.clos,
+                delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
@@ -1321,6 +1352,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
+            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         };
         let journal = etat
             .journaux
@@ -1438,6 +1470,7 @@ mod tests {
                 plan: &etat.plan,
                 journaux: &etat.journaux,
                 exercices: &d.clos,
+                delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());

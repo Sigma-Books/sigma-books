@@ -26,8 +26,9 @@
 //! - période (mois civil, le premier éventuellement partiel) : `ouverte` ⇄ `verrouillee` ;
 //!   le déverrouillage exige un **motif**, renvoyé à l'appelant pour la journalisation (L2) ;
 //!   `cloturee` est la **clôture informatique** de l'AUDCIF (art. 22 3°, p. PDF 24) :
-//!   irréversible, dans l'ordre des périodes, au plus tard à son **échéance**
-//!   ([`echeance_de_cloture`]). La dernière période d'un exercice se clôture avec lui.
+//!   irréversible, dans l'ordre des périodes, à faire avant son **échéance**
+//!   ([`echeance_de_cloture`], alerte et non blocage ; délai : [`DelaiCloture`]). La dernière
+//!   période d'un exercice se clôture avec lui.
 //!   Aucune période ni aucun exercice ne se clôture tant qu'une écriture du brouillard y est
 //!   datée (décision du mainteneur du 2026-11-18 ; [`Exercices::cloturer_periode`]).
 //!
@@ -218,15 +219,64 @@ impl Periode {
     }
 }
 
+/// Délai de clôture informatique, en mois (AUDCIF art. 22 3° ; spec §4.3) : paramètre du dossier
+/// qui sert à calculer l'**échéance** d'une période ([`echeance_de_cloture`]).
+///
+/// L'échéance est une **alerte** (`crates/api`, éditions), jamais un blocage : ni Tryton
+/// (`account/period.py:387-441`, `Period.close`, sans délai : seul un humain clôture ou verrouille)
+/// ni Odoo (`account/models/company.py:76-100`, dates de verrouillage posées par l'utilisateur ;
+/// `account_move.py:2844-2860`, contrôle de ces seules dates) n'imposent de délai automatique.
+/// Le verrouillage et la clôture informatique par un humain, eux, restent bloquants.
+///
+/// Les valeurs par défaut ([`DELAI_CLOTURE_PAR_DEFAUT`]) sont celles de l'AUDCIF ; l'ADR sur le
+/// multi-pays les remplacera par le paramètre du pays du dossier. `compta-core` ne lit rien :
+/// l'appelant fournit le délai.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DelaiCloture {
+    /// Mois qui suivent la fin d'une période ordinaire (échéance : dernier jour de ce mois).
+    pub mois_periode: u8,
+    /// Mois qui suivent la fin de l'exercice pour sa dernière période, qui se clôture avec lui.
+    pub mois_derniere_periode: u8,
+}
+
+/// **Délai par défaut** de la clôture informatique : 3 mois après la fin d'une période, 4 mois
+/// après la fin de l'exercice pour la dernière période (délai d'arrêté des comptes).
+///
+/// Sources : AUDCIF art. 22 3° (clôture informatique « au plus tard » à la fin du troisième mois
+/// suivant la période, décision du mainteneur du 2026-11-18) et art. 23 (arrêté des comptes dans
+/// les quatre mois), spec §4.3. Valeur transitoire : elle devient le paramètre du pays du dossier
+/// (ADR multi-pays).
+pub const DELAI_CLOTURE_PAR_DEFAUT: DelaiCloture = DelaiCloture {
+    mois_periode: 3,
+    mois_derniere_periode: 4,
+};
+
+impl Default for DelaiCloture {
+    fn default() -> Self {
+        DELAI_CLOTURE_PAR_DEFAUT
+    }
+}
+
 /// Échéance de la clôture informatique d'une période (AUDCIF art. 22 3°, décision du mainteneur
 /// du 2026-11-18) : le dernier jour du **troisième mois** qui suit la fin de la période. Pour
 /// la dernière période d'un exercice, qui se clôture avec lui : le dernier jour du
-/// **quatrième mois** qui suit la fin de l'exercice, délai d'arrêté des comptes (art. 23).
+/// **quatrième mois** qui suit la fin de l'exercice, délai d'arrêté des comptes (art. 23). Les
+/// nombres de mois sont ceux du `delai` ([`DELAI_CLOTURE_PAR_DEFAUT`] : 3 et 4).
+///
+/// Dépassée, l'échéance **alerte** : elle ne bloque aucune validation.
 ///
 /// # Errors
 /// [`ErreurExercice::DateHorsPlage`].
-pub fn echeance_de_cloture(exercice: &Exercice, periode: &Periode) -> Result<Date, ErreurExercice> {
-    let mois = if periode.fin == exercice.fin { 4 } else { 3 };
+pub fn echeance_de_cloture(
+    exercice: &Exercice,
+    periode: &Periode,
+    delai: DelaiCloture,
+) -> Result<Date, ErreurExercice> {
+    let mois = if periode.fin == exercice.fin {
+        delai.mois_derniere_periode
+    } else {
+        delai.mois_periode
+    };
     let mut debut = periode.fin;
     for _ in 0..=mois {
         debut = premier_du_mois_suivant(debut)?;
@@ -616,7 +666,10 @@ impl Exercices {
     ///
     /// # Errors
     /// [`ErreurExercice::DateHorsPlage`].
-    pub fn echeances_de_cloture(&self) -> Result<Vec<EcheanceCloture>, ErreurExercice> {
+    pub fn echeances_de_cloture(
+        &self,
+        delai: DelaiCloture,
+    ) -> Result<Vec<EcheanceCloture>, ErreurExercice> {
         let mut echeances = Vec::new();
         for exercice in &self.exercices {
             for periode in &exercice.periodes {
@@ -625,7 +678,7 @@ impl Exercices {
                         exercice: exercice.code.clone(),
                         debut: periode.debut,
                         fin: periode.fin,
-                        echeance: echeance_de_cloture(exercice, periode)?,
+                        echeance: echeance_de_cloture(exercice, periode, delai)?,
                         statut: periode.statut,
                     });
                 }
@@ -775,7 +828,9 @@ mod tests {
         exercices
             .ouvrir_premier(date!(2026 - 08 - 17), FinPremierExercice::AnneeSuivante)
             .unwrap();
-        let echeances = exercices.echeances_de_cloture().unwrap();
+        let echeances = exercices
+            .echeances_de_cloture(DELAI_CLOTURE_PAR_DEFAUT)
+            .unwrap();
         // Août 2026 (partiel) : fin novembre ; novembre : fin février (année non bissextile) ;
         // décembre 2027, dernière période : fin avril 2028 (art. 23).
         assert_eq!(echeances.len(), 17);
@@ -788,7 +843,47 @@ mod tests {
         exercices
             .cloturer_periode(date!(2026 - 08 - 20), [])
             .unwrap();
-        assert_eq!(exercices.echeances_de_cloture().unwrap().len(), 16);
+        assert_eq!(
+            exercices
+                .echeances_de_cloture(DELAI_CLOTURE_PAR_DEFAUT)
+                .unwrap()
+                .len(),
+            16
+        );
+    }
+
+    #[test]
+    fn le_delai_de_cloture_est_un_parametre() {
+        let mut exercices = Exercices::new();
+        exercices
+            .ouvrir_premier(date!(2026 - 01 - 01), FinPremierExercice::AnneeDeDebut)
+            .unwrap();
+        let exercice = &exercices.exercices()[0];
+        let janvier = &exercice.periodes()[0];
+        let decembre = &exercice.periodes()[11];
+        // Défaut : 3 mois (périodes ordinaires), 4 mois (dernière période).
+        assert_eq!(DelaiCloture::default(), DELAI_CLOTURE_PAR_DEFAUT);
+        assert_eq!(
+            echeance_de_cloture(exercice, janvier, DELAI_CLOTURE_PAR_DEFAUT).unwrap(),
+            date!(2026 - 04 - 30)
+        );
+        assert_eq!(
+            echeance_de_cloture(exercice, decembre, DELAI_CLOTURE_PAR_DEFAUT).unwrap(),
+            date!(2027 - 04 - 30)
+        );
+        // Un autre délai (par exemple celui d'un autre pays) déplace les échéances.
+        let autre = DelaiCloture {
+            mois_periode: 1,
+            mois_derniere_periode: 6,
+        };
+        assert_eq!(
+            echeance_de_cloture(exercice, janvier, autre).unwrap(),
+            date!(2026 - 02 - 28)
+        );
+        assert_eq!(
+            echeance_de_cloture(exercice, decembre, autre).unwrap(),
+            date!(2027 - 06 - 30)
+        );
     }
 
     #[test]

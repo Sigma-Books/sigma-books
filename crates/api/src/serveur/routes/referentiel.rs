@@ -17,6 +17,7 @@ use authz::Action;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use compta_core::DELAI_CLOTURE_PAR_DEFAUT;
 use compta_core::{
     CodeJournal, Compte, Exercice, FinPremierExercice, Journal, NumeroCompte, TexteCourt,
     TypeJournal, echeance_de_cloture,
@@ -447,7 +448,7 @@ fn vue_periode(
     let echeance = match p.statut() {
         compta_core::StatutPeriode::Cloturee => None,
         _ => Some(
-            echeance_de_cloture(exercice, p)
+            echeance_de_cloture(exercice, p, DELAI_CLOTURE_PAR_DEFAUT)
                 .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?
                 .to_string(),
         ),

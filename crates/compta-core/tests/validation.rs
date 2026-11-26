@@ -6,8 +6,8 @@ mod commun;
 
 use commun::*;
 use compta_core::{
-    CodeExercice, Compteur, EcritureBrouillon, ErreurPlan, ErreurValidation, NumeroEcriture, Sens,
-    Usage,
+    Avertissement, CodeExercice, CodeJournal, Compteur, Contexte, EcritureBrouillon, ErreurPlan,
+    ErreurValidation, NumeroEcriture, Sens, Usage,
 };
 use time::macros::date;
 
@@ -277,6 +277,7 @@ fn compteur_inadapte_ou_desynchronise() {
         plan: &ctx_plan,
         journaux: &ctx_journaux,
         exercices: &ctx_exercices,
+        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
     };
     let refus = d
         .livre
@@ -458,30 +459,82 @@ fn chronologie_figee_par_la_cloture() {
 }
 
 /// Échéance de la clôture informatique (art. 22 3°) : fin du 3e mois qui suit la période ;
-/// au-delà, plus aucune validation dans la période.
+/// au-delà, la validation reste possible et **avertit** (alerte, pas de blocage : ni Tryton
+/// `period.py:387-441` ni Odoo `company.py:76-100` n'ont de délai automatique).
 #[test]
-fn validation_refusee_apres_l_echeance() {
+fn validation_avertie_apres_l_echeance() {
     let mut d = Dossier::nouveau();
-    assert!(d.valider_le(achat(), date!(2026 - 06 - 30)).is_ok());
+    let (_, avertissements) = d
+        .valider_le_avec_avertissements(achat(), date!(2026 - 06 - 30))
+        .unwrap();
+    assert!(avertissements.is_empty());
+    let (_, avertissements) = d
+        .valider_le_avec_avertissements(achat(), date!(2026 - 07 - 01))
+        .unwrap();
     assert_eq!(
-        d.valider_le(achat(), date!(2026 - 07 - 01)),
-        Err(ErreurValidation::EcheanceDepassee {
+        avertissements,
+        vec![Avertissement::EcheanceDeClotureDepassee {
             periode: date!(2026 - 03 - 01),
             echeance: date!(2026 - 06 - 30),
-        })
+        }]
     );
     // Décembre, dernière période : échéance au 30 avril suivant (art. 23).
     let mut decembre = achat().en_brouillon();
     decembre.changer_date(date!(2026 - 12 - 31));
     let decembre = decembre.valider_equilibre().unwrap();
-    assert!(
-        d.valider_le(decembre.clone(), date!(2027 - 04 - 30))
-            .is_ok()
-    );
+    let (_, avertissements) = d
+        .valider_le_avec_avertissements(decembre.clone(), date!(2027 - 04 - 30))
+        .unwrap();
+    assert!(avertissements.is_empty());
+    let (_, avertissements) = d
+        .valider_le_avec_avertissements(decembre, date!(2027 - 05 - 01))
+        .unwrap();
     assert!(matches!(
-        d.valider_le(decembre, date!(2027 - 05 - 01)),
-        Err(ErreurValidation::EcheanceDepassee { .. })
+        avertissements.as_slice(),
+        [Avertissement::EcheanceDeClotureDepassee { .. }]
     ));
+}
+
+/// Le verrouillage reste bloquant, échéance dépassée ou non : seul un humain ferme la période.
+#[test]
+fn le_verrouillage_bloque_meme_apres_l_echeance() {
+    let mut d = Dossier::nouveau();
+    d.exercices
+        .verrouiller_periode(date!(2026 - 03 - 10))
+        .unwrap();
+    assert_eq!(
+        d.valider_le(achat(), date!(2026 - 07 - 01)),
+        Err(ErreurValidation::PeriodeFermee(date!(2026 - 03 - 10)))
+    );
+}
+
+/// Le délai de clôture est un paramètre du contexte : l'avertissement le suit.
+#[test]
+fn l_avertissement_suit_le_delai_du_contexte() {
+    let d = Dossier::nouveau();
+    let compteur = Compteur::nouveau(
+        CodeJournal::parse("AC").unwrap(),
+        CodeExercice::parse("2026").unwrap(),
+    );
+    let contexte = Contexte {
+        delai_cloture: compta_core::DelaiCloture {
+            mois_periode: 1,
+            mois_derniere_periode: 6,
+        },
+        ..d.contexte()
+    };
+    // Un mois de délai : l'échéance de mars est le 30 avril.
+    let v = compta_core::valider(achat(), &contexte, &compteur, date!(2026 - 05 - 01)).unwrap();
+    assert_eq!(
+        v.avertissements(),
+        [Avertissement::EcheanceDeClotureDepassee {
+            periode: date!(2026 - 03 - 01),
+            echeance: date!(2026 - 04 - 30),
+        }]
+    );
+    // Avec le délai par défaut, le même jour n'avertit pas.
+    let v = compta_core::valider(achat(), &d.contexte(), &compteur, date!(2026 - 05 - 01)).unwrap();
+    assert!(v.avertissements().is_empty());
 }
 
 fn achat_tardif(date: time::Date, date_valeur: time::Date) -> compta_core::EcritureEquilibree {
@@ -630,8 +683,9 @@ fn periode_d_accueil_verrouillee() {
     );
 }
 
-/// Date de valeur dans une période dont l'échéance de clôture est passée : elle doit d'abord
-/// être clôturée.
+/// Date de valeur dans une période ouverte dont l'échéance de clôture est passée : la période
+/// n'est pas clôturée, donc pas de report (l'échéance alerte, elle ne bloque pas) ; l'écriture
+/// doit être datée de ce jour.
 #[test]
 fn date_de_valeur_dans_une_periode_echue() {
     let mut d = Dossier::nouveau();
@@ -640,10 +694,9 @@ fn date_de_valeur_dans_une_periode_echue() {
             achat_tardif(date!(2026 - 04 - 01), date!(2026 - 03 - 10)),
             date!(2026 - 07 - 02)
         ),
-        Err(ErreurValidation::DateValeurDansPeriodeEchue {
-            periode: date!(2026 - 03 - 01),
-            echeance: date!(2026 - 06 - 30),
-        })
+        Err(ErreurValidation::DateValeurDansPeriodeOuverte(date!(
+            2026 - 03 - 10
+        )))
     );
     // Janvier à mars clôturés : l'opération va au 1er avril.
     for jour in [

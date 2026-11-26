@@ -39,7 +39,10 @@ use time::Date;
 use uuid::Uuid;
 
 use super::saisie::date_lue;
-use super::validation::{Decision, donnee, finaliser, motif_validation, reconstituer, refus};
+use super::validation::{
+    Decision, VueAvertissement, donnee, finaliser, motif_validation, reconstituer, refus,
+    vues_avertissements,
+};
 use super::{corps, referentiel_tva, sans_parametres};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
@@ -74,6 +77,7 @@ struct VueContrePassation {
     empreinte: String,
     format: i16,
     date_validation: String,
+    avertissements: Vec<VueAvertissement>,
 }
 
 /// Motif : non blanc, au plus [`MOTIF_MAX`] octets, sans caractère de contrôle.
@@ -213,6 +217,7 @@ pub(super) async fn contre_passer(
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
+        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
     };
     let date_validation = instant.date();
     let decision = decider_contre_passation(
@@ -278,6 +283,7 @@ pub(super) async fn contre_passer(
         empreinte: decision.empreinte.to_string(),
         format: decision.format,
         date_validation: interne::date(date_validation),
+        avertissements: vues_avertissements(decision.validation.avertissements()),
     };
     Ok(Resultat {
         reponse: (StatusCode::CREATED, Json(vue)).into_response(),

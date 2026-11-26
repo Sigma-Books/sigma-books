@@ -12,15 +12,19 @@
 //! - Le livre est en **ajout seul** : aucune fonction ne modifie ni ne retire une écriture
 //!   validée, aucune ne rend de `&mut` sur l'une d'elles (règle absolue 5).
 //! - [`Livre::contre_passer`] crée l'écriture miroir (sens inversés, mêmes comptes, montants,
-//!   devises et tiers), validée et liée à l'originale dans les deux sens ; une écriture n'est
-//!   contre-passée qu'une fois.
+//!   devises et tiers), validée et liée à l'originale dans les deux sens ; une écriture peut être
+//!   contre-passée plusieurs fois (ADR 0021, point 4).
 //! - **Chronologie** (AUDCIF art. 16 al. 3, art. 22 3° et 4°) : aucune écriture dans une
 //!   période qui n'est pas ouverte ; une période clôturée (clôture informatique) est figée.
 //!   Dans une période ouverte, l'ordre des numéros ne suit pas forcément celui des dates : les
 //!   éditions classent par date puis par numéro. Une pièce externe reçue en retard prend sa
 //!   date de réception (art. 16 al. 3).
-//! - **Échéance de clôture** : passé l'échéance de sa période ([`echeance_de_cloture`]), une
-//!   écriture n'est plus validée ; la période doit être clôturée.
+//! - **Échéance de clôture** : passé l'échéance de sa période ([`echeance_de_cloture`], délai du
+//!   [`Contexte`]), une écriture reste validée, avec un [`Avertissement`] : seul un humain
+//!   verrouille ou clôture une période, comme dans Tryton (`period.py:387-441`) et Odoo
+//!   (`company.py:76-100`, `account_move.py:2844-2860`).
+//! - **Avertissements** ([`Avertissement`]) : contrôles qui n'empêchent pas la validation et que
+//!   l'appelant renvoie à l'utilisateur (échéance de clôture dépassée).
 //!
 //! Comme Tryton (`account.move.post`, `cancel(reversal=True)`) : le numéro est attribué à la
 //! validation, la contre-passation inverse débit et crédit et garde le lien vers l'origine.
@@ -38,7 +42,8 @@ use crate::ecriture::{
     EcritureEquilibree, ErreurEcriture, Justification, Ligne, Refus, VersionParametres,
 };
 use crate::exercice::{
-    CodeExercice, Exercice, Exercices, StatutExercice, StatutPeriode, echeance_de_cloture,
+    CodeExercice, DelaiCloture, Exercice, Exercices, StatutExercice, StatutPeriode,
+    echeance_de_cloture,
 };
 use crate::journal::{CodeJournal, Journal, Journaux};
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
@@ -130,18 +135,6 @@ pub enum ErreurValidation {
     /// Écriture à contre-passer absente du livre.
     #[error("l'écriture {0} n'existe pas")]
     EcritureInconnue(NumeroEcriture),
-    /// Échéance de la clôture informatique dépassée : la période doit être clôturée et
-    /// n'accepte plus d'écriture (AUDCIF art. 22 3°).
-    #[error(
-        "la période commençant le {periode} devait être clôturée au plus tard le {echeance} : \
-         plus aucune écriture n'y est validée"
-    )]
-    EcheanceDepassee {
-        /// Premier jour de la période.
-        periode: Date,
-        /// Échéance de clôture.
-        echeance: Date,
-    },
     /// Calcul de date impossible.
     #[error("exercice : {0}")]
     Exercice(#[from] crate::exercice::ErreurExercice),
@@ -166,17 +159,6 @@ pub enum ErreurValidation {
          déverrouillez-la (motif journalisé) et datez l'écriture de ce jour"
     )]
     DateValeurDansPeriodeVerrouillee(Date),
-    /// Date de valeur comptable dans une période dont l'échéance de clôture est passée.
-    #[error(
-        "la période commençant le {periode} devait être clôturée au plus tard le {echeance} : \
-         clôturez-la, puis enregistrez l'opération au premier jour de la période suivante"
-    )]
-    DateValeurDansPeriodeEchue {
-        /// Premier jour de la période.
-        periode: Date,
-        /// Échéance de clôture.
-        echeance: Date,
-    },
     /// La période qui doit accueillir l'opération tardive est verrouillée.
     #[error(
         "l'opération tardive doit être enregistrée au premier jour de la période commençant le \
@@ -202,6 +184,22 @@ pub enum ErreurValidation {
     },
 }
 
+/// Contrôle qui **n'empêche pas** la validation : l'écriture est validée et l'appelant renvoie
+/// l'avertissement à l'utilisateur (comme les moteurs de référence, qui n'imposent aucun délai
+/// automatique : Tryton `period.py:387-441`, Odoo `company.py:76-100`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Avertissement {
+    /// L'échéance de la clôture informatique de la période de l'écriture est dépassée
+    /// (AUDCIF art. 22 3°) : il faut clôturer la période. Seule une clôture ou un verrouillage
+    /// par un humain bloque la saisie.
+    EcheanceDeClotureDepassee {
+        /// Premier jour de la période.
+        periode: Date,
+        /// Échéance de clôture.
+        echeance: Date,
+    },
+}
+
 /// État du dossier nécessaire à la validation : référentiel et calendrier, en lecture seule.
 #[derive(Debug, Clone, Copy)]
 pub struct Contexte<'a> {
@@ -211,6 +209,10 @@ pub struct Contexte<'a> {
     pub journaux: &'a Journaux,
     /// Exercices et périodes.
     pub exercices: &'a Exercices,
+    /// Délai de clôture informatique, qui ne sert qu'à l'avertissement d'échéance
+    /// ([`DELAI_CLOTURE_PAR_DEFAUT`](crate::DELAI_CLOTURE_PAR_DEFAUT) tant que le pays du dossier
+    /// ne le fournit pas).
+    pub delai_cloture: DelaiCloture,
 }
 
 /// Motifs de refus d'une reconstitution ([`EcritureValidee::reconstituer`]) : la donnée relue
@@ -533,11 +535,30 @@ impl Livre {
         compteur: &Compteur,
         date_validation: Date,
     ) -> Result<(NumeroEcriture, Compteur), Refus<EcritureEquilibree, ErreurValidation>> {
-        let (validee, suivant) =
+        let (numero, suivant, _) =
+            self.valider_avec_avertissements(ecriture, contexte, compteur, date_validation)?;
+        Ok((numero, suivant))
+    }
+
+    /// Comme [`Livre::valider`], et renvoie aussi les [`Avertissement`] de la validation.
+    ///
+    /// # Errors
+    /// Voir [`Livre::valider`].
+    pub fn valider_avec_avertissements(
+        &mut self,
+        ecriture: EcritureEquilibree,
+        contexte: &Contexte<'_>,
+        compteur: &Compteur,
+        date_validation: Date,
+    ) -> Result<
+        (NumeroEcriture, Compteur, Vec<Avertissement>),
+        Refus<EcritureEquilibree, ErreurValidation>,
+    > {
+        let (validee, suivant, avertissements) =
             validation::valider_avec(ecriture, None, contexte, compteur, date_validation, |c| {
                 self.verifier_compteur(c)
             })?;
-        Ok((self.inscrire(validee), suivant))
+        Ok((self.inscrire(validee), suivant, avertissements))
     }
 
     /// Contre-passe l'écriture `origine` : écriture miroir dans le même journal, à la `date`
@@ -557,11 +578,35 @@ impl Livre {
         compteur: &Compteur,
         date_validation: Date,
     ) -> Result<(NumeroEcriture, Compteur), ErreurValidation> {
+        let (numero, suivant, _) = self.contre_passer_avec_avertissements(
+            origine,
+            date,
+            libelle,
+            contexte,
+            compteur,
+            date_validation,
+        )?;
+        Ok((numero, suivant))
+    }
+
+    /// Comme [`Livre::contre_passer`], et renvoie aussi les [`Avertissement`].
+    ///
+    /// # Errors
+    /// Voir [`Livre::contre_passer`].
+    pub fn contre_passer_avec_avertissements(
+        &mut self,
+        origine: &NumeroEcriture,
+        date: Date,
+        libelle: TexteCourt,
+        contexte: &Contexte<'_>,
+        compteur: &Compteur,
+        date_validation: Date,
+    ) -> Result<(NumeroEcriture, Compteur, Vec<Avertissement>), ErreurValidation> {
         let source = self
             .ecriture(origine)
             .ok_or_else(|| ErreurValidation::EcritureInconnue(origine.clone()))?;
         let miroir = validation::miroir(source, date, libelle)?;
-        let (validee, suivant) = validation::valider_avec(
+        let (validee, suivant, avertissements) = validation::valider_avec(
             miroir,
             Some(origine.clone()),
             contexte,
@@ -570,7 +615,7 @@ impl Livre {
             |c| self.verifier_compteur(c),
         )
         .map_err(|refus| refus.decomposer().1)?;
-        Ok((self.inscrire(validee), suivant))
+        Ok((self.inscrire(validee), suivant, avertissements))
     }
 
     /// Le compteur fourni doit être le dernier enregistré pour son journal et son exercice :
@@ -622,13 +667,13 @@ impl Livre {
 ///   l'ordre) ; cette période doit être ouverte ;
 /// - une période seulement **verrouillée** (réversible) n'est pas clôturée : l'écriture est
 ///   refusée et doit être datée de sa date de valeur après un déverrouillage motivé ;
-/// - une période dont l'échéance de clôture est passée doit d'abord être clôturée.
+/// - une période ouverte dont l'échéance de clôture est passée n'est pas clôturée : pas de
+///   report (l'échéance alerte, elle ne bloque pas).
 fn controler_date_valeur_comptable(
     date_valeur: Date,
     date: Date,
     journal: &Journal,
     exercices: &Exercices,
-    date_validation: Date,
 ) -> Result<(), ErreurValidation> {
     if date_valeur >= date {
         return Err(ErreurValidation::DateValeurNonAnterieure { date_valeur, date });
@@ -650,14 +695,9 @@ fn controler_date_valeur_comptable(
                     date_valeur,
                 ));
             }
+            // Période ouverte, même au-delà de l'échéance de clôture (alerte seulement) : pas de
+            // report, l'écriture est datée de ce jour.
             StatutPeriode::Ouverte => {
-                let echeance = echeance_de_cloture(e, p)?;
-                if date_validation > echeance {
-                    return Err(ErreurValidation::DateValeurDansPeriodeEchue {
-                        periode: p.debut(),
-                        echeance,
-                    });
-                }
                 return Err(ErreurValidation::DateValeurDansPeriodeOuverte(date_valeur));
             }
         }
@@ -701,12 +741,14 @@ fn date_attendue(attendue: Option<&Date>) -> String {
 }
 
 /// Contrôle des invariants 3 à 7 du §6.2 (1 et 2 sont garantis par les types). Renvoie le code
-/// de l'exercice qui contient la date.
+/// de l'exercice qui contient la date et les avertissements (échéance de clôture dépassée,
+/// compte de trésorerie non mouvementé), qui n'empêchent pas la validation.
 pub(crate) fn controler(
     ecriture: &EcritureEquilibree,
     contexte: &Contexte<'_>,
     date_validation: Date,
-) -> Result<CodeExercice, ErreurValidation> {
+) -> Result<(CodeExercice, Vec<Avertissement>), ErreurValidation> {
+    let mut avertissements = Vec::new();
     let code = ecriture.journal();
     // Invariant 7 : journal existant, ouvert à la saisie.
     let journal = contexte
@@ -737,23 +779,18 @@ pub(crate) fn controler(
         .periode_contenant(date)
         .filter(|p| p.statut() == StatutPeriode::Ouverte)
         .ok_or(ErreurValidation::PeriodeFermee(date))?;
-    // Échéance de la clôture informatique (art. 22 3°) : au-delà, la période est figée.
-    let echeance = echeance_de_cloture(exercice, periode)?;
+    // Échéance de la clôture informatique (art. 22 3°) : au-delà, avertissement. Seule une
+    // clôture ou un verrouillage par un humain ferme la période.
+    let echeance = echeance_de_cloture(exercice, periode, contexte.delai_cloture)?;
     if date_validation > echeance {
-        return Err(ErreurValidation::EcheanceDepassee {
+        avertissements.push(Avertissement::EcheanceDeClotureDepassee {
             periode: periode.debut(),
             echeance,
         });
     }
     // Opération tardive (art. 22 4°) : date de valeur comptable dans une période fermée.
     if let Some(date_valeur) = ecriture.date_valeur_comptable() {
-        controler_date_valeur_comptable(
-            date_valeur,
-            date,
-            journal,
-            contexte.exercices,
-            date_validation,
-        )?;
+        controler_date_valeur_comptable(date_valeur, date, journal, contexte.exercices)?;
     }
     // Invariants 3 et 4 : comptes de mouvement actifs ; tiers sur les comptes collectifs.
     for (indice, ligne) in ecriture.lignes().iter().enumerate() {
@@ -784,5 +821,5 @@ pub(crate) fn controler(
             compte: tresorerie.clone(),
         });
     }
-    Ok(exercice.code().clone())
+    Ok((exercice.code().clone(), avertissements))
 }
