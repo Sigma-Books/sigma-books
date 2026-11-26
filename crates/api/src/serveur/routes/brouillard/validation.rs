@@ -1257,6 +1257,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
+            delai_cloture: crate::base::referentiel::delai_cloture(),
             tenue,
         };
         let journal = etat

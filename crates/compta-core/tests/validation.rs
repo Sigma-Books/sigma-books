@@ -826,6 +826,7 @@ fn ecriture_d_une_autre_devise_de_tenue_refusee() {
         plan: &plan,
         journaux: &journaux,
         exercices: &exercices,
+        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         tenue: tenue_dossier,
     };
     let refus = d
@@ -850,6 +851,7 @@ fn ecriture_d_une_autre_devise_de_tenue_refusee() {
         plan: &plan,
         journaux: &journaux,
         exercices: &exercices,
+        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
         tenue: autre_echelle,
     };
     let refus = d

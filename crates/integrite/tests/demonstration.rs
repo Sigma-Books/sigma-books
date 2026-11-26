@@ -560,6 +560,7 @@ fn refuser_les_ecritures_non_conformes(d: &mut Dossier) {
         journaux: &d.journaux,
         exercices: &d.exercices,
         delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+        tenue: DeviseTenue::nouvelle(Devise::parse("XOF").unwrap(), 0).unwrap(),
     };
     let validation = compta_core::valider(
         brouillon.valider_equilibre().unwrap(),
