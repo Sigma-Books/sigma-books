@@ -23,13 +23,14 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0017 | Événements d'authentification hors cabinet et conservation des sessions (complète les ADR 0012 et 0014) | Acceptée |
 | 0018 | Passkeys : copie corrigée de `crypto-glue` en attendant sa version 0.2.3 | Acceptée |
 | 0019 | Étiquette fiscale de la ligne d'écriture : dans le contenu haché, régimes et motifs sourcés (écriture v3, export v4) | Proposée |
-| 0020 | Validation unitaire : ordre des verrous, séparation des tâches relue, échelle des montants du XOF | Proposée |
+| 0020 | Validation unitaire : ordre des verrous, séparation des tâches relue, échelle des montants du XOF (point 6 amendé par l'ADR 0027) | Proposée |
 | 0021 | Validation par lot et contre-passation : tout ou rien, contre-passations multiples d'une origine (point 4 révisé le 2026-11-25) | Acceptée |
 | 0022 | File de tâches de l'instance : table d'instance, travailleur sans cabinet, horodatage planifié par la validation | Acceptée |
 | 0023 | Administration du cabinet, liens à usage unique et réinitialisation d'accès | Proposée |
 | 0024 | Courriels : relais SMTP en TLS obligatoire, envoi par la file de tâches | Proposée |
 | 0025 | Alertes par courriel aux administrateurs du cabinet | Proposée |
 | 0026 | Comptes de TVA désignés ; pas de contrôle bloquant étiquettes et comptes à la validation (rapport d'écarts en L5) | Proposée |
+| 0027 | Pays, devise de tenue et paramètres du dossier : contexte du dossier, pack pays, format haché v4 (export v5), fuseau, modification du contexte avant la première écriture | Proposée |
 | 0028 | Séparation des tâches : activée par défaut, appliquée tant que le paramètre du cabinet est actif (clarifie les ADR 0014 et 0020) | Proposée |
 | 0029 | Règles de gestion alignées sur Odoo et Tryton : échéance de clôture, date de contre-passation, compte de trésorerie sans blocage, motif de contre-passation facultatif ; ligne à zéro et numéro à largeur variable renvoyés (format canonique figé) | Proposée |
 
