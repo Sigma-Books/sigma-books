@@ -485,6 +485,7 @@ pub fn corps_de(route: &Route) -> &'static str {
             static CORPS: OnceLock<String> = OnceLock::new();
             CORPS.get_or_init(|| super::referentiel::corps_creation("Dossier créé par le test"))
         }
+        CasUsage::Organisation(organisation::Cas::ModifierContexte) => r#"{"langue":"fr"}"#,
         // Voie pièces (PR 12) : un PDF minimal (signature seule), une note d'OD, un motif.
         CasUsage::Pieces(pieces::Cas::Deposer) => "%PDF-1.7\n% pièce de test\n",
         CasUsage::Pieces(pieces::Cas::CreerInterne) => {

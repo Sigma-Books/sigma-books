@@ -93,6 +93,9 @@ pub enum RefusSaisie {
     /// Montant, cours ou devise invalide (non strictement positif, devise de tenue en devise
     /// étrangère…).
     MontantInvalide,
+    /// Montant de ligne qui a plus de décimales que l'échelle de la devise de tenue du dossier
+    /// (ADR 0027).
+    MontantEchelleTenue,
     /// Tiers inconnu du dossier.
     TiersInconnu,
     /// Tiers désactivé.
@@ -142,6 +145,7 @@ impl RefusSaisie {
             Self::CompteInactif => "compte_inactif",
             Self::CompteDeRegroupement => "compte_de_regroupement",
             Self::MontantInvalide => "montant_invalide",
+            Self::MontantEchelleTenue => "montant_echelle_devise_tenue",
             Self::TiersInconnu => "tiers_inconnu",
             Self::TiersInactif => "tiers_inactif",
             Self::CompteHorsFicheDuTiers => "compte_hors_fiche_du_tiers",
@@ -162,7 +166,7 @@ impl RefusSaisie {
     }
 
     /// Tous les motifs (test de l'unicité des codes).
-    pub const TOUS: [Self; 25] = [
+    pub const TOUS: [Self; 26] = [
         Self::JournalInconnu,
         Self::JournalSansSaisie,
         Self::DateHorsExercice,
@@ -172,6 +176,7 @@ impl RefusSaisie {
         Self::CompteInactif,
         Self::CompteDeRegroupement,
         Self::MontantInvalide,
+        Self::MontantEchelleTenue,
         Self::TiersInconnu,
         Self::TiersInactif,
         Self::CompteHorsFicheDuTiers,
@@ -347,6 +352,11 @@ pub struct ContenuStocke {
     pub libelle: String,
     /// Lignes, dans l'ordre (position 1, 2, …).
     pub lignes: Vec<LigneStockee>,
+    /// Devise de tenue du dossier au moment de la saisie (ISO 4217) : la validation refuse un
+    /// brouillon d'une autre devise de tenue (ADR 0027).
+    pub devise_tenue: String,
+    /// Décimales de cette devise de tenue.
+    pub decimales_tenue: u8,
 }
 
 /// Lien d'une pièce à un brouillon.
@@ -600,8 +610,8 @@ pub async fn creer(
         r#"
         INSERT INTO brouillon (cabinet_id, dossier_id, id, journal_id, date_comptable,
                                date_valeur_comptable, libelle, cree_par, cree_le, modifie_par,
-                               modifie_le)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8, $9)
+                               modifie_le, devise_tenue, decimales_tenue)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8, $9, $10, $11)
         "#,
         cabinet.uuid(),
         dossier.uuid(),
@@ -612,6 +622,8 @@ pub async fn creer(
         contenu.libelle,
         auteur,
         instant,
+        contenu.devise_tenue,
+        i16::from(contenu.decimales_tenue),
     )
     .execute(tx.connexion())
     .await?;
@@ -989,7 +1001,7 @@ pub async fn lire(
         r#"
         SELECT b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,
                b.libelle, b.a_revoir, b.a_revoir_par, b.version, b.cree_par, b.cree_le,
-               b.modifie_par, b.modifie_le
+               b.modifie_par, b.modifie_le, b.devise_tenue, b.decimales_tenue
         FROM brouillon b
         JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id
                       AND j.id = b.journal_id
@@ -1068,6 +1080,9 @@ pub async fn lire(
             date_valeur_comptable: b.date_valeur_comptable,
             libelle: b.libelle,
             lignes: relues,
+            devise_tenue: b.devise_tenue,
+            decimales_tenue: u8::try_from(b.decimales_tenue)
+                .map_err(|_| ErreurBase::Donnee("échelle de brouillon invalide"))?,
         },
         a_revoir: b.a_revoir,
         a_revoir_par: b.a_revoir_par,

@@ -49,7 +49,7 @@ use super::{corps, referentiel_tva, sans_parametres};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::brouillard::RolePiece;
-use crate::base::organisation::lire_appartenance;
+use crate::base::organisation::{lire_appartenance, lire_contexte_du_dossier};
 use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, Tete};
 use crate::pieces::interne;
@@ -215,7 +215,11 @@ pub(super) async fn contre_passer(
 
     // 2. Faits relus **après** la tête : l'origine et son intégrité.
     let stockee = base::lire(tx, id).await?.ok_or(ErreurApi::Introuvable)?;
-    let origine = reconstituer(&stockee, tva)?;
+    // Contexte relu après la tête : la devise est figée dès la première écriture (l'origine en est
+    // une), la date du jour est celle du fuseau relu.
+    let courant = lire_contexte_du_dossier(tx).await?;
+    let tenue = courant.tenue()?;
+    let origine = reconstituer(&stockee, tva, &tenue)?;
     let recalcule = EcritureCanonique::depuis(&origine).serialiser();
     if recalcule != stockee.canonique
         || chainer(&stockee.precedente, recalcule.as_bytes()) != stockee.empreinte
@@ -228,8 +232,10 @@ pub(super) async fn contre_passer(
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
         delai_cloture: crate::base::referentiel::delai_cloture(),
+        tenue,
     };
-    let date_validation = instant.date();
+    // Date du jour dans le fuseau du dossier (ADR 0027).
+    let date_validation = courant.date_du_jour(instant)?;
     let decision = decider_contre_passation(
         &origine,
         date,

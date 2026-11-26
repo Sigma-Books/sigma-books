@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dossier SET pays = $3, devise_tenue = $4, decimales_tenue = $5, fuseau = $6, langue = $7, forme_juridique = $8 WHERE cabinet_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int2",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c4870ef2a78b495477938eaee3402109244684e0c585a993e99396b960857940"
+}

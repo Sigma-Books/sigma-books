@@ -1210,7 +1210,8 @@ fn _valeur(_: Value) {}
 async fn un_montant_juste_sous_la_borne_est_accepte() {
     let b = banc().await;
     let c = comptes();
-    let grand = "99999999999999999999.99";
+    // Sans décimale : le dossier est tenu en XOF (échelle 0, ADR 0027).
+    let grand = "99999999999999999999";
     let lignes = [
         ligne(c.caisse.as_str(), "debit", grand),
         ligne(c.banque.as_str(), "credit", grand),

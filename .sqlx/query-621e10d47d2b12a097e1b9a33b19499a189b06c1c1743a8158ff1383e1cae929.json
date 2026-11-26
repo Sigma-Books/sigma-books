@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dossier_identifiant_legal WHERE cabinet_id = $1 AND dossier_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "621e10d47d2b12a097e1b9a33b19499a189b06c1c1743a8158ff1383e1cae929"
+}

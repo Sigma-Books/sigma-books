@@ -81,7 +81,8 @@ async fn insert_dans_un_autre_cabinet_est_refuse() {
             vec![nouveau],
         ),
         (
-            "INSERT INTO dossier (cabinet_id, id, nom) VALUES ($1, $2, 'intrus')",
+            "INSERT INTO dossier (cabinet_id, id, nom, pays, devise_tenue, decimales_tenue, fuseau, \
+                langue) VALUES ($1, $2, 'intrus', 'SN', 'XOF', 0, 'Africa/Dakar', 'fr')",
             vec![b.cabinet.uuid(), nouveau],
         ),
         (

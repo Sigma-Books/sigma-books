@@ -28,6 +28,14 @@ when {
   [Sigma::Role::"administrateur", Sigma::Role::"valideur"].contains(principal.role)
 };
 
+// Modifier le contexte du dossier (pays, devise de tenue, fuseau, langue ; ADR 0027) :
+// administrateur du cabinet seul. Le cas d'usage exige en plus une session fraîche quand le
+// pays ou la devise changent, et refuse tout changement de devise ou de pays une fois une
+// écriture validée.
+@id("adr0027-modifier-contexte-dossier")
+permit (principal, action == Sigma::Action::"ModifierContexteDossier", resource)
+when { principal.role == Sigma::Role::"administrateur" };
+
 // §20 « Déposer des pièces » : administrateur, valideur, collaborateur.
 // (Client « ses dossiers » : portail, L4.)
 @id("s20-deposer-pieces")

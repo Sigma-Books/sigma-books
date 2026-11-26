@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 
 pub mod base;
+pub mod contexte_dossier;
 pub mod courriel;
 pub mod envoi;
 pub mod facteurs;

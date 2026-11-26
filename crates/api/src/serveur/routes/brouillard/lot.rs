@@ -38,12 +38,13 @@ use uuid::Uuid;
 
 use super::validation::{
     Decision, Preparee, VueValidation, controler_pieces, decider, donnee,
-    donnee_audit_avertissements, preparer, roles_des_pieces, vues_avertissements,
+    donnee_audit_avertissements, exiger_meme_tenue, preparer, roles_des_pieces,
+    vues_avertissements,
 };
 use super::{conflit, corps, referentiel_tva, sans_parametres, trace_de};
 use crate::base::TransactionTenant;
 use crate::base::brouillard::{self, BrouillonStocke};
-use crate::base::organisation::{lire_appartenance, lire_cabinet};
+use crate::base::organisation::{lire_appartenance, lire_cabinet, lire_contexte_du_dossier};
 use crate::base::referentiel::charger;
 use crate::base::validation::{self as base, Circonstances, Inscription, PieceVerrouillee, Tete};
 use crate::pieces::interne;
@@ -205,6 +206,7 @@ pub(super) async fn valider_par_lot(
         .collect();
     base::verrouiller_comptes_et_tiers(tx, &comptes, &tiers).await?;
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
+    let tenue = dossier.contexte().tenue()?;
     let toutes_pieces: Vec<Uuid> = candidates
         .iter()
         .flat_map(|b| b.pieces.iter().map(|l| l.piece))
@@ -223,8 +225,9 @@ pub(super) async fn valider_par_lot(
             .cloned()
             .collect();
         let controle = controler_pieces(&b, &pieces).and_then(|()| {
+            exiger_meme_tenue(&b.contenu, &tenue)?;
             let empreintes: Vec<String> = pieces.iter().map(|p| p.empreinte.clone()).collect();
-            let preparee = preparer(&b, &empreintes, tva, referentiel.exercices())?;
+            let preparee = preparer(&b, &empreintes, tva, &tenue, referentiel.exercices())?;
             let journal_id = referentiel
                 .id_journal(preparee.journal())
                 .ok_or_else(donnee)?;
@@ -265,6 +268,11 @@ pub(super) async fn valider_par_lot(
         &integrite::IdDossier::parse(&dossier.id().uuid().to_string()).map_err(|_| donnee())?,
     );
     let tete = base::verrouiller_tete(tx, &genese).await?;
+    // Devise de tenue relue après la tête (ADR 0027) : voir la validation unitaire.
+    let courant = lire_contexte_du_dossier(tx).await?;
+    if courant.tenue()? != tenue {
+        return Err(conflit(MotifConflit::ContexteDossierModifie));
+    }
     let instant = requete.horloge.maintenant();
     let mut compteurs: BTreeMap<(Uuid, Uuid), u32> = BTreeMap::new();
     for r in &retenues {
@@ -275,12 +283,14 @@ pub(super) async fn valider_par_lot(
         let dernier = base::verrouiller_compteur(tx, journal, exercice).await?;
         compteurs.insert((journal, exercice), dernier);
     }
-    let date_validation = instant.date();
+    // Date du jour dans le fuseau du dossier (ADR 0027).
+    let date_validation = courant.date_du_jour(instant)?;
     let contexte = Contexte {
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
         delai_cloture: crate::base::referentiel::delai_cloture(),
+        tenue,
     };
 
     // (B) Validation pure de toutes les écritures, dans l'ordre : compteurs et tête avancent en

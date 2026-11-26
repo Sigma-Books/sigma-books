@@ -166,6 +166,7 @@ fn format_du_texte(contenu: &str) -> Option<i16> {
         "ecriture v1" => Some(1),
         "ecriture v2" => Some(2),
         "ecriture v3" => Some(3),
+        "ecriture v4" => Some(4),
         _ => None,
     }
 }

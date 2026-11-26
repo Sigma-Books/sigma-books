@@ -42,7 +42,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use compta_core::{
-    Balance, CodeExercice, CodeJournal, Compteur, Contexte, Devise, EcritureBrouillon,
+    Balance, CodeExercice, CodeJournal, Compteur, Contexte, Devise, DeviseTenue, EcritureBrouillon,
     EcritureEquilibree, Exercices, Filtre, FinPremierExercice, FormatBalance, IdTiers, Journaux,
     Justification, Ligne, LigneBalance, Livre, Mode, Montant, NumeroCompte, PlanComptes,
     ReferencePiece, Regroupement, Sens, TexteCourt, TypeJournal, journaux_par_defaut,
@@ -84,8 +84,17 @@ fn guide() -> (Vec<LigneGuide>, LigneGuide) {
     (lignes, total)
 }
 
+/// Devise de tenue du cas de référence du Guide : le franc CFA, sans décimale.
+fn devise_xof() -> Devise {
+    Devise::parse("XOF").unwrap()
+}
+
+fn tenue_xof() -> DeviseTenue {
+    DeviseTenue::nouvelle(devise_xof(), 0).unwrap()
+}
+
 fn xof(texte: &str) -> Montant {
-    Montant::parse(texte, Devise::XOF).unwrap()
+    Montant::parse(texte, devise_xof()).unwrap()
 }
 
 fn n(texte: &str) -> NumeroCompte {
@@ -104,7 +113,7 @@ fn j(code: &str) -> CodeJournal {
 fn en_xof(valeurs: impl IntoIterator<Item = Decimal>) -> Vec<Montant> {
     valeurs
         .into_iter()
-        .map(|v| Montant::nouveau(v, Devise::XOF))
+        .map(|v| Montant::nouveau(v, devise_xof()))
         .collect()
 }
 
@@ -151,7 +160,7 @@ fn sous_compte(referentiel: &Referentiel, compte_guide: &str) -> NumeroCompte {
 
 /// Ligne d'écriture sur le sous-compte ; tiers fictif sur un compte collectif.
 fn ligne(plan: &PlanComptes, compte: &NumeroCompte, sens: Sens, montant: Montant) -> Ligne {
-    let ligne = Ligne::en_xof(compte.clone(), sens, montant).unwrap();
+    let ligne = Ligne::en_devise_tenue(compte.clone(), sens, montant, &tenue_xof()).unwrap();
     if plan.compte(compte).unwrap().est_collectif() {
         ligne.avec_tiers(IdTiers::parse("TIERS-FICTIF").unwrap())
     } else {
@@ -262,6 +271,7 @@ impl Cas {
             journaux: &journaux,
             exercices: &exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: tenue_xof(),
         };
         let compteur = Compteur::nouveau(j("OD"), exercice.code().clone());
         let (numero, _) = livre
@@ -322,7 +332,7 @@ fn le_releve_du_guide_est_coherent() {
         let somme = guide
             .iter()
             .map(|l| l.colonnes[colonne])
-            .try_fold(Montant::zero(Devise::XOF), |a, b| a.ajouter(&b))
+            .try_fold(Montant::zero(devise_xof()), |a, b| a.ajouter(&b))
             .unwrap();
         assert_eq!(somme, total.colonnes[colonne], "colonne {colonne}");
     }
@@ -379,7 +389,7 @@ fn les_mouvements_n_sont_valides_et_les_a_nouveaux_au_brouillard() {
             .totaux(FormatBalance::Six)
             .unwrap(),
     );
-    let zero = Montant::zero(Devise::XOF);
+    let zero = Montant::zero(devise_xof());
     assert_eq!(&totaux[..2], [zero, zero]);
     assert_eq!(&totaux[2..4], &cas.total.colonnes[2..4]);
 }

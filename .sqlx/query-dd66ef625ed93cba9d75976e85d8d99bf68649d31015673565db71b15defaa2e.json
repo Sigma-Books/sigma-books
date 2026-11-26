@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO dossier (cabinet_id, id, nom) VALUES ($1, $2, $3) RETURNING cree_le",
+  "query": "INSERT INTO dossier (cabinet_id, id, nom, pays, devise_tenue, decimales_tenue, fuseau, langue, forme_juridique) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING cree_le",
   "describe": {
     "columns": [
       {
@@ -19,6 +19,12 @@
       "Left": [
         "Uuid",
         "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int2",
+        "Text",
+        "Text",
         "Text"
       ]
     },
@@ -26,5 +32,5 @@
       false
     ]
   },
-  "hash": "6068c5f25645b0c9e4b36777500f52f9e8d6a7bc7895b0962a4e7693a8cb9b30"
+  "hash": "dd66ef625ed93cba9d75976e85d8d99bf68649d31015673565db71b15defaa2e"
 }

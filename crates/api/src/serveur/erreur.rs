@@ -186,11 +186,19 @@ pub enum MotifConflit {
     /// Le membre appartient aussi à d'autres cabinets : sa réinitialisation retirerait ses accès
     /// à des cabinets que l'administrateur n'administre pas (ADR 0023, §4).
     MembreDUnAutreCabinet,
+    /// Le dossier a déjà une écriture validée : pays et devise de tenue sont figés (ADR 0027).
+    DossierDejaEcritures,
+    /// Le dossier a un brouillon : changer le pays ou la devise réinterpréterait ses montants.
+    DossierBrouillardNonVide,
+    /// La devise de tenue du dossier a changé pendant l'attente du verrou : réessayer.
+    ContexteDossierModifie,
+    /// Brouillon saisi sous une autre devise de tenue ou une autre échelle que celles du dossier.
+    BrouillonDeviseTenuePerimee,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 29] = [
+    pub const TOUS: [Self; 33] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -220,6 +228,10 @@ impl MotifConflit {
         Self::ReinitialisationNonEnAttente,
         Self::CompteExistant,
         Self::MembreDUnAutreCabinet,
+        Self::DossierDejaEcritures,
+        Self::DossierBrouillardNonVide,
+        Self::ContexteDossierModifie,
+        Self::BrouillonDeviseTenuePerimee,
     ];
 
     /// Code du corps de la réponse.
@@ -255,6 +267,10 @@ impl MotifConflit {
             Self::ReinitialisationNonEnAttente => "reinitialisation_non_en_attente",
             Self::CompteExistant => "compte_existant",
             Self::MembreDUnAutreCabinet => "membre_d_un_autre_cabinet",
+            Self::DossierDejaEcritures => "dossier_deja_ecritures",
+            Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
+            Self::ContexteDossierModifie => "contexte_dossier_modifie",
+            Self::BrouillonDeviseTenuePerimee => "brouillon_devise_tenue_perimee",
         }
     }
 }
@@ -308,15 +324,25 @@ pub enum MotifValidation {
     DateValeurNonAnterieure,
     /// Montant dont l'échelle dépasse celle du format canonique.
     MontantEchelleExcessive,
+    /// Montant de ligne qui a plus de décimales que l'échelle de la devise de tenue du dossier.
+    MontantEchelleTenue,
     /// Autre invalidité de l'écriture (montant, texte).
     EcritureInvalide,
     /// Contenu qui ne se relit pas à l'identique du format canonique.
     NonRepresentable,
+    /// Création d'un dossier : pays absent du pack pays (États de l'OHADA).
+    PaysInconnu,
+    /// Création d'un dossier : devise de tenue absente de la table des devises du pack.
+    DeviseTenueInconnue,
+    /// Création d'un dossier : fuseau absent de la table des fuseaux du pack.
+    FuseauInconnu,
+    /// Création d'un dossier : langue, forme juridique ou identifiant légal invalide.
+    ContexteDossierInvalide,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 24] = [
+    pub const TOUS: [Self; 29] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -339,8 +365,13 @@ impl MotifValidation {
         Self::DateHorsExercice,
         Self::DateValeurNonAnterieure,
         Self::MontantEchelleExcessive,
+        Self::MontantEchelleTenue,
         Self::EcritureInvalide,
         Self::NonRepresentable,
+        Self::PaysInconnu,
+        Self::DeviseTenueInconnue,
+        Self::FuseauInconnu,
+        Self::ContexteDossierInvalide,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -386,8 +417,13 @@ impl MotifValidation {
             Self::DateHorsExercice => "validation_date_hors_exercice",
             Self::DateValeurNonAnterieure => "validation_date_valeur_non_anterieure",
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
+            Self::MontantEchelleTenue => "validation_montant_echelle_devise_tenue",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
+            Self::PaysInconnu => "pays_inconnu",
+            Self::DeviseTenueInconnue => "devise_tenue_inconnue",
+            Self::FuseauInconnu => "fuseau_inconnu",
+            Self::ContexteDossierInvalide => "contexte_dossier_invalide",
         }
     }
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,\n               b.libelle, b.a_revoir, b.a_revoir_par, b.version, b.cree_par, b.cree_le,\n               b.modifie_par, b.modifie_le\n        FROM brouillon b\n        JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id\n                      AND j.id = b.journal_id\n        WHERE b.cabinet_id = $1 AND b.dossier_id = $2 AND b.id = $3\n        ",
+  "query": "\n        SELECT b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,\n               b.libelle, b.a_revoir, b.a_revoir_par, b.version, b.cree_par, b.cree_le,\n               b.modifie_par, b.modifie_le, b.devise_tenue, b.decimales_tenue\n        FROM brouillon b\n        JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id\n                      AND j.id = b.journal_id\n        WHERE b.cabinet_id = $1 AND b.dossier_id = $2 AND b.id = $3\n        ",
   "describe": {
     "columns": [
       {
@@ -134,6 +134,28 @@
             "name": "modifie_le"
           }
         }
+      },
+      {
+        "ordinal": 12,
+        "name": "devise_tenue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon",
+            "name": "devise_tenue"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "decimales_tenue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "brouillon",
+            "name": "decimales_tenue"
+          }
+        }
       }
     ],
     "parameters": {
@@ -155,8 +177,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "331529a64ad70b9c840cd3727f4814f25b8c0312ae8b89c6b667291dfe55e9da"
+  "hash": "8fafb190f90c67d57ab8776443a69ce7b99db2ab80fc7a87ce86a38a730a7730"
 }

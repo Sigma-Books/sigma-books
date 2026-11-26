@@ -53,7 +53,7 @@ use super::brouillard::{date_lue, referentiel_tva};
 use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
 use crate::base::brouillard::decimal_canonique;
 use crate::base::editions::{brouillons_entre, brouillons_par_journal_et_date, validees_entre};
-use crate::base::organisation::lire_dossier_visible;
+use crate::base::organisation::{lire_contexte_du_dossier, lire_dossier_visible};
 use crate::base::referentiel::charger;
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
 use crate::pieces::interne;
@@ -300,6 +300,7 @@ async fn lire_dans_instantane(
     borne: i64,
 ) -> Result<Donnees, ErreurApi> {
     let referentiel = charger(instantane).await?.ok_or(ErreurApi::Introuvable)?;
+    let tenue = lire_contexte_du_dossier(instantane).await?.tenue()?;
     let exercice = choisir_exercice(referentiel.exercices(), p)?;
     let du = p.du.unwrap_or_else(|| exercice.debut());
     let au = p.au.unwrap_or_else(|| exercice.fin());
@@ -333,6 +334,7 @@ async fn lire_dans_instantane(
                 },
                 &e.empreintes,
                 tva,
+                &tenue,
             )
             .map_err(|_| donnee())?,
         );
@@ -348,7 +350,7 @@ async fn lire_dans_instantane(
             // Le brouillard déséquilibré ou illisible n'entre pas dans une édition provisoire : il
             // est compté et signalé, jamais cause d'échec (on ne peut pas l'atteindre par la
             // saisie, mais une version du référentiel peut avoir retiré une valeur stockée).
-            match equilibree_du_brouillon(b, tva) {
+            match equilibree_du_brouillon(b, tva, &tenue) {
                 Ok(Some(e)) => brouillard.push(e),
                 Ok(None) => exclus.desequilibres += 1,
                 Err(_) => exclus.illisibles += 1,
@@ -769,8 +771,11 @@ async fn alertes(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Re
     if requete.parametres.is_some_and(|p| !p.is_empty()) {
         return Err(ErreurApi::RequeteInvalide);
     }
-    // Date du jour : l'horloge de la requête (jamais dans `compta-core`).
-    let aujourdhui = requete.maintenant.date();
+    // Date du jour : l'horloge de la requête (jamais dans `compta-core`), dans le fuseau du
+    // dossier (ADR 0027).
+    let aujourdhui = lire_contexte_du_dossier(tx)
+        .await?
+        .date_du_jour(requete.maintenant)?;
     let mut instantane = ouvrir_transaction_lecture(requete.pool, *tx.contexte()).await?;
     let lu = async {
         let referentiel = charger(&mut instantane)

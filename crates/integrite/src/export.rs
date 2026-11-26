@@ -28,6 +28,8 @@ pub const ENTETE_EXPORT_V2: &str = "sigma-books export v2";
 pub const ENTETE_EXPORT_V3: &str = "sigma-books export v3";
 /// Première ligne d'un export v4 (écritures avec étiquette fiscale).
 pub const ENTETE_EXPORT_V4: &str = "sigma-books export v4";
+/// Première ligne d'un export v5 (écritures avec devise de tenue, ADR 0027).
+pub const ENTETE_EXPORT_V5: &str = "sigma-books export v5";
 /// Longueur d'une ligne `der=` complète (base64), la dernière pouvant être plus courte.
 pub const BASE64_LIGNE: usize = 64;
 /// Nombre maximal de jetons dans un export (un par jour pendant plus de 25 ans).
@@ -104,6 +106,43 @@ pub enum Version {
     V3,
     /// v4 : v3 et écritures canoniques v3 (étiquette fiscale des lignes).
     V4,
+    /// v5 : v4 et écritures canoniques v4 (devise de tenue et échelle du dossier).
+    V5,
+}
+
+impl Version {
+    /// Plus haute version d'écriture canonique admise par cette version d'export.
+    #[must_use]
+    pub fn ecriture_max(self) -> u8 {
+        match self {
+            Self::V1 | Self::V2 => 1,
+            Self::V3 => 2,
+            Self::V4 => 3,
+            Self::V5 => 4,
+        }
+    }
+
+    /// Version d'export la plus basse qui admet une écriture de version `ecriture`.
+    #[must_use]
+    pub fn pour_ecriture(ecriture: u8) -> Self {
+        match ecriture {
+            0..=2 => Self::V3,
+            3 => Self::V4,
+            _ => Self::V5,
+        }
+    }
+
+    /// Première ligne de l'export de cette version.
+    #[must_use]
+    pub fn entete(self) -> &'static str {
+        match self {
+            Self::V1 => ENTETE_EXPORT_V1,
+            Self::V2 => ENTETE_EXPORT_V2,
+            Self::V3 => ENTETE_EXPORT_V3,
+            Self::V4 => ENTETE_EXPORT_V4,
+            Self::V5 => ENTETE_EXPORT_V5,
+        }
+    }
 }
 
 /// Jeton d'horodatage de la chaîne, tel qu'exporté : le témoin (nombre d'écritures et tête à
@@ -169,7 +208,7 @@ pub enum Element {
     },
 }
 
-/// Écrit un export v3 ou v4, écriture par écriture.
+/// Écrit un export v3, v4 ou v5, écriture par écriture.
 pub struct EcrivainExport<W: Write> {
     sortie: W,
     chaine: Chaine,
@@ -193,12 +232,16 @@ impl<W: Write> EcrivainExport<W> {
         Self::avec_version(dossier, Version::V4, sortie)
     }
 
+    /// Écrit l'en-tête d'un export v5 (admet les écritures avec devise de tenue, ADR 0027).
+    ///
+    /// # Errors
+    /// Erreur d'écriture.
+    pub fn nouveau_v5(dossier: &IdDossier, sortie: W) -> io::Result<Self> {
+        Self::avec_version(dossier, Version::V5, sortie)
+    }
+
     fn avec_version(dossier: &IdDossier, version: Version, mut sortie: W) -> io::Result<Self> {
-        let entete = match version {
-            Version::V4 => ENTETE_EXPORT_V4,
-            _ => ENTETE_EXPORT_V3,
-        };
-        writeln!(sortie, "{entete}")?;
+        writeln!(sortie, "{}", version.entete())?;
         writeln!(sortie, "dossier={dossier}")?;
         Ok(Self {
             sortie,
@@ -210,14 +253,15 @@ impl<W: Write> EcrivainExport<W> {
     /// Ajoute l'écriture suivante de la chaîne et son empreinte.
     ///
     /// # Errors
-    /// Erreur d'écriture, ou [`io::ErrorKind::InvalidInput`] si l'écriture porte une étiquette
-    /// fiscale et que l'export est en v3 (rien n'est écrit, la chaîne n'avance pas).
+    /// Erreur d'écriture, ou [`io::ErrorKind::InvalidInput`] si le format de l'écriture (v3 avec
+    /// étiquette fiscale, v4 avec devise de tenue) n'est pas admis par la version de l'export
+    /// (rien n'est écrit, la chaîne n'avance pas).
     pub fn ecriture(&mut self, ecriture: &EcritureValidee) -> io::Result<Empreinte> {
         let canonique = EcritureCanonique::depuis(ecriture);
-        if self.version == Version::V3 && canonique.a_une_etiquette() {
+        if canonique.version() > self.version.ecriture_max() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "écriture avec étiquette fiscale : export v4 requis",
+                "format d'écriture trop récent pour cette version d'export",
             ));
         }
         let contenu = canonique.serialiser();
@@ -263,7 +307,9 @@ impl<W: Write> EcrivainExport<W> {
 }
 
 /// Exporte des écritures validées, dans l'ordre de la chaîne, et leurs jetons. Renvoie la
-/// tête. Format v4 si une écriture porte une étiquette fiscale, v3 sinon.
+/// tête. Version la plus basse qui admet toutes les écritures : v5 si l'une est tenue dans une
+/// autre devise que le XOF sans décimale (ADR 0027), sinon v4 si l'une porte une étiquette
+/// fiscale, v3 sinon.
 ///
 /// # Errors
 /// Erreur d'écriture.
@@ -273,14 +319,13 @@ pub fn exporter<W: Write>(
     jetons: &[JetonExporte],
     sortie: W,
 ) -> io::Result<Empreinte> {
-    let etiquetee = ecritures
+    let plus_haute = ecritures
         .iter()
-        .any(|e| e.lignes().iter().any(|l| l.etiquette().is_some()));
-    let mut ecrivain = if etiquetee {
-        EcrivainExport::nouveau_v4(dossier, sortie)?
-    } else {
-        EcrivainExport::nouveau(dossier, sortie)?
-    };
+        .map(|e| EcritureCanonique::depuis(e).version())
+        .max()
+        .unwrap_or(1);
+    let mut ecrivain =
+        EcrivainExport::avec_version(dossier, Version::pour_ecriture(plus_haute), sortie)?;
     for e in ecritures {
         ecrivain.ecriture(e)?;
     }
@@ -298,7 +343,7 @@ enum Etape {
     Termine,
 }
 
-/// Lit un export v1, v2, v3 ou v4 élément par élément, sans le charger en mémoire.
+/// Lit un export v1 à v5 élément par élément, sans le charger en mémoire.
 pub struct LecteurExport<R: BufRead> {
     entree: R,
     ligne: u64,
@@ -318,16 +363,17 @@ impl<R: BufRead> LecteurExport<R> {
             entree,
             ligne: 0,
             tampon: Vec::with_capacity(LIGNE_MAX + 1),
-            version: Version::V4,
+            version: Version::V5,
             etape: Etape::Chaine,
             jetons: 0,
         };
         lecteur.version = match lecteur.ligne_requise()?.as_str() {
+            ENTETE_EXPORT_V5 => Version::V5,
             ENTETE_EXPORT_V4 => Version::V4,
             ENTETE_EXPORT_V3 => Version::V3,
             ENTETE_EXPORT_V2 => Version::V2,
             ENTETE_EXPORT_V1 => Version::V1,
-            _ => return Err(lecteur.erreur(ErreurExport::Attendu(ENTETE_EXPORT_V4))),
+            _ => return Err(lecteur.erreur(ErreurExport::Attendu(ENTETE_EXPORT_V5))),
         };
         let dossier = lecteur.valeur("dossier")?;
         let dossier = IdDossier::parse(&dossier)
@@ -374,12 +420,16 @@ impl<R: BufRead> LecteurExport<R> {
                 ligne: debut,
             }));
         }
-        let canonique_admise = premiere == canonique::ENTETE_V1
-            || (premiere == canonique::ENTETE_V2
-                && matches!(self.version, Version::V3 | Version::V4))
-            || (premiere == canonique::ENTETE_V3 && self.version == Version::V4);
+        let maximum = self.version.ecriture_max();
+        let canonique_admise = (premiere == canonique::ENTETE_V1)
+            || (premiere == canonique::ENTETE_V2 && maximum >= 2)
+            || (premiere == canonique::ENTETE_V3 && maximum >= 3)
+            || (premiere == canonique::ENTETE_V4 && maximum >= 4);
         if !canonique_admise {
             return Err(self.erreur(ErreurExport::Attendu(match self.version {
+                Version::V5 => {
+                    "ecriture v1 », « ecriture v2 », « ecriture v3 », « ecriture v4 » ou « tete="
+                }
                 Version::V4 => "ecriture v1 », « ecriture v2 », « ecriture v3 » ou « tete=",
                 Version::V3 => "ecriture v1 », « ecriture v2 » ou « tete=",
                 Version::V1 | Version::V2 => "ecriture v1 » ou « tete=",
@@ -637,6 +687,24 @@ mod tests {
             .unwrap();
         let (lecteur, _) = LecteurExport::ouvrir(sortie.as_slice()).unwrap();
         assert_eq!(lecteur.version(), Version::V4);
+        let mut sortie = Vec::new();
+        EcrivainExport::nouveau_v5(&dossier, &mut sortie)
+            .unwrap()
+            .terminer()
+            .unwrap();
+        let (lecteur, _) = LecteurExport::ouvrir(sortie.as_slice()).unwrap();
+        assert_eq!(lecteur.version(), Version::V5);
+    }
+
+    #[test]
+    fn version_d_export_la_plus_basse() {
+        assert_eq!(Version::pour_ecriture(1), Version::V3);
+        assert_eq!(Version::pour_ecriture(2), Version::V3);
+        assert_eq!(Version::pour_ecriture(3), Version::V4);
+        assert_eq!(Version::pour_ecriture(4), Version::V5);
+        for v in [Version::V3, Version::V4, Version::V5] {
+            assert!(v.ecriture_max() >= 2);
+        }
     }
 
     fn erreur(texte: &[u8]) -> (u64, ErreurExport) {
@@ -657,8 +725,8 @@ mod tests {
             format!("{ENTETE_EXPORT_V1}\ndossier=demo\ntete={tete}\nnombre=0\nfin-export\n");
         assert_eq!(erreur(b""), (1, ErreurExport::Tronque));
         assert_eq!(
-            erreur(b"sigma-books export v5\n").1,
-            ErreurExport::Attendu(ENTETE_EXPORT_V4)
+            erreur(b"sigma-books export v6\n").1,
+            ErreurExport::Attendu(ENTETE_EXPORT_V5)
         );
         assert_eq!(
             erreur(valide.trim_end().as_bytes()),

@@ -81,6 +81,36 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu(m.multi, a.cabinet, a.dossier, Cree),
             attendu(m.multi, b.cabinet, b.dossier, interdit()),
         ],
+        // Modification du contexte : administrateur seul ; le corps de test redit la langue
+        // actuelle, donc « aucun changement » (409) pour qui y a droit, sans rien modifier.
+        "/api/cabinets/{cabinet}/dossiers/{dossier}/contexte" => vec![
+            attendu(
+                a.administrateur,
+                a.cabinet,
+                a.dossier,
+                Statut(StatusCode::CONFLICT),
+            ),
+            attendu(m.valideur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(a.collaborateur, a.cabinet, a.autre_dossier, absent()),
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(m.multi, a.cabinet, a.dossier, Statut(StatusCode::CONFLICT)),
+            attendu(m.multi, b.cabinet, b.dossier, interdit()),
+        ],
+        // Pack pays : mêmes droits que la création d'un dossier, jamais le cabinet d'autrui.
+        "/api/cabinets/{cabinet}/pays" => vec![
+            attendu(
+                a.administrateur,
+                a.cabinet,
+                a.dossier,
+                Statut(StatusCode::OK),
+            ),
+            attendu(m.valideur, a.cabinet, a.dossier, Statut(StatusCode::OK)),
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(m.multi, a.cabinet, a.dossier, Statut(StatusCode::OK)),
+            attendu(m.multi, b.cabinet, b.dossier, interdit()),
+        ],
         _ => return None,
     })
 }

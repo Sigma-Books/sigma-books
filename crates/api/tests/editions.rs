@@ -204,7 +204,8 @@ impl Banc {
         let mut validees = Vec::new();
         for id in ids {
             let e = base::lire(&mut tx, id).await.unwrap().unwrap();
-            validees.push(reconstituer(&e, referentiel_tva().unwrap()).unwrap());
+            validees
+                .push(reconstituer(&e, referentiel_tva().unwrap(), &commun::tenue_xof()).unwrap());
         }
         let referentiel = charger(&mut tx).await.unwrap().unwrap();
         let exercice = referentiel.exercices().exercices().first().unwrap().clone();

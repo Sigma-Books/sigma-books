@@ -7,10 +7,10 @@
 use std::collections::BTreeMap;
 
 use compta_core::{
-    CodeExercice, CodeJournal, CompteReference, Compteur, Contexte, Devise, EcritureBrouillon,
-    EcritureEquilibree, ErreurValidation, Exercices, FinPremierExercice, IdTiers, Journal,
-    Journaux, Justification, Ligne, Livre, Montant, NumeroCompte, NumeroEcriture, PlanComptes,
-    ReferencePiece, Sens, SensNormal, TexteCourt, TypeJournal,
+    CodeExercice, CodeJournal, CompteReference, Compteur, Contexte, Devise, DeviseTenue,
+    EcritureBrouillon, EcritureEquilibree, ErreurValidation, Exercices, FinPremierExercice,
+    IdTiers, Journal, Journaux, Justification, Ligne, Livre, Montant, NumeroCompte, NumeroEcriture,
+    PlanComptes, ReferencePiece, Sens, SensNormal, TexteCourt, TypeJournal,
 };
 use time::Date;
 use time::macros::date;
@@ -27,12 +27,21 @@ pub fn j(code: &str) -> CodeJournal {
     CodeJournal::parse(code).unwrap()
 }
 
+pub fn devise_xof() -> Devise {
+    Devise::parse("XOF").unwrap()
+}
+
+/// Devise de tenue des dossiers de test : le franc CFA, sans décimale.
+pub fn tenue_xof() -> DeviseTenue {
+    DeviseTenue::nouvelle(devise_xof(), 0).unwrap()
+}
+
 pub fn xof(texte: &str) -> Montant {
-    Montant::parse(texte, Devise::XOF).unwrap()
+    Montant::parse(texte, devise_xof()).unwrap()
 }
 
 pub fn ligne(compte: &str, sens: Sens, montant: &str) -> Ligne {
-    Ligne::en_xof(n(compte), sens, xof(montant)).unwrap()
+    Ligne::en_devise_tenue(n(compte), sens, xof(montant), &tenue_xof()).unwrap()
 }
 
 pub fn ligne_tiers(compte: &str, sens: Sens, montant: &str, tiers: &str) -> Ligne {
@@ -148,6 +157,7 @@ impl Dossier {
             journaux: &self.journaux,
             exercices: &self.exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: tenue_xof(),
         }
     }
 
@@ -201,6 +211,7 @@ impl Dossier {
             journaux: &self.journaux,
             exercices: &self.exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: tenue_xof(),
         };
         let (numero, suivant, avertissements) = self
             .livre
@@ -222,6 +233,7 @@ impl Dossier {
             journaux: &self.journaux,
             exercices: &self.exercices,
             delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            tenue: tenue_xof(),
         };
         let (numero, suivant) = self.livre.contre_passer(
             origine,

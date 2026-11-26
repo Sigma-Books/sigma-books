@@ -1,9 +1,11 @@
 //! Montants en décimal exact, devise attachée (Fondations §2.4, spec §5.5 et §6.6).
 //!
 //! Aucun flottant : la valeur est un [`Decimal`]. Les calculs internes sont exacts ; seule
-//! la contre-valeur en XOF est arrondie au franc, au plus près, la moitié s'éloignant de zéro
-//! (`0,5` → `1`, `-0,5` → `-1` : pas d'arrondi bancaire). Toute opération qui pourrait dépasser
-//! la capacité du décimal renvoie une erreur au lieu de paniquer.
+//! la contre-valeur en devise de tenue est arrondie à l'échelle de cette devise ([`DeviseTenue`] :
+//! zéro décimale pour le XOF, deux pour le CDF), au plus près, la moitié s'éloignant de zéro
+//! (`0,5` → `1`, `-0,5` → `-1` : pas d'arrondi bancaire). La devise de tenue et son échelle sont
+//! des **paramètres** : le moteur ne suppose aucune devise (ADR 0027). Toute opération qui
+//! pourrait dépasser la capacité du décimal renvoie une erreur au lieu de paniquer.
 
 use std::fmt;
 use std::str::FromStr;
@@ -28,9 +30,18 @@ pub enum ErreurMontant {
     /// Le résultat dépasse la capacité du décimal.
     #[error("dépassement de capacité")]
     Depassement,
-    /// Arrondi au franc demandé sur un montant qui n'est pas en XOF.
-    #[error("arrondi au franc impossible : le montant est en {0}, pas en XOF")]
-    PasEnXof(Devise),
+    /// Arrondi à l'échelle de la devise de tenue demandé sur un montant dans une autre devise.
+    #[error("arrondi impossible : le montant est en {0}, pas dans la devise de tenue")]
+    PasEnDeviseTenue(Devise),
+    /// Échelle décimale d'une devise de tenue hors des bornes (0 à 4).
+    #[error("échelle décimale invalide : {0} (0 à 4 attendu)")]
+    EchelleInvalide(u8),
+    /// Montant qui a plus de décimales que l'échelle de la devise de tenue.
+    #[error("montant invalide : plus de {decimales} décimale(s) pour la devise de tenue")]
+    EchelleExcessive {
+        /// Échelle de la devise de tenue.
+        decimales: u8,
+    },
     /// Un cours de change doit être strictement positif.
     #[error("cours de change invalide : {0} (strictement positif attendu)")]
     CoursInvalide(Decimal),
@@ -41,10 +52,7 @@ pub enum ErreurMontant {
 pub struct Devise([u8; 3]);
 
 impl Devise {
-    /// Franc CFA (UEMOA), devise de tenue (spec §5.5).
-    pub const XOF: Devise = Devise(*b"XOF");
-
-    /// Analyse un code de devise. Seul constructeur pour une devise autre que XOF.
+    /// Analyse un code de devise.
     ///
     /// # Errors
     /// [`ErreurMontant::DeviseInvalide`] si le code n'est pas formé de trois lettres majuscules ASCII.
@@ -66,6 +74,54 @@ impl Devise {
 impl fmt::Display for Devise {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.code())
+    }
+}
+
+/// Devise de tenue d'un dossier et échelle décimale de ses montants (ADR 0027).
+///
+/// Passée en paramètre au moteur, qui ne lit aucune table et n'en suppose aucune : l'appelant
+/// la tire du dossier (pays, devise, décimales). Les décimales sont celles de la plus petite
+/// unité de la devise (ISO 4217 : XOF, XAF, KMF, GNF à 0 ; CDF, EUR, USD à 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DeviseTenue {
+    devise: Devise,
+    decimales: u8,
+}
+
+impl DeviseTenue {
+    /// Plus grand nombre de décimales admis (ISO 4217 : 4 au plus).
+    pub const DECIMALES_MAX: u8 = 4;
+
+    /// Construit une devise de tenue.
+    ///
+    /// # Errors
+    /// [`ErreurMontant::EchelleInvalide`] si `decimales` dépasse [`Self::DECIMALES_MAX`].
+    pub fn nouvelle(devise: Devise, decimales: u8) -> Result<Self, ErreurMontant> {
+        if decimales > Self::DECIMALES_MAX {
+            return Err(ErreurMontant::EchelleInvalide(decimales));
+        }
+        Ok(Self { devise, decimales })
+    }
+
+    /// La devise.
+    #[must_use]
+    pub fn devise(&self) -> Devise {
+        self.devise
+    }
+
+    /// Nombre de décimales de la plus petite unité.
+    #[must_use]
+    pub fn decimales(&self) -> u8 {
+        self.decimales
+    }
+
+    /// Arrondit une valeur à l'échelle de la devise : au plus près, la moitié s'éloignant de zéro.
+    #[must_use]
+    pub fn arrondir(&self, valeur: Decimal) -> Decimal {
+        valeur.round_dp_with_strategy(
+            u32::from(self.decimales),
+            RoundingStrategy::MidpointAwayFromZero,
+        )
     }
 }
 
@@ -96,21 +152,23 @@ impl Montant {
     /// # Errors
     /// [`ErreurMontant::FormatInvalide`] si le texte ne respecte pas ce format.
     pub fn parse(texte: &str, devise: Devise) -> Result<Self, ErreurMontant> {
-        let invalide = || ErreurMontant::FormatInvalide(texte.to_owned());
-        let corps = texte.strip_prefix('-').unwrap_or(texte);
-        let (entier, decimales) = match corps.split_once('.') {
-            Some((e, d)) => (e, Some(d)),
-            None => (corps, None),
-        };
-        let chiffres = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-        if !chiffres(entier) || decimales.is_some_and(|d| !chiffres(d)) {
-            return Err(invalide());
+        Ok(Self::nouveau(analyser_decimal(texte)?, devise))
+    }
+
+    /// Analyse un montant **dans la devise de tenue** et refuse plus de décimales que son échelle
+    /// (zéros finaux écrits non comptés : `100.00` vaut `100`). C'est le contrôle de saisie ;
+    /// la relecture d'un montant stocké utilise [`Self::parse`], sans contrôle d'échelle.
+    ///
+    /// # Errors
+    /// [`ErreurMontant::FormatInvalide`] ; [`ErreurMontant::EchelleExcessive`] au-delà de l'échelle.
+    pub fn parse_tenue(texte: &str, tenue: &DeviseTenue) -> Result<Self, ErreurMontant> {
+        let valeur = analyser_decimal(texte)?;
+        if valeur.normalize().scale() > u32::from(tenue.decimales) {
+            return Err(ErreurMontant::EchelleExcessive {
+                decimales: tenue.decimales,
+            });
         }
-        if entier.len() + decimales.map_or(0, str::len) > CHIFFRES_MAX {
-            return Err(invalide());
-        }
-        let valeur = Decimal::from_str_exact(texte).map_err(|_| invalide())?;
-        Ok(Self::nouveau(valeur, devise))
+        Ok(Self::nouveau(valeur, tenue.devise))
     }
 
     /// Valeur décimale exacte.
@@ -169,27 +227,32 @@ impl Montant {
         Self::nouveau(-self.valeur, self.devise)
     }
 
-    /// Arrondi au franc d'un montant en XOF : au plus près, la moitié s'éloignant de zéro.
+    /// Arrondi d'un montant en devise de tenue à l'échelle de cette devise : au plus près, la
+    /// moitié s'éloignant de zéro.
     ///
     /// # Errors
-    /// [`ErreurMontant::PasEnXof`] si le montant n'est pas en XOF.
-    pub fn arrondi_xof(&self) -> Result<Montant, ErreurMontant> {
-        if self.devise != Devise::XOF {
-            return Err(ErreurMontant::PasEnXof(self.devise));
+    /// [`ErreurMontant::PasEnDeviseTenue`] si le montant n'est pas dans la devise de tenue.
+    pub fn arrondi_tenue(&self, tenue: &DeviseTenue) -> Result<Montant, ErreurMontant> {
+        if self.devise != tenue.devise {
+            return Err(ErreurMontant::PasEnDeviseTenue(self.devise));
         }
-        Ok(Self::nouveau(arrondi_franc(self.valeur), Devise::XOF))
+        Ok(Self::nouveau(tenue.arrondir(self.valeur), tenue.devise))
     }
 
-    /// Contre-valeur en XOF, arrondie au franc (spec §6.6) : `valeur × cours`.
+    /// Contre-valeur en devise de tenue, arrondie à son échelle (spec §6.6) : `valeur × cours`.
     ///
     /// # Errors
     /// Dépassement de capacité.
-    pub fn contre_valeur_xof(&self, cours: Cours) -> Result<Montant, ErreurMontant> {
+    pub fn contre_valeur_tenue(
+        &self,
+        cours: Cours,
+        tenue: &DeviseTenue,
+    ) -> Result<Montant, ErreurMontant> {
         let valeur = self
             .valeur
             .checked_mul(cours.valeur())
             .ok_or(ErreurMontant::Depassement)?;
-        Ok(Self::nouveau(arrondi_franc(valeur), Devise::XOF))
+        Ok(Self::nouveau(tenue.arrondir(valeur), tenue.devise))
     }
 
     fn meme_devise(&self, autre: &Montant) -> Result<(), ErreurMontant> {
@@ -207,7 +270,8 @@ impl fmt::Display for Montant {
     }
 }
 
-/// Cours de change : nombre de francs CFA pour une unité de devise. Strictement positif.
+/// Cours de change : nombre d'unités de la devise de tenue pour une unité de devise.
+/// Strictement positif.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Cours(Decimal);
 
@@ -229,7 +293,7 @@ impl Cours {
     /// # Errors
     /// Format invalide ou cours non strictement positif.
     pub fn parse(texte: &str) -> Result<Self, ErreurMontant> {
-        Self::nouveau(Montant::parse(texte, Devise::XOF)?.valeur())
+        Self::nouveau(analyser_decimal(texte)?)
     }
 
     /// Valeur exacte du cours.
@@ -247,8 +311,22 @@ impl FromStr for Devise {
     }
 }
 
-fn arrondi_franc(valeur: Decimal) -> Decimal {
-    valeur.round_dp_with_strategy(0, RoundingStrategy::MidpointAwayFromZero)
+/// Analyse stricte d'un décimal `-?chiffres(.chiffres)?`, au plus [`CHIFFRES_MAX`] chiffres.
+fn analyser_decimal(texte: &str) -> Result<Decimal, ErreurMontant> {
+    let invalide = || ErreurMontant::FormatInvalide(texte.to_owned());
+    let corps = texte.strip_prefix('-').unwrap_or(texte);
+    let (entier, decimales) = match corps.split_once('.') {
+        Some((e, d)) => (e, Some(d)),
+        None => (corps, None),
+    };
+    let chiffres = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !chiffres(entier) || decimales.is_some_and(|d| !chiffres(d)) {
+        return Err(invalide());
+    }
+    if entier.len() + decimales.map_or(0, str::len) > CHIFFRES_MAX {
+        return Err(invalide());
+    }
+    Decimal::from_str_exact(texte).map_err(|_| invalide())
 }
 
 #[cfg(test)]
@@ -256,33 +334,88 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    fn xof(texte: &str) -> Montant {
-        Montant::parse(texte, Devise::XOF).unwrap()
+    fn devise(code: &str) -> Devise {
+        Devise::parse(code).unwrap()
+    }
+
+    fn tenue(code: &str, decimales: u8) -> DeviseTenue {
+        DeviseTenue::nouvelle(devise(code), decimales).unwrap()
+    }
+
+    fn xof() -> DeviseTenue {
+        tenue("XOF", 0)
+    }
+
+    fn cdf() -> DeviseTenue {
+        tenue("CDF", 2)
+    }
+
+    fn m(texte: &str) -> Montant {
+        Montant::parse(texte, devise("XOF")).unwrap()
     }
 
     #[test]
     fn devise_valide_et_invalide() {
         assert_eq!(Devise::parse("EUR").unwrap().code(), "EUR");
-        assert_eq!(Devise::XOF.to_string(), "XOF");
+        assert_eq!(devise("XAF").to_string(), "XAF");
         for code in ["eur", "EU", "EURO", "E1R", "", "ÉUR"] {
             assert!(Devise::parse(code).is_err(), "{code}");
         }
     }
 
     #[test]
-    fn analyse_stricte() {
-        assert_eq!(xof("1234.50").valeur().to_string(), "1234.50");
-        assert_eq!(xof("-7").valeur().to_string(), "-7");
-        for texte in [
-            "", "-", "+1", "1e5", "1.", ".5", "1 000", "1,5", "0x10", "1_000", " 1", "--1",
-        ] {
-            assert!(Montant::parse(texte, Devise::XOF).is_err(), "{texte:?}");
-        }
-        assert!(Montant::parse(&"9".repeat(29), Devise::XOF).is_err());
+    fn echelle_de_la_devise_de_tenue_bornee() {
+        assert!(DeviseTenue::nouvelle(devise("XOF"), 0).is_ok());
+        assert!(DeviseTenue::nouvelle(devise("CLF"), 4).is_ok());
+        assert_eq!(
+            DeviseTenue::nouvelle(devise("XOF"), 5),
+            Err(ErreurMontant::EchelleInvalide(5))
+        );
     }
 
     #[test]
-    fn arrondi_au_franc_moitie_eloignee_de_zero() {
+    fn analyse_stricte() {
+        assert_eq!(m("1234.50").valeur().to_string(), "1234.50");
+        assert_eq!(m("-7").valeur().to_string(), "-7");
+        for texte in [
+            "", "-", "+1", "1e5", "1.", ".5", "1 000", "1,5", "0x10", "1_000", " 1", "--1",
+        ] {
+            assert!(Montant::parse(texte, devise("XOF")).is_err(), "{texte:?}");
+            assert!(Montant::parse_tenue(texte, &cdf()).is_err(), "{texte:?}");
+        }
+        assert!(Montant::parse(&"9".repeat(29), devise("XOF")).is_err());
+    }
+
+    #[test]
+    fn analyse_selon_l_echelle_de_la_devise_de_tenue() {
+        // XOF : aucune décimale significative.
+        assert_eq!(Montant::parse_tenue("1500", &xof()).unwrap(), m("1500"));
+        assert_eq!(
+            Montant::parse_tenue("1500.00", &xof()).unwrap().valeur(),
+            Decimal::from(1500)
+        );
+        assert_eq!(
+            Montant::parse_tenue("1500.5", &xof()),
+            Err(ErreurMontant::EchelleExcessive { decimales: 0 })
+        );
+        // CDF : deux décimales.
+        let attendu = Montant::parse("1500.25", devise("CDF")).unwrap();
+        assert_eq!(Montant::parse_tenue("1500.25", &cdf()).unwrap(), attendu);
+        assert_eq!(
+            Montant::parse_tenue("1500.255", &cdf()),
+            Err(ErreurMontant::EchelleExcessive { decimales: 2 })
+        );
+        // Zéros finaux écrits : acceptés (la forme canonique les retire).
+        assert!(Montant::parse_tenue("1500.250", &cdf()).is_ok());
+        // La devise du montant est celle de la tenue.
+        assert_eq!(
+            Montant::parse_tenue("1", &cdf()).unwrap().devise(),
+            devise("CDF")
+        );
+    }
+
+    #[test]
+    fn arrondi_moitie_eloignee_de_zero_selon_l_echelle() {
         let cas = [
             ("0.5", "1"),
             ("1.5", "2"),
@@ -293,35 +426,63 @@ mod tests {
             ("100", "100"),
         ];
         for (entree, attendu) in cas {
-            assert_eq!(xof(entree).arrondi_xof().unwrap(), xof(attendu), "{entree}");
+            assert_eq!(
+                m(entree).arrondi_tenue(&xof()).unwrap(),
+                m(attendu),
+                "{entree}"
+            );
         }
-        let eur = Montant::parse("1.5", Devise::parse("EUR").unwrap()).unwrap();
-        assert!(matches!(eur.arrondi_xof(), Err(ErreurMontant::PasEnXof(_))));
+        let cas_cdf = [
+            ("0.005", "0.01"),
+            ("1.004", "1.00"),
+            ("-0.005", "-0.01"),
+            ("2.675", "2.68"),
+        ];
+        for (entree, attendu) in cas_cdf {
+            let entree = Montant::parse(entree, devise("CDF")).unwrap();
+            assert_eq!(
+                entree.arrondi_tenue(&cdf()).unwrap().valeur().to_string(),
+                attendu
+            );
+        }
+        let eur = Montant::parse("1.5", devise("EUR")).unwrap();
+        assert!(matches!(
+            eur.arrondi_tenue(&xof()),
+            Err(ErreurMontant::PasEnDeviseTenue(_))
+        ));
     }
 
     #[test]
-    fn contre_valeur_en_xof() {
-        let eur = Devise::parse("EUR").unwrap();
+    fn contre_valeur_selon_l_echelle() {
+        let eur = devise("EUR");
         let cours = Cours::parse("655.957").unwrap();
-        let m = Montant::parse("100.00", eur).unwrap();
-        assert_eq!(m.contre_valeur_xof(cours).unwrap(), xof("65596"));
+        let montant = Montant::parse("100.00", eur).unwrap();
+        assert_eq!(
+            montant.contre_valeur_tenue(cours, &xof()).unwrap(),
+            m("65596")
+        );
+        // En CDF : deux décimales conservées (100 × 2,5551 = 255,51).
+        let cours = Cours::parse("2.5551").unwrap();
+        let en_cdf = montant.contre_valeur_tenue(cours, &cdf()).unwrap();
+        assert_eq!(en_cdf.valeur().to_string(), "255.51");
+        assert_eq!(en_cdf.devise(), devise("CDF"));
         assert!(Cours::parse("0").is_err());
         assert!(Cours::parse("-1").is_err());
     }
 
     #[test]
     fn operations_entre_devises_refusees() {
-        let eur = Montant::parse("1", Devise::parse("EUR").unwrap()).unwrap();
+        let eur = Montant::parse("1", devise("EUR")).unwrap();
         assert!(matches!(
-            xof("1").ajouter(&eur),
+            m("1").ajouter(&eur),
             Err(ErreurMontant::DevisesDifferentes(_, _))
         ));
-        assert!(xof("1").soustraire(&eur).is_err());
+        assert!(m("1").soustraire(&eur).is_err());
     }
 
     #[test]
     fn depassement_signale_sans_panique() {
-        let max = Montant::nouveau(Decimal::MAX, Devise::XOF);
+        let max = Montant::nouveau(Decimal::MAX, devise("XOF"));
         assert_eq!(max.ajouter(&max), Err(ErreurMontant::Depassement));
         assert_eq!(
             max.oppose().soustraire(&max),
@@ -329,7 +490,7 @@ mod tests {
         );
         let cours = Cours::nouveau(Decimal::MAX).unwrap();
         assert_eq!(
-            max.contre_valeur_xof(cours),
+            max.contre_valeur_tenue(cours, &xof()),
             Err(ErreurMontant::Depassement)
         );
     }
@@ -341,25 +502,47 @@ mod tests {
     proptest! {
         #[test]
         fn aller_retour_d_analyse(d in decimal_quelconque()) {
-            let m = Montant::nouveau(d, Devise::XOF);
-            let relu = Montant::parse(&d.to_string(), Devise::XOF).unwrap();
-            prop_assert_eq!(relu, m);
+            let attendu = Montant::nouveau(d, devise("XOF"));
+            let relu = Montant::parse(&d.to_string(), devise("XOF")).unwrap();
+            prop_assert_eq!(relu, attendu);
             prop_assert_eq!(relu.valeur().scale(), d.scale());
         }
 
         #[test]
         fn addition_puis_soustraction_sans_perte(a in decimal_quelconque(), b in decimal_quelconque()) {
-            let (a, b) = (Montant::nouveau(a, Devise::XOF), Montant::nouveau(b, Devise::XOF));
+            let (a, b) = (Montant::nouveau(a, devise("XOF")), Montant::nouveau(b, devise("XOF")));
             let somme = a.ajouter(&b).unwrap();
             prop_assert_eq!(somme.soustraire(&b).unwrap(), a);
             prop_assert_eq!(a.ajouter(&a.oppose()).unwrap().est_nul(), true);
         }
 
+        /// Arrondi par devise : à l'échelle de la tenue, au plus près, idempotent, et l'écart
+        /// ne dépasse jamais une demi-unité de la plus petite unité de la devise.
         #[test]
-        fn arrondi_au_plus_pres(d in decimal_quelconque()) {
-            let arrondi = Montant::nouveau(d, Devise::XOF).arrondi_xof().unwrap().valeur();
-            prop_assert_eq!(arrondi.scale(), 0);
-            prop_assert!((arrondi - d).abs() <= Decimal::new(5, 1));
+        fn arrondi_au_plus_pres_par_devise(d in decimal_quelconque(), decimales in 0u8..=4) {
+            let t = DeviseTenue::nouvelle(devise("ZZZ"), decimales).unwrap();
+            let arrondi = Montant::nouveau(d, devise("ZZZ")).arrondi_tenue(&t).unwrap().valeur();
+            prop_assert!(arrondi.scale() <= u32::from(decimales));
+            let demi = Decimal::new(5, u32::from(decimales) + 1);
+            prop_assert!((arrondi - d).abs() <= demi);
+            prop_assert_eq!(t.arrondir(arrondi), arrondi);
+        }
+
+        /// Un montant arrondi à l'échelle de la tenue est toujours accepté par l'analyse de saisie
+        /// de cette échelle ; un montant qui a une décimale de plus ne l'est jamais.
+        #[test]
+        fn analyse_de_saisie_et_echelle(unites in 0i64..1_000_000_000, decimales in 0u8..=4) {
+            let t = DeviseTenue::nouvelle(devise("ZZZ"), decimales).unwrap();
+            let valeur = Decimal::new(unites, u32::from(decimales));
+            prop_assert!(Montant::parse_tenue(&valeur.to_string(), &t).is_ok());
+            if decimales < 4 {
+                // Dernier chiffre non nul à l'échelle suivante.
+                let trop = Decimal::new(unites * 10 + 1, u32::from(decimales) + 1);
+                prop_assert_eq!(
+                    Montant::parse_tenue(&trop.to_string(), &t),
+                    Err(ErreurMontant::EchelleExcessive { decimales })
+                );
+            }
         }
     }
 }

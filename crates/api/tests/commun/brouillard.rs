@@ -93,6 +93,8 @@ pub async fn doter(
             l(c.caisse.as_str(), "debit"),
             l(c.banque.as_str(), "credit"),
         ],
+        devise_tenue: "XOF".to_owned(),
+        decimales_tenue: 0,
     };
     let id = Uuid::new_v4();
     creer(&mut tx, id, &contenu, time::OffsetDateTime::now_utc())

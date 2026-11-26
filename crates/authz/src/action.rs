@@ -104,6 +104,10 @@ actions! {
     AccederDossier => Dossier,
     /// Paramétrer plan, journaux, fiscalité (§20).
     ParametrerDossier => Dossier,
+    /// Modifier le contexte du dossier : pays, devise de tenue, fuseau, langue, forme juridique
+    /// (ADR 0027) ; administrateur du cabinet. La ré-authentification n'est exigée que si le pays
+    /// ou la devise changent : elle est contrôlée par le cas d'usage, pas par un invariant.
+    ModifierContexteDossier => Dossier,
     /// Déposer des pièces (§20).
     DeposerPiece => Dossier,
     /// Créer un brouillon (§20 « Saisir dans le brouillard »).

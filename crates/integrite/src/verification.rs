@@ -6,8 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, BufRead};
 
-use compta_core::{CodeExercice, CodeJournal, NumeroEcriture};
+use compta_core::{CodeExercice, CodeJournal, Devise, DeviseTenue, NumeroEcriture};
 
+use crate::canonique::EcritureCanonique;
 use crate::chaine::{Empreinte, IdDossier, chainer, genese};
 use crate::export::{Element, ErreurExport, ErreurLecture, JetonExporte, LecteurExport, Version};
 use crate::horodatage::{
@@ -68,6 +69,19 @@ pub enum Anomalie {
         numero: NumeroEcriture,
         /// Ligne de l'écriture.
         ligne: u64,
+    },
+    /// Écriture tenue dans une autre devise de tenue (ou à une autre échelle) que la première de
+    /// l'export : la devise de tenue est celle du dossier et ne change pas (`format-v5.md` §4,
+    /// ADR 0027).
+    TenueChangeante {
+        /// Écriture concernée.
+        numero: NumeroEcriture,
+        /// Ligne de l'écriture.
+        ligne: u64,
+        /// Devise de tenue de la première écriture de l'export.
+        attendue: Devise,
+        /// Devise de tenue de cette écriture.
+        trouvee: Devise,
     },
     /// Contre-passation d'une écriture absente de l'export ou postérieure.
     OrigineInconnue {
@@ -135,6 +149,16 @@ impl fmt::Display for Anomalie {
             Self::Desequilibre { numero, ligne } => {
                 write!(f, "{numero} (ligne {ligne}) : débits et crédits différents")
             }
+            Self::TenueChangeante {
+                numero,
+                ligne,
+                attendue,
+                trouvee,
+            } => write!(
+                f,
+                "{numero} (ligne {ligne}) : devise de tenue {trouvee} (ou échelle différente), \
+                 {attendue} attendue : la devise de tenue d'un dossier ne change pas"
+            ),
             Self::OrigineInconnue {
                 numero,
                 origine,
@@ -257,6 +281,27 @@ impl Rapport {
     }
 }
 
+/// La devise de tenue (et l'échelle) est celle de la première écriture de l'export : toute autre
+/// est signalée ([`Anomalie::TenueChangeante`]).
+fn controler_tenue(
+    rapport: &mut Rapport,
+    du_dossier: &mut Option<DeviseTenue>,
+    ecriture: &EcritureCanonique,
+    ligne: u64,
+) {
+    let (numero, tenue) = (ecriture.numero(), *ecriture.tenue());
+    match *du_dossier {
+        None => *du_dossier = Some(tenue),
+        Some(attendue) if attendue != tenue => rapport.signaler(Anomalie::TenueChangeante {
+            numero: numero.clone(),
+            ligne,
+            attendue: attendue.devise(),
+            trouvee: tenue.devise(),
+        }),
+        Some(_) => {}
+    }
+}
+
 /// Vérifie un export. Les défauts de forme et les altérations sont des anomalies du rapport ;
 /// seule une erreur d'entrée-sortie interrompt la vérification sans rapport.
 ///
@@ -289,6 +334,8 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
     let mut recalculee = genese(&dossier);
     let mut precedente_declaree = recalculee;
     let mut vus: BTreeSet<NumeroEcriture> = BTreeSet::new();
+    // Devise de tenue (et échelle) de la première écriture : celle du dossier, qui ne change pas.
+    let mut tenue_du_dossier: Option<DeviseTenue> = None;
     // Dernier rang lu par journal et exercice : la continuité se juge dans l'ordre de l'export.
     let mut derniers_lus: BTreeMap<(CodeJournal, CodeExercice), u32> = BTreeMap::new();
     loop {
@@ -317,6 +364,7 @@ pub fn verifier<R: BufRead>(entree: R, options: &Options) -> io::Result<Rapport>
                 }
                 precedente_declaree = empreinte;
                 controler_numero(&mut rapport, &mut derniers_lus, &numero, ligne);
+                controler_tenue(&mut rapport, &mut tenue_du_dossier, &ecriture, ligne);
                 if !ecriture.est_equilibree() {
                     rapport.signaler(Anomalie::Desequilibre {
                         numero: numero.clone(),
@@ -454,6 +502,7 @@ impl fmt::Display for Rapport {
             Some(Version::V2) => "export v2",
             Some(Version::V3) => "export v3",
             Some(Version::V4) => "export v4",
+            Some(Version::V5) => "export v5",
             None => "export illisible",
         };
         writeln!(f, "Sigma Books — vérification d'intégrité ({version})")?;
@@ -569,6 +618,12 @@ mod tests {
                 numero: numero.clone(),
                 ligne: 6,
             },
+            Anomalie::TenueChangeante {
+                numero: numero.clone(),
+                ligne: 7,
+                attendue: Devise::parse("CDF").unwrap(),
+                trouvee: Devise::parse("XOF").unwrap(),
+            },
             Anomalie::OrigineInconnue {
                 numero: numero.clone(),
                 origine: numero,
@@ -608,7 +663,7 @@ mod tests {
         }
         let texte = rapport.to_string();
         assert!(texte.contains("Dossier            : illisible"));
-        assert!(texte.contains("RÉSULTAT : ANOMALIES (11)"));
+        assert!(texte.contains("RÉSULTAT : ANOMALIES (12)"));
         assert!(texte.contains("ligne 3 : fin du fichier"));
         assert!(texte.contains("rang 000001 attendu"));
     }

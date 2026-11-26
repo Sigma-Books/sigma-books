@@ -11,7 +11,8 @@ mod commun;
 
 use commun::*;
 use compta_core::{
-    Balance, CodeExercice, Devise, Filtre, FormatBalance, Ligne, Mode, Montant, Regroupement, Sens,
+    Balance, CodeExercice, Devise, DeviseTenue, Filtre, FormatBalance, Ligne, Mode, Montant,
+    Regroupement, Sens,
 };
 use proptest::prelude::*;
 use rust_decimal::Decimal;
@@ -27,10 +28,11 @@ const FORMATS: [FormatBalance; 4] = [
 
 /// Ligne sur un compte du dossier de test ; un tiers est toujours fourni (comptes collectifs).
 fn ligne_test(compte: usize, sens: Sens, montant: Decimal) -> Ligne {
-    Ligne::en_xof(
+    Ligne::en_devise_tenue(
         n(COMPTES[compte]),
         sens,
-        Montant::nouveau(montant, Devise::XOF),
+        Montant::nouveau(montant, Devise::parse("XOF").unwrap()),
+        &DeviseTenue::nouvelle(Devise::parse("XOF").unwrap(), 0).unwrap(),
     )
     .unwrap()
     .avec_tiers(compta_core::IdTiers::parse("T").unwrap())

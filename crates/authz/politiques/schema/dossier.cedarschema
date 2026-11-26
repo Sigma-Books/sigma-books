@@ -25,6 +25,8 @@ namespace Sigma {
   action AccederDossier appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // §20 « Paramétrer plan, journaux, fiscalité » (référentiel du dossier).
   action ParametrerDossier appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Modifier le contexte du dossier (pays, devise de tenue, fuseau, langue ; ADR 0027).
+  action ModifierContexteDossier appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // §20 « Déposer des pièces ».
   action DeposerPiece appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // §20 « Saisir, corriger dans le brouillard » (création d'un brouillon).

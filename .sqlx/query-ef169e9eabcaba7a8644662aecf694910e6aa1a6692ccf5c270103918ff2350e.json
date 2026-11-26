@@ -1,0 +1,137 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT cabinet_id, id, nom, cree_le, pays, devise_tenue, decimales_tenue, fuseau, langue, forme_juridique FROM dossier WHERE cabinet_id = $1 AND ($2::uuid IS NULL OR id = $2) ORDER BY nom, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cabinet_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "cabinet_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "cree_le"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "pays",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "pays"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "devise_tenue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "devise_tenue"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "decimales_tenue",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "decimales_tenue"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fuseau",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "fuseau"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "langue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "langue"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "forme_juridique",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "dossier",
+            "name": "forme_juridique"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ef169e9eabcaba7a8644662aecf694910e6aa1a6692ccf5c270103918ff2350e"
+}

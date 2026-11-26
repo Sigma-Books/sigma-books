@@ -1,8 +1,11 @@
-//! Sérialisation canonique d'une écriture validée, format **v1** (spec §6.4).
+//! Sérialisation canonique d'une écriture validée, formats **v1** à **v4** (spec §6.4).
 //!
-//! Le format est décrit dans `docs/integrite/format-v1.md`. Il est **figé** : toute
-//! modification produit une version 2, jamais un changement silencieux (vecteurs de test dans
-//! `tests/vecteurs/`).
+//! Le format est décrit dans `docs/integrite/format-v1.md` (puis `format-v3.md`, `format-v4.md`,
+//! `format-v5.md`). Il est **figé** : toute modification produit une nouvelle version, jamais un
+//! changement silencieux (vecteurs de test dans `tests/vecteurs/`). La version est choisie par
+//! le **contenu** : une écriture tenue en XOF (sans décimale), la devise de tenue historique,
+//! garde son format v1, v2 ou v3 à l'identique ; toute autre devise de tenue exige la v4, qui
+//! porte la devise de tenue et son échelle (ADR 0027).
 //!
 //! Une écriture s'écrit en texte UTF-8, une donnée par ligne (`cle=valeur`, fin de ligne `\n`),
 //! dans un ordre fixe. Les valeurs ne contiennent jamais de fin de ligne : les textes saisis
@@ -13,9 +16,9 @@
 use std::fmt::Write as _;
 
 use compta_core::{
-    CodeMotif, CodeRegime, Cours, Devise, EcritureValidee, EtiquetteRelue, Exigibilite, IdTiers,
-    Ligne, Montant, NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva,
-    TauxTva, TexteCourt, VersionParametres,
+    CodeMotif, CodeRegime, Cours, Devise, DeviseTenue, EcritureValidee, EtiquetteRelue,
+    Exigibilite, IdTiers, Ligne, Montant, NatureEtiquette, NumeroCompte, NumeroEcriture,
+    ReferencePiece, Sens, SensTva, TauxTva, TexteCourt, VersionParametres,
 };
 use rust_decimal::Decimal;
 use time::{Date, Month};
@@ -29,6 +32,13 @@ pub const ENTETE_V2: &str = "ecriture v2";
 /// (ADR 0019) ; la date de valeur comptable y est facultative. Une écriture sans étiquette
 /// garde son format v1 ou v2, à l'identique.
 pub const ENTETE_V3: &str = "ecriture v3";
+/// Première ligne d'une écriture au format v4 : v3 et la devise de tenue du dossier avec son
+/// échelle décimale (ADR 0027). Réservée aux dossiers dont la devise de tenue n'est pas le XOF
+/// sans décimale ; les autres gardent leur format v1, v2 ou v3, à l'identique.
+pub const ENTETE_V4: &str = "ecriture v4";
+/// Devise de tenue des formats v1 à v3, qui ne la mentionnent pas : le franc CFA (XOF), sans
+/// décimale.
+const DEVISE_TENUE_HERITEE: &str = "XOF";
 /// Dernière ligne d'une écriture.
 pub const FIN: &str = "fin";
 /// Marqueur d'une ligne d'écriture.
@@ -53,10 +63,13 @@ pub enum ErreurCanonique {
         /// Clé concernée.
         cle: &'static str,
     },
-    /// La contre-valeur XOF d'une ligne en devise ne correspond pas au montant et au cours.
-    #[error("ligne {ligne} : contre-valeur XOF incohérente avec le montant en devise et le cours")]
+    /// La contre-valeur en devise de tenue d'une ligne en devise ne correspond pas au montant et
+    /// au cours.
+    #[error(
+        "ligne {ligne} : contre-valeur en devise de tenue incohérente avec le montant en devise et le cours"
+    )]
     ContreValeurIncoherente {
-        /// Ligne du montant XOF.
+        /// Ligne du montant en devise de tenue.
         ligne: usize,
     },
     /// Étiquette fiscale d'une ligne incohérente (taxe avec motif, motif hors régime).
@@ -99,6 +112,7 @@ pub struct EcritureCanonique {
     date: Date,
     date_validation: Date,
     date_valeur_comptable: Option<Date>,
+    tenue: DeviseTenue,
     libelle: TexteCourt,
     origine: Option<NumeroEcriture>,
     parametres: Option<VersionParametres>,
@@ -119,6 +133,7 @@ impl EcritureCanonique {
             date: ecriture.date(),
             date_validation: ecriture.date_validation(),
             date_valeur_comptable: ecriture.date_valeur_comptable(),
+            tenue: *ecriture.tenue(),
             libelle: ecriture.libelle().clone(),
             origine: ecriture.origine().cloned(),
             parametres: ecriture.version_parametres().cloned(),
@@ -162,7 +177,8 @@ impl EcritureCanonique {
         &self.etiquettes
     }
 
-    /// Vrai si le total des débits égale le total des crédits (en XOF) et s'il y a des lignes.
+    /// Vrai si le total des débits égale le total des crédits (en devise de tenue) et s'il y a
+    /// des lignes.
     #[must_use]
     pub fn est_equilibree(&self) -> bool {
         let debit: Decimal = self.lignes.iter().map(Ligne::debit).sum();
@@ -176,14 +192,43 @@ impl EcritureCanonique {
         self.etiquettes.iter().any(Option::is_some)
     }
 
-    /// Date de valeur comptable (formats v2 et v3).
+    /// Devise de tenue et échelle de l'écriture (celles du dossier ; XOF sans décimale pour les
+    /// formats v1 à v3, qui ne les mentionnent pas).
+    #[must_use]
+    pub fn tenue(&self) -> &DeviseTenue {
+        &self.tenue
+    }
+
+    /// Vrai si la devise de tenue diffère de celle des formats v1 à v3 (XOF, sans décimale) :
+    /// l'écriture est alors au format v4.
+    #[must_use]
+    pub fn a_une_tenue_propre(&self) -> bool {
+        tenue_heritee().is_none_or(|h| h != self.tenue)
+    }
+
+    /// Version du format de l'écriture (1 à 4), choisie par son contenu.
+    #[must_use]
+    pub fn version(&self) -> u8 {
+        if self.a_une_tenue_propre() {
+            4
+        } else if self.a_une_etiquette() {
+            3
+        } else if self.date_valeur_comptable.is_some() {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// Date de valeur comptable (formats v2 à v4).
     #[must_use]
     pub fn date_valeur_comptable(&self) -> Option<Date> {
         self.date_valeur_comptable
     }
 
-    /// Sérialisation canonique : les octets hachés. Format v3 si une ligne porte une étiquette
-    /// fiscale, sinon v2 si l'écriture porte une date de valeur comptable, sinon v1.
+    /// Sérialisation canonique : les octets hachés. Format v4 si la devise de tenue n'est pas le
+    /// XOF sans décimale, sinon v3 si une ligne porte une étiquette fiscale, sinon v2 si
+    /// l'écriture porte une date de valeur comptable, sinon v1.
     #[must_use]
     pub fn serialiser(&self) -> String {
         let mut s = String::new();
@@ -196,6 +241,10 @@ impl EcritureCanonique {
         cle("date-validation", &DateIso(self.date_validation));
         if let Some(date_valeur) = self.date_valeur_comptable {
             cle("date-valeur-comptable", &DateIso(date_valeur));
+        }
+        if self.a_une_tenue_propre() {
+            cle("devise-tenue", &self.tenue.devise());
+            cle("decimales-tenue", &self.tenue.decimales());
         }
         cle("libelle", &self.libelle);
         if let Some(origine) = &self.origine {
@@ -251,17 +300,16 @@ impl EcritureCanonique {
                 }
             }
         }
-        let entete = if self.a_une_etiquette() {
-            ENTETE_V3
-        } else if self.date_valeur_comptable.is_some() {
-            ENTETE_V2
-        } else {
-            ENTETE_V1
+        let entete = match self.version() {
+            4 => ENTETE_V4,
+            3 => ENTETE_V3,
+            2 => ENTETE_V2,
+            _ => ENTETE_V1,
         };
         format!("{entete}\n{s}{corps}{FIN}\n")
     }
 
-    /// Lit une écriture au format v1, v2 ou v3 et vérifie que le texte est exactement sa forme
+    /// Lit une écriture au format v1, v2, v3 ou v4 et vérifie que le texte est exactement sa forme
     /// canonique.
     ///
     /// # Errors
@@ -274,6 +322,12 @@ impl EcritureCanonique {
             Err(ErreurCanonique::NonCanonique)
         }
     }
+}
+
+/// Devise de tenue des formats v1 à v3.
+fn tenue_heritee() -> Option<DeviseTenue> {
+    let devise = Devise::parse(DEVISE_TENUE_HERITEE).ok()?;
+    DeviseTenue::nouvelle(devise, 0).ok()
 }
 
 /// Nombre décimal sous forme canonique : sans zéro superflu, sans exposant (`228.67`, `150000`).
@@ -403,6 +457,7 @@ impl<'a> Lecteur<'a> {
             Some((_, ENTETE_V1)) => 1,
             Some((_, ENTETE_V2)) => 2,
             Some((_, ENTETE_V3)) => 3,
+            Some((_, ENTETE_V4)) => 4,
             Some((ligne, _)) => {
                 return Err(ErreurCanonique::Attendu {
                     ligne,
@@ -424,6 +479,18 @@ impl<'a> Lecteur<'a> {
             2 => Some(self.valeur("date-valeur-comptable", |v| lire_date(v).ok_or(()))?),
             _ => self.valeur_optionnelle("date-valeur-comptable", |v| lire_date(v).ok_or(()))?,
         };
+        let tenue = if version >= 4 {
+            let devise = self.valeur("devise-tenue", Devise::parse)?;
+            self.valeur("decimales-tenue", |v| match v.as_bytes() {
+                &[c] if c.is_ascii_digit() => DeviseTenue::nouvelle(devise, c - b'0'),
+                _ => Err(compta_core::ErreurMontant::EchelleInvalide(u8::MAX)),
+            })?
+        } else {
+            tenue_heritee().ok_or(ErreurCanonique::Attendu {
+                ligne: 0,
+                attendu: "devise-tenue",
+            })?
+        };
         let libelle = self.valeur("libelle", TexteCourt::parse)?;
         let origine = self.valeur_optionnelle("origine", NumeroEcriture::parse)?;
         let parametres = self.valeur_optionnelle("parametres", VersionParametres::parse)?;
@@ -442,7 +509,7 @@ impl<'a> Lecteur<'a> {
         loop {
             match self.suivante() {
                 Some((_, l)) if l == LIGNE => {
-                    let (ligne, etiquette) = self.ligne(version >= 3)?;
+                    let (ligne, etiquette) = self.ligne(version >= 3, tenue, version >= 4)?;
                     lignes.push(ligne);
                     etiquettes.push(etiquette);
                 }
@@ -477,6 +544,7 @@ impl<'a> Lecteur<'a> {
             date,
             date_validation,
             date_valeur_comptable,
+            tenue,
             libelle,
             origine,
             parametres,
@@ -512,9 +580,14 @@ impl<'a> Lecteur<'a> {
         Ok(JustificationCanonique::Pieces(pieces))
     }
 
+    /// Une ligne d'écriture. `echelle_stricte` (format v4) : un montant de ligne qui a plus de
+    /// décimales que l'échelle de la devise de tenue est refusé ; les formats v1 à v3 n'imposent
+    /// aucune échelle (des écritures XOF avec décimales ont été validées, ADR 0020 point 6).
     fn ligne(
         &mut self,
         avec_etiquette: bool,
+        tenue: DeviseTenue,
+        echelle_stricte: bool,
     ) -> Result<(Ligne, Option<EtiquetteRelue>), ErreurCanonique> {
         let compte = self.valeur("compte", NumeroCompte::parse)?;
         let sens = self.valeur("sens", |v| match v {
@@ -523,27 +596,32 @@ impl<'a> Lecteur<'a> {
             _ => Err(()),
         })?;
         let (ligne_montant, montant) = self.cle("montant")?;
-        let montant =
-            Montant::parse(montant, Devise::XOF).map_err(|_| ErreurCanonique::ValeurInvalide {
-                ligne: ligne_montant,
-                cle: "montant",
-            })?;
+        let montant_invalide = || ErreurCanonique::ValeurInvalide {
+            ligne: ligne_montant,
+            cle: "montant",
+        };
+        let montant = if echelle_stricte {
+            Montant::parse_tenue(montant, &tenue)
+        } else {
+            Montant::parse(montant, tenue.devise())
+        }
+        .map_err(|_| montant_invalide())?;
         let ligne = match self.valeur_optionnelle("devise", |v| {
             Devise::parse(v)
                 .ok()
-                .filter(|d| *d != Devise::XOF)
+                .filter(|d| *d != tenue.devise())
                 .ok_or(())
         })? {
             Some(devise) => {
                 let montant_devise =
                     self.valeur("montant-devise", |v| Montant::parse(v, devise))?;
                 let cours = self.valeur("cours", Cours::parse)?;
-                let l = Ligne::en_devise(compte, sens, montant_devise, cours).map_err(|_| {
-                    ErreurCanonique::ValeurInvalide {
+                let l = Ligne::en_devise(compte, sens, montant_devise, cours, &tenue).map_err(
+                    |_| ErreurCanonique::ValeurInvalide {
                         ligne: ligne_montant,
                         cle: "montant-devise",
-                    }
-                })?;
+                    },
+                )?;
                 if l.montant() != montant {
                     return Err(ErreurCanonique::ContreValeurIncoherente {
                         ligne: ligne_montant,
@@ -551,12 +629,8 @@ impl<'a> Lecteur<'a> {
                 }
                 l
             }
-            None => Ligne::en_xof(compte, sens, montant).map_err(|_| {
-                ErreurCanonique::ValeurInvalide {
-                    ligne: ligne_montant,
-                    cle: "montant",
-                }
-            })?,
+            None => Ligne::en_devise_tenue(compte, sens, montant, &tenue)
+                .map_err(|_| montant_invalide())?,
         };
         let ligne = match self.valeur_optionnelle("tiers", IdTiers::parse)? {
             Some(tiers) => ligne.avec_tiers(tiers),
@@ -674,7 +748,7 @@ mod tests {
             })
         );
         assert!(
-            EcritureCanonique::lire(&v1.replacen("ecriture v1\n", "ecriture v4\n", 1)).is_err()
+            EcritureCanonique::lire(&v1.replacen("ecriture v1\n", "ecriture v5\n", 1)).is_err()
         );
     }
 
@@ -718,6 +792,103 @@ mod tests {
             "fiscal-regime=EXO361\nfiscal-motif=EXO361-7\nligne",
         );
         assert!(EcritureCanonique::lire(&exo).is_ok());
+    }
+
+    /// Exemple v4 : dossier en CDF (deux décimales), une ligne en EUR dont la contre-valeur
+    /// (100,55 EUR × 2 827,3333 = 284 288,363315) est arrondie au centime.
+    fn exemple_v4() -> String {
+        format!(
+            "ecriture v4\nnumero=VT-2026-000007\ndate=2026-03-15\ndate-validation=2026-03-16\n\
+             devise-tenue=CDF\ndecimales-tenue=2\n\
+             libelle=Vente\npiece={}\n\
+             ligne\ncompte=4111\nsens=D\nmontant=284288.36\ndevise=EUR\n\
+             montant-devise=100.55\ncours=2827.3333\n\
+             ligne\ncompte=7011\nsens=C\nmontant=284288.36\nfin\n",
+            "ab".repeat(32)
+        )
+    }
+
+    #[test]
+    fn version_v4_et_devise_de_tenue() {
+        let v4 = exemple_v4();
+        let e = EcritureCanonique::lire(&v4).unwrap();
+        assert_eq!(e.serialiser(), v4);
+        assert_eq!(e.version(), 4);
+        assert_eq!(e.tenue().devise().code(), "CDF");
+        assert_eq!(e.tenue().decimales(), 2);
+        assert!(e.est_equilibree());
+        // La devise de tenue est dans le contenu haché : même écriture en XAF, autre texte.
+        let xaf = v4
+            .replacen(
+                "devise-tenue=CDF\ndecimales-tenue=2",
+                "devise-tenue=XAF\ndecimales-tenue=0",
+                1,
+            )
+            .replace("284288.36", "284288");
+        assert_ne!(xaf, v4);
+        assert!(
+            EcritureCanonique::lire(&xaf).is_ok(),
+            "XAF : {:?}",
+            EcritureCanonique::lire(&xaf)
+        );
+        // Un v4 en XOF sans décimale n'a pas de forme canonique (ce serait une v1 ou une v3).
+        let xof = xaf.replacen("devise-tenue=XAF", "devise-tenue=XOF", 1);
+        assert_eq!(
+            EcritureCanonique::lire(&xof),
+            Err(ErreurCanonique::NonCanonique)
+        );
+        // Une ligne en « devise » ne peut pas être dans la devise de tenue.
+        let meme = v4.replacen("devise=EUR", "devise=CDF", 1);
+        assert!(EcritureCanonique::lire(&meme).is_err());
+        // Clés de tenue manquantes, en désordre, échelle invalide ou non canonique.
+        for (avant, apres) in [
+            ("devise-tenue=CDF\n", ""),
+            ("decimales-tenue=2\n", ""),
+            ("decimales-tenue=2", "decimales-tenue=5"),
+            ("decimales-tenue=2", "decimales-tenue=02"),
+            ("decimales-tenue=2", "decimales-tenue=+2"),
+            ("devise-tenue=CDF", "devise-tenue=cdf"),
+        ] {
+            assert!(
+                EcritureCanonique::lire(&v4.replacen(avant, apres, 1)).is_err(),
+                "{apres}"
+            );
+        }
+        // Les clés de tenue sont refusées hors du format v4.
+        let v1 = exemple().replacen(
+            "libelle=",
+            "devise-tenue=XAF\ndecimales-tenue=0\nlibelle=",
+            1,
+        );
+        assert!(EcritureCanonique::lire(&v1).is_err());
+        // Échelle stricte en v4 : trop de décimales pour le CDF.
+        let trop = v4.replacen("sens=C\nmontant=284288.36", "sens=C\nmontant=284288.363", 1);
+        assert!(matches!(
+            EcritureCanonique::lire(&trop),
+            Err(ErreurCanonique::ValeurInvalide { cle: "montant", .. })
+        ));
+        // Les formats v1 à v3 ne changent pas : un exemple XOF reste v1, octet pour octet.
+        assert_eq!(EcritureCanonique::lire(&exemple()).unwrap().version(), 1);
+        assert!(
+            !EcritureCanonique::lire(&exemple())
+                .unwrap()
+                .a_une_tenue_propre()
+        );
+    }
+
+    #[test]
+    fn xof_avec_decimales_relu_en_v1_a_v3() {
+        // Des écritures XOF avec décimales ont été validées (ADR 0020 point 6) : leur relecture
+        // reste possible, sans contrôle d'échelle, et leur forme ne change pas.
+        let texte = exemple().replace(
+            "montant=149998\nligne\ncompte=4111",
+            "montant=149998.5\nligne\ncompte=4111",
+        );
+        assert_ne!(texte, exemple());
+        // Déséquilibrée (149998,5 contre 149998) mais lisible : la forme est valide.
+        let e = EcritureCanonique::lire(&texte).unwrap();
+        assert_eq!(e.serialiser(), texte);
+        assert_eq!(e.version(), 1);
     }
 
     #[test]
@@ -920,7 +1091,21 @@ mod tests {
                 )
         }
 
-        fn ligne() -> impl Strategy<Value = (Ligne, Option<EtiquetteRelue>)> {
+        /// Devises de tenue : le XOF historique, d'autres à zéro décimale, le CDF à deux, et un XOF
+        /// à deux décimales (qui diffère du XOF historique donc exige la v4).
+        fn tenue() -> impl Strategy<Value = DeviseTenue> {
+            prop_oneof![
+                Just(("XOF", 0u8)),
+                Just(("XAF", 0)),
+                Just(("KMF", 0)),
+                Just(("CDF", 2)),
+                Just(("XOF", 2)),
+                Just(("EUR", 4)),
+            ]
+            .prop_map(|(code, d)| DeviseTenue::nouvelle(Devise::parse(code).unwrap(), d).unwrap())
+        }
+
+        fn ligne(tenue: DeviseTenue) -> impl Strategy<Value = (Ligne, Option<EtiquetteRelue>)> {
             let compte = prop_oneof![Just("4111"), Just("521"), Just("605"), Just("4011-SENELEC")]
                 .prop_map(|c| NumeroCompte::parse(c).unwrap());
             let sens = prop_oneof![Just(Sens::Debit), Just(Sens::Credit)];
@@ -938,21 +1123,26 @@ mod tests {
             )
                 .prop_filter_map(
                     "ligne valide",
-                    |(compte, sens, xof, devise, tiers, etiquette)| {
+                    move |(compte, sens, unites, devise, tiers, etiquette)| {
                         let ligne = match devise {
-                            None => Ligne::en_xof(
+                            None => Ligne::en_devise_tenue(
                                 compte,
                                 sens,
-                                Montant::nouveau(Decimal::new(xof, 0), Devise::XOF),
+                                Montant::nouveau(
+                                    Decimal::new(unites, u32::from(tenue.decimales())),
+                                    tenue.devise(),
+                                ),
+                                &tenue,
                             ),
                             Some((montant, cours)) => Ligne::en_devise(
                                 compte,
                                 sens,
                                 Montant::nouveau(
                                     Decimal::new(montant, 2),
-                                    Devise::parse("EUR").ok()?,
+                                    Devise::parse("GBP").ok()?,
                                 ),
                                 Cours::nouveau(Decimal::new(cours, 3)).ok()?,
+                                &tenue,
                             ),
                         }
                         .ok()?;
@@ -966,7 +1156,8 @@ mod tests {
         }
 
         prop_compose! {
-            fn ecriture()(
+            fn ecriture()(tenue in tenue())(
+                tenue in Just(tenue),
                 rang in 1u32..999_999,
                 date in date(),
                 date_validation in date(),
@@ -976,16 +1167,18 @@ mod tests {
                 parametres in proptest::option::of("[a-z0-9.-]{1,12}"),
                 pieces in proptest::collection::btree_set("[0-9a-f]{64}", 1..4),
                 sans_piece in proptest::option::weighted(0.2, texte()),
-                lignes_etiquetees in proptest::collection::vec(ligne(), 1..6),
+                lignes_etiquetees in proptest::collection::vec(ligne(tenue), 1..6),
             ) -> EcritureCanonique {
                 let (lignes, etiquettes): (Vec<Ligne>, Vec<Option<EtiquetteRelue>>) =
                     lignes_etiquetees.into_iter().unzip();
                 let numero = |r: u32| NumeroEcriture::parse(&format!("OD-2026-{r:06}")).unwrap();
+                let tenue_propre = tenue_heritee().is_none_or(|h| h != tenue);
                 EcritureCanonique {
                     numero: numero(rang),
                     date,
                     date_validation,
                     date_valeur_comptable,
+                    tenue,
                     libelle,
                     origine: origine.map(numero),
                     parametres: parametres.map(|p| VersionParametres::parse(&p).unwrap()),
@@ -993,7 +1186,8 @@ mod tests {
                     justification: match sans_piece {
                         Some(motif)
                             if date_valeur_comptable.is_none()
-                                && etiquettes.iter().all(Option::is_none) =>
+                                && etiquettes.iter().all(Option::is_none)
+                                && !tenue_propre =>
                         {
                             JustificationCanonique::SansPiece(motif)
                         }
@@ -1011,15 +1205,19 @@ mod tests {
             #![proptest_config(ProptestConfig::with_cases(512))]
 
             /// Menace F7.3 : la sérialisation est injective. Toute écriture se relit exactement
-            /// depuis sa forme canonique (v1, v2 avec date de valeur comptable, v3 avec étiquette) ; deux
-            /// écritures distinctes ont donc des formes canoniques distinctes.
+            /// depuis sa forme canonique (v1, v2 avec date de valeur comptable, v3 avec étiquette,
+            /// v4 avec une devise de tenue autre que le XOF historique) ; deux écritures
+            /// distinctes ont donc des formes canoniques distinctes.
             #[test]
             fn serialisation_injective(a in ecriture(), b in ecriture()) {
                 let (ta, tb) = (a.serialiser(), b.serialiser());
                 prop_assert_eq!(EcritureCanonique::lire(&ta), Ok(a.clone()));
-                // Version choisie par le contenu : v3 si une étiquette, sinon v2 si une date de
-                // valeur comptable, sinon v1.
-                let attendu = if a.a_une_etiquette() {
+                // Version choisie par le contenu : v4 si la devise de tenue n'est pas le XOF
+                // historique, sinon v3 si une étiquette, sinon v2 si une date de valeur
+                // comptable, sinon v1.
+                let attendu = if a.a_une_tenue_propre() {
+                    ENTETE_V4
+                } else if a.a_une_etiquette() {
                     ENTETE_V3
                 } else if a.date_valeur_comptable.is_some() {
                     ENTETE_V2

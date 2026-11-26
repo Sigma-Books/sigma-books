@@ -7,9 +7,9 @@ mod commun;
 
 use commun::*;
 use compta_core::{
-    Balance, Centralisateur, CodeExercice, Devise, EcritureEquilibree, Exercices, Filtre,
-    FinPremierExercice, Ligne, Mode, MoisCivil, Montant, Regroupement, RubriqueCentralisateur,
-    Sens,
+    Balance, Centralisateur, CodeExercice, Devise, DeviseTenue, EcritureEquilibree, Exercices,
+    Filtre, FinPremierExercice, Ligne, Mode, MoisCivil, Montant, Regroupement,
+    RubriqueCentralisateur, Sens,
 };
 use std::collections::BTreeMap;
 
@@ -346,10 +346,11 @@ const COMPTES: [&str; 6] = ["4011", "4111", "521", "571", "6052", "7011"];
 const JOURNAUX: [&str; 6] = ["AC", "VT", "OD", "PA", "IN", "AN"];
 
 fn ligne_test(compte: usize, sens: Sens, montant: Decimal) -> Ligne {
-    Ligne::en_xof(
+    Ligne::en_devise_tenue(
         n(COMPTES[compte]),
         sens,
-        Montant::nouveau(montant, Devise::XOF),
+        Montant::nouveau(montant, Devise::parse("XOF").unwrap()),
+        &DeviseTenue::nouvelle(Devise::parse("XOF").unwrap(), 0).unwrap(),
     )
     .unwrap()
     .avec_tiers(compta_core::IdTiers::parse("T").unwrap())

@@ -167,7 +167,7 @@ async fn creation_d_une_entite_nouvelle_et_d_un_dossier_repris() {
         &routeur,
         &c,
         &format!(
-            r#"{{"nom":"Entité nouvelle","nature":"creation","debut_activite":"{annee}-09-15","fin_premier_exercice":"annee_suivante"}}"#
+            r#"{{"nom":"Entité nouvelle","pays":"SN","nature":"creation","debut_activite":"{annee}-09-15","fin_premier_exercice":"annee_suivante"}}"#
         ),
     )
     .await;
@@ -242,7 +242,7 @@ async fn creation_d_un_dossier_repris_et_refus_avant_toute_ecriture() {
     let r = creer(
         &routeur,
         &c,
-        &format!(r#"{{"nom":"Entité reprise","nature":"reprise","annee":{annee}}}"#),
+        &format!(r#"{{"nom":"Entité reprise","pays":"SN","nature":"reprise","annee":{annee}}}"#),
     )
     .await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
@@ -267,12 +267,15 @@ async fn creation_d_un_dossier_repris_et_refus_avant_toute_ecriture() {
     };
     let avant = dossiers(&env).await;
     for corps in [
-        format!(r#"{{"nom":"X","nature":"reprise","annee":{}}}"#, annee + 1),
         format!(
-            r#"{{"nom":"X","nature":"creation","debut_activite":"{annee}-03-01","fin_premier_exercice":"annee_suivante"}}"#
+            r#"{{"nom":"X","pays":"SN","nature":"reprise","annee":{}}}"#,
+            annee + 1
         ),
         format!(
-            r#"{{"nom":"X","nature":"reprise","annee":{annee},"debut_activite":"{annee}-01-01"}}"#
+            r#"{{"nom":"X","pays":"SN","nature":"creation","debut_activite":"{annee}-03-01","fin_premier_exercice":"annee_suivante"}}"#
+        ),
+        format!(
+            r#"{{"nom":"X","pays":"SN","nature":"reprise","annee":{annee},"debut_activite":"{annee}-01-01"}}"#
         ),
         r#"{"nom":"X"}"#.to_owned(),
     ] {
@@ -301,7 +304,9 @@ async fn une_transaction_en_echec_ne_laisse_rien() {
     )
     .await
     .unwrap();
-    let dossier = creer_dossier(&mut tx, "Dossier").await.unwrap();
+    let dossier = creer_dossier(&mut tx, "Dossier", &commun::contexte_dossier_sn())
+        .await
+        .unwrap();
     instancier(&mut tx, dossier.id, &i).await.unwrap();
     // Une seconde instanciation échoue (unicité) : la transaction est perdue.
     let erreur = instancier(&mut tx, dossier.id, &i).await.unwrap_err();

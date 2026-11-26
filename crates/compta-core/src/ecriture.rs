@@ -7,12 +7,15 @@
 //! - Une [`Ligne`] porte un débit **ou** un crédit strictement positif (invariant 2) : c'est
 //!   garanti à sa construction, une ligne nulle ou négative est irreprésentable.
 //! - Une ligne en devise conserve la devise, le montant en devise, le cours et la contre-valeur
-//!   XOF, **calculée par le moteur** et arrondie au franc (spec §6.6, principe 8).
-//! - L'équilibre ∑D = ∑C est vérifié en XOF. Si **toutes** les lignes sont dans une même devise
-//!   étrangère, il est aussi vérifié dans cette devise (invariant 1, décision du mainteneur du
-//!   2026-11-18). Une écriture qui mêle XOF et devise, ou plusieurs devises (encaissement en
-//!   EUR sur une banque en XOF), n'est équilibrée qu'en XOF : l'écart de change se constate au
-//!   lettrage (L3) et à la clôture (L6), comme dans Tryton et Odoo.
+//!   en **devise de tenue**, **calculée par le moteur** et arrondie à l'échelle de cette devise
+//!   (spec §6.6, principe 8). La devise de tenue du dossier et son échelle sont passées en
+//!   paramètre ([`DeviseTenue`], ADR 0027) : le moteur n'en suppose aucune.
+//! - L'équilibre ∑D = ∑C est vérifié en devise de tenue. Si **toutes** les lignes sont dans une
+//!   même devise étrangère, il est aussi vérifié dans cette devise (invariant 1, décision du
+//!   mainteneur du 2026-11-18). Une écriture qui mêle devise de tenue et devise, ou plusieurs
+//!   devises (encaissement en EUR sur une banque en XOF), n'est équilibrée qu'en devise de
+//!   tenue : l'écart de change se constate au lettrage (L3) et à la clôture (L6), comme dans
+//!   Tryton et Odoo.
 //!
 //! Comme dans Tryton (`account.move`, état `draft` puis `posted`), une écriture vide ou
 //! déséquilibrée reste au brouillard. Contrairement à Tryton, une ligne à zéro est refusée
@@ -26,7 +29,7 @@ use time::Date;
 use crate::compte::NumeroCompte;
 use crate::etiquette::EtiquetteFiscale;
 use crate::journal::CodeJournal;
-use crate::montant::{Cours, Devise, ErreurMontant, Montant};
+use crate::montant::{Cours, Devise, DeviseTenue, ErreurMontant, Montant};
 use crate::texte::{ErreurTexte, TexteCourt};
 
 /// Longueur d'une empreinte SHA-256 écrite en hexadécimal.
@@ -38,14 +41,17 @@ pub enum ErreurEcriture {
     /// Montant d'une ligne nul ou négatif (invariant 2).
     #[error("le montant d'une ligne doit être strictement positif : {0}")]
     MontantNonPositif(Montant),
-    /// Ligne « en XOF » construite avec un montant dans une autre devise.
-    #[error("ligne en XOF attendue, montant en {0}")]
-    PasEnXof(Devise),
-    /// Ligne « en devise » construite avec un montant en XOF.
-    #[error("une ligne en devise exige une devise autre que XOF")]
-    DeviseXof,
-    /// Contre-valeur XOF nulle après arrondi au franc.
-    #[error("contre-valeur XOF nulle après arrondi : {0} au cours {1}")]
+    /// Ligne « en devise de tenue » construite avec un montant dans une autre devise.
+    #[error("ligne en devise de tenue attendue, montant en {0}")]
+    PasEnDeviseTenue(Devise),
+    /// Ligne « en devise » construite avec un montant dans la devise de tenue.
+    #[error("une ligne en devise exige une devise autre que la devise de tenue")]
+    DeviseDeTenue,
+    /// Lignes tenues dans des devises de tenue différentes (jamais produit par un dossier).
+    #[error("lignes en devises de tenue différentes : {0} et {1}")]
+    TenuesDifferentes(Devise, Devise),
+    /// Contre-valeur nulle après arrondi à l'échelle de la devise de tenue.
+    #[error("contre-valeur nulle après arrondi : {0} au cours {1}")]
     ContreValeurNulle(Montant, Decimal),
     /// Erreur de calcul sur un montant.
     #[error("montant : {0}")]
@@ -68,9 +74,13 @@ pub enum ErreurEcriture {
     /// Indice de ligne hors de l'écriture.
     #[error("ligne {0} inexistante")]
     LigneInexistante(usize),
-    /// ∑D ≠ ∑C en XOF.
-    #[error("écriture déséquilibrée en XOF : débit {debit}, crédit {credit}")]
-    DesequilibreXof {
+    /// ∑D ≠ ∑C en devise de tenue.
+    #[error(
+        "écriture déséquilibrée en {devise} (devise de tenue) : débit {debit}, crédit {credit}"
+    )]
+    DesequilibreTenue {
+        /// Devise de tenue.
+        devise: Devise,
         /// Total des débits.
         debit: Decimal,
         /// Total des crédits.
@@ -257,7 +267,7 @@ pub struct MontantDevise {
 }
 
 impl MontantDevise {
-    /// Montant en devise (strictement positif, devise autre que XOF).
+    /// Montant en devise (strictement positif, devise autre que la devise de tenue).
     #[must_use]
     pub fn montant(&self) -> Montant {
         self.montant
@@ -270,11 +280,12 @@ impl MontantDevise {
     }
 }
 
-/// Ligne d'écriture : un compte, un sens, un montant XOF strictement positif.
+/// Ligne d'écriture : un compte, un sens, un montant strictement positif en devise de tenue.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ligne {
     compte: NumeroCompte,
     sens: Sens,
+    tenue: DeviseTenue,
     montant: Montant,
     devise: Option<MontantDevise>,
     tiers: Option<IdTiers>,
@@ -282,17 +293,22 @@ pub struct Ligne {
 }
 
 impl Ligne {
-    /// Ligne en XOF.
+    /// Ligne en devise de tenue.
+    ///
+    /// Aucune échelle n'est imposée au montant : la relecture d'une ligne déjà validée doit
+    /// rester possible (ADR 0020 point 6) ; l'échelle se contrôle à la saisie
+    /// ([`Montant::parse_tenue`]).
     ///
     /// # Errors
-    /// Montant qui n'est pas en XOF ou qui n'est pas strictement positif.
-    pub fn en_xof(
+    /// Montant qui n'est pas dans la devise de tenue ou qui n'est pas strictement positif.
+    pub fn en_devise_tenue(
         compte: NumeroCompte,
         sens: Sens,
         montant: Montant,
+        tenue: &DeviseTenue,
     ) -> Result<Self, ErreurEcriture> {
-        if montant.devise() != Devise::XOF {
-            return Err(ErreurEcriture::PasEnXof(montant.devise()));
+        if montant.devise() != tenue.devise() {
+            return Err(ErreurEcriture::PasEnDeviseTenue(montant.devise()));
         }
         if !montant.est_strictement_positif() {
             return Err(ErreurEcriture::MontantNonPositif(montant));
@@ -300,6 +316,7 @@ impl Ligne {
         Ok(Self {
             compte,
             sens,
+            tenue: *tenue,
             montant,
             devise: None,
             tiers: None,
@@ -307,30 +324,32 @@ impl Ligne {
         })
     }
 
-    /// Ligne en devise étrangère : la contre-valeur XOF est calculée par le moteur
-    /// (`montant × cours`, arrondie au franc, spec §6.6).
+    /// Ligne en devise étrangère : la contre-valeur en devise de tenue est calculée par le moteur
+    /// (`montant × cours`, arrondie à l'échelle de la tenue, spec §6.6).
     ///
     /// # Errors
-    /// Devise XOF, montant non strictement positif, contre-valeur nulle ou dépassement.
+    /// Devise de tenue, montant non strictement positif, contre-valeur nulle ou dépassement.
     pub fn en_devise(
         compte: NumeroCompte,
         sens: Sens,
         montant: Montant,
         cours: Cours,
+        tenue: &DeviseTenue,
     ) -> Result<Self, ErreurEcriture> {
-        if montant.devise() == Devise::XOF {
-            return Err(ErreurEcriture::DeviseXof);
+        if montant.devise() == tenue.devise() {
+            return Err(ErreurEcriture::DeviseDeTenue);
         }
         if !montant.est_strictement_positif() {
             return Err(ErreurEcriture::MontantNonPositif(montant));
         }
-        let contre_valeur = montant.contre_valeur_xof(cours)?;
+        let contre_valeur = montant.contre_valeur_tenue(cours, tenue)?;
         if !contre_valeur.est_strictement_positif() {
             return Err(ErreurEcriture::ContreValeurNulle(montant, cours.valeur()));
         }
         Ok(Self {
             compte,
             sens,
+            tenue: *tenue,
             montant: contre_valeur,
             devise: Some(MontantDevise { montant, cours }),
             tiers: None,
@@ -372,13 +391,19 @@ impl Ligne {
         self.sens
     }
 
-    /// Montant en XOF (contre-valeur pour une ligne en devise), strictement positif.
+    /// Devise de tenue et échelle de la ligne.
+    #[must_use]
+    pub fn tenue(&self) -> &DeviseTenue {
+        &self.tenue
+    }
+
+    /// Montant en devise de tenue (contre-valeur pour une ligne en devise), strictement positif.
     #[must_use]
     pub fn montant(&self) -> Montant {
         self.montant
     }
 
-    /// Débit en XOF (zéro pour une ligne au crédit).
+    /// Débit en devise de tenue (zéro pour une ligne au crédit).
     #[must_use]
     pub fn debit(&self) -> Decimal {
         match self.sens {
@@ -387,7 +412,7 @@ impl Ligne {
         }
     }
 
-    /// Crédit en XOF (zéro pour une ligne au débit).
+    /// Crédit en devise de tenue (zéro pour une ligne au débit).
     #[must_use]
     pub fn credit(&self) -> Decimal {
         match self.sens {
@@ -543,8 +568,8 @@ impl EcritureBrouillon {
     /// Contrôle l'équilibre et fige l'écriture. Seule voie vers une [`EcritureEquilibree`].
     ///
     /// # Errors
-    /// Écriture vide ou d'une seule ligne ; ∑D ≠ ∑C en XOF, ou dans la devise étrangère commune
-    /// à toutes les lignes ; dépassement de capacité. En cas d'erreur, le brouillon est rendu intact dans `Err`.
+    /// Écriture vide ou d'une seule ligne ; lignes de devises de tenue différentes ; ∑D ≠ ∑C en
+    /// devise de tenue, ou dans la devise étrangère commune à toutes les lignes ; dépassement de capacité. En cas d'erreur, le brouillon est rendu intact dans `Err`.
     pub fn valider_equilibre(self) -> Result<EcritureEquilibree, Refus<Self, ErreurEcriture>> {
         match controler_equilibre(&self.lignes) {
             Ok(()) => Ok(EcritureEquilibree { brouillon: self }),
@@ -553,13 +578,21 @@ impl EcritureBrouillon {
     }
 }
 
-/// Contrôle de l'invariant 1 : au moins deux lignes, ∑D = ∑C en XOF et, si toutes les lignes
-/// sont dans une même devise étrangère, dans cette devise.
+/// Contrôle de l'invariant 1 : au moins deux lignes, toutes dans la même devise de tenue,
+/// ∑D = ∑C en devise de tenue et, si toutes les lignes sont dans une même devise étrangère,
+/// dans cette devise.
 fn controler_equilibre(lignes: &[Ligne]) -> Result<(), ErreurEcriture> {
     match lignes.len() {
         0 => return Err(ErreurEcriture::Vide),
         1 => return Err(ErreurEcriture::UneSeuleLigne),
         _ => {}
+    }
+    let tenue = *lignes[0].tenue();
+    if let Some(autre) = lignes.iter().find(|l| *l.tenue() != tenue) {
+        return Err(ErreurEcriture::TenuesDifferentes(
+            tenue.devise(),
+            autre.tenue().devise(),
+        ));
     }
     let (mut debit, mut credit) = (Decimal::ZERO, Decimal::ZERO);
     for ligne in lignes {
@@ -567,7 +600,11 @@ fn controler_equilibre(lignes: &[Ligne]) -> Result<(), ErreurEcriture> {
         credit = ajouter(credit, ligne.credit())?;
     }
     if debit != credit {
-        return Err(ErreurEcriture::DesequilibreXof { debit, credit });
+        return Err(ErreurEcriture::DesequilibreTenue {
+            devise: tenue.devise(),
+            debit,
+            credit,
+        });
     }
     let devise = lignes[0].devise().map(|d| d.montant().devise());
     let Some(devise) = devise else {
@@ -583,7 +620,7 @@ fn controler_equilibre(lignes: &[Ligne]) -> Result<(), ErreurEcriture> {
                     Sens::Credit => credit = ajouter(credit, valeur)?,
                 }
             }
-            // Écriture multidevise : équilibre en XOF seulement.
+            // Écriture multidevise : équilibre en devise de tenue seulement.
             _ => return Ok(()),
         }
     }
@@ -658,7 +695,14 @@ impl EcritureEquilibree {
         self.brouillon.date_valeur_comptable
     }
 
-    /// Total des débits (égal au total des crédits) en XOF.
+    /// Devise de tenue et échelle des lignes (toutes identiques, contrôlé à l'équilibre).
+    #[must_use]
+    pub fn tenue(&self) -> &DeviseTenue {
+        // Une écriture équilibrée a au moins deux lignes.
+        self.brouillon.lignes[0].tenue()
+    }
+
+    /// Total des débits (égal au total des crédits) en devise de tenue.
     #[must_use]
     pub fn total(&self) -> Decimal {
         self.lignes().iter().map(Ligne::debit).sum()
@@ -683,12 +727,43 @@ pub(crate) mod tests {
         NumeroCompte::parse(texte).unwrap()
     }
 
+    pub(crate) fn devise_xof() -> Devise {
+        Devise::parse("XOF").unwrap()
+    }
+
+    pub(crate) fn tenue_xof() -> DeviseTenue {
+        DeviseTenue::nouvelle(devise_xof(), 0).unwrap()
+    }
+
+    pub(crate) fn tenue_cdf() -> DeviseTenue {
+        DeviseTenue::nouvelle(Devise::parse("CDF").unwrap(), 2).unwrap()
+    }
+
     pub(crate) fn xof(texte: &str) -> Montant {
-        Montant::parse(texte, Devise::XOF).unwrap()
+        Montant::parse(texte, devise_xof()).unwrap()
+    }
+
+    /// Ligne en devise de tenue XOF (fixture).
+    pub(crate) fn ligne_xof(
+        compte: NumeroCompte,
+        sens: Sens,
+        montant: Montant,
+    ) -> Result<Ligne, ErreurEcriture> {
+        Ligne::en_devise_tenue(compte, sens, montant, &tenue_xof())
+    }
+
+    /// Ligne en devise étrangère pour une tenue XOF (fixture).
+    pub(crate) fn ligne_devise(
+        compte: NumeroCompte,
+        sens: Sens,
+        montant: Montant,
+        cours: Cours,
+    ) -> Result<Ligne, ErreurEcriture> {
+        Ligne::en_devise(compte, sens, montant, cours, &tenue_xof())
     }
 
     pub(crate) fn ligne(compte: &str, sens: Sens, montant: &str) -> Ligne {
-        Ligne::en_xof(n(compte), sens, xof(montant)).unwrap()
+        ligne_xof(n(compte), sens, xof(montant)).unwrap()
     }
 
     pub(crate) fn brouillon(lignes: Vec<Ligne>) -> EcritureBrouillon {
@@ -714,30 +789,30 @@ pub(crate) mod tests {
     #[test]
     fn ligne_nulle_ou_negative_irreprésentable() {
         assert!(matches!(
-            Ligne::en_xof(n("521"), Sens::Debit, xof("0")),
+            ligne_xof(n("521"), Sens::Debit, xof("0")),
             Err(ErreurEcriture::MontantNonPositif(_))
         ));
         assert!(matches!(
-            Ligne::en_xof(n("521"), Sens::Debit, xof("-5")),
+            ligne_xof(n("521"), Sens::Debit, xof("-5")),
             Err(ErreurEcriture::MontantNonPositif(_))
         ));
         assert!(matches!(
-            Ligne::en_xof(n("521"), Sens::Debit, eur("5")),
-            Err(ErreurEcriture::PasEnXof(_))
+            ligne_xof(n("521"), Sens::Debit, eur("5")),
+            Err(ErreurEcriture::PasEnDeviseTenue(_))
         ));
         assert!(matches!(
-            Ligne::en_devise(n("521"), Sens::Debit, xof("5"), cours_eur()),
-            Err(ErreurEcriture::DeviseXof)
+            ligne_devise(n("521"), Sens::Debit, xof("5"), cours_eur()),
+            Err(ErreurEcriture::DeviseDeTenue)
         ));
         assert!(matches!(
-            Ligne::en_devise(n("521"), Sens::Debit, eur("0.0001"), cours_eur()),
+            ligne_devise(n("521"), Sens::Debit, eur("0.0001"), cours_eur()),
             Err(ErreurEcriture::ContreValeurNulle(..))
         ));
     }
 
     #[test]
     fn ligne_en_devise_contre_valeur_arrondie_au_franc() {
-        let l = Ligne::en_devise(n("4011"), Sens::Credit, eur("100.50"), cours_eur()).unwrap();
+        let l = ligne_devise(n("4011"), Sens::Credit, eur("100.50"), cours_eur()).unwrap();
         // 100,50 × 655,957 = 65 923,6785 → 65 924 F.
         assert_eq!(l.montant(), xof("65924"));
         assert_eq!(l.credit(), dec("65924"));
@@ -765,7 +840,7 @@ pub(crate) mod tests {
         .valider_equilibre()
         .unwrap_err()
         .decomposer();
-        assert!(matches!(erreur, ErreurEcriture::DesequilibreXof { .. }));
+        assert!(matches!(erreur, ErreurEcriture::DesequilibreTenue { .. }));
         assert_eq!(b.lignes().len(), 2, "le brouillon est rendu intact");
         assert_eq!(
             brouillon(vec![])
@@ -789,15 +864,15 @@ pub(crate) mod tests {
     fn equilibre_dans_la_devise_commune() {
         // 100 EUR au débit et 100 EUR au crédit : équilibré en EUR et en XOF.
         let ok = brouillon(vec![
-            Ligne::en_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
-            Ligne::en_devise(n("4011"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
+            ligne_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
+            ligne_devise(n("4011"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
         ]);
         assert!(ok.valider_equilibre().is_ok());
         // Toutes les lignes en EUR, équilibrées en XOF (65 596 F de chaque côté après arrondi)
         // mais pas en EUR : refusé (§6.2, inv. 1).
         let ko = brouillon(vec![
-            Ligne::en_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
-            Ligne::en_devise(n("4011"), Sens::Credit, eur("100.0001"), cours_eur()).unwrap(),
+            ligne_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
+            ligne_devise(n("4011"), Sens::Credit, eur("100.0001"), cours_eur()).unwrap(),
         ]);
         assert!(matches!(
             ko.valider_equilibre().unwrap_err().decomposer().1,
@@ -809,15 +884,15 @@ pub(crate) mod tests {
     fn ecriture_multidevise_equilibree_en_xof_seulement() {
         // Encaissement de 100 EUR sur une banque en XOF : équilibré en XOF, accepté.
         let encaissement = brouillon(vec![
-            Ligne::en_devise(n("4111"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
+            ligne_devise(n("4111"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
             ligne("521", Sens::Debit, "65596"),
         ]);
         assert!(encaissement.valider_equilibre().is_ok());
         // Deux devises, équilibrées en XOF : acceptée.
         let usd = Montant::parse("100", Devise::parse("USD").unwrap()).unwrap();
         let deux_devises = brouillon(vec![
-            Ligne::en_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
-            Ligne::en_devise(
+            ligne_devise(n("521"), Sens::Debit, eur("100"), cours_eur()).unwrap(),
+            ligne_devise(
                 n("4011"),
                 Sens::Credit,
                 usd,
@@ -828,12 +903,12 @@ pub(crate) mod tests {
         assert!(deux_devises.valider_equilibre().is_ok());
         // Déséquilibre en XOF : toujours refusé.
         let ko = brouillon(vec![
-            Ligne::en_devise(n("4111"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
+            ligne_devise(n("4111"), Sens::Credit, eur("100"), cours_eur()).unwrap(),
             ligne("521", Sens::Debit, "65595"),
         ]);
         assert!(matches!(
             ko.valider_equilibre().unwrap_err().decomposer().1,
-            ErreurEcriture::DesequilibreXof { .. }
+            ErreurEcriture::DesequilibreTenue { .. }
         ));
     }
 
@@ -884,15 +959,92 @@ pub(crate) mod tests {
         );
     }
 
+    fn cdf(texte: &str) -> Montant {
+        Montant::parse(texte, Devise::parse("CDF").unwrap()).unwrap()
+    }
+
+    #[test]
+    fn ligne_en_devise_de_tenue_cdf() {
+        let tenue = tenue_cdf();
+        let l = Ligne::en_devise_tenue(n("521"), Sens::Debit, cdf("1500.25"), &tenue).unwrap();
+        assert_eq!(l.tenue(), &tenue);
+        assert_eq!(l.montant(), cdf("1500.25"));
+        // Un montant XOF n'est pas dans la devise de tenue d'un dossier en CDF.
+        assert!(matches!(
+            Ligne::en_devise_tenue(n("521"), Sens::Debit, xof("5"), &tenue),
+            Err(ErreurEcriture::PasEnDeviseTenue(_))
+        ));
+        // Une ligne en « devise » dans la devise de tenue est refusée.
+        assert!(matches!(
+            Ligne::en_devise(n("521"), Sens::Debit, cdf("5"), cours_eur(), &tenue),
+            Err(ErreurEcriture::DeviseDeTenue)
+        ));
+    }
+
+    #[test]
+    fn contre_valeur_en_cdf_a_deux_decimales() {
+        // 100,55 EUR au cours 2 827,3333 CDF : 284 288,363315, arrondi au centime.
+        let tenue = tenue_cdf();
+        let cours = Cours::parse("2827.3333").unwrap();
+        let l = Ligne::en_devise(n("4111"), Sens::Credit, eur("100.55"), cours, &tenue).unwrap();
+        assert_eq!(l.montant().devise().code(), "CDF");
+        assert_eq!(l.montant().valeur().to_string(), "284288.36");
+    }
+
+    #[test]
+    fn equilibre_en_devise_de_tenue_cdf() {
+        let tenue = tenue_cdf();
+        let ligne_cdf = |compte: &str, sens, montant: &str| {
+            Ligne::en_devise_tenue(n(compte), sens, cdf(montant), &tenue).unwrap()
+        };
+        let ok = brouillon(vec![
+            ligne_cdf("6052", Sens::Debit, "100.10"),
+            ligne_cdf("4011", Sens::Credit, "100.10"),
+        ]);
+        let e = ok.valider_equilibre().unwrap();
+        assert_eq!(e.tenue(), &tenue);
+        assert_eq!(e.total().to_string(), "100.10");
+        // Un centime d'écart : refusé, dans la devise de tenue.
+        let ecart = brouillon(vec![
+            ligne_cdf("6052", Sens::Debit, "100.10"),
+            ligne_cdf("4011", Sens::Credit, "100.11"),
+        ]);
+        let refus = ecart.valider_equilibre().unwrap_err();
+        assert!(matches!(
+            refus.erreur(),
+            ErreurEcriture::DesequilibreTenue { devise, .. } if devise.code() == "CDF"
+        ));
+    }
+
+    #[test]
+    fn lignes_de_tenues_differentes_refusees() {
+        let b = brouillon(vec![
+            ligne("6052", Sens::Debit, "10"),
+            Ligne::en_devise_tenue(n("4011"), Sens::Credit, cdf("10"), &tenue_cdf()).unwrap(),
+        ]);
+        let refus = b.valider_equilibre().unwrap_err();
+        assert!(matches!(
+            refus.erreur(),
+            ErreurEcriture::TenuesDifferentes(..)
+        ));
+        // Même devise, échelle différente : aussi refusée.
+        let autre_echelle = DeviseTenue::nouvelle(devise_xof(), 2).unwrap();
+        let b = brouillon(vec![
+            ligne("6052", Sens::Debit, "10"),
+            Ligne::en_devise_tenue(n("4011"), Sens::Credit, xof("10"), &autre_echelle).unwrap(),
+        ]);
+        assert!(b.valider_equilibre().is_err());
+    }
+
     proptest! {
         /// Toute écriture construite par paires débit/crédit de même montant est équilibrée.
         #[test]
         fn paires_equilibrees(montants in proptest::collection::vec(1u64..10_000_000_000, 1..20)) {
             let mut lignes = Vec::new();
             for m in &montants {
-                let montant = Montant::nouveau(Decimal::from(*m), Devise::XOF);
-                lignes.push(Ligne::en_xof(n("6052"), Sens::Debit, montant).unwrap());
-                lignes.push(Ligne::en_xof(n("4011"), Sens::Credit, montant).unwrap());
+                let montant = Montant::nouveau(Decimal::from(*m), devise_xof());
+                lignes.push(ligne_xof(n("6052"), Sens::Debit, montant).unwrap());
+                lignes.push(ligne_xof(n("4011"), Sens::Credit, montant).unwrap());
             }
             let e = brouillon(lignes).valider_equilibre().unwrap();
             let attendu: u64 = montants.iter().sum();
@@ -902,13 +1054,32 @@ pub(crate) mod tests {
         /// Un écart d'un centime suffit à refuser l'écriture.
         #[test]
         fn le_moindre_ecart_est_refuse(m in 1u64..10_000_000_000) {
-            let montant = Montant::nouveau(Decimal::from(m), Devise::XOF);
-            let ecart = Montant::nouveau(Decimal::from(m) + Decimal::new(1, 2), Devise::XOF);
+            let montant = Montant::nouveau(Decimal::from(m), devise_xof());
+            let ecart = Montant::nouveau(Decimal::from(m) + Decimal::new(1, 2), devise_xof());
             let b = brouillon(vec![
-                Ligne::en_xof(n("6052"), Sens::Debit, montant).unwrap(),
-                Ligne::en_xof(n("4011"), Sens::Credit, ecart).unwrap(),
+                ligne_xof(n("6052"), Sens::Debit, montant).unwrap(),
+                ligne_xof(n("4011"), Sens::Credit, ecart).unwrap(),
             ]);
             prop_assert!(b.valider_equilibre().is_err());
+        }
+
+        /// Équilibre en devise de tenue : à toute échelle de 0 à 4, des paires débit/crédit de
+        /// même montant sont équilibrées ; un écart d'une unité de l'échelle les rompt.
+        #[test]
+        fn equilibre_selon_l_echelle_de_la_tenue(
+            unites in proptest::collection::vec(1i64..1_000_000_000, 1..10),
+            decimales in 0u8..=4,
+        ) {
+            let tenue = DeviseTenue::nouvelle(Devise::parse("ZZZ").unwrap(), decimales).unwrap();
+            let montant = |u: i64| Montant::nouveau(Decimal::new(u, u32::from(decimales)), tenue.devise());
+            let mut lignes = Vec::new();
+            for u in &unites {
+                lignes.push(Ligne::en_devise_tenue(n("6052"), Sens::Debit, montant(*u), &tenue).unwrap());
+                lignes.push(Ligne::en_devise_tenue(n("4011"), Sens::Credit, montant(*u), &tenue).unwrap());
+            }
+            prop_assert!(brouillon(lignes.clone()).valider_equilibre().is_ok());
+            lignes.push(Ligne::en_devise_tenue(n("6052"), Sens::Debit, montant(1), &tenue).unwrap());
+            prop_assert!(brouillon(lignes).valider_equilibre().is_err());
         }
     }
 }
