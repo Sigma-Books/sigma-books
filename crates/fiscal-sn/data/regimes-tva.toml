@@ -150,10 +150,15 @@ exigibilites_etiquette = []
 a_valider = true
 note = "À défaut de représentant fiscal, la TVA et les pénalités sont dues par le destinataire. Déduction et exigibilité non trouvées : à instruire pour L5 ; l'étiquette n'en porte pas."
 
+# Contrôle du 2026-11-26 : art. 355 bis relu p. 160 (PDF = folio) ; édition CGI 2025 confirmée
+# identique à celle de dgid.sn. Alinéa 1 : collecte par l'intermédiaire ; alinéa 2 : collecte
+# directe par le fournisseur étranger disposant de sa propre technologie ; alinéa 3 : la TVA
+# s'applique aussi, le cas échéant, aux commissions des intermédiaires.
 [[regime]]
 code = "COLLECTE_NUM"
-libelle = "TVA collectée par l'intermédiaire pour compte (services numériques)"
+libelle = "TVA sur services numériques d'un fournisseur étranger : collectée par l'intermédiaire ou directement par le fournisseur, y compris sur la commission de l'intermédiaire"
 article = "355 bis"
+alinea = "1 à 3"
 pages = [160]
 exonere = false
 deduction = "non_trouve"
@@ -161,11 +166,11 @@ exigibilite = "trimestrielle"
 source_deduction = "non trouvé dans le CGI consolidé"
 source_exigibilite = "art. 363-4, p. 182 (déclaration au plus tard le 15 de janvier, avril, juillet et octobre)"
 ligne_taxe = true
-source_ligne_taxe = "art. 355 bis 1), p. 160 : la TVA est collectée et reversée par l'intermédiaire"
+source_ligne_taxe = "art. 355 bis 1) à 3), p. 160 : TVA collectée et reversée par l'intermédiaire (1), par le fournisseur étranger disposant de sa propre technologie (2), et applicable aux commissions des intermédiaires (3)"
 taux = ["18", "10"]
 exigibilites_etiquette = []
 a_valider = true
-note = "Prestations de services numériques d'un fournisseur étranger, TVA collectée et reversée par l'intermédiaire (loi 2023-18)."
+note = "Prestations de services numériques d'un fournisseur étranger (loi 2023-18) : TVA collectée par l'intermédiaire (al. 1), ou directement par le fournisseur disposant de sa propre technologie (al. 2) ; TVA aussi sur les commissions des intermédiaires (al. 3). Modalités : arrêté n° 034269 du 08/11/2023 (p. 160). À valider par le fiscaliste."
 
 [[regime]]
 code = "PRECOMPTE"
