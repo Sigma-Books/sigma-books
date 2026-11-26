@@ -13,3 +13,4 @@
 - `pnpm build && pnpm test` contrôle aussi la CSP des pages compilées (`src/csp.test.ts`) ; sans `build/`, ce contrôle est sauté.
 - Le cabinet et le dossier sont dans l'URL de l'interface (`?cabinet=…&dossier=…`), validés par `lireUuid` avant de former un chemin de l'API ; aucun cabinet courant caché.
 - Portail client : conçu pour téléphones Android d'entrée de gamme et connexion intermittente.
+- Le contexte du dossier (`pays`, `devise`, `decimales`, `fuseau`, `langue`) vient de l'API et est **obligatoire** (`estDossier`) : aucune devise, aucun pays ni fuseau en dur hors tests (`regional-exemples.ts`). Les listes de la création et de la modification (pays, devises, fuseaux, types d'identifiants) viennent du pack pays de l'API (`api/pays.ts`).

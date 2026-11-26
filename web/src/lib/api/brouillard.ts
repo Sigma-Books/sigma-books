@@ -14,7 +14,6 @@ import {
 	tableauDe
 } from './gardes.ts';
 import { traduire } from '../i18n/index.ts';
-import type { Langue } from '../regional.ts';
 import { longueurOctets } from './texte.ts';
 import { estCodeJournal, type Garde, type Uuid } from './types.ts';
 
@@ -468,7 +467,7 @@ export const MOTIF_CONTRE_PASSATION_MAX = 400;
  * À terme, l'API fournira un défaut côté serveur quand le motif est vide (un autre chantier
  * assouplit l'API) : l'interface pourra alors envoyer un motif vide et supprimer ce défaut.
  */
-export function motifContrePassation(saisie: string, numero: string, langue: Langue): string {
+export function motifContrePassation(saisie: string, numero: string, langue: string): string {
 	const net = saisie.trim();
 	return net === '' ? traduire('contre_passation.motif_defaut', { numero }, langue) : net;
 }

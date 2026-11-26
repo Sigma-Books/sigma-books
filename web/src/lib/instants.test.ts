@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { dateHeure, heure, lireInstant, minutesRestantes } from './instants.ts';
-import { lireRegional } from './regional.ts';
+import { regionalDe } from './regional-exemples.ts';
 
 describe('instants de l’API', () => {
 	it('lit le format de l’audit, microsecondes tronquées à la milliseconde', () => {
@@ -36,18 +36,18 @@ describe('instants de l’API', () => {
 describe('affichage des instants', () => {
 	const instant = '2026-11-19T23:30:00.000000Z';
 	it('suit le fuseau et le locale du dossier', () => {
-		const dakar = lireRegional({});
-		const douala = lireRegional({ pays: 'CM', fuseau: 'Africa/Douala', devise: 'XAF' });
+		const dakar = regionalDe({});
+		const douala = regionalDe({ pays: 'CM', fuseau: 'Africa/Douala', devise: 'XAF' });
 		assert.match(dateHeure(instant, dakar), /^19\/11\/2026.*23:30$/);
 		assert.match(dateHeure(instant, douala), /^20\/11\/2026.*00:30$/);
 		assert.match(heure(instant, douala), /^00:30$/);
 		assert.match(
-			dateHeure(instant, lireRegional({ langue: 'en', pays: 'US', fuseau: 'UTC' })),
+			dateHeure(instant, regionalDe({ langue: 'en', pays: 'US', fuseau: 'UTC' })),
 			/^11\/19\/2026/
 		);
 	});
 	it('un instant illisible donne un tiret', () => {
-		assert.equal(dateHeure('x', lireRegional({})), '—');
-		assert.equal(heure('x', lireRegional({})), '—');
+		assert.equal(dateHeure('x', regionalDe({})), '—');
+		assert.equal(heure('x', regionalDe({})), '—');
 	});
 });

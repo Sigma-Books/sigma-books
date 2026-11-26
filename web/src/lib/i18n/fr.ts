@@ -121,7 +121,49 @@ export const fr = {
 	'saisie.motif.type_non_admis': 'Ce type de fichier n’est pas admis (PDF, JPEG ou PNG seulement).',
 	'saisie.motif.facteurs_refuses': 'Mot de passe ou code refusé.',
 	'saisie.motif.code_invalide': 'Code refusé.',
+	'saisie.motif.pays_inconnu': 'Ce pays n’est pas proposé par le serveur.',
+	'saisie.motif.devise_tenue_inconnue': 'Cette devise de tenue n’est pas proposée par le serveur.',
+	'saisie.motif.fuseau_inconnu': 'Ce fuseau horaire n’est pas proposé par le serveur.',
+	'saisie.motif.contexte_dossier_invalide':
+		'Le contexte du dossier est refusé : langue, forme juridique ou identifiants légaux invalides (types du pays, valeurs de 1 à 64 caractères, un identifiant par type).',
+	'saisie.motif.dossier_deja_ecritures':
+		'Le dossier a déjà une écriture validée : le pays, la devise de tenue et les identifiants légaux ne sont plus modifiables.',
+	'saisie.motif.dossier_brouillard_non_vide':
+		'Le dossier contient des brouillons : supprimez-les avant de changer le pays ou la devise de tenue.',
+	'saisie.motif.contexte_dossier_modifie':
+		'Le contexte du dossier a changé pendant l’opération. Rechargez la page et recommencez.',
+	'saisie.motif.brouillon_devise_tenue_perimee':
+		'Ce brouillon a été saisi dans une autre devise de tenue : il ne peut plus être validé, refaites-le.',
+	'saisie.motif.montant_echelle_devise_tenue':
+		'Un montant a plus de décimales que la devise de tenue du dossier n’en admet.',
+	'saisie.motif.validation_montant_echelle_devise_tenue':
+		'Un montant de l’écriture a plus de décimales que la devise de tenue du dossier n’en admet.',
 	'saisie.ligne': 'Ligne {ligne} : {message}',
+
+	// Contrôles de forme du contexte du dossier (`contexte-saisie.ts`).
+	'contexte.probleme.pays_absent': 'Choisissez un pays.',
+	'contexte.probleme.pays_inconnu': 'Ce pays n’est pas dans la liste.',
+	'contexte.probleme.devise_inconnue': 'Choisissez une devise de la liste.',
+	'contexte.probleme.fuseau_inconnu': 'Choisissez un fuseau horaire de la liste.',
+	'contexte.probleme.langue_invalide': 'La langue n’a pas une forme valide (par exemple « fr »).',
+	'contexte.probleme.caractere_de_controle': 'Ce texte contient un caractère de contrôle.',
+	'contexte.probleme.forme_trop_longue': 'La forme juridique compte {max} caractères au plus.',
+	'contexte.probleme.valeur_trop_longue': 'Cette valeur compte {max} caractères au plus.',
+	'contexte.probleme.trop_d_identifiants': 'Au plus {max} identifiants légaux.',
+	'contexte.probleme.nom_absent': 'Le nom du dossier est obligatoire.',
+	'contexte.probleme.nom_trop_long': 'Le nom du dossier compte {max} caractères au plus.',
+	'contexte.probleme.debut_invalide': 'Saisissez une date de début d’activité valide.',
+	'contexte.probleme.annee_invalide': 'Saisissez l’année sur quatre chiffres.',
+	'contexte.probleme.annee_hors_bornes':
+		'Un dossier repris porte sur l’année en cours ou la précédente ({min} ou {max}, d’après le fuseau choisi).',
+	'contexte.probleme.debut_hors_bornes':
+		'Le début d’activité d’une entité nouvelle doit tomber entre {min} et {max} (d’après le fuseau choisi).',
+	'contexte.probleme.prolongation_impossible':
+		'Un premier exercice qui finit l’année suivante n’est admis que si l’activité débute à partir du 1er juillet.',
+	'contexte.identifiants_retires':
+		'Non admis pour le pays choisi, donc non enregistrés : {types}. Leurs valeurs sont gardées ici si vous revenez au pays d’origine.',
+	'contexte.creation_incertaine':
+		'Le serveur a répondu, mais sa réponse est illisible : le dossier a peut-être été créé. La liste est rechargée, vérifiez-la avant de recommencer.',
 
 	// Avertissements d'une validation réussie (l'écriture est validée malgré tout).
 	'avertissement.echeance_de_cloture_depassee':

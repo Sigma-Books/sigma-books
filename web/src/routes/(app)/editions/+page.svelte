@@ -31,6 +31,7 @@
 		csvGrandLivre,
 		csvJournaux,
 		nomFichierEdition,
+		OPTIONS_CSV_SANS_DOSSIER,
 		optionsCsvParDefaut,
 		SEPARATEURS_CSV,
 		SEPARATEURS_DECIMAUX,
@@ -41,7 +42,7 @@
 	import { editionVide, libelleEdition, messageBrouillonsExclus } from '#lib/editions-affichage.ts';
 	import { traduire } from '#lib/i18n/index.ts';
 	import type { Exercice } from '#lib/api/referentiel.ts';
-	import { lireRegional, type Regional } from '#lib/regional.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import { enregistrerFichier } from '#lib/telechargement.ts';
 	import '#lib/styles/editions.css';
 	import type { PageProps } from './$types';
@@ -64,7 +65,7 @@
 	let etat = $state<Etat>({ phase: 'repos' });
 	let erreurExport = $state<string | null>(null);
 	/** Options du CSV : celles du locale du dossier tant que l'utilisateur n'y touche pas. */
-	let optionsCsv = $state<OptionsCsv>(optionsCsvParDefaut(lireRegional({})));
+	let optionsCsv = $state<OptionsCsv>({ ...OPTIONS_CSV_SANS_DOSSIER });
 	/** Numéro de la dernière demande : une réponse tardive d'une demande périmée est ignorée. */
 	let demande = 0;
 

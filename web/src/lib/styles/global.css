@@ -178,7 +178,8 @@ input {
 	font-weight: 600;
 }
 
-.champ input {
+.champ input,
+.champ select {
 	min-height: var(--cible-min);
 	padding: var(--espace-2) var(--espace-3);
 	border: 1px solid var(--couleur-bordure);

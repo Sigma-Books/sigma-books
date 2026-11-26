@@ -1,90 +1,92 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-	echelleDeLaDevise,
+	estDecimales,
+	estDevise,
+	estFuseau,
+	estLangue,
+	estPays,
 	LANGUES,
-	lireRegional,
+	langueSupportee,
 	localeDe,
-	REGIONAL_DEFAUT,
+	regionalDuDossier,
+	regionalUtilisateur,
 	separateurs
 } from './regional.ts';
+import { regionalDe } from './regional-exemples.ts';
 
-test('sans contexte, le dossier est sénégalais : XOF, 0 décimale, fr, Africa/Dakar', () => {
-	for (const brut of [undefined, null, {}, 'x', 42, []]) {
-		assert.deepEqual(lireRegional(brut), REGIONAL_DEFAUT);
+test('le pays est un code ISO à deux majuscules, la devise un code à trois majuscules', () => {
+	for (const bon of ['SN', 'CD', 'GQ']) assert.equal(estPays(bon), true, bon);
+	for (const mauvais of ['sn', 'SEN', 'S', '', 'S1', undefined, null, 1, ['SN']]) {
+		assert.equal(estPays(mauvais), false, String(mauvais));
 	}
-	assert.deepEqual(REGIONAL_DEFAUT, {
-		pays: 'SN',
-		devise: 'XOF',
-		decimales: 0,
+	for (const bon of ['XOF', 'CDF', 'EUR']) assert.equal(estDevise(bon), true, bon);
+	for (const mauvais of ['xof', 'XO', 'XOFF', '', 'X0F', undefined, 3]) {
+		assert.equal(estDevise(mauvais), false, String(mauvais));
+	}
+});
+
+test('l’échelle est un entier de 0 à 4 : toute autre valeur est refusée', () => {
+	for (const bon of [0, 1, 2, 3, 4]) assert.equal(estDecimales(bon), true, String(bon));
+	for (const mauvais of [-1, 5, 1.5, NaN, Infinity, '2', null, undefined, 2n]) {
+		assert.equal(estDecimales(mauvais), false, String(mauvais));
+	}
+});
+
+test('un fuseau n’est admis que si Intl le connaît, et sous une longueur bornée', () => {
+	for (const bon of ['Africa/Kinshasa', 'Africa/Douala', 'UTC']) {
+		assert.equal(estFuseau(bon), true, bon);
+	}
+	for (const mauvais of ['Mars/Olympus', '', ' ', '../etc', 'A'.repeat(65), undefined, 1]) {
+		assert.equal(estFuseau(mauvais), false, String(mauvais));
+	}
+});
+
+test('la langue a la forme BCP 47 du serveur et une longueur bornée', () => {
+	for (const bonne of ['fr', 'pt-GW', 'fr-SN', 'sw', 'zh-Hant-TW']) {
+		assert.equal(estLangue(bonne), true, bonne);
+	}
+	for (const mauvaise of ['', 'f', 'FR', 'fr_SN', 'fr-', 'fr--SN', 'fr-<x>', 'a'.repeat(36), 7]) {
+		assert.equal(estLangue(mauvaise), false, String(mauvaise));
+	}
+});
+
+test('la langue de l’interface est la sous-étiquette primaire, si elle a un catalogue', () => {
+	assert.equal(langueSupportee('pt-GW'), 'pt');
+	assert.equal(langueSupportee('EN'), 'en');
+	assert.equal(langueSupportee('sw'), null);
+	assert.equal(langueSupportee('__proto__'), null);
+	for (const langue of LANGUES) assert.equal(langueSupportee(langue), langue);
+});
+
+test('le contexte du dossier ne reprend que les cinq réglages', () => {
+	const dossier = { ...regionalDe({ pays: 'CD', devise: 'CDF', decimales: 2 }), nom: 'X' };
+	assert.deepEqual(regionalDuDossier(dossier), {
+		pays: 'CD',
+		devise: 'CDF',
+		decimales: 2,
 		fuseau: 'Africa/Dakar',
 		langue: 'fr'
 	});
 });
 
-test('chaque champ valide est repris, chaque champ invalide prend sa valeur par défaut', () => {
-	assert.deepEqual(
-		lireRegional({
-			pays: 'CD',
-			devise: 'CDF',
-			decimales: 2,
-			fuseau: 'Africa/Kinshasa',
-			langue: 'fr'
-		}),
-		{ pays: 'CD', devise: 'CDF', decimales: 2, fuseau: 'Africa/Kinshasa', langue: 'fr' }
-	);
-	const r = lireRegional({
-		pays: 'sn',
-		devise: 'xof',
-		decimales: -1,
-		fuseau: 'Mars/Olympus',
-		langue: 'zz'
-	});
-	assert.deepEqual(r, REGIONAL_DEFAUT);
-	assert.equal(lireRegional({ decimales: 1.5 }).decimales, 0);
-	assert.equal(lireRegional({ decimales: '2' }).decimales, 0);
-	assert.equal(lireRegional({ decimales: 7 }).decimales, 0);
-	assert.equal(lireRegional({ langue: 'pt-GW' }).langue, 'pt');
-	assert.equal(lireRegional({ langue: 'EN' }).langue, 'en');
-});
-
-test('les cinq devises et quatre langues de la zone OHADA sont lues', () => {
-	for (const [devise, decimales] of [
-		['XOF', 0],
-		['XAF', 0],
-		['KMF', 0],
-		['GNF', 0],
-		['CDF', 2]
-	] as const) {
-		assert.equal(lireRegional({ devise, decimales }).devise, devise);
-	}
-	for (const langue of LANGUES) assert.equal(lireRegional({ langue }).langue, langue);
-});
-
-test('le locale combine la langue et le pays', () => {
+test('le locale combine la langue et le pays, sauf région déjà portée ou pays inconnu', () => {
 	assert.equal(localeDe({ langue: 'fr', pays: 'SN' }), 'fr-SN');
 	assert.equal(localeDe({ langue: 'en', pays: 'CM' }), 'en-CM');
 	assert.equal(localeDe({ langue: 'pt', pays: 'GW' }), 'pt-GW');
+	assert.equal(localeDe({ langue: 'fr-BE', pays: 'SN' }), 'fr-BE');
+	assert.equal(localeDe({ langue: 'fr-FR' }), 'fr-FR');
+	assert.equal(localeDe({ langue: 'fr' }), 'fr');
+});
+
+test('hors dossier, la langue et le fuseau sont ceux du navigateur, de forme valide', () => {
+	const r = regionalUtilisateur();
+	assert.equal(estLangue(r.langue), true);
+	assert.equal(estFuseau(r.fuseau), true);
 });
 
 test('les séparateurs viennent d’Intl', () => {
-	assert.deepEqual(separateurs('fr-SN'), { decimal: ',', groupe: ' ' });
+	assert.deepEqual(separateurs('fr-SN'), { decimal: ',', groupe: '\u202f' });
 	assert.deepEqual(separateurs('en-CM'), { decimal: '.', groupe: ',' });
 	assert.deepEqual(separateurs('es-GQ'), { decimal: ',', groupe: '.' });
-});
-
-test('sans `decimales`, l’échelle est celle de la devise (CDF : 2, francs de la zone : 0)', () => {
-	for (const devise of ['XOF', 'XAF', 'KMF', 'GNF']) {
-		assert.equal(lireRegional({ devise }).decimales, 0, devise);
-	}
-	assert.equal(lireRegional({ devise: 'CDF' }).decimales, 2);
-	assert.equal(lireRegional({ devise: 'EUR' }).decimales, 2);
-	assert.equal(echelleDeLaDevise('XOF'), 0);
-	assert.equal(echelleDeLaDevise('toString'), 2);
-	// `decimales` explicite, valide : il l'emporte ; invalide : retour à l'échelle de la devise.
-	assert.equal(lireRegional({ devise: 'CDF', decimales: 0 }).decimales, 0);
-	assert.equal(lireRegional({ devise: 'CDF', decimales: -1 }).decimales, 2);
-	assert.equal(lireRegional({ devise: 'CDF', decimales: '2' }).decimales, 2);
-	// Devise invalide : retombe sur XOF, donc 0.
-	assert.equal(lireRegional({ devise: 'cdf' }).decimales, 0);
 });

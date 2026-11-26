@@ -9,11 +9,11 @@ import {
 	type EnteteSaisie,
 	type LigneSaisie
 } from './saisie.ts';
-import { lireRegional } from '../regional.ts';
+import { regionalDe } from '../regional-exemples.ts';
 
-const FR = lireRegional({});
-const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
-const FR2 = lireRegional({ decimales: 2 });
+const FR = regionalDe({});
+const EN = regionalDe({ langue: 'en', pays: 'CM', devise: 'XAF' });
+const FR2 = regionalDe({ decimales: 2 });
 
 const entete: EnteteSaisie = {
 	journal: 'OD',

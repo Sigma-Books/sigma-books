@@ -7,10 +7,10 @@ import {
 	messageAvertissement
 } from './avertissements.ts';
 import { estLotValide, estValidation, estContrePassation } from './brouillard.ts';
-import { lireRegional } from '../regional.ts';
+import { regionalDe } from '../regional-exemples.ts';
 
-const FR = lireRegional({});
-const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
+const FR = regionalDe({});
+const EN = regionalDe({ langue: 'en', pays: 'CM', devise: 'XAF' });
 const ID = '0b0f6c43-7c47-4a43-9d1e-2f4f6f0a1b2c';
 const echeance = {
 	code: 'echeance_de_cloture_depassee',

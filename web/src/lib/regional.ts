@@ -1,107 +1,104 @@
 // Contexte régional d'un dossier : pays, devise, échelle décimale, fuseau horaire et langue.
 //
-// Sigma Books sert toute la zone OHADA (XOF, XAF, KMF, GNF, CDF ; français, anglais, portugais,
-// espagnol). Ces cinq réglages sont ceux du **dossier** : le serveur les renvoie avec le dossier
-// (`pays`, `devise`, `decimales`, `fuseau`, `langue`). Tant qu'un champ est absent (ancienne
-// version de l'API), la valeur de {@link REGIONAL_DEFAUT} le remplace, champ par champ : ce
-// module est le seul endroit qui connaît ces valeurs par défaut. Aucune logique comptable ici :
-// seulement des réglages d'affichage et de lecture. Module pur, testé sous `node --test`.
+// Sigma Books sert toute la zone OHADA (ADR 0027). Ces cinq réglages sont ceux du **dossier** : le
+// serveur les renvoie avec lui (`pays`, `devise`, `decimales`, `fuseau`, `langue`) et ils sont
+// **obligatoires** (`estDossier`) : l'interface n'en suppose aucun, une réponse qui en manque est
+// une erreur de contrat. Aucune logique comptable ici : seulement des gardes de forme et des
+// réglages d'affichage. Module pur, testé sous `node --test`.
 
-/** Langues de l'interface. Le catalogue français est complet ; les autres retombent sur lui. */
+/** Langues dont l'interface a un catalogue de messages (le français est complet, de référence). */
 export const LANGUES = ['fr', 'en', 'pt', 'es'] as const;
 export type Langue = (typeof LANGUES)[number];
 
-export interface Regional {
-	/** Code pays ISO 3166-1 alpha-2 (`SN`). */
-	pays: string;
-	/** Code devise ISO 4217 (`XOF`). */
-	devise: string;
-	/** Échelle décimale de la devise (0 pour XOF, XAF, KMF, GNF ; 2 pour CDF). */
-	decimales: number;
-	/** Fuseau horaire IANA (`Africa/Dakar`). */
-	fuseau: string;
-	langue: Langue;
-}
+/** Langue du catalogue de référence (complet) : celui où retombent les autres, avant tout dossier. */
+export const LANGUE_DE_REFERENCE: Langue = 'fr';
 
-/** Valeurs d'un dossier dont l'API ne renvoie pas (encore) le contexte régional. */
-export const REGIONAL_DEFAUT: Readonly<Regional> = {
-	pays: 'SN',
-	devise: 'XOF',
-	decimales: 0,
-	fuseau: 'Africa/Dakar',
-	langue: 'fr'
-};
+export interface Regional {
+	/** Code pays ISO 3166-1 alpha-2. */
+	pays: string;
+	/** Code devise de tenue ISO 4217. */
+	devise: string;
+	/** Échelle décimale de la devise de tenue, copiée du pack pays à la création du dossier. */
+	decimales: number;
+	/** Fuseau horaire IANA, celui où se calcule la date du jour du dossier. */
+	fuseau: string;
+	/** Langue du dossier (BCP 47, forme du serveur : `fr`, `pt-GW`). */
+	langue: string;
+}
 
 /**
- * Échelle décimale usuelle d'une devise (ISO 4217), pour le dossier dont l'API ne renvoie pas
- * `decimales` : les francs de la zone (XOF, XAF, KMF, GNF) n'ont pas de décimales, le franc
- * congolais (CDF) en a deux ; toute autre devise : deux.
+ * Réglages suffisants pour afficher une date ou une heure : ceux d'un dossier, ou seulement ceux
+ * du navigateur hors dossier (le pays est alors facultatif).
  */
-const ECHELLES_DEVISE: Readonly<Record<string, number>> = {
-	XOF: 0,
-	XAF: 0,
-	KMF: 0,
-	GNF: 0,
-	CDF: 2
-};
-const ECHELLE_AUTRES_DEVISES = 2;
+export type Affichage = Pick<Regional, 'langue' | 'fuseau'> & { pays?: string };
 
-/** Échelle décimale usuelle de la devise (voir {@link ECHELLES_DEVISE}). */
-export function echelleDeLaDevise(devise: string): number {
-	return Object.hasOwn(ECHELLES_DEVISE, devise)
-		? (ECHELLES_DEVISE[devise] ?? ECHELLE_AUTRES_DEVISES)
-		: ECHELLE_AUTRES_DEVISES;
+/** Échelle décimale maximale d'une devise de tenue (ADR 0027 : 0 à 4). */
+export const DECIMALES_TENUE_MAX = 4;
+
+/** Longueur maximale d'une langue BCP 47 (celle du serveur). */
+const LANGUE_LONGUEUR_MAX = 35;
+
+export function estPays(valeur: unknown): valeur is string {
+	return typeof valeur === 'string' && /^[A-Z]{2}$/.test(valeur);
 }
 
-/** Échelle décimale maximale (celle de la saisie : voir `ECHELLE` de `montants.ts`). */
-const DECIMALES_MAX = 6;
+export function estDevise(valeur: unknown): valeur is string {
+	return typeof valeur === 'string' && /^[A-Z]{3}$/.test(valeur);
+}
 
-function fuseauValide(fuseau: string): boolean {
+export function estDecimales(valeur: unknown): valeur is number {
+	return (
+		typeof valeur === 'number' &&
+		Number.isInteger(valeur) &&
+		valeur >= 0 &&
+		valeur <= DECIMALES_TENUE_MAX
+	);
+}
+
+/** Vrai si `Intl` connaît ce nom de fuseau IANA (jamais d'une valeur hostile ou inventée). */
+export function estFuseau(valeur: unknown): valeur is string {
+	if (typeof valeur !== 'string' || valeur === '' || valeur.length > 64) return false;
 	try {
-		new Intl.DateTimeFormat('fr', { timeZone: fuseau });
+		new Intl.DateTimeFormat('fr', { timeZone: valeur });
 		return true;
 	} catch {
 		return false;
 	}
 }
 
-function langueDe(valeur: unknown): Langue | null {
-	if (typeof valeur !== 'string') return null;
-	const primaire = valeur.toLowerCase().split(/[-_]/)[0] ?? '';
+/**
+ * Forme d'une langue BCP 47 simplifiée, celle du serveur : sous-étiquettes alphanumériques de 1 à
+ * 8 caractères séparées par `-`, la première de 2 ou 3 lettres minuscules (`fr`, `fr-SN`, `pt`).
+ */
+export function estLangue(valeur: unknown): valeur is string {
+	if (typeof valeur !== 'string' || valeur.length > LANGUE_LONGUEUR_MAX) return false;
+	const [premiere = '', ...reste] = valeur.split('-');
+	return /^[a-z]{2,3}$/.test(premiere) && reste.every((p) => /^[A-Za-z0-9]{1,8}$/.test(p));
+}
+
+/** Langue dont l'interface a un catalogue (sous-étiquette primaire), ou `null`. */
+export function langueSupportee(langue: string): Langue | null {
+	const primaire = langue.toLowerCase().split(/[-_]/)[0] ?? '';
 	return (LANGUES as readonly string[]).includes(primaire) ? (primaire as Langue) : null;
 }
 
-/**
- * Contexte régional lu dans la réponse d'un dossier (ou dans tout objet). Chaque champ absent ou
- * de forme invalide prend la valeur par défaut ; rien n'est jamais refusé.
- */
-export function lireRegional(brut: unknown): Regional {
-	const o = typeof brut === 'object' && brut !== null ? (brut as Record<string, unknown>) : {};
-	const { pays, devise, decimales, fuseau } = o;
-	const codeDevise =
-		typeof devise === 'string' && /^[A-Z]{3}$/.test(devise) ? devise : REGIONAL_DEFAUT.devise;
+/** Les cinq réglages d'un dossier (la réponse de l'API, déjà vérifiée par `estDossier`). */
+export function regionalDuDossier(d: Regional): Regional {
 	return {
-		pays: typeof pays === 'string' && /^[A-Z]{2}$/.test(pays) ? pays : REGIONAL_DEFAUT.pays,
-		devise: codeDevise,
-		// Sans `decimales` valide, l'échelle est celle de la devise : zéro pour un dossier XOF, deux
-		// pour un dossier CDF (jamais zéro « par défaut » pour une devise qui a des décimales).
-		decimales:
-			typeof decimales === 'number' &&
-			Number.isInteger(decimales) &&
-			decimales >= 0 &&
-			decimales <= DECIMALES_MAX
-				? decimales
-				: echelleDeLaDevise(codeDevise),
-		fuseau: typeof fuseau === 'string' && fuseauValide(fuseau) ? fuseau : REGIONAL_DEFAUT.fuseau,
-		langue: langueDe(o.langue) ?? REGIONAL_DEFAUT.langue
+		pays: d.pays,
+		devise: d.devise,
+		decimales: d.decimales,
+		fuseau: d.fuseau,
+		langue: d.langue
 	};
 }
 
 /**
- * Contexte de l'utilisateur hors dossier (sessions, méthodes de connexion) : langue et fuseau du
- * navigateur quand ils sont connus, sinon les valeurs par défaut.
+ * Réglages de l'utilisateur hors dossier (sessions, méthodes de connexion, administration) : langue
+ * et fuseau du navigateur. Sans fuseau lisible, UTC (affichage seulement, jamais une date comptable) ;
+ * sans langue lisible, la langue du catalogue de référence de l'interface.
  */
-export function regionalUtilisateur(): Regional {
+export function regionalUtilisateur(): Affichage {
 	let fuseau: string | undefined;
 	try {
 		fuseau = new Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -109,15 +106,29 @@ export function regionalUtilisateur(): Regional {
 		fuseau = undefined;
 	}
 	const navigateur = (globalThis as { navigator?: { language?: string } }).navigator;
-	return lireRegional({ fuseau, langue: navigateur?.language });
+	const langue = navigateur?.language;
+	return {
+		langue: estLangue(langue) ? langue : LANGUE_DE_REFERENCE,
+		fuseau: estFuseau(fuseau) ? fuseau : 'UTC'
+	};
 }
 
-/** Locale BCP 47 d'affichage (`fr-SN`) : la langue du dossier dans les usages de son pays. */
-export function localeDe(r: Pick<Regional, 'langue' | 'pays'>): string {
+/**
+ * Locale BCP 47 d'affichage (`fr-SN`) : la langue du dossier dans les usages de son pays, sauf si
+ * elle porte déjà sa région (`pt-GW`) ou si le pays est inconnu (hors dossier).
+ */
+export function localeDe(r: Pick<Regional, 'langue'> & { pays?: string }): string {
+	const [primaire = '', region] = r.langue.split('-');
+	const regionPropre = region !== undefined && /^[A-Za-z]{2}$/.test(region);
+	const candidat = regionPropre
+		? r.langue
+		: r.pays === undefined
+			? primaire
+			: `${primaire}-${r.pays}`;
 	try {
-		return Intl.getCanonicalLocales(`${r.langue}-${r.pays}`)[0] ?? r.langue;
+		return Intl.getCanonicalLocales(candidat)[0] ?? primaire;
 	} catch {
-		return r.langue;
+		return primaire;
 	}
 }
 

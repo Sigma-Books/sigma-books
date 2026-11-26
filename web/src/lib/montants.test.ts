@@ -14,19 +14,19 @@ import {
 	versSaisie,
 	versUnites
 } from './montants.ts';
-import { lireRegional, type Regional } from './regional.ts';
+import { regionalDe } from './regional-exemples.ts';
 
-const FR = lireRegional({ langue: 'fr', pays: 'SN' });
-const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
-const PT = lireRegional({ langue: 'pt', pays: 'BR' });
-const ES = lireRegional({ langue: 'es', pays: 'GQ', devise: 'XAF' });
-const CDF = lireRegional({ langue: 'fr', pays: 'CD', devise: 'CDF', decimales: 2 });
+const FR = regionalDe({ langue: 'fr', pays: 'SN' });
+const EN = regionalDe({ langue: 'en', pays: 'CM', devise: 'XAF' });
+const PT = regionalDe({ langue: 'pt', pays: 'BR' });
+const ES = regionalDe({ langue: 'es', pays: 'GQ', devise: 'XAF' });
+const CDF = regionalDe({ langue: 'fr', pays: 'CD', devise: 'CDF', decimales: 2 });
 // Dossiers à deux décimales, pour lire des saisies avec décimales (XOF, XAF… n'en ont pas).
-const FR2 = lireRegional({ langue: 'fr', pays: 'SN', decimales: 2 });
-const EN2 = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF', decimales: 2 });
-const PT2 = lireRegional({ langue: 'pt', pays: 'BR', decimales: 2 });
-const ES2 = lireRegional({ langue: 'es', pays: 'GQ', devise: 'XAF', decimales: 2 });
-const PTGW = lireRegional({ langue: 'pt', pays: 'GW', decimales: 2 });
+const FR2 = regionalDe({ langue: 'fr', pays: 'SN', decimales: 2 });
+const EN2 = regionalDe({ langue: 'en', pays: 'CM', devise: 'XAF', decimales: 2 });
+const PT2 = regionalDe({ langue: 'pt', pays: 'BR', decimales: 2 });
+const ES2 = regionalDe({ langue: 'es', pays: 'GQ', devise: 'XAF', decimales: 2 });
+const PTGW = regionalDe({ langue: 'pt', pays: 'GW', decimales: 2 });
 const lire = (t: string, r = FR2) => diagnostiquerMontant(t, r);
 
 test('lireMontant normalise les saisies valides en chaîne canonique', () => {
@@ -104,7 +104,7 @@ test('formaterMontant suit la devise, l’échelle et le locale du dossier', () 
 	assert.equal(formaterMontant('1500.0', FR), `1${U202F}500`);
 	// XAF et KMF, GNF : zéro décimale également.
 	for (const devise of ['XAF', 'KMF', 'GNF']) {
-		const r = lireRegional({ langue: 'fr', devise, decimales: 0 });
+		const r = regionalDe({ langue: 'fr', devise, decimales: 0 });
 		assert.equal(formaterMontant('12000', r), `12${U202F}000`, devise);
 	}
 	// CDF : deux décimales, toujours affichées.
@@ -196,7 +196,7 @@ test('pt-GW (et pt-MZ) : l’espace est le séparateur de milliers, la virgule l
 	assert.deepEqual(lire('1 5', PTGW), { ok: false, motif: 'illisible' });
 	assert.deepEqual(lire('1,500', PTGW), { ok: false, motif: 'trop_de_decimales' });
 	assert.equal(
-		lireMontant('1 500,50', lireRegional({ langue: 'pt', pays: 'MZ', decimales: 2 })),
+		lireMontant('1 500,50', regionalDe({ langue: 'pt', pays: 'MZ', decimales: 2 })),
 		'1500.5'
 	);
 });
@@ -205,7 +205,7 @@ test('une saisie qui a plus de décimales que la devise est refusée, jamais tro
 	const trop = { ok: false, motif: 'trop_de_decimales' };
 	// XOF, XAF, GNF, KMF : échelle 0, donc 1,500 et 1.500 ne sont pas lus 1,5.
 	for (const devise of ['XOF', 'XAF', 'GNF', 'KMF']) {
-		const r = lireRegional({ langue: 'fr', devise });
+		const r = regionalDe({ langue: 'fr', devise });
 		assert.equal(r.decimales, 0, devise);
 		assert.deepEqual(lire('1,500', r), trop, `${devise} 1,500`);
 		assert.deepEqual(lire('1.500', r), trop, `${devise} 1.500`);
@@ -221,7 +221,7 @@ test('une saisie qui a plus de décimales que la devise est refusée, jamais tro
 	// Zéros inutiles compris : on ne tronque pas en silence.
 	assert.deepEqual(lire('1500,000', CDF), trop);
 	// Les grandes devises à trois décimales (échelle 3) gardent leurs trois chiffres.
-	assert.deepEqual(lire('1,500', lireRegional({ devise: 'XOF', decimales: 3 })), {
+	assert.deepEqual(lire('1,500', regionalDe({ devise: 'XOF', decimales: 3 })), {
 		ok: true,
 		montant: '1.5'
 	});
@@ -239,7 +239,7 @@ test('les séparateurs de milliers ne sont admis que dans la partie entière', (
 
 test('un montant ne devient jamais un flottant (grands montants exacts)', () => {
 	assert.equal(
-		lireMontant('99 999 999 999 999 999 999,000001', lireRegional({ decimales: 6 })),
+		lireMontant('99 999 999 999 999 999 999,000001', regionalDe({ decimales: 6 })),
 		'99999999999999999999.000001'
 	);
 	assert.equal(lireCanonique('0.1'), '0.1');
@@ -250,11 +250,4 @@ test('les espaces de groupement (espace, insécable, fine insécable) sont admis
 	assert.equal(lireMontant('1\u202f500', FR), '1500');
 	assert.equal(lireMontant('1\u00a0500', EN), '1500');
 	assert.equal(lireMontant('1 500', PT), '1500');
-});
-
-test('le contexte régional par défaut est XOF, 0 décimale, fr', () => {
-	const r: Regional = lireRegional(undefined);
-	assert.equal(r.devise, 'XOF');
-	assert.equal(r.decimales, 0);
-	assert.equal(r.langue, 'fr');
 });
