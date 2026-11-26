@@ -14,3 +14,4 @@
 ## Tests exigés
 - Unicité des numéros ; chaque compte a un parent cohérent ; chaque tronc référencé par une correspondance existe.
 - Chaque poste du Bilan, du CdR et du TFT a une correspondance ; aucun compte de bilan n'est orphelin.
+- **Pack pays** (`data/pays.toml`, ADR 0027) : valeurs par défaut d'un dossier par pays de l'OHADA (devise de tenue et échelle, fuseau à décalage constant, langue, types d'identifiants légaux). Aucun paramètre fiscal (ils relèvent de `fiscal-*`). Une devise, un fuseau ou un type d'identifiant s'ajoute par une ligne de données **avec sa source** ; un pays à heure d'été exige un nouvel ADR.

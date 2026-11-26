@@ -12,6 +12,10 @@
 //! Le compte de trésorerie des journaux par défaut (CA : caisse) est aussi une donnée de ce
 //! crate, `data/journaux.toml` : [`Referentiel::journaux_par_defaut`]. Les comptes de TVA (443,
 //! 444, 445) sont désignés par `data/comptes-tva.toml` : [`Referentiel::comptes_de_tva`].
+//!
+//! Le **pack pays** (`data/pays.toml`, [`PackPays`]) donne les valeurs par défaut d'un dossier
+//! selon son pays : devise de tenue et échelle, fuseau, langue, types d'identifiants légaux
+//! (ADR 0027). Le plan de comptes reste commun à tous les pays.
 
 #![forbid(unsafe_code)]
 
@@ -24,9 +28,14 @@ use compta_core::{
 use serde::Deserialize;
 
 mod journaux;
+mod pays;
 mod tva;
 
 pub use journaux::CompteDeJournal;
+pub use pays::{
+    ErreurPack, Fuseau, InfoDevise, LANGUE_LONGUEUR_MAX, PackPays, Pays, TypeIdentifiant,
+    langue_valide,
+};
 pub use tva::{CompteTva, ComptesTva, RoleCompteTva};
 
 /// Données embarquées : liste officielle des comptes.
