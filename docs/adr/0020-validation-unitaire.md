@@ -22,7 +22,7 @@ Ce que font les moteurs de référence : Tryton (`account.move.post`) numérote 
 ## Limites connues (à traiter plus tard)
 - La **vérification de la chaîne depuis la base** n'existe qu'en test (recalcul des empreintes depuis le texte stocké, export et `sigma-verifier`) : elle est à prévoir dans une PR ultérieure.
 - Aucune contrainte en base ne lie `numero` au journal et à l'exercice de la ligne ; le filet est l'unicité (dossier, journal, exercice, numéro) et celle de la séquence.
-- `version_parametres` est stockée mais **jamais renseignée** (le brouillard ne la porte pas) : à rattacher à L5.
+- `version_parametres` est stockée mais **jamais renseignée** (le brouillard ne la porte pas) : **traité par l'ADR 0030** (version choisie par la date de l'écriture, enregistrée à la validation).
 - L'**ordre des pièces** de la justification suit l'identifiant de la pièce, non l'ordre de rattachement (le brouillon ne conserve pas cet ordre) ; il est figé dans le contenu haché à la validation.
 - Les états en **francs entiers** arrondissent des décimales conservées exactes en base : ils peuvent ne pas s'équilibrer. À traiter dans le lot des états.
 
