@@ -2,6 +2,7 @@
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import ListeBrouillard from '#lib/composants/brouillard/ListeBrouillard.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
+	import IdentiteDossier from '#lib/composants/IdentiteDossier.svelte';
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
 	import type { PageProps } from './$types';
 
@@ -26,6 +27,7 @@
 		actif="brouillard"
 		role={contexte.membre.role}
 	/>
+	<IdentiteDossier nom={contexte.nomDossier.nom} devise={contexte.regional.devise} />
 	{#key data.contenu}
 		<ListeBrouillard
 			cabinet={contexte.cabinet}

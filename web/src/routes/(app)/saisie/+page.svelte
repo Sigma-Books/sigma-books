@@ -4,6 +4,7 @@
 	import type { Brouillon } from '#lib/api/brouillard.ts';
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
+	import IdentiteDossier from '#lib/composants/IdentiteDossier.svelte';
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
 	import EditeurEcriture from '#lib/composants/saisie/EditeurEcriture.svelte';
 	import PiecesBrouillon from '#lib/composants/saisie/PiecesBrouillon.svelte';
@@ -69,6 +70,7 @@
 		actif="saisie"
 		role={contexte.membre.role}
 	/>
+	<IdentiteDossier nom={contexte.nomDossier.nom} devise={contexte.regional.devise} />
 
 	{#if !ROLES_SAISIE.includes(contexte.membre.role)}
 		<div class="message message-avertissement" role="status">
