@@ -607,20 +607,40 @@ pub(super) struct VueAvertissement {
     compte: Option<String>,
 }
 
+/// Code stable d'un avertissement (réponse et audit).
+fn code_avertissement(a: &Avertissement) -> &'static str {
+    match a {
+        Avertissement::EcheanceDeClotureDepassee { .. } => "echeance_de_cloture_depassee",
+        Avertissement::CompteTresorerieAbsent { .. } => "compte_tresorerie_absent",
+    }
+}
+
+/// Donnée d'audit `avertissements` : les **codes** seulement (jamais de date, de compte ni de
+/// montant), séparés par des virgules ; `None` sans avertissement. L'avertissement est dans la
+/// trace d'audit, jamais dans l'écriture ni dans son contenu haché.
+pub(super) fn donnee_audit_avertissements(
+    avertissements: &[Avertissement],
+) -> Option<(&'static str, String)> {
+    (!avertissements.is_empty()).then(|| {
+        let codes: Vec<&str> = avertissements.iter().map(code_avertissement).collect();
+        ("avertissements", codes.join(","))
+    })
+}
+
 /// Avertissements d'une validation, en vues stables.
 pub(super) fn vues_avertissements(avertissements: &[Avertissement]) -> Vec<VueAvertissement> {
     avertissements
         .iter()
         .map(|a| match a {
             Avertissement::EcheanceDeClotureDepassee { periode, echeance } => VueAvertissement {
-                code: "echeance_de_cloture_depassee",
+                code: code_avertissement(a),
                 periode: Some(interne::date(*periode)),
                 echeance: Some(interne::date(*echeance)),
                 journal: None,
                 compte: None,
             },
             Avertissement::CompteTresorerieAbsent { journal, compte } => VueAvertissement {
-                code: "compte_tresorerie_absent",
+                code: code_avertissement(a),
                 periode: None,
                 echeance: None,
                 journal: Some(journal.as_str().to_owned()),
@@ -702,7 +722,7 @@ pub(super) async fn valider(
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
-        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+        delai_cloture: crate::base::referentiel::delai_cloture(),
     };
     let date_validation = instant.date();
     let decision = decider(preparee, &contexte, dernier, &tete, date_validation)?;
@@ -746,6 +766,9 @@ pub(super) async fn valider(
         .donnees
         .push(("empreinte", decision.empreinte.to_string()));
     trace.donnees.push(("format", decision.format.to_string()));
+    trace.donnees.extend(donnee_audit_avertissements(
+        decision.validation.avertissements(),
+    ));
     let vue = VueValidation {
         id: id.to_string(),
         numero: numero.to_string(),
@@ -1102,7 +1125,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
-            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            delai_cloture: crate::base::referentiel::delai_cloture(),
         };
         let journal = etat
             .journaux
@@ -1173,7 +1196,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: &d.clos,
-            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            delai_cloture: crate::base::referentiel::delai_cloture(),
         };
         let journal = etat
             .journaux
@@ -1242,7 +1265,7 @@ mod tests {
                 plan: &etat.plan,
                 journaux: &etat.journaux,
                 exercices: &d.clos,
-                delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+                delai_cloture: crate::base::referentiel::delai_cloture(),
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
@@ -1365,7 +1388,7 @@ mod tests {
             plan: &etat.plan,
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
-            delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+            delai_cloture: crate::base::referentiel::delai_cloture(),
         };
         let journal = etat
             .journaux
@@ -1493,7 +1516,7 @@ mod tests {
                 plan: &etat.plan,
                 journaux: &etat.journaux,
                 exercices: &d.clos,
-                delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+                delai_cloture: crate::base::referentiel::delai_cloture(),
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());

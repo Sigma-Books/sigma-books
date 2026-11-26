@@ -42,8 +42,8 @@ use uuid::Uuid;
 
 use super::saisie::date_lue;
 use super::validation::{
-    Decision, VueAvertissement, donnee, finaliser, motif_validation, reconstituer, refus,
-    vues_avertissements,
+    Decision, VueAvertissement, donnee, donnee_audit_avertissements, finaliser, motif_validation,
+    reconstituer, refus, vues_avertissements,
 };
 use super::{corps, referentiel_tva, sans_parametres};
 use crate::base::TransactionTenant;
@@ -227,7 +227,7 @@ pub(super) async fn contre_passer(
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
-        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+        delai_cloture: crate::base::referentiel::delai_cloture(),
     };
     let date_validation = instant.date();
     let decision = decider_contre_passation(
@@ -284,6 +284,9 @@ pub(super) async fn contre_passer(
         .donnees
         .push(("empreinte", decision.empreinte.to_string()));
     trace.donnees.push(("format", decision.format.to_string()));
+    trace.donnees.extend(donnee_audit_avertissements(
+        decision.validation.avertissements(),
+    ));
     let vue = VueContrePassation {
         id: nouveau.to_string(),
         numero: numero.to_string(),

@@ -37,8 +37,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::validation::{
-    Decision, Preparee, VueValidation, controler_pieces, decider, donnee, preparer,
-    roles_des_pieces, vues_avertissements,
+    Decision, Preparee, VueValidation, controler_pieces, decider, donnee,
+    donnee_audit_avertissements, preparer, roles_des_pieces, vues_avertissements,
 };
 use super::{conflit, corps, referentiel_tva, sans_parametres, trace_de};
 use crate::base::TransactionTenant;
@@ -280,7 +280,7 @@ pub(super) async fn valider_par_lot(
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
-        delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+        delai_cloture: crate::base::referentiel::delai_cloture(),
     };
 
     // (B) Validation pure de toutes les écritures, dans l'ordre : compteurs et tête avancent en
@@ -356,6 +356,9 @@ pub(super) async fn valider_par_lot(
         trace.donnees.push(("rang", d.rang.to_string()));
         trace.donnees.push(("empreinte", d.empreinte.to_string()));
         trace.donnees.push(("format", d.format.to_string()));
+        trace
+            .donnees
+            .extend(donnee_audit_avertissements(d.validation.avertissements()));
         traces.push(trace);
         vues.push(VueValidation {
             id: b.id.to_string(),

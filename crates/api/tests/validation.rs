@@ -786,6 +786,19 @@ async fn journal_de_tresorerie_sans_son_compte_avertit() {
     assert_eq!(avertissements[0]["journal"], journal.as_str());
     assert_eq!(avertissements[0]["compte"], treso.as_str());
     assert_eq!(b.compter("ecriture_validee").await, 1);
+    // Tracé en audit par son code, hors du contenu haché.
+    let audits: Vec<String> =
+        sqlx::query_scalar("SELECT contenu FROM audit_dossier WHERE dossier_id = $1 ORDER BY rang")
+            .bind(b.c.dossier.uuid())
+            .fetch_all(&b.env.admin)
+            .await
+            .unwrap();
+    let derniere = audits.last().unwrap();
+    assert!(derniere.contains("avertissements") && derniere.contains("compte_tresorerie_absent"));
+    for (_, _, texte, _, _) in b.chaine().await {
+        assert!(!texte.contains("avertissement") && !texte.contains("tresorerie_absent"));
+    }
+    assert!(b.chaine_valide().await);
 }
 
 #[tokio::test]

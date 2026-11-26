@@ -38,7 +38,6 @@
 use authz::Action;
 use axum::Json;
 use axum::response::IntoResponse;
-use compta_core::DELAI_CLOTURE_PAR_DEFAUT;
 use compta_core::{
     Balance, Centralisateur, CodeExercice, CodeJournal, EcritureEquilibree, EcritureValidee,
     ErreurEdition, Exercice, Exercices, Filtre, FormatBalance, Mode, NumeroCompte, Regroupement,
@@ -812,7 +811,7 @@ async fn alertes(tx: &mut TransactionTenant, requete: &Requete<'_>) -> Result<Re
     })
     .collect();
     let echeances = exercices
-        .echeances_de_cloture(DELAI_CLOTURE_PAR_DEFAUT)
+        .echeances_de_cloture(crate::base::referentiel::delai_cloture())
         .map_err(|_| donnee())?;
     let echeances_de_cloture = echeances
         .into_iter()
