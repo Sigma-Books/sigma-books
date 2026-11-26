@@ -13,6 +13,7 @@ import { lireRegional } from '../regional.ts';
 
 const FR = lireRegional({});
 const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
+const FR2 = lireRegional({ decimales: 2 });
 
 const entete: EnteteSaisie = {
 	journal: 'OD',
@@ -31,7 +32,7 @@ test('le corps ne contient que des chaînes pour les montants', () => {
 	const r = corpsEcriture(
 		entete,
 		[l('6222', '150 000,50', ''), ligneVide(), l('521', '', '150000.5')],
-		FR,
+		FR2,
 		3
 	);
 	assert.ok(r.ok);
@@ -113,9 +114,24 @@ test('un montant se lit selon le locale du dossier (1,500 : mille cinq cents en 
 		return c.ok ? c.corps.lignes[0]?.montant : c;
 	};
 	assert.equal(r('1,500', EN), '1500');
-	assert.equal(r('1,500', FR), '1.5');
 	assert.equal(r('1 500'), '1500');
-	assert.deepEqual(corpsEcriture(entete, [l('6222', '1,500.50', '')], FR), {
+	assert.deepEqual(r('1,500', FR2), { ok: false, probleme: 'montant_decimales', ligne: 0 });
+	assert.deepEqual(corpsEcriture(entete, [l('6222', '1,500.50', '')], FR2), {
+		ok: false,
+		probleme: 'montant_illisible',
+		ligne: 0
+	});
+});
+
+test('une saisie à trop de décimales pour la devise est refusée avec la ligne (XOF : 1,500)', () => {
+	for (const saisie of ['1,500', '1.500', '12,5']) {
+		assert.deepEqual(corpsEcriture(entete, [ligneVide(), l('6222', saisie, '')], FR), {
+			ok: false,
+			probleme: 'montant_decimales',
+			ligne: 1
+		});
+	}
+	assert.deepEqual(corpsEcriture(entete, [l('6222', '1500,50', '')], EN), {
 		ok: false,
 		probleme: 'montant_illisible',
 		ligne: 0

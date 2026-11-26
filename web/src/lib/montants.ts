@@ -13,28 +13,34 @@ export const ECHELLE = 6;
 export const CHIFFRES_ENTIERS_MAX = 20;
 
 const FACTEUR = 10n ** BigInt(ECHELLE);
-// Espaces de groupement admis à la saisie, quel que soit le locale : espace, U+00A0 (insécable),
-// U+202F (fine insécable, celle de `fr`).
-const ESPACES = /[\s\u00a0\u202f]/g;
 const FORME = new RegExp(`^(\\d{1,${CHIFFRES_ENTIERS_MAX}})(?:\\.(\\d{1,${ECHELLE}}))?$`);
 
+export type LectureMontant =
+	{ ok: true; montant: string } | { ok: false; motif: 'illisible' | 'trop_de_decimales' };
+
+const ECHAPPEMENT = /[.*+?^${}()|[\]\\]/g;
+const GROUPE_DE_TROIS = /^\d{3}$/;
+const GROUPE_INITIAL = /^\d{1,3}$/;
+
 /**
- * Montant saisi en chaîne canonique (`1500.5`), ou `null` si ce n'est pas un nombre décimal
- * positif ou nul. La chaîne vide donne `null` : c'est l'absence de montant.
+ * Lit une saisie selon le **locale du dossier** et l'**échelle de sa devise**, et dit pourquoi elle
+ * est refusée : aucune lecture douteuse n'est jamais devinée, ni tronquée en silence (un montant
+ * faux mais équilibré passerait le contrôle du serveur).
  *
- * La saisie se lit selon le **locale du dossier**, comme le font Tryton (`sao`, `atof` : espaces
- * retirés, séparateur de milliers retiré, séparateur décimal remplacé par `.`) et Odoo : aucune
- * règle d'ambiguïté en plus. En `fr` (virgule décimale, espace fine pour les milliers) `1 500,50`
- * vaut 1500,5 et `1.500` vaut 1,5 ; en `en` (point décimal, virgule pour les milliers) `1,500.50`
- * vaut 1500,5 et `1,500` vaut 1500 ; en `pt` et `es` (point pour les milliers) `1.500,50` vaut
- * 1500,5 et `1.500` vaut 1500. Les séparateurs de milliers ne sont admis que dans la partie
- * entière ; le point reste lisible comme décimale (pavé numérique) quand il n'est ni le
- * séparateur décimal ni celui des milliers du locale. Un montant qui ne se lit pas ainsi est
- * refusé ; le serveur contrôle le reste (signe, bornes, échelle de la devise).
+ * Comme Tryton (`sao`, `atof`) et Odoo : espaces retirés, séparateur de milliers retiré, séparateur
+ * décimal remplacé par `.`, sans règle d'ambiguïté. En plus, deux garde-fous de lecture :
+ * - le séparateur de milliers (une espace, ou le séparateur du locale : `,` en `en`, `.` en `pt` et
+ *   `es`) n'est admis que dans la partie entière, entre des groupes d'**exactement trois chiffres**
+ *   (`1,500` en `en`, pas `1500,50` ni `12,5`) ;
+ * - la partie décimale ne dépasse pas l'échelle de la devise (`regional.decimales`) : en XOF, XAF,
+ *   KMF et GNF (échelle 0) `1,500` et `1.500` sont refusés plutôt que lus 1,5 ; en CDF (échelle 2)
+ *   `1,500` aussi. Le point reste une décimale (pavé numérique) quand il n'est ni le séparateur
+ *   décimal ni celui des milliers du locale.
  */
-export function lireMontant(saisie: string, r: Regional): string | null {
+export function diagnostiquerMontant(saisie: string, r: Regional): LectureMontant {
+	const illisible = { ok: false, motif: 'illisible' } as const;
 	const { decimal, groupe } = separateurs(localeDe(r));
-	const texte = saisie.trim().replace(ESPACES, '');
+	const texte = saisie.trim();
 	let sep = decimal;
 	if (!texte.includes(decimal) && decimal !== '.' && groupe !== '.' && texte.includes('.')) {
 		sep = '.';
@@ -42,8 +48,26 @@ export function lireMontant(saisie: string, r: Regional): string | null {
 	const i = texte.indexOf(sep);
 	const entier = i < 0 ? texte : texte.slice(0, i);
 	const fraction = i < 0 ? '' : texte.slice(i + sep.length);
-	const sansGroupes = /\s/.test(groupe) ? entier : entier.replaceAll(groupe, '');
-	return lireCanonique(i < 0 ? sansGroupes : `${sansGroupes}.${fraction}`);
+	if (i >= 0 && !/^\d{1,6}$/.test(fraction)) return illisible;
+	const separateurGroupe = /\s/.test(groupe)
+		? /[\s\u00a0\u202f]+/
+		: new RegExp(`[\\s\\u00a0\\u202f]+|${groupe.replace(ECHAPPEMENT, '\\$&')}`);
+	const groupes = entier.split(separateurGroupe);
+	if (groupes.length > 1) {
+		const [premier = '', ...suite] = groupes;
+		if (!GROUPE_INITIAL.test(premier) || !suite.every((g) => GROUPE_DE_TROIS.test(g))) {
+			return illisible;
+		}
+	}
+	if (fraction.length > r.decimales) return { ok: false, motif: 'trop_de_decimales' };
+	const montant = lireCanonique(i < 0 ? groupes.join('') : `${groupes.join('')}.${fraction}`);
+	return montant === null ? illisible : { ok: true, montant };
+}
+
+/** Montant saisi en chaîne canonique (`1500.5`), ou `null` : voir {@link diagnostiquerMontant}. */
+export function lireMontant(saisie: string, r: Regional): string | null {
+	const lecture = diagnostiquerMontant(saisie, r);
+	return lecture.ok ? lecture.montant : null;
 }
 
 /** Chaîne canonique (`1500.5`) lue strictement, normalisée (zéros inutiles retirés), ou `null`. */

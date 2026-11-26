@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import {
 	additionner,
 	depuisUnites,
+	diagnostiquerMontant,
 	ecart,
 	estNul,
 	formaterMontant,
@@ -20,16 +21,23 @@ const EN = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF' });
 const PT = lireRegional({ langue: 'pt', pays: 'BR' });
 const ES = lireRegional({ langue: 'es', pays: 'GQ', devise: 'XAF' });
 const CDF = lireRegional({ langue: 'fr', pays: 'CD', devise: 'CDF', decimales: 2 });
+// Dossiers à deux décimales, pour lire des saisies avec décimales (XOF, XAF… n'en ont pas).
+const FR2 = lireRegional({ langue: 'fr', pays: 'SN', decimales: 2 });
+const EN2 = lireRegional({ langue: 'en', pays: 'CM', devise: 'XAF', decimales: 2 });
+const PT2 = lireRegional({ langue: 'pt', pays: 'BR', decimales: 2 });
+const ES2 = lireRegional({ langue: 'es', pays: 'GQ', devise: 'XAF', decimales: 2 });
+const PTGW = lireRegional({ langue: 'pt', pays: 'GW', decimales: 2 });
+const lire = (t: string, r = FR2) => diagnostiquerMontant(t, r);
 
 test('lireMontant normalise les saisies valides en chaîne canonique', () => {
 	assert.equal(lireMontant('1500', FR), '1500');
-	assert.equal(lireMontant('1 500,50', FR), '1500.5');
-	assert.equal(lireMontant('1 500.500', FR), '1500.5');
+	assert.equal(lireMontant('1 500,50', FR2), '1500.5');
+	assert.equal(lireMontant('1 500.50', FR2), '1500.5');
 	assert.equal(lireMontant('0012', FR), '12');
 	assert.equal(lireMontant('0', FR), '0');
-	assert.equal(lireMontant('0,10', FR), '0.1');
+	assert.equal(lireMontant('0,10', FR2), '0.1');
 	assert.equal(lireMontant('  42  ', FR), '42');
-	assert.equal(lireMontant('100.00', FR), '100');
+	assert.equal(lireMontant('100.00', FR2), '100');
 });
 
 test('lireMontant refuse ce qui n’est pas un décimal positif borné', () => {
@@ -44,9 +52,9 @@ test('lireMontant refuse ce qui n’est pas un décimal positif borné', () => {
 		'.5',
 		'5.',
 		'0x10',
-		'1.1234567'
+		'1,1234567'
 	]) {
-		assert.equal(lireMontant(mauvais, FR), null, mauvais);
+		assert.equal(lireMontant(mauvais, FR2), null, mauvais);
 	}
 	assert.equal(lireMontant('9'.repeat(20), FR), '9'.repeat(20));
 	assert.equal(lireMontant('9'.repeat(21), FR), null);
@@ -82,7 +90,7 @@ test('ecart indique le sens à porter pour équilibrer', () => {
 });
 
 test('l’écart se calcule sur des saisies lues dans le locale du dossier', () => {
-	const lire = (t: string) => lireMontant(t, FR);
+	const lire = (t: string) => lireMontant(t, FR2);
 	const e = ecart(['1 500,50'], ['1000,25', '500,25'], lire);
 	assert.equal(e.sens, 'equilibre');
 	assert.equal(additionner(['1,5', '2,25'], lire), '3.75');
@@ -138,45 +146,108 @@ test('versSaisie remet le montant canonique dans le locale de saisie', () => {
 	assert.equal(versSaisie('1500', PT), '1500');
 });
 
-test('lireMontant lit les quatre écritures courantes selon le locale, sans règle d’ambiguïté', () => {
-	// fr (décimale « , », milliers : espace) : 1.500 reste une décimale (comme Tryton et Odoo).
-	assert.equal(lireMontant('1 500,50', FR), '1500.5');
-	assert.equal(lireMontant('1.500', FR), '1.5');
-	assert.equal(lireMontant('1,500', FR), '1.5');
-	assert.equal(lireMontant('1,500.50', FR), null);
-	assert.equal(lireMontant('1.500,50', FR), null);
+test('lireMontant lit les quatre écritures courantes selon le locale', () => {
+	// fr (décimale « , », milliers : espace), 2 décimales.
+	assert.equal(lireMontant('1 500,50', FR2), '1500.5');
+	assert.equal(lireMontant('1500,50', FR2), '1500.5');
+	assert.equal(lireMontant('1 500', FR2), '1500');
+	assert.equal(lireMontant('1,5', FR2), '1.5');
+	assert.equal(lireMontant('1.5', FR2), '1.5'); // pavé numérique
+	assert.equal(lireMontant('1,500.50', FR2), null);
+	assert.equal(lireMontant('1.500,50', FR2), null);
 	// en (décimale « . », milliers : « , »).
-	assert.equal(lireMontant('1,500.50', EN), '1500.5');
-	assert.equal(lireMontant('1,500', EN), '1500');
-	assert.equal(lireMontant('1.500', EN), '1.5');
-	assert.equal(lireMontant('1 500.50', EN), '1500.5');
-	assert.equal(lireMontant('1.500,50', EN), null);
+	assert.equal(lireMontant('1,500.50', EN2), '1500.5');
+	assert.equal(lireMontant('1,500', EN2), '1500');
+	assert.equal(lireMontant('1 500.50', EN2), '1500.5');
+	assert.equal(lireMontant('1.500,50', EN2), null);
 	// pt et es (décimale « , », milliers : « . »).
-	for (const r of [PT, ES]) {
+	for (const r of [PT2, ES2]) {
 		assert.equal(lireMontant('1.500,50', r), '1500.5');
 		assert.equal(lireMontant('1.500', r), '1500');
-		assert.equal(lireMontant('1,500', r), '1.5');
+		assert.equal(lireMontant('1,50', r), '1.5');
 		assert.equal(lireMontant('1,500.50', r), null);
 		assert.equal(lireMontant('1 500,50', r), '1500.5');
 	}
 });
 
+test('un séparateur de milliers n’est admis que suivi de groupes de exactement trois chiffres', () => {
+	// Ces saisies seraient lues 10 à 1000 fois trop petites ou trop grandes si on les tolérait.
+	assert.equal(lireMontant('1500,50', EN2), null);
+	assert.equal(lireMontant('12,5', EN2), null);
+	assert.equal(lireMontant('1,50', EN2), null);
+	assert.equal(lireMontant('1.5', PT2), null);
+	assert.equal(lireMontant('1.5', ES2), null);
+	assert.equal(lireMontant('12.50', PT2), null);
+	assert.equal(lireMontant('1,5000', EN2), null);
+	assert.equal(lireMontant('1,500,00', EN2), null);
+	assert.equal(lireMontant('1234,567', EN2), null);
+	assert.equal(lireMontant(',500', EN2), null);
+	assert.equal(lireMontant('1 5', FR2), null);
+	assert.equal(lireMontant('1500 000', FR2), null);
+	assert.equal(lireMontant('1 500 000', FR2), '1500000');
+	assert.equal(lireMontant('1,234,567.5', EN2), '1234567.5');
+	assert.equal(lireMontant('1.234.567,5', PT2), '1234567.5');
+});
+
+test('pt-GW (et pt-MZ) : l’espace est le séparateur de milliers, la virgule la décimale', () => {
+	assert.deepEqual(lire('1 500,50', PTGW), { ok: true, montant: '1500.5' });
+	assert.deepEqual(lire('1\u00a0500,50', PTGW), { ok: true, montant: '1500.5' });
+	assert.deepEqual(lire('1500,50', PTGW), { ok: true, montant: '1500.5' });
+	assert.deepEqual(lire('1 5', PTGW), { ok: false, motif: 'illisible' });
+	assert.deepEqual(lire('1,500', PTGW), { ok: false, motif: 'trop_de_decimales' });
+	assert.equal(
+		lireMontant('1 500,50', lireRegional({ langue: 'pt', pays: 'MZ', decimales: 2 })),
+		'1500.5'
+	);
+});
+
+test('une saisie qui a plus de décimales que la devise est refusée, jamais tronquée', () => {
+	const trop = { ok: false, motif: 'trop_de_decimales' };
+	// XOF, XAF, GNF, KMF : échelle 0, donc 1,500 et 1.500 ne sont pas lus 1,5.
+	for (const devise of ['XOF', 'XAF', 'GNF', 'KMF']) {
+		const r = lireRegional({ langue: 'fr', devise });
+		assert.equal(r.decimales, 0, devise);
+		assert.deepEqual(lire('1,500', r), trop, `${devise} 1,500`);
+		assert.deepEqual(lire('1.500', r), trop, `${devise} 1.500`);
+		assert.deepEqual(lire('1,5', r), trop, `${devise} 1,5`);
+		assert.deepEqual(lire('1 500', r), { ok: true, montant: '1500' }, `${devise} 1 500`);
+	}
+	// CDF : deux décimales.
+	assert.deepEqual(lire('1,500', CDF), trop);
+	assert.deepEqual(lire('1.500', CDF), trop);
+	assert.deepEqual(lire('1,50', CDF), { ok: true, montant: '1.5' });
+	assert.deepEqual(lire('1,5', CDF), { ok: true, montant: '1.5' });
+	assert.deepEqual(lire('1500,500', CDF), trop);
+	// Zéros inutiles compris : on ne tronque pas en silence.
+	assert.deepEqual(lire('1500,000', CDF), trop);
+	// Les grandes devises à trois décimales (échelle 3) gardent leurs trois chiffres.
+	assert.deepEqual(lire('1,500', lireRegional({ devise: 'XOF', decimales: 3 })), {
+		ok: true,
+		montant: '1.5'
+	});
+	// Montant illisible et montant à trop de décimales se distinguent.
+	assert.deepEqual(lire('abc', CDF), { ok: false, motif: 'illisible' });
+	assert.equal(lireMontant('1,500', FR), null);
+});
+
 test('les séparateurs de milliers ne sont admis que dans la partie entière', () => {
-	assert.equal(lireMontant('1.500,5,0', PT), null);
-	assert.equal(lireMontant('1.5,00', EN), null);
-	assert.equal(lireMontant('5,', FR), null);
-	assert.equal(lireMontant(',5', FR), null);
+	assert.equal(lireMontant('1.500,5,0', PT2), null);
+	assert.equal(lireMontant('1.5,00', EN2), null);
+	assert.equal(lireMontant('5,', FR2), null);
+	assert.equal(lireMontant(',5', FR2), null);
 });
 
 test('un montant ne devient jamais un flottant (grands montants exacts)', () => {
-	assert.equal(lireMontant('99 999 999 999 999 999 999,000001', FR), '99999999999999999999.000001');
+	assert.equal(
+		lireMontant('99 999 999 999 999 999 999,000001', lireRegional({ decimales: 6 })),
+		'99999999999999999999.000001'
+	);
 	assert.equal(lireCanonique('0.1'), '0.1');
 	assert.equal(lireCanonique('0,1'), null);
 });
 
-test('lireMontant(…) reste indépendant du dossier pour les espaces de groupement', () => {
-	const U202F = '\u202f';
-	assert.equal(lireMontant(`1${U202F}500`, FR), '1500');
+test('les espaces de groupement (espace, insécable, fine insécable) sont admis dans tous les locales', () => {
+	assert.equal(lireMontant('1\u202f500', FR), '1500');
 	assert.equal(lireMontant('1\u00a0500', EN), '1500');
 	assert.equal(lireMontant('1 500', PT), '1500');
 });

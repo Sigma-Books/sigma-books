@@ -4,7 +4,7 @@
 // chaînes canoniques, lignes vides ignorées) et indique, à titre indicatif, l'équilibre. Le
 // serveur décide de tout (comptes admis, équilibre, numéros) et renvoie des codes stables.
 
-import { ecart, lireMontant, type Ecart } from '../montants.ts';
+import { diagnostiquerMontant, ecart, lireMontant, type Ecart } from '../montants.ts';
 import type { Regional } from '../regional.ts';
 
 export interface LigneSaisie {
@@ -54,7 +54,11 @@ export interface CorpsEcriture {
 }
 
 export type ProblemeLocal =
-	'montant_illisible' | 'debit_et_credit' | 'montant_absent' | 'compte_absent';
+	| 'montant_illisible'
+	| 'montant_decimales'
+	| 'debit_et_credit'
+	| 'montant_absent'
+	| 'compte_absent';
 
 export type Construction =
 	| {
@@ -66,9 +70,10 @@ export type Construction =
 	| { ok: false; probleme: ProblemeLocal; ligne: number };
 
 /**
- * Corps de la requête : lignes vides ignorées, montants lus selon le locale du dossier et mis en
- * chaînes canoniques. Ne refuse que ce que le serveur ne pourrait pas lire (montant illisible,
- * débit et crédit ensemble) ; tout le reste (compte, équilibre, justification, échelle de la
+ * Corps de la requête : lignes vides ignorées, montants lus selon le locale et l'échelle de la
+ * devise du dossier (`diagnostiquerMontant` : jamais de lecture devinée ni tronquée) et mis en
+ * chaînes canoniques. Ne refuse que ce que le serveur ne pourrait pas lire (montant illisible ou
+ * à trop de décimales, débit et crédit ensemble) ; tout le reste (compte, équilibre, justification, échelle de la
  * devise) est contrôlé par le serveur.
  */
 export function corpsEcriture(
@@ -86,8 +91,12 @@ export function corpsEcriture(
 		if (d !== '' && c !== '') return { ok: false, probleme: 'debit_et_credit', ligne: i };
 		if (d === '' && c === '') return { ok: false, probleme: 'montant_absent', ligne: i };
 		const brut = d === '' ? c : d;
-		const montant = lireMontant(brut, regional);
-		if (montant === null) return { ok: false, probleme: 'montant_illisible', ligne: i };
+		const lecture = diagnostiquerMontant(brut, regional);
+		if (!lecture.ok) {
+			const probleme = lecture.motif === 'illisible' ? 'montant_illisible' : 'montant_decimales';
+			return { ok: false, probleme, ligne: i };
+		}
+		const montant = lecture.montant;
 		if (l.compte.trim() === '') return { ok: false, probleme: 'compte_absent', ligne: i };
 		const ligne: CorpsLigne = {
 			compte: l.compte.trim(),

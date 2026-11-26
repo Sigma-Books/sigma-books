@@ -33,7 +33,7 @@
 	import { dateDuJour } from '#lib/dates.ts';
 	import { traduire, type Cle } from '#lib/i18n/index.ts';
 	import { formaterMontant, versSaisie } from '#lib/montants.ts';
-	import type { Regional } from '#lib/regional.ts';
+	import { localeDe, separateurs, type Regional } from '#lib/regional.ts';
 	import {
 		actionClavier,
 		entreeSansAction,
@@ -221,7 +221,12 @@
 
 	function messageProbleme(probleme: ProblemeLocal): string {
 		const cle: Cle = `saisie.probleme.${probleme}`;
-		return traduire(cle, { exemple: formaterMontant('1500.5', { ...regional, decimales: 2 }) });
+		return traduire(cle, {
+			exemple: formaterMontant(regional.decimales === 0 ? '1500' : '1500.5', regional),
+			decimal: separateurs(localeDe(regional)).decimal,
+			devise: regional.devise,
+			decimales: regional.decimales
+		});
 	}
 
 	async function enregistrer(): Promise<void> {

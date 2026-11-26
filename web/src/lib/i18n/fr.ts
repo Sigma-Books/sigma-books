@@ -213,7 +213,9 @@ export const fr = {
 
 	// Saisie.
 	'saisie.probleme.montant_illisible':
-		'Montant illisible : saisissez un nombre positif (par exemple {exemple}).',
+		'Montant illisible : saisissez un nombre positif, séparateur décimal « {decimal} », milliers par groupes de trois chiffres (par exemple {exemple}).',
+	'saisie.probleme.montant_decimales':
+		'Trop de décimales : la devise {devise} en admet {decimales} au plus (par exemple {exemple}). Vérifiez le séparateur décimal « {decimal} ».',
 	'saisie.probleme.debit_et_credit':
 		'Une ligne ne porte qu’un montant : débit ou crédit, pas les deux.',
 	'saisie.probleme.montant_absent': 'Cette ligne n’a ni débit ni crédit.',
