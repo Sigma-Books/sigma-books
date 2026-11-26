@@ -259,7 +259,7 @@ pub async fn brouillons_entre(
     let entetes = sqlx::query!(
         r#"
         SELECT b.id, b.journal_id, j.code AS journal, b.date_comptable, b.date_valeur_comptable,
-               b.libelle
+               b.libelle, b.devise_tenue, b.decimales_tenue
         FROM brouillon b
         JOIN journal j ON j.cabinet_id = b.cabinet_id AND j.dossier_id = b.dossier_id
                       AND j.id = b.journal_id
@@ -316,15 +316,20 @@ pub async fn brouillons_entre(
     }
     let elements = entetes
         .into_iter()
-        .map(|b| ContenuStocke {
-            lignes: par_brouillon.remove(&b.id).unwrap_or_default(),
-            journal_id: b.journal_id,
-            journal: b.journal,
-            date: b.date_comptable,
-            date_valeur_comptable: b.date_valeur_comptable,
-            libelle: b.libelle,
+        .map(|b| {
+            Ok(ContenuStocke {
+                lignes: par_brouillon.remove(&b.id).unwrap_or_default(),
+                journal_id: b.journal_id,
+                journal: b.journal,
+                date: b.date_comptable,
+                date_valeur_comptable: b.date_valeur_comptable,
+                libelle: b.libelle,
+                devise_tenue: b.devise_tenue,
+                decimales_tenue: u8::try_from(b.decimales_tenue)
+                    .map_err(|_| ErreurBase::Donnee("échelle de brouillon invalide"))?,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, ErreurBase>>()?;
     Ok(Lecture { elements, depasse })
 }
 

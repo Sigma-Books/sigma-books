@@ -38,7 +38,8 @@ use uuid::Uuid;
 
 use super::validation::{
     Decision, Preparee, VueValidation, controler_pieces, decider, donnee,
-    donnee_audit_avertissements, preparer, roles_des_pieces, vues_avertissements,
+    donnee_audit_avertissements, exiger_meme_tenue, preparer, roles_des_pieces,
+    vues_avertissements,
 };
 use super::{conflit, corps, referentiel_tva, sans_parametres, trace_de};
 use crate::base::TransactionTenant;
@@ -224,6 +225,7 @@ pub(super) async fn valider_par_lot(
             .cloned()
             .collect();
         let controle = controler_pieces(&b, &pieces).and_then(|()| {
+            exiger_meme_tenue(&b.contenu, &tenue)?;
             let empreintes: Vec<String> = pieces.iter().map(|p| p.empreinte.clone()).collect();
             let preparee = preparer(&b, &empreintes, tva, &tenue, referentiel.exercices())?;
             let journal_id = referentiel
@@ -267,7 +269,8 @@ pub(super) async fn valider_par_lot(
     );
     let tete = base::verrouiller_tete(tx, &genese).await?;
     // Devise de tenue relue après la tête (ADR 0027) : voir la validation unitaire.
-    if lire_contexte_du_dossier(tx).await?.tenue()? != tenue {
+    let courant = lire_contexte_du_dossier(tx).await?;
+    if courant.tenue()? != tenue {
         return Err(conflit(MotifConflit::ContexteDossierModifie));
     }
     let instant = requete.horloge.maintenant();
@@ -281,7 +284,7 @@ pub(super) async fn valider_par_lot(
         compteurs.insert((journal, exercice), dernier);
     }
     // Date du jour dans le fuseau du dossier (ADR 0027).
-    let date_validation = dossier.contexte().date_du_jour(instant)?;
+    let date_validation = courant.date_du_jour(instant)?;
     let contexte = Contexte {
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,

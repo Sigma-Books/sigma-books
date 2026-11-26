@@ -4,8 +4,9 @@
 //! Les valeurs par défaut viennent du **pack pays** (`syscohada`, `data/pays.toml`) : le pays est
 //! obligatoire, la devise de tenue, le fuseau et la langue valent par défaut ceux du pays. Une
 //! valeur fournie est contrôlée contre les tables du pack (devises, fuseaux, types d'identifiants
-//! du pays). Le contexte est **fixé à la création** et ne change plus (la devise de tenue est
-//! dans le contenu haché de chaque écriture).
+//! du pays). Fuseau, langue et forme juridique se modifient à tout moment ; **pays et devise de
+//! tenue ne se modifient que tant que le dossier n'a ni écriture validée ni brouillon** (la devise
+//! est dans le contenu haché de chaque écriture) : voir [`modifier`] et la route de modification.
 //!
 //! Le serveur ne lit pas la base de fuseaux de l'IANA : le pack donne le décalage constant de
 //! chaque fuseau admis (aucun n'observe l'heure d'été).
@@ -78,9 +79,21 @@ pub enum RefusContexte {
     Invalide,
 }
 
-/// Longueur en caractères, sans caractère de contrôle, non vide après retrait des blancs.
+/// Caractères de format bidirectionnels (U+200E, U+200F, U+202A à U+202E, U+2066 à U+2069) :
+/// ils inversent l'affichage d'une valeur saisie (une valeur « retournée » dans une liste ou un
+/// document) et n'ont aucun usage dans un identifiant ou une forme juridique.
+fn est_format_bidirectionnel(c: char) -> bool {
+    matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// Longueur en caractères, sans caractère de contrôle ni de format bidirectionnel, non vide après
+/// retrait des blancs.
 fn texte_borne(texte: &str, max: usize) -> bool {
-    !texte.trim().is_empty() && texte.chars().count() <= max && !texte.chars().any(char::is_control)
+    !texte.trim().is_empty()
+        && texte.chars().count() <= max
+        && !texte
+            .chars()
+            .any(|c| c.is_control() || est_format_bidirectionnel(c))
 }
 
 /// Résout le contexte d'un dossier à créer : valeurs par défaut du pays, puis contrôle de
@@ -363,7 +376,15 @@ mod tests {
             d.langue = Some(ko);
             assert_eq!(resoudre(pack(), &d), Err(RefusContexte::Invalide), "{ko}");
         }
-        for ko in ["", "   ", "a\u{7}b", &"é".repeat(101)] {
+        for ko in [
+            "",
+            "   ",
+            "a\u{7}b",
+            "SARL\u{202E}",
+            "\u{2066}SA\u{2069}",
+            "S\u{200F}A",
+            &"é".repeat(101),
+        ] {
             let mut d = demande("SN");
             d.forme_juridique = Some(ko);
             assert_eq!(resoudre(pack(), &d), Err(RefusContexte::Invalide), "{ko:?}");
@@ -404,6 +425,7 @@ mod tests {
             vec![id("NINEA", "")],
             vec![id("NINEA", "  ")],
             vec![id("NINEA", "a\nb")],
+            vec![id("NINEA", "12\u{202E}34")],
             vec![id("NINEA", &"1".repeat(65))],
         ] {
             assert_eq!(
@@ -457,6 +479,13 @@ mod tests {
         );
     }
 
+    fn jour_de(pays: &str, instant: OffsetDateTime) -> Date {
+        resoudre(pack(), &demande(pays))
+            .unwrap()
+            .date_du_jour(instant)
+            .unwrap()
+    }
+
     #[test]
     fn date_du_jour_dans_le_fuseau_du_dossier() {
         // 23 h 30 UTC le 31 décembre : déjà le 1er janvier à Douala (UTC+1) et à Moroni (UTC+3),
@@ -471,6 +500,24 @@ mod tests {
         assert_eq!(jour("SN"), time::macros::date!(2026 - 12 - 31));
         assert_eq!(jour("CM"), time::macros::date!(2027 - 01 - 01));
         assert_eq!(jour("KM"), time::macros::date!(2027 - 01 - 01));
+        // Autres décalages de l'instant : la date ne dépend que du fuseau du dossier (UTC+0 à Dakar,
+        // UTC+3 à Moroni), jamais du décalage avec lequel l'instant est exprimé (ici UTC-5).
+        let tard_a_new_york = datetime!(2026-12-31 20:30 -05:00); // 01 h 30 UTC le 1er janvier
+        assert_eq!(
+            jour_de("SN", tard_a_new_york),
+            time::macros::date!(2027 - 01 - 01)
+        );
+        assert_eq!(
+            jour_de("KM", tard_a_new_york),
+            time::macros::date!(2027 - 01 - 01)
+        );
+        let tot = datetime!(2026-12-31 20:59 UTC); // 23 h 59 à Moroni
+        assert_eq!(jour_de("KM", tot), time::macros::date!(2026 - 12 - 31));
+        let pile = datetime!(2026-12-31 21:00 UTC); // minuit à Moroni
+        assert_eq!(jour_de("KM", pile), time::macros::date!(2027 - 01 - 01));
+        assert_eq!(jour_de("SN", pile), time::macros::date!(2026 - 12 - 31));
+        let instant = datetime!(2026-12-31 23:30 UTC);
+        assert_eq!(jour_de("CM", instant), time::macros::date!(2027 - 01 - 01));
         // Instant donné avec un autre décalage : la date dépend du seul fuseau du dossier.
         let instant = datetime!(2026-12-31 23:30 -05:00);
         let dakar = resoudre(pack(), &demande("SN")).unwrap();

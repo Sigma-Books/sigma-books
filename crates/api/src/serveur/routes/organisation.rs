@@ -16,8 +16,9 @@ use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
     affecter_utilisateur_du_contexte, creer_dossier, ecritures_du_dossier,
-    inserer_identifiants_legaux, lire_appartenance, lire_cabinet, lire_contexte_du_dossier,
-    lire_dossier_visible, lire_identifiants_legaux, lister_dossiers_visibles, modifier_contexte,
+    inserer_identifiants_legaux, lire_appartenance, lire_cabinet, lire_dossier_visible,
+    lire_identifiants_legaux, lister_dossiers_visibles, modifier_contexte,
+    remplacer_identifiants_legaux, verrouiller_dossier_pour_modification,
 };
 use crate::contexte_dossier::{
     ContexteDossier, IdentifiantLegal, ModificationContexte, controler_identifiants,
@@ -422,7 +423,8 @@ async fn creer(
 }
 
 /// Corps de `POST …/dossiers/{dossier}/contexte` : chaque champ absent est conservé ;
-/// `"forme_juridique": null` l'efface.
+/// `"forme_juridique": null` l'efface ; `identifiants_legaux`, s'il est présent, **remplace** la
+/// liste entière (`[]` la vide).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CorpsModification {
@@ -432,6 +434,7 @@ struct CorpsModification {
     langue: Option<String>,
     #[serde(default)]
     forme_juridique: ChampTexte,
+    identifiants_legaux: Option<Vec<super::referentiel::CorpsIdentifiant>>,
 }
 
 /// Champ texte d'une modification : absent (conservé), `null` (effacé) ou une valeur.
@@ -466,11 +469,29 @@ async fn exiger_administrateur(tx: &mut TransactionTenant) -> Result<(), ErreurA
     }
 }
 
+/// Identifiants triés par type, pour les comparer sans égard à l'ordre.
+fn tries(mut v: Vec<IdentifiantLegal>) -> Vec<IdentifiantLegal> {
+    v.sort_by(|a, b| a.type_identifiant.cmp(&b.type_identifiant));
+    v
+}
+
+/// Types d'identifiants d'une liste, pour l'audit (les valeurs n'y sont jamais recopiées).
+fn types_de(v: &[IdentifiantLegal]) -> String {
+    v.iter()
+        .map(|i| i.type_identifiant.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Modification du contexte du dossier (ADR 0027). Fuseau, langue et forme juridique changent à
 /// tout moment. Pays et devise de tenue (donc échelle) exigent une **session fraîche** et un
-/// dossier **sans écriture validée ni brouillon**, contrôlés sous le verrou de la tête de chaîne
-/// (qui sérialise les validations) ; les identifiants légaux déjà inscrits doivent rester admis
-/// par le nouveau pays. Une trace d'audit par champ modifié, au journal du dossier.
+/// dossier **sans écriture validée ni brouillon** ; le remplacement des identifiants légaux
+/// exige seulement l'absence d'écriture validée. Contrôles sous le verrou de la tête de chaîne
+/// (qui sérialise les validations) puis sous le verrou de la ligne du dossier (`FOR NO KEY
+/// UPDATE`, qui attend les saisies de brouillon en cours : elles tiennent `FOR SHARE` sur cette
+/// ligne jusqu'à leur validation en base). Ordre : tête, ligne du dossier, audit (pris par le
+/// pipeline). Un changement de pays exige que les identifiants légaux (fournis ou existants)
+/// restent admis par le nouveau pays. Une trace d'audit par champ modifié, au journal du dossier.
 async fn modifier(
     tx: &mut TransactionTenant,
     garde: &Garde,
@@ -495,30 +516,43 @@ async fn modifier(
             ChampTexte::Valeur(v) => Some(Some(v.as_str())),
         },
     };
-    if modification.est_vide() {
+    if modification.est_vide() && c.identifiants_legaux.is_none() {
         return Err(ErreurApi::RequeteInvalide);
     }
     let pack = PackPays::officiel().map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
-    // Verrou de la tête de chaîne : les validations en cours se terminent, les suivantes
-    // attendent ; le contexte et les écritures sont relus après.
+    // Verrous : tête de chaîne (les validations en cours se terminent, les suivantes attendent),
+    // puis ligne du dossier (les saisies en cours se terminent) ; tout est relu après.
     let genese = integrite::genese(
         &integrite::IdDossier::parse(&id.uuid().to_string())
             .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?,
     );
     crate::base::validation::verrouiller_tete(tx, &genese).await?;
-    let actuel = lire_contexte_du_dossier(tx).await?;
+    let actuel = verrouiller_dossier_pour_modification(tx).await?;
     let nouveau = modifier_le_contexte(pack, &actuel, &modification)
         .map_err(super::referentiel::refus_contexte)?;
-    if nouveau == actuel {
+    let existants = tries(lire_identifiants_legaux(tx).await?);
+    let demandes = c.identifiants_legaux.map(|v| {
+        tries(
+            v.into_iter()
+                .map(|i| IdentifiantLegal {
+                    type_identifiant: i.type_identifiant,
+                    valeur: i.valeur,
+                })
+                .collect(),
+        )
+    });
+    let identifiants_changent = demandes.as_ref().is_some_and(|d| *d != existants);
+    if nouveau == actuel && !identifiants_changent {
         return Err(ErreurApi::Conflit {
             motif: MotifConflit::AucunChangement,
             nombre: None,
         });
     }
-    if actuel.change_pays_ou_devise(&nouveau) {
-        if !garde.session_fraiche() {
-            return Err(ErreurApi::Interdit);
-        }
+    let sensible = actuel.change_pays_ou_devise(&nouveau);
+    if sensible && !garde.session_fraiche() {
+        return Err(ErreurApi::Interdit);
+    }
+    if sensible || identifiants_changent {
         let (validee, brouillon) = ecritures_du_dossier(tx).await?;
         let conflit = |motif| ErreurApi::Conflit {
             motif,
@@ -527,16 +561,23 @@ async fn modifier(
         if validee {
             return Err(conflit(MotifConflit::DossierDejaEcritures));
         }
-        if brouillon {
+        if sensible && brouillon {
             return Err(conflit(MotifConflit::DossierBrouillardNonVide));
         }
     }
-    let identifiants = lire_identifiants_legaux(tx).await?;
-    if nouveau.pays != actuel.pays {
-        controler_identifiants(pack, &nouveau.pays, &identifiants)
+    // Liste finale : celle qui est fournie, sinon l'existante ; elle doit rester admise par le
+    // pays (nouveau ou inchangé).
+    let finaux = demandes.clone().unwrap_or_else(|| existants.clone());
+    if identifiants_changent || nouveau.pays != actuel.pays {
+        controler_identifiants(pack, &nouveau.pays, &finaux)
             .map_err(super::referentiel::refus_contexte)?;
     }
-    modifier_contexte(tx, &nouveau).await?;
+    if nouveau != actuel {
+        modifier_contexte(tx, &nouveau).await?;
+    }
+    if identifiants_changent {
+        remplacer_identifiants_legaux(tx, &finaux).await?;
+    }
 
     let dossier = autorise.id().uuid();
     let mut trace = Trace::new(PorteeAudit::Dossier(autorise.id()), "dossier", dossier);
@@ -561,11 +602,18 @@ async fn modifier(
         actuel.forme_juridique.as_deref(),
         nouveau.forme_juridique.as_deref(),
     );
+    if identifiants_changent {
+        champ(
+            "identifiants_legaux",
+            Some(&types_de(&existants)),
+            Some(&types_de(&finaux)),
+        );
+    }
     let vue = VueDossier::depuis(
         autorise.id().to_string(),
         autorise.nom(),
         &nouveau,
-        Some(identifiants),
+        Some(finaux),
     );
     Ok(Resultat {
         reponse: (StatusCode::OK, Json(vue)).into_response(),

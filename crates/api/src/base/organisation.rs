@@ -486,6 +486,105 @@ pub async fn lire_contexte_du_dossier(
     )
 }
 
+/// Contexte du dossier du contexte, lu avec un **verrou partagé** (`FOR SHARE`) sur sa ligne,
+/// tenu jusqu'à la fin de la transaction : la saisie d'un brouillon lit ainsi la devise de tenue
+/// sans qu'une modification du contexte puisse passer entre cette lecture et la validation de la
+/// transaction ([`verrouiller_dossier_pour_modification`] attend, puis voit le brouillon).
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, [`ErreurBase::Donnee`] si le
+/// dossier est absent ou son contexte incohérent.
+pub async fn lire_contexte_verrouille_en_partage(
+    tx: &mut TransactionTenant,
+) -> Result<ContexteDossier, ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let l = sqlx::query!(
+        "SELECT pays, devise_tenue, decimales_tenue, fuseau, langue, forme_juridique \
+         FROM dossier WHERE cabinet_id = $1 AND id = $2 FOR SHARE",
+        cabinet,
+        dossier,
+    )
+    .fetch_optional(tx.connexion())
+    .await?
+    .ok_or(ErreurBase::Donnee("dossier absent"))?;
+    ContexteDossier::relu(
+        l.pays,
+        l.devise_tenue,
+        l.decimales_tenue,
+        l.fuseau,
+        l.langue,
+        l.forme_juridique,
+    )
+}
+
+/// Contexte du dossier du contexte, lu avec le verrou de sa ligne en modification (`FOR NO KEY
+/// UPDATE`, jamais `FOR UPDATE` : il entrerait en conflit avec les verrous `KEY SHARE` que les
+/// clés étrangères des brouillons et des écritures prennent sur cette ligne). Il attend la fin
+/// des saisies en cours ([`lire_contexte_verrouille_en_partage`]) ; les écritures et brouillons
+/// sont à lire **après** (ordre des verrous : tête de chaîne, ligne du dossier, audit).
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, [`ErreurBase::Donnee`] si le
+/// dossier est absent ou son contexte incohérent.
+pub async fn verrouiller_dossier_pour_modification(
+    tx: &mut TransactionTenant,
+) -> Result<ContexteDossier, ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let l = sqlx::query!(
+        "SELECT pays, devise_tenue, decimales_tenue, fuseau, langue, forme_juridique \
+         FROM dossier WHERE cabinet_id = $1 AND id = $2 FOR NO KEY UPDATE",
+        cabinet,
+        dossier,
+    )
+    .fetch_optional(tx.connexion())
+    .await?
+    .ok_or(ErreurBase::Donnee("dossier absent"))?;
+    ContexteDossier::relu(
+        l.pays,
+        l.devise_tenue,
+        l.decimales_tenue,
+        l.fuseau,
+        l.langue,
+        l.forme_juridique,
+    )
+}
+
+/// Remplace les identifiants légaux du dossier du contexte (suppression puis insertion). Un
+/// déclencheur de la base refuse la suppression dès qu'une écriture validée existe ; le cas
+/// d'usage le contrôle avant.
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, ou erreur de PostgreSQL.
+pub async fn remplacer_identifiants_legaux(
+    tx: &mut TransactionTenant,
+    identifiants: &[IdentifiantLegal],
+) -> Result<(), ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    sqlx::query!(
+        "DELETE FROM dossier_identifiant_legal WHERE cabinet_id = $1 AND dossier_id = $2",
+        cabinet,
+        dossier,
+    )
+    .execute(tx.connexion())
+    .await?;
+    inserer_identifiants_legaux(tx, identifiants).await
+}
+
 /// Le dossier du contexte a-t-il une écriture validée, un brouillon ? Lecture sous la RLS du
 /// dossier ; à appeler **après** le verrou de la tête de chaîne pour voir les validations
 /// concurrentes.

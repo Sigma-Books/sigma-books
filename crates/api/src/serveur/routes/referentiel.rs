@@ -223,10 +223,10 @@ struct CorpsCreation {
 /// Un identifiant légal du corps de la création.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CorpsIdentifiant {
+pub(crate) struct CorpsIdentifiant {
     #[serde(rename = "type")]
-    type_identifiant: String,
-    valeur: String,
+    pub(crate) type_identifiant: String,
+    pub(crate) valeur: String,
 }
 
 /// Demande de création d'un dossier : son nom, son contexte (pays, devise de tenue, fuseau,

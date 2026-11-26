@@ -48,6 +48,16 @@ CREATE FUNCTION dossier_contexte_fige() RETURNS trigger
 AS $$
 BEGIN
     IF (NEW.pays, NEW.devise_tenue, NEW.decimales_tenue)
+           IS DISTINCT FROM (OLD.pays, OLD.devise_tenue, OLD.decimales_tenue) THEN
+        -- La politique `dossier_tenant` laisse modifier un dossier sans dossier en contexte,
+        -- mais les politiques des écritures et des brouillons exigent `sigma.dossier` : sans lui
+        -- les `EXISTS` ne verraient rien. Le contexte du dossier modifié est donc obligatoire.
+        IF NULLIF(current_setting('sigma.dossier', true), '')::uuid IS DISTINCT FROM OLD.id THEN
+            RAISE EXCEPTION 'pays et devise de tenue : le contexte du dossier est requis'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+    IF (NEW.pays, NEW.devise_tenue, NEW.decimales_tenue)
            IS DISTINCT FROM (OLD.pays, OLD.devise_tenue, OLD.decimales_tenue)
        AND (
         EXISTS (SELECT 1 FROM public.ecriture_validee e
@@ -70,8 +80,8 @@ CREATE TRIGGER dossier_contexte_fige
 -- Identifiants légaux du dossier (NINEA, RCCM, NIF…) : couples type/valeur. Le type est un code
 -- du pack pays (`crates/syscohada/data/pays.toml`), contrôlé par l'API ; la valeur est un texte
 -- libre borné (aucun format national n'est sourcé). Table de dossier à la règle commune (RLS
--- forcée, cabinet et dossier du contexte), en ajout seul : créés avec le dossier, aucune
--- modification ni suppression exposée (catalogue `organisation.toml`).
+-- forcée, cabinet et dossier du contexte) : créés avec le dossier, remplaçables (suppression puis
+-- insertion) tant qu'aucune écriture validée n'existe.
 CREATE TABLE dossier_identifiant_legal (
     cabinet_id uuid NOT NULL,
     dossier_id uuid NOT NULL,
@@ -96,7 +106,34 @@ CREATE POLICY dossier_identifiant_legal_tenant ON dossier_identifiant_legal
         cabinet_id = NULLIF(current_setting('sigma.cabinet', true), '')::uuid
         AND dossier_id = NULLIF(current_setting('sigma.dossier', true), '')::uuid
     );
-GRANT SELECT, INSERT ON dossier_identifiant_legal TO sigma_application;
+-- `INSERT` (création du dossier, remplacement) et `DELETE` (remplacement) ; aucun `UPDATE`. Un
+-- identifiant ne se supprime ni ne se remplace plus dès qu'une écriture validée existe : le
+-- déclencheur ci-dessous est la barrière (comme `dossier_contexte_fige`, il exige le contexte du
+-- dossier, sans quoi les écritures validées ne lui seraient pas visibles).
+GRANT SELECT, INSERT, DELETE ON dossier_identifiant_legal TO sigma_application;
+
+CREATE FUNCTION dossier_identifiant_legal_fige() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    IF NULLIF(current_setting('sigma.dossier', true), '')::uuid IS DISTINCT FROM OLD.dossier_id THEN
+        RAISE EXCEPTION 'identifiant légal : le contexte du dossier est requis'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.ecriture_validee e
+                WHERE e.cabinet_id = OLD.cabinet_id AND e.dossier_id = OLD.dossier_id) THEN
+        RAISE EXCEPTION 'identifiant légal figé : le dossier a des écritures validées'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN OLD;
+END
+$$;
+REVOKE EXECUTE ON FUNCTION dossier_identifiant_legal_fige() FROM PUBLIC;
+
+CREATE TRIGGER dossier_identifiant_legal_fige
+    BEFORE DELETE ON dossier_identifiant_legal
+    FOR EACH ROW EXECUTE FUNCTION dossier_identifiant_legal_fige();
 
 -- Devise d'une ligne en devise : un code ISO 4217 **autre que la devise de tenue du dossier**
 -- (au lieu du XOF figé des migrations `0202` et `0203`). Une contrainte de colonne ne lit pas
@@ -134,6 +171,17 @@ CREATE TRIGGER brouillon_ligne_devise_autre_que_tenue
 CREATE TRIGGER ecriture_validee_ligne_devise_autre_que_tenue
     BEFORE INSERT ON ecriture_validee_ligne
     FOR EACH ROW EXECUTE FUNCTION ligne_devise_autre_que_tenue();
+
+-- Devise de tenue et échelle sous lesquelles un brouillon a été saisi : la validation refuse un
+-- brouillon dont la devise ou l'échelle diffère de celles du dossier (dans les deux sens). Les
+-- brouillons existants ont été saisis dans les dossiers existants, donc en XOF sans décimale.
+ALTER TABLE brouillon
+    ADD COLUMN devise_tenue text NOT NULL DEFAULT 'XOF' CHECK (devise_tenue ~ '^[A-Z]{3}$'),
+    ADD COLUMN decimales_tenue smallint NOT NULL DEFAULT 0
+        CHECK (decimales_tenue BETWEEN 0 AND 4);
+ALTER TABLE brouillon
+    ALTER COLUMN devise_tenue DROP DEFAULT,
+    ALTER COLUMN decimales_tenue DROP DEFAULT;
 
 -- Format canonique de l'écriture validée : 4 = devise de tenue et échelle dans le contenu haché.
 ALTER TABLE ecriture_validee

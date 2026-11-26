@@ -192,11 +192,13 @@ pub enum MotifConflit {
     DossierBrouillardNonVide,
     /// La devise de tenue du dossier a changé pendant l'attente du verrou : réessayer.
     ContexteDossierModifie,
+    /// Brouillon saisi sous une autre devise de tenue ou une autre échelle que celles du dossier.
+    BrouillonDeviseTenuePerimee,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 32] = [
+    pub const TOUS: [Self; 33] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -229,6 +231,7 @@ impl MotifConflit {
         Self::DossierDejaEcritures,
         Self::DossierBrouillardNonVide,
         Self::ContexteDossierModifie,
+        Self::BrouillonDeviseTenuePerimee,
     ];
 
     /// Code du corps de la réponse.
@@ -267,6 +270,7 @@ impl MotifConflit {
             Self::DossierDejaEcritures => "dossier_deja_ecritures",
             Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
             Self::ContexteDossierModifie => "contexte_dossier_modifie",
+            Self::BrouillonDeviseTenuePerimee => "brouillon_devise_tenue_perimee",
         }
     }
 }

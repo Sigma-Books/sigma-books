@@ -38,7 +38,7 @@ use crate::base::brouillard::{
     RefusSaisie, ResumeBrouillon, RolePiece, StatutVise,
 };
 use crate::base::organisation::{
-    lire_appartenance, lire_contexte_du_dossier, lire_dossier_visible,
+    lire_appartenance, lire_contexte_verrouille_en_partage, lire_dossier_visible,
 };
 use crate::base::referentiel::charger;
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
@@ -679,7 +679,10 @@ async fn contenu_controle(
 ) -> Result<ContenuStocke, ErreurApi> {
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
     let tva = referentiel_tva()?;
-    let tenue = lire_contexte_du_dossier(tx).await?.tenue()?;
+    // Verrou partagé sur la ligne du dossier, tenu jusqu'à la fin de la transaction : une
+    // modification du contexte (pays, devise) attend que ce brouillon soit enregistré, puis le
+    // voit et refuse (ADR 0027 ; ordre des verrous : ligne du dossier, périodes, audit).
+    let tenue = lire_contexte_verrouille_en_partage(tx).await?.tenue()?;
     let controle = saisie::controler(c, &referentiel, tva, tenue)?;
     let contenu = controle.contenu;
     let visee = brouillard::verrouiller_date(tx, contenu.date)
@@ -768,6 +771,12 @@ async fn modifier(
     let contenu = contenu_controle(tx, &c).await?;
     verrouiller_a_la_version(tx, id, version).await?;
     let avant = relire(tx, id).await?;
+    // Un brouillon saisi sous une autre devise de tenue ne se modifie pas : il se refait.
+    if avant.contenu.devise_tenue != contenu.devise_tenue
+        || avant.contenu.decimales_tenue != contenu.decimales_tenue
+    {
+        return Err(conflit(MotifConflit::BrouillonDeviseTenuePerimee));
+    }
     if avant.contenu == contenu {
         return Err(conflit(MotifConflit::AucunChangement));
     }

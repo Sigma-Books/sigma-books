@@ -24,6 +24,16 @@ use time::{Date, OffsetDateTime};
 /// Passe le dossier du banc en devise de tenue donnée (le propriétaire de la base le fait : le
 /// rôle applicatif n'a aucun `UPDATE` sur ces colonnes).
 async fn tenir_en(b: &Banc, pays: &str, devise: &str, decimales: i16, fuseau: &str) {
+    // Le déclencheur exige le contexte du dossier modifié (comme la requête applicative).
+    let mut tx = b.env.admin.begin().await.unwrap();
+    sqlx::query(
+        "SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)",
+    )
+    .bind(b.c.cabinet.to_string())
+    .bind(b.c.dossier.to_string())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     sqlx::query(
         "UPDATE dossier SET pays = $3, devise_tenue = $4, decimales_tenue = $5, fuseau = $6 \
          WHERE cabinet_id = $1 AND id = $2",
@@ -34,9 +44,10 @@ async fn tenir_en(b: &Banc, pays: &str, devise: &str, decimales: i16, fuseau: &s
     .bind(devise)
     .bind(decimales)
     .bind(fuseau)
-    .execute(&b.env.admin)
+    .execute(&mut *tx)
     .await
     .unwrap();
+    tx.commit().await.unwrap();
 }
 
 async fn dossier(b: &Banc) -> Value {
@@ -514,12 +525,48 @@ async fn les_identifiants_legaux_restent_dans_leur_dossier_et_leur_cabinet() {
     )
     .await
     .unwrap();
+    // Sans écriture validée, un identifiant se supprime (remplacement) : seulement ceux du dossier
+    // du contexte, jamais ceux de l'autre cabinet.
+    let supprimes = sqlx::query("DELETE FROM dossier_identifiant_legal")
+        .execute(tx.connexion())
+        .await
+        .unwrap()
+        .rows_affected();
+    assert_eq!(supprimes, 1);
+    tx.annuler().await.unwrap();
+    // Dès qu'une écriture validée existe : la suppression est refusée par le déclencheur.
+    valider(
+        &a,
+        &[
+            ligne(caisse(), "debit", "1000"),
+            ligne(banque(), "credit", "1000"),
+        ],
+    )
+    .await;
+    let mut tx = ouvrir_transaction(
+        &a.env.application,
+        ContexteTenant::dossier(a.c.cabinet, a.c.dossier, a.c.administrateur),
+    )
+    .await
+    .unwrap();
     assert!(
         sqlx::query("DELETE FROM dossier_identifiant_legal")
             .execute(tx.connexion())
             .await
             .is_err()
     );
+    tx.annuler().await.unwrap();
+    // En contexte de cabinet (sans dossier), le déclencheur ne laisse rien passer non plus.
+    let mut tx = ouvrir_transaction(
+        &a.env.application,
+        ContexteTenant::cabinet(a.c.cabinet, a.c.administrateur),
+    )
+    .await
+    .unwrap();
+    let r = sqlx::query("DELETE FROM dossier_identifiant_legal")
+        .execute(tx.connexion())
+        .await;
+    assert!(r.is_err() || r.unwrap().rows_affected() == 0);
     tx.annuler().await.unwrap();
 }
 
@@ -807,4 +854,366 @@ async fn refus_de_modification_a_codes_stables() {
     assert_eq!(code(&r), "contexte_dossier_invalide");
     // Vers un pays qui l'admet encore (SN reste SN) : sans objet ; le dossier est inchangé.
     assert_eq!(dossier(&b).await["pays"], "SN");
+}
+
+// --- Sécurité de la modification : contexte du déclencheur, remplacement des identifiants,
+// --- course entre une saisie et un changement de devise (relecture indépendante de #235) ------
+
+/// Le déclencheur est aveugle hors contexte de dossier : les politiques des écritures et des
+/// brouillons exigent `sigma.dossier`. Il refuse donc de changer pays, devise ou échelle sans le
+/// contexte du dossier modifié, avant même de chercher des écritures.
+#[tokio::test]
+async fn le_declencheur_exige_le_contexte_du_dossier() {
+    let b = banc().await;
+    valider(
+        &b,
+        &[
+            ligne(caisse(), "debit", "1000"),
+            ligne(banque(), "credit", "1000"),
+        ],
+    )
+    .await;
+    for (contexte, nom) in [
+        (
+            ContexteTenant::cabinet(b.c.cabinet, b.c.administrateur),
+            "cabinet",
+        ),
+        (
+            ContexteTenant::dossier(b.c.cabinet, b.c.autre_dossier, b.c.administrateur),
+            "autre dossier",
+        ),
+        (
+            ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+            "bon dossier avec écritures",
+        ),
+    ] {
+        let mut tx = ouvrir_transaction(&b.env.application, contexte)
+            .await
+            .unwrap();
+        let r = sqlx::query(
+            "UPDATE dossier SET devise_tenue = 'EUR', decimales_tenue = 2 WHERE cabinet_id = $1 AND id = $2",
+        )
+        .bind(b.c.cabinet.uuid())
+        .bind(b.c.dossier.uuid())
+        .execute(tx.connexion())
+        .await;
+        // Erreur du déclencheur, ou aucune ligne visible (dossier d'un autre contexte : la RLS).
+        assert!(
+            r.is_err() || r.unwrap().rows_affected() == 0,
+            "{nom} : la devise ne change pas"
+        );
+        tx.annuler().await.unwrap();
+    }
+    // Un dossier sans écriture ni brouillon : refusé en contexte de cabinet aussi (contexte requis).
+    let vide = banc().await;
+    let mut tx = ouvrir_transaction(
+        &vide.env.application,
+        ContexteTenant::cabinet(vide.c.cabinet, vide.c.administrateur),
+    )
+    .await
+    .unwrap();
+    let r = sqlx::query(
+        "UPDATE dossier SET devise_tenue = 'EUR', decimales_tenue = 2 WHERE cabinet_id = $1 AND id = $2",
+    )
+    .bind(vide.c.cabinet.uuid())
+    .bind(vide.c.dossier.uuid())
+    .execute(tx.connexion())
+    .await;
+    assert!(r.is_err());
+    tx.annuler().await.unwrap();
+    assert_eq!(dossier(&b).await["devise"], "XOF");
+    // Le fuseau, lui, se change en contexte de cabinet (aucun effet sur le haché).
+    let mut tx = ouvrir_transaction(
+        &vide.env.application,
+        ContexteTenant::cabinet(vide.c.cabinet, vide.c.administrateur),
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE dossier SET fuseau = 'Africa/Douala' WHERE cabinet_id = $1 AND id = $2")
+        .bind(vide.c.cabinet.uuid())
+        .bind(vide.c.dossier.uuid())
+        .execute(tx.connexion())
+        .await
+        .unwrap();
+    tx.annuler().await.unwrap();
+}
+
+#[tokio::test]
+async fn les_identifiants_se_remplacent_avec_le_pays_tant_qu_aucune_ecriture_n_existe() {
+    let b = banc().await;
+    sqlx::query(
+        "INSERT INTO dossier_identifiant_legal (cabinet_id, dossier_id, type, valeur) \
+         VALUES ($1, $2, 'NINEA', '0012345'), ($1, $2, 'RCCM', 'SN-DKR-2020-B-1')",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    // Le NINEA n'est pas admis au Cameroun, et aucune liste de remplacement n'est fournie : 422.
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"pays":"CM","devise":"XAF"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{}", r.texte());
+    // Avec une liste de remplacement admise : le pays, la devise et les identifiants changent.
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"pays":"CM","devise":"XAF","identifiants_legaux":[{"type":"RCCM","valeur":"CM-DLA-2021-B-9"}]}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let v = r.json();
+    assert_eq!(v["pays"], "CM");
+    assert_eq!(v["identifiants_legaux"].as_array().unwrap().len(), 1);
+    assert_eq!(v["identifiants_legaux"][0]["valeur"], "CM-DLA-2021-B-9");
+    let n: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM dossier_identifiant_legal WHERE dossier_id = $1")
+            .bind(b.c.dossier.uuid())
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+    assert_eq!(n, 1);
+    // Audit : les types avant et après, jamais les valeurs.
+    let audit: Vec<String> =
+        sqlx::query_scalar("SELECT contenu FROM audit_dossier WHERE dossier_id = $1")
+            .bind(b.c.dossier.uuid())
+            .fetch_all(&b.env.admin)
+            .await
+            .unwrap();
+    let entree = audit
+        .iter()
+        .find(|c| c.contains("identifiants_legaux"))
+        .expect("audit");
+    assert!(
+        entree.contains("NINEA,RCCM") && entree.contains("RCCM"),
+        "{entree}"
+    );
+    assert!(
+        !entree.contains("0012345") && !entree.contains("CM-DLA-2021-B-9"),
+        "{entree}"
+    );
+    // La même liste redite : rien à changer. Un type inconnu du pays : 422.
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"identifiants_legaux":[{"type":"RCCM","valeur":"CM-DLA-2021-B-9"}]}"#,
+        None,
+    )
+    .await;
+    assert_eq!(code(&r), "aucun_changement");
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"identifiants_legaux":[{"type":"NINEA","valeur":"1"}]}"#,
+        None,
+    )
+    .await;
+    assert_eq!(code(&r), "contexte_dossier_invalide");
+    // Une écriture validée : plus aucun remplacement (409), le fuseau reste modifiable.
+    valider(
+        &b,
+        &[
+            ligne(caisse(), "debit", "1000"),
+            ligne(banque(), "credit", "1000"),
+        ],
+    )
+    .await;
+    let r = modifier(
+        &b,
+        b.c.administrateur,
+        r#"{"identifiants_legaux":[]}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "dossier_deja_ecritures");
+    assert_eq!(
+        modifier(
+            &b,
+            b.c.administrateur,
+            r#"{"fuseau":"Africa/Douala"}"#,
+            None
+        )
+        .await
+        .statut,
+        StatusCode::OK
+    );
+}
+
+/// Les verrous de la course : une saisie tient `FOR SHARE` sur la ligne du dossier jusqu'à sa
+/// validation en base, la modification prend `FOR NO KEY UPDATE` ; chacun attend l'autre.
+#[tokio::test]
+async fn la_saisie_et_la_modification_se_serialisent_sur_la_ligne_du_dossier() {
+    let b = banc().await;
+    let ouvrir = || async {
+        ouvrir_transaction(
+            &b.env.application,
+            ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+        )
+        .await
+        .unwrap()
+    };
+    let verrou = |mode: &'static str| {
+        format!(
+            "SELECT 1 FROM dossier WHERE cabinet_id = '{}' AND id = '{}' FOR {mode}",
+            b.c.cabinet.uuid(),
+            b.c.dossier.uuid()
+        )
+    };
+    let essayer = |mut tx: api::base::TransactionTenant, mode: &'static str| {
+        let requete = verrou(mode);
+        async move {
+            sqlx::query("SET LOCAL lock_timeout = '300ms'")
+                .execute(tx.connexion())
+                .await
+                .unwrap();
+            let r = sqlx::query(sqlx::AssertSqlSafe(requete))
+                .execute(tx.connexion())
+                .await;
+            tx.annuler().await.unwrap();
+            r.is_ok()
+        }
+    };
+    // Une saisie en cours (SHARE) retient la modification (NO KEY UPDATE) ; deux saisies se
+    // partagent la ligne.
+    let mut saisie = ouvrir().await;
+    sqlx::query(sqlx::AssertSqlSafe(verrou("SHARE")))
+        .execute(saisie.connexion())
+        .await
+        .unwrap();
+    assert!(
+        !essayer(ouvrir().await, "NO KEY UPDATE").await,
+        "la modification attend la saisie"
+    );
+    assert!(
+        essayer(ouvrir().await, "SHARE").await,
+        "deux saisies se partagent la ligne"
+    );
+    saisie.annuler().await.unwrap();
+    // Une modification en cours retient les saisies, mais pas les clés étrangères (KEY SHARE).
+    let mut modification = ouvrir().await;
+    sqlx::query(sqlx::AssertSqlSafe(verrou("NO KEY UPDATE")))
+        .execute(modification.connexion())
+        .await
+        .unwrap();
+    assert!(
+        !essayer(ouvrir().await, "SHARE").await,
+        "la saisie attend la modification"
+    );
+    assert!(
+        essayer(ouvrir().await, "KEY SHARE").await,
+        "une clé étrangère passe"
+    );
+    modification.annuler().await.unwrap();
+}
+
+/// Course de bout en bout : une saisie de brouillon et un changement de devise lancés ensemble.
+/// Quel que soit l'ordre, aucun brouillon ne reste saisi sous une autre devise que celle du dossier.
+#[tokio::test]
+async fn aucune_course_ne_laisse_un_brouillon_dans_la_mauvaise_devise() {
+    for _ in 0..12 {
+        let b = banc().await;
+        let lignes = [
+            ligne(caisse(), "debit", "1000"),
+            ligne(banque(), "credit", "1000"),
+        ];
+        let saisie = poster(&b, &lignes);
+        let changement = modifier(
+            &b,
+            b.c.administrateur,
+            r#"{"pays":"CD","devise":"CDF"}"#,
+            None,
+        );
+        let (s, m) = tokio::join!(saisie, changement);
+        assert!(matches!(s.statut, StatusCode::CREATED), "{}", s.texte());
+        let devise_du_dossier: String =
+            sqlx::query_scalar("SELECT devise_tenue FROM dossier WHERE id = $1")
+                .bind(b.c.dossier.uuid())
+                .fetch_one(&b.env.admin)
+                .await
+                .unwrap();
+        let brouillons: Vec<String> =
+            sqlx::query_scalar("SELECT devise_tenue FROM brouillon WHERE dossier_id = $1")
+                .bind(b.c.dossier.uuid())
+                .fetch_all(&b.env.admin)
+                .await
+                .unwrap();
+        assert_eq!(brouillons.len(), 1);
+        assert!(
+            brouillons.iter().all(|d| *d == devise_du_dossier),
+            "brouillon en {brouillons:?}, dossier en {devise_du_dossier}"
+        );
+        // Soit la modification est passée avant la saisie (le brouillon est en CDF), soit la
+        // saisie l'a précédée et la modification est refusée.
+        if m.statut == StatusCode::OK {
+            assert_eq!(devise_du_dossier, "CDF");
+        } else {
+            assert_eq!(code(&m), "dossier_brouillard_non_vide", "{}", m.texte());
+            assert_eq!(devise_du_dossier, "XOF");
+        }
+    }
+}
+
+/// Un brouillon saisi sous une autre devise ou une autre échelle que celles du dossier ne se
+/// valide pas, dans les deux sens (le contexte est changé ici en contournant les barrières).
+#[tokio::test]
+async fn un_brouillon_d_une_autre_echelle_ne_se_valide_pas() {
+    for (avant, apres, montant) in [
+        (
+            ("SN", "XOF", 0_i16, "Africa/Dakar"),
+            ("CD", "CDF", 2_i16, "Africa/Kinshasa"),
+            "1000",
+        ),
+        (
+            ("CD", "CDF", 2_i16, "Africa/Kinshasa"),
+            ("SN", "XOF", 0_i16, "Africa/Dakar"),
+            "1000.55",
+        ),
+    ] {
+        let b = banc().await;
+        tenir_en(&b, avant.0, avant.1, avant.2, avant.3).await;
+        let (id, version) = b
+            .pret_avec(&contenu(
+                &journal_de_saisie(),
+                &aujourd(),
+                &[
+                    ligne(caisse(), "debit", montant),
+                    ligne(banque(), "credit", montant),
+                ],
+                "",
+            ))
+            .await;
+        // Le propriétaire contourne le déclencheur (`session_replication_role`) pour changer la
+        // devise sous le brouillon, comme une course ou une erreur d'exploitation.
+        let mut conn = b.env.admin.acquire().await.unwrap();
+        sqlx::query("SET session_replication_role = replica")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE dossier SET pays = $3, devise_tenue = $4, decimales_tenue = $5, fuseau = $6 WHERE cabinet_id = $1 AND id = $2")
+            .bind(b.c.cabinet.uuid())
+            .bind(b.c.dossier.uuid())
+            .bind(apres.0)
+            .bind(apres.1)
+            .bind(apres.2)
+            .bind(apres.3)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        sqlx::query("RESET session_replication_role")
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        drop(conn);
+        let r = b.valider(id, version).await;
+        assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+        assert_eq!(code(&r), "brouillon_devise_tenue_perimee");
+        assert_eq!(b.compter("ecriture_validee").await, 0);
+    }
 }

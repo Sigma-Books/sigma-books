@@ -310,6 +310,8 @@ pub(super) fn controler(
             date_valeur_comptable: ecriture.date_valeur_comptable(),
             libelle: libelle.as_str().to_owned(),
             lignes,
+            devise_tenue: tenue.devise().code().to_owned(),
+            decimales_tenue: tenue.decimales(),
         },
     })
 }
