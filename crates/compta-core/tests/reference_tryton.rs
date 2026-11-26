@@ -43,6 +43,7 @@ fn scenario_move_cancel_reversal() {
                     Sens::Debit,
                     Montant::parse("30", Devise::parse("EUR").unwrap()).unwrap(),
                     Cours::parse("1.0667").unwrap(),
+                    &tenue_xof(),
                 )
                 .unwrap()
                 .avec_tiers(IdTiers::parse("Customer").unwrap()),

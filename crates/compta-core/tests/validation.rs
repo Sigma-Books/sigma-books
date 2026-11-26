@@ -286,6 +286,7 @@ fn compteur_inadapte_ou_desynchronise() {
         journaux: &ctx_journaux,
         exercices: &ctx_exercices,
         delai_cloture: compta_core::DELAI_CLOTURE_PAR_DEFAUT,
+        tenue: tenue_xof(),
     };
     let refus = d
         .livre
@@ -811,4 +812,34 @@ fn message_de_l_operation_tardive() {
         "{sans}"
     );
     assert!(!sans.to_string().contains("None"));
+}
+
+#[test]
+fn ecriture_d_une_autre_devise_de_tenue_refusee() {
+    // Le dossier est tenu en CDF (2 décimales) : une écriture tenue en XOF n'y entre pas, même
+    // équilibrée et complète (ADR 0027).
+    let mut d = Dossier::nouveau();
+    let tenue_dossier =
+        compta_core::DeviseTenue::nouvelle(compta_core::Devise::parse("CDF").unwrap(), 2).unwrap();
+    let (plan, journaux, exercices) = (d.plan.clone(), d.journaux.clone(), d.exercices.clone());
+    let contexte = compta_core::Contexte {
+        plan: &plan,
+        journaux: &journaux,
+        exercices: &exercices,
+        tenue: tenue_dossier,
+    };
+    let refus = d
+        .livre
+        .valider(
+            achat(),
+            &contexte,
+            &Compteur::nouveau(j("AC"), CodeExercice::parse("2026").unwrap()),
+            date!(2026 - 03 - 10),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        refus.erreur(),
+        ErreurValidation::DeviseTenueDifferente { ecriture, dossier }
+            if ecriture.code() == "XOF" && dossier.code() == "CDF"
+    ));
 }

@@ -49,6 +49,7 @@ use crate::exercice::{
     echeance_de_cloture,
 };
 use crate::journal::{CodeJournal, Journal, Journaux};
+use crate::montant::{Devise, DeviseTenue};
 use crate::numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 use crate::plan::{ErreurPlan, PlanComptes, Usage};
 use crate::texte::TexteCourt;
@@ -57,6 +58,14 @@ use crate::validation;
 /// Motifs de refus d'une validation ou d'une contre-passation.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ErreurValidation {
+    /// Écriture tenue dans une autre devise de tenue (ou une autre échelle) que le dossier.
+    #[error("l'écriture est tenue en {ecriture}, le dossier en {dossier}")]
+    DeviseTenueDifferente {
+        /// Devise de tenue de l'écriture.
+        ecriture: Devise,
+        /// Devise de tenue du dossier.
+        dossier: Devise,
+    },
     /// Journal absent du dossier.
     #[error("le journal {0} n'existe pas")]
     JournalInconnu(CodeJournal),
@@ -210,6 +219,9 @@ pub struct Contexte<'a> {
     /// ([`DELAI_CLOTURE_PAR_DEFAUT`](crate::DELAI_CLOTURE_PAR_DEFAUT) tant que le pays du dossier
     /// ne le fournit pas).
     pub delai_cloture: DelaiCloture,
+    /// Devise de tenue du dossier et son échelle (ADR 0027) : toute écriture validée est dans
+    /// cette devise.
+    pub tenue: DeviseTenue,
 }
 
 /// Motifs de refus d'une reconstitution ([`EcritureValidee::reconstituer`]) : la donnée relue
@@ -445,7 +457,7 @@ impl EcritureValidee {
         self.origine.as_ref()
     }
 
-    /// Total des débits (égal au total des crédits) en XOF.
+    /// Total des débits (égal au total des crédits) en devise de tenue.
     #[must_use]
     pub fn total(&self) -> Decimal {
         self.lignes.iter().map(Ligne::debit).sum()
@@ -746,6 +758,13 @@ pub(crate) fn controler(
     date_validation: Date,
 ) -> Result<(CodeExercice, Vec<Avertissement>), ErreurValidation> {
     let mut avertissements = Vec::new();
+    // Toute écriture d'un dossier est dans la devise de tenue (et l'échelle) du dossier.
+    if *ecriture.tenue() != contexte.tenue {
+        return Err(ErreurValidation::DeviseTenueDifferente {
+            ecriture: ecriture.tenue().devise(),
+            dossier: contexte.tenue.devise(),
+        });
+    }
     let code = ecriture.journal();
     // Invariant 7 : journal existant, ouvert à la saisie.
     let journal = contexte

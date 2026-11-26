@@ -50,7 +50,7 @@ pub use journal::{
 pub use livre::{
     Avertissement, Contexte, EcritureValidee, ErreurReconstitution, ErreurValidation, Livre,
 };
-pub use montant::{Cours, Devise, ErreurMontant, Montant};
+pub use montant::{Cours, Devise, DeviseTenue, ErreurMontant, Montant};
 pub use numerotation::{Compteur, ErreurNumerotation, NumeroEcriture};
 pub use plan::{Compte, CompteReference, ErreurPlan, GenreCompte, PlanComptes, SensNormal, Usage};
 pub use texte::{ErreurTexte, TexteCourt};
