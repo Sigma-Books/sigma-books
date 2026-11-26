@@ -1049,7 +1049,7 @@ async fn relues(b: &Banc) -> Vec<(base::EcritureStockee, compta_core::EcritureVa
     let mut rendues = Vec::new();
     for id in ids {
         let e = base::lire(&mut tx, id).await.unwrap().unwrap();
-        let v = reconstituer(&e, referentiel_tva().unwrap()).unwrap();
+        let v = reconstituer(&e, referentiel_tva().unwrap(), &commun::tenue_xof()).unwrap();
         rendues.push((e, v));
     }
     tx.annuler().await.unwrap();

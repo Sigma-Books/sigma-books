@@ -22,7 +22,8 @@ use compta_core::{
     TypeJournal, echeance_de_cloture,
 };
 use serde::{Deserialize, Serialize};
-use time::{Date, Month};
+use syscohada::PackPays;
+use time::{Date, Month, OffsetDateTime};
 use uuid::Uuid;
 
 use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
@@ -34,8 +35,12 @@ use crate::base::referentiel::{
     nom_statut_periode, nom_type_journal,
 };
 use crate::base::{IdDossier, TransactionTenant};
+use crate::contexte_dossier::{
+    ContexteDossier, DemandeContexte, IdentifiantLegal, RefusContexte, controler_identifiants,
+    resoudre,
+};
 use crate::serveur::audit::Trace;
-use crate::serveur::erreur::{CategorieErreur, ErreurApi};
+use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifValidation};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
 
 mod periodes;
@@ -192,23 +197,45 @@ pub const ROUTES: &[Route] = &[
 // --- Création d'un dossier ------------------------------------------------------------------
 
 /// Corps de la création d'un dossier (`POST /api/cabinets/{cabinet}/dossiers`) :
-/// - entité nouvelle : `{"nom", "nature":"creation", "debut_activite":"AAAA-MM-JJ",
+/// - entité nouvelle : `{"nom", "pays", "nature":"creation", "debut_activite":"AAAA-MM-JJ",
 ///   "fin_premier_exercice":"annee_de_debut"|"annee_suivante"}` ;
-/// - dossier repris : `{"nom", "nature":"reprise", "annee":AAAA}`.
+/// - dossier repris : `{"nom", "pays", "nature":"reprise", "annee":AAAA}` ;
+/// - dans les deux cas, facultatifs : `"devise"` (ISO 4217), `"fuseau"` (IANA), `"langue"`
+///   (BCP 47), `"forme_juridique"`, `"identifiants_legaux":[{"type", "valeur"}]`. Le **pays**
+///   est obligatoire ; devise, fuseau et langue valent par défaut ceux de son pack (ADR 0027).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CorpsCreation {
     nom: String,
+    pays: String,
+    devise: Option<String>,
+    fuseau: Option<String>,
+    langue: Option<String>,
+    forme_juridique: Option<String>,
+    #[serde(default)]
+    identifiants_legaux: Vec<CorpsIdentifiant>,
     nature: String,
     debut_activite: Option<String>,
     fin_premier_exercice: Option<String>,
     annee: Option<i32>,
 }
 
-/// Demande de création d'un dossier : son nom et son référentiel, calculé en pur.
+/// Un identifiant légal du corps de la création.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CorpsIdentifiant {
+    #[serde(rename = "type")]
+    type_identifiant: String,
+    valeur: String,
+}
+
+/// Demande de création d'un dossier : son nom, son contexte (pays, devise de tenue, fuseau,
+/// langue, forme juridique, identifiants légaux) et son référentiel, calculé en pur.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DemandeCreation {
     nom: String,
+    contexte: ContexteDossier,
+    identifiants: Vec<IdentifiantLegal>,
     instanciation: Instanciation,
 }
 
@@ -217,6 +244,27 @@ impl DemandeCreation {
     pub(crate) fn nom(&self) -> &str {
         &self.nom
     }
+
+    /// Contexte du dossier à créer (valeurs par défaut du pays complétées, contrôlées).
+    pub(crate) fn contexte(&self) -> &ContexteDossier {
+        &self.contexte
+    }
+
+    /// Identifiants légaux demandés (types du pays, valeurs bornées).
+    pub(crate) fn identifiants(&self) -> &[IdentifiantLegal] {
+        &self.identifiants
+    }
+}
+
+/// Refus de contexte → réponse 422 d'un code stable.
+fn refus_contexte(refus: RefusContexte) -> ErreurApi {
+    let motif = match refus {
+        RefusContexte::PaysInconnu => MotifValidation::PaysInconnu,
+        RefusContexte::DeviseInconnue => MotifValidation::DeviseTenueInconnue,
+        RefusContexte::FuseauInconnu => MotifValidation::FuseauInconnu,
+        RefusContexte::Invalide => MotifValidation::ContexteDossierInvalide,
+    };
+    ErreurApi::Validation { motif, ligne: None }
 }
 
 /// Date `AAAA-MM-JJ` stricte.
@@ -238,15 +286,44 @@ fn date_lue(texte: &str) -> Option<Date> {
     Date::from_calendar_date(annee, mois, jour).ok()
 }
 
-/// Lit le corps de la création d'un dossier et prépare **en pur** tout son référentiel (plan,
-/// journaux, premier exercice) : toute erreur survient avant la première écriture.
+/// Lit le corps de la création d'un dossier, résout son contexte et prépare **en pur** tout son
+/// référentiel (plan, journaux, premier exercice) : toute erreur survient avant la première
+/// écriture. La date du jour (règles d'ouverture) est celle du **fuseau du dossier**.
 ///
 /// # Errors
 /// [`ErreurApi::RequeteInvalide`] : corps mal formé, combinaison de champs invalide, refus des
-/// règles d'ouverture ; erreur interne si le référentiel officiel est invalide.
-pub(crate) fn lire_creation(corps: &[u8], aujourd_hui: Date) -> Result<DemandeCreation, ErreurApi> {
+/// règles d'ouverture ; 422 `pays_inconnu`, `devise_tenue_inconnue`, `fuseau_inconnu` ou
+/// `contexte_dossier_invalide` ; erreur interne si le référentiel officiel est invalide.
+pub(crate) fn lire_creation(
+    corps: &[u8],
+    maintenant: OffsetDateTime,
+) -> Result<DemandeCreation, ErreurApi> {
     let Json(c) =
         Json::<CorpsCreation>::from_bytes(corps).map_err(|_| ErreurApi::RequeteInvalide)?;
+    let pack = PackPays::officiel().map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
+    let contexte = resoudre(
+        pack,
+        &DemandeContexte {
+            pays: &c.pays,
+            devise: c.devise.as_deref(),
+            fuseau: c.fuseau.as_deref(),
+            langue: c.langue.as_deref(),
+            forme_juridique: c.forme_juridique.as_deref(),
+        },
+    )
+    .map_err(refus_contexte)?;
+    let identifiants: Vec<IdentifiantLegal> = c
+        .identifiants_legaux
+        .iter()
+        .map(|i| IdentifiantLegal {
+            type_identifiant: i.type_identifiant.clone(),
+            valeur: i.valeur.clone(),
+        })
+        .collect();
+    controler_identifiants(pack, &contexte.pays, &identifiants).map_err(refus_contexte)?;
+    let aujourd_hui = contexte
+        .date_du_jour(maintenant)
+        .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
     let ouverture = match (
         c.nature.as_str(),
         c.debut_activite.as_deref(),
@@ -269,6 +346,8 @@ pub(crate) fn lire_creation(corps: &[u8], aujourd_hui: Date) -> Result<DemandeCr
         .map_err(|_| ErreurApi::RequeteInvalide)?;
     Ok(DemandeCreation {
         nom: c.nom,
+        contexte,
+        identifiants,
         instanciation,
     })
 }
@@ -911,31 +990,34 @@ fn rendre(
 mod tests {
     use super::*;
 
-    fn jour() -> Date {
-        Date::from_calendar_date(2026, Month::November, 19).unwrap()
+    fn jour() -> OffsetDateTime {
+        Date::from_calendar_date(2026, Month::November, 19)
+            .unwrap()
+            .midnight()
+            .assume_utc()
     }
 
     #[test]
     fn corps_de_creation() {
         for valide in [
-            r#"{"nom":"A","nature":"reprise","annee":2026}"#,
-            r#"{"nom":"A","nature":"creation","debut_activite":"2026-09-01","fin_premier_exercice":"annee_suivante"}"#,
-            r#"{"nom":"A","nature":"creation","debut_activite":"2027-01-01","fin_premier_exercice":"annee_de_debut"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"reprise","annee":2026}"#,
+            r#"{"nom":"A","pays":"SN","nature":"creation","debut_activite":"2026-09-01","fin_premier_exercice":"annee_suivante"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"creation","debut_activite":"2027-01-01","fin_premier_exercice":"annee_de_debut"}"#,
         ] {
             assert!(lire_creation(valide.as_bytes(), jour()).is_ok(), "{valide}");
         }
         for invalide in [
-            r#"{"nom":"A"}"#,
-            r#"{"nom":"A","nature":"reprise","annee":2027}"#,
-            r#"{"nom":"A","nature":"reprise"}"#,
-            r#"{"nom":"A","nature":"reprise","annee":2026,"debut_activite":"2026-01-01"}"#,
-            r#"{"nom":"A","nature":"creation","debut_activite":"2026-03-01","fin_premier_exercice":"annee_suivante"}"#,
-            r#"{"nom":"A","nature":"creation","debut_activite":"2026-3-01","fin_premier_exercice":"annee_de_debut"}"#,
-            r#"{"nom":"A","nature":"creation","debut_activite":"2026-02-30","fin_premier_exercice":"annee_de_debut"}"#,
-            r#"{"nom":"A","nature":"creation","debut_activite":"2026-02-01","fin_premier_exercice":"autre"}"#,
-            r#"{"nom":"A","nature":"creation","debut_activite":"2026-02-01"}"#,
-            r#"{"nom":"A","nature":"autre","annee":2026}"#,
-            r#"{"nom":"A","nature":"reprise","annee":2026,"autre":1}"#,
+            r#"{"nom":"A","pays":"SN"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"reprise","annee":2027}"#,
+            r#"{"nom":"A","pays":"SN","nature":"reprise"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"reprise","annee":2026,"debut_activite":"2026-01-01"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"creation","debut_activite":"2026-03-01","fin_premier_exercice":"annee_suivante"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"creation","debut_activite":"2026-3-01","fin_premier_exercice":"annee_de_debut"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"creation","debut_activite":"2026-02-30","fin_premier_exercice":"annee_de_debut"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"creation","debut_activite":"2026-02-01","fin_premier_exercice":"autre"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"creation","debut_activite":"2026-02-01"}"#,
+            r#"{"nom":"A","pays":"SN","nature":"autre","annee":2026}"#,
+            r#"{"nom":"A","pays":"SN","nature":"reprise","annee":2026,"autre":1}"#,
             "pas du json",
         ] {
             assert_eq!(
@@ -944,6 +1026,91 @@ mod tests {
                 "{invalide}"
             );
         }
+    }
+
+    #[test]
+    fn contexte_de_creation() {
+        let ok = |corps: &str| lire_creation(corps.as_bytes(), jour()).unwrap();
+        // Valeurs par défaut du pays (RDC : CDF, deux décimales) et identifiants du pays.
+        let d = ok(
+            r#"{"nom":"A","pays":"CD","nature":"reprise","annee":2026,"forme_juridique":"SARL","identifiants_legaux":[{"type":"RCCM","valeur":"CD/KIN/RCCM/20-B-1"}]}"#,
+        );
+        assert_eq!(d.contexte().devise, "CDF");
+        assert_eq!(d.contexte().decimales, 2);
+        assert_eq!(d.contexte().fuseau, "Africa/Kinshasa");
+        assert_eq!(d.identifiants().len(), 1);
+        // Valeurs fournies.
+        let d = ok(
+            r#"{"nom":"A","pays":"SN","devise":"EUR","fuseau":"Africa/Douala","langue":"fr-SN","nature":"reprise","annee":2026}"#,
+        );
+        assert_eq!(
+            (d.contexte().devise.as_str(), d.contexte().decimales),
+            ("EUR", 2)
+        );
+        // Pays obligatoire (400), inconnu, devise, fuseau, forme, identifiant : 422 stables.
+        let refus = |corps: &str| lire_creation(corps.as_bytes(), jour()).unwrap_err();
+        assert_eq!(
+            refus(r#"{"nom":"A","nature":"reprise","annee":2026}"#),
+            ErreurApi::RequeteInvalide
+        );
+        for (corps, motif) in [
+            (
+                r#"{"nom":"A","pays":"FR","nature":"reprise","annee":2026}"#,
+                MotifValidation::PaysInconnu,
+            ),
+            (
+                r#"{"nom":"A","pays":"SN","devise":"ZZZ","nature":"reprise","annee":2026}"#,
+                MotifValidation::DeviseTenueInconnue,
+            ),
+            (
+                r#"{"nom":"A","pays":"SN","fuseau":"Europe/Paris","nature":"reprise","annee":2026}"#,
+                MotifValidation::FuseauInconnu,
+            ),
+            (
+                r#"{"nom":"A","pays":"SN","langue":"FR","nature":"reprise","annee":2026}"#,
+                MotifValidation::ContexteDossierInvalide,
+            ),
+            (
+                r#"{"nom":"A","pays":"SN","forme_juridique":"","nature":"reprise","annee":2026}"#,
+                MotifValidation::ContexteDossierInvalide,
+            ),
+            (
+                r#"{"nom":"A","pays":"CM","identifiants_legaux":[{"type":"NINEA","valeur":"1"}],"nature":"reprise","annee":2026}"#,
+                MotifValidation::ContexteDossierInvalide,
+            ),
+        ] {
+            assert_eq!(
+                refus(corps),
+                ErreurApi::Validation { motif, ligne: None },
+                "{corps}"
+            );
+        }
+        // Un champ inconnu reste refusé (400).
+        assert_eq!(
+            refus(r#"{"nom":"A","pays":"SN","colonne_ninea":"1","nature":"reprise","annee":2026}"#),
+            ErreurApi::RequeteInvalide
+        );
+    }
+
+    #[test]
+    fn date_d_ouverture_dans_le_fuseau_du_pays() {
+        // 23 h 30 UTC le 31 décembre 2026 : déjà 2027 au Cameroun (UTC+1), encore 2026 au Sénégal.
+        // Reprise de l'année 2027 : seulement acceptée si « aujourd'hui » est en 2027 ou après ?
+        // On ne vérifie ici que la date retenue par la demande : début d'activité du 1er janvier
+        // 2027, admis dès le 1er janvier 2027 au Cameroun et pas encore au Sénégal.
+        let instant = Date::from_calendar_date(2026, Month::December, 31)
+            .unwrap()
+            .with_hms(23, 30, 0)
+            .unwrap()
+            .assume_utc();
+        let corps = |pays: &str| {
+            format!(r#"{{"nom":"A","pays":"{pays}","nature":"reprise","annee":2027}}"#)
+        };
+        assert!(lire_creation(corps("CM").as_bytes(), instant).is_ok());
+        assert_eq!(
+            lire_creation(corps("SN").as_bytes(), instant),
+            Err(ErreurApi::RequeteInvalide)
+        );
     }
 
     #[test]

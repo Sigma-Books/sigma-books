@@ -19,7 +19,7 @@
 //! # Échelle des montants (XOF)
 //! Le XOF n'a pas de subdivision, mais les décimales sont **acceptées** à la saisie et conservées
 //! exactes (décision du mainteneur, issue #184 : ni l'AUDCIF, ni le Guide, ni le CGI ne
-//! l'interdisent). `compta-core` n'impose aucune échelle à une ligne en XOF (`Ligne::en_xof`) :
+//! l'interdisent). `compta-core` n'impose aucune échelle à une ligne en devise de tenue (`Ligne::en_devise_tenue`) :
 //! seule la contre-valeur d'une ligne en devise est arrondie au franc. Le format canonique
 //! (`integrite`) relit un nombre de 28 chiffres au plus (partie entière et décimales,
 //! zéros finaux retirés). La validation refuse donc (422 `montant_echelle_excessive`, avec la
@@ -40,8 +40,8 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use compta_core::{
     Avertissement, CodeExercice, CodeJournal, CodeMotif, CodeRegime, Compteur, Contexte, Cours,
-    Devise, EcritureBrouillon, EcritureEquilibree, EcritureValidee, ErreurEcriture, ErreurPlan,
-    EtiquetteFiscale, Exercices, Exigibilite, IdTiers, Justification, Ligne, Montant,
+    Devise, DeviseTenue, EcritureBrouillon, EcritureEquilibree, EcritureValidee, ErreurEcriture,
+    ErreurPlan, EtiquetteFiscale, Exercices, Exigibilite, IdTiers, Justification, Ligne, Montant,
     NatureEtiquette, NumeroCompte, NumeroEcriture, ReferencePiece, Sens, SensTva, StatutPeriode,
     TauxTva, TexteCourt, Validation, VersionParametres,
 };
@@ -91,7 +91,11 @@ pub(super) fn donnee() -> ErreurApi {
 ///
 /// # Errors
 /// Donnée stockée qui n'a pas la forme d'une ligne (jamais produite par l'API).
-pub fn ligne_depuis_stockee(l: &LigneStockee, tva: &ReferentielTva) -> Result<Ligne, ErreurBase> {
+pub fn ligne_depuis_stockee(
+    l: &LigneStockee,
+    tva: &ReferentielTva,
+    tenue: &DeviseTenue,
+) -> Result<Ligne, ErreurBase> {
     let incoherent = || ErreurBase::Donnee("ligne stockée incohérente");
     let compte = NumeroCompte::parse(&l.compte).map_err(|_| incoherent())?;
     let sens = match l.sens {
@@ -101,14 +105,16 @@ pub fn ligne_depuis_stockee(l: &LigneStockee, tva: &ReferentielTva) -> Result<Li
     };
     let mut ligne = match &l.devise {
         None => {
-            let montant = Montant::parse(&l.montant, Devise::XOF).map_err(|_| incoherent())?;
-            Ligne::en_xof(compte, sens, montant).map_err(|_| incoherent())?
+            // Relecture : aucune échelle imposée (ADR 0020 point 6 ; ADR 0027 point 3).
+            let montant = Montant::parse(&l.montant, tenue.devise()).map_err(|_| incoherent())?;
+            Ligne::en_devise_tenue(compte, sens, montant, tenue).map_err(|_| incoherent())?
         }
         Some(d) => {
             let devise = Devise::parse(&d.code).map_err(|_| incoherent())?;
             let montant = Montant::parse(&d.montant, devise).map_err(|_| incoherent())?;
             let cours = Cours::parse(&d.cours).map_err(|_| incoherent())?;
-            let ligne = Ligne::en_devise(compte, sens, montant, cours).map_err(|_| incoherent())?;
+            let ligne =
+                Ligne::en_devise(compte, sens, montant, cours, tenue).map_err(|_| incoherent())?;
             // La contre-valeur stockée est celle que le moteur recalcule.
             if ligne.montant().valeur().normalize().to_string() != l.montant {
                 return Err(incoherent());
@@ -159,6 +165,7 @@ fn brouillon_de(
     lignes: &[LigneStockee],
     empreintes: &[String],
     tva: &ReferentielTva,
+    tenue: &DeviseTenue,
 ) -> Result<EcritureBrouillon, ErreurBase> {
     let incoherent = || ErreurBase::Donnee("écriture stockée incohérente");
     let journal = CodeJournal::parse(code_journal).map_err(|_| incoherent())?;
@@ -166,7 +173,7 @@ fn brouillon_de(
     let mut e = EcritureBrouillon::nouvelle(journal, date, libelle);
     e.mentionner_date_valeur_comptable(date_valeur);
     for l in lignes {
-        e.ajouter_ligne(ligne_depuis_stockee(l, tva)?);
+        e.ajouter_ligne(ligne_depuis_stockee(l, tva, tenue)?);
     }
     if !empreintes.is_empty() {
         let refs = empreintes
@@ -191,6 +198,7 @@ fn brouillon_de(
 pub fn reconstituer(
     e: &EcritureStockee,
     tva: &ReferentielTva,
+    tenue: &DeviseTenue,
 ) -> Result<EcritureValidee, ErreurBase> {
     let empreintes: Vec<String> = e.pieces.iter().map(|p| p.empreinte.clone()).collect();
     reconstituer_colonnes(
@@ -207,6 +215,7 @@ pub fn reconstituer(
         },
         &empreintes,
         tva,
+        tenue,
     )
 }
 
@@ -242,6 +251,7 @@ pub fn reconstituer_colonnes(
     c: &ColonnesValidee<'_>,
     empreintes: &[String],
     tva: &ReferentielTva,
+    tenue: &DeviseTenue,
 ) -> Result<EcritureValidee, ErreurBase> {
     let incoherent = || ErreurBase::Donnee("écriture validée incohérente");
     let brouillon = brouillon_de(
@@ -253,6 +263,7 @@ pub fn reconstituer_colonnes(
         c.lignes,
         empreintes,
         tva,
+        tenue,
     )?;
     let equilibree = brouillon.valider_equilibre().map_err(|_| incoherent())?;
     let numero = NumeroEcriture::parse(c.numero).map_err(|_| incoherent())?;
@@ -273,6 +284,7 @@ pub fn reconstituer_colonnes(
 pub fn equilibree_du_brouillon(
     c: &ContenuStocke,
     tva: &ReferentielTva,
+    tenue: &DeviseTenue,
 ) -> Result<Option<EcritureEquilibree>, ErreurBase> {
     let brouillon = brouillon_de(
         &c.journal,
@@ -283,6 +295,7 @@ pub fn equilibree_du_brouillon(
         &c.lignes,
         &[],
         tva,
+        tenue,
     )?;
     Ok(brouillon.valider_equilibre().ok())
 }
@@ -301,7 +314,7 @@ fn motif_ecriture(e: &ErreurEcriture) -> MotifValidation {
     match e {
         ErreurEcriture::Vide => MotifValidation::Vide,
         ErreurEcriture::UneSeuleLigne => MotifValidation::UneSeuleLigne,
-        ErreurEcriture::DesequilibreXof { .. } | ErreurEcriture::DesequilibreDevise { .. } => {
+        ErreurEcriture::DesequilibreTenue { .. } | ErreurEcriture::DesequilibreDevise { .. } => {
             MotifValidation::Desequilibree
         }
         _ => MotifValidation::EcritureInvalide,
@@ -338,6 +351,7 @@ pub fn preparer(
     b: &BrouillonStocke,
     empreintes: &[String],
     tva: &ReferentielTva,
+    tenue: &DeviseTenue,
     exercices: &Exercices,
 ) -> Result<Preparee, ErreurApi> {
     // Échelle des montants, avant de les relire en décimaux (le format canonique n'en relit
@@ -351,6 +365,11 @@ pub fn preparer(
         if valeurs.into_iter().any(echelle_excessive) {
             return Err(refus(MotifValidation::MontantEchelleExcessive, Some(i)));
         }
+        // Brouillon saisi avant le contexte du dossier, ou par un autre chemin : un montant de
+        // ligne en devise de tenue ne dépasse pas l'échelle de cette devise (ADR 0027).
+        if l.devise.is_none() && Montant::parse_tenue(&l.montant, tenue).is_err() {
+            return Err(refus(MotifValidation::MontantEchelleTenue, Some(i)));
+        }
     }
     let brouillon = brouillon_de(
         &b.contenu.journal,
@@ -361,6 +380,7 @@ pub fn preparer(
         &b.contenu.lignes,
         empreintes,
         tva,
+        tenue,
     )
     .map_err(|_| donnee())?;
     let ecriture = brouillon
@@ -380,7 +400,7 @@ pub struct Decision {
     pub validation: Validation,
     /// Contenu canonique haché.
     pub canonique: String,
-    /// Version du format canonique (1, 2 ou 3).
+    /// Version du format canonique (1 à 4).
     pub format: i16,
     /// Empreinte chaînée sur celle de la tête lue.
     pub empreinte: Empreinte,
@@ -477,12 +497,8 @@ pub(super) fn finaliser(validation: Validation, tete: &Tete) -> Result<Decision,
     if EcritureCanonique::lire(&contenu_texte).as_ref() != Ok(&canonique) {
         return Err(refus(MotifValidation::NonRepresentable, None));
     }
-    let format = match contenu_texte.lines().next() {
-        Some("ecriture v1") => 1,
-        Some("ecriture v2") => 2,
-        Some("ecriture v3") => 3,
-        _ => return Err(donnee()),
-    };
+    // Version choisie par le contenu : v4 si la devise de tenue n'est pas le XOF sans décimale.
+    let format = i16::from(canonique.version());
     let empreinte = chainer(&tete.empreinte, contenu_texte.as_bytes());
     Ok(Decision {
         validation,
@@ -507,7 +523,7 @@ pub fn appliquer(
     tete: &Tete,
     date_validation: Date,
 ) -> Result<Decision, ErreurApi> {
-    let p = preparer(b, empreintes, tva, contexte.exercices)?;
+    let p = preparer(b, empreintes, tva, &contexte.tenue, contexte.exercices)?;
     let d = match p.exercice() {
         Some(e) => dernier(p.journal(), e),
         None => 0,
@@ -700,7 +716,8 @@ pub(super) async fn valider(
     controler_pieces(&b, &pieces)?;
     let empreintes: Vec<String> = pieces.iter().map(|p| p.empreinte.clone()).collect();
 
-    let preparee = preparer(&b, &empreintes, tva, referentiel.exercices())?;
+    let tenue = dossier.contexte().tenue()?;
+    let preparee = preparer(&b, &empreintes, tva, &tenue, referentiel.exercices())?;
     let journal_id = referentiel
         .id_journal(preparee.journal())
         .ok_or_else(donnee)?;
@@ -723,8 +740,10 @@ pub(super) async fn valider(
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
         delai_cloture: crate::base::referentiel::delai_cloture(),
+        tenue,
     };
-    let date_validation = instant.date();
+    // Date du jour dans le fuseau du dossier (jamais celle d'UTC, ADR 0027).
+    let date_validation = dossier.contexte().date_du_jour(instant)?;
     let decision = decider(preparee, &contexte, dernier, &tete, date_validation)?;
 
     // 3. Persistance : écriture, lignes, liens ; le brouillon disparaît ; tête et compteur.
@@ -955,6 +974,10 @@ pub(super) async fn lire(
 
 #[cfg(test)]
 mod tests {
+    fn tenue_xof() -> compta_core::DeviseTenue {
+        compta_core::DeviseTenue::nouvelle(compta_core::Devise::parse("XOF").unwrap(), 0).unwrap()
+    }
+
     use super::*;
 
     #[test]
@@ -1126,6 +1149,7 @@ mod tests {
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
             delai_cloture: crate::base::referentiel::delai_cloture(),
+            tenue: tenue_xof(),
         };
         let journal = etat
             .journaux
@@ -1197,6 +1221,7 @@ mod tests {
             journaux: &etat.journaux,
             exercices: &d.clos,
             delai_cloture: crate::base::referentiel::delai_cloture(),
+            tenue: tenue_xof(),
         };
         let journal = etat
             .journaux
@@ -1266,6 +1291,7 @@ mod tests {
                 journaux: &etat.journaux,
                 exercices: &d.clos,
                 delai_cloture: crate::base::referentiel::delai_cloture(),
+                tenue: tenue_xof(),
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
@@ -1329,7 +1355,7 @@ mod tests {
                 // Côté `Livre`.
                 let brouillon = brouillon_de(
                     &b.contenu.journal, date, date_valeur, &b.contenu.libelle, None,
-                    &b.contenu.lignes, &empreintes, tva,
+                    &b.contenu.lignes, &empreintes, tva, &tenue_xof(),
                 ).unwrap();
                 let attendu: Result<(NumeroEcriture, String), ErreurApi> = match brouillon.valider_equilibre() {
                     Err(r) => Err(refus(motif_ecriture(r.erreur()), None)),
@@ -1389,6 +1415,7 @@ mod tests {
             journaux: &etat.journaux,
             exercices: d.inst.exercices(),
             delai_cloture: crate::base::referentiel::delai_cloture(),
+            tenue: tenue_xof(),
         };
         let journal = etat
             .journaux
@@ -1411,6 +1438,7 @@ mod tests {
             ],
             &empreintes,
             referentiel_tva().unwrap(),
+            &tenue_xof(),
         )
         .unwrap();
         let mut livre = Livre::new();
@@ -1517,6 +1545,7 @@ mod tests {
                 journaux: &etat.journaux,
                 exercices: &d.clos,
                 delai_cloture: crate::base::referentiel::delai_cloture(),
+                tenue: tenue_xof(),
             };
             let mut livre = Livre::new();
             let mut chaine = integrite::Chaine::ouvrir(&integrite::IdDossier::parse("d").unwrap());
@@ -1624,7 +1653,7 @@ mod tests {
                     // Même moteur que `Livre` : on rejoue l'écriture dans le livre.
                     let brouillon = brouillon_de(
                         &b.contenu.journal, DATES[date], None, &b.contenu.libelle, None,
-                        &b.contenu.lignes, &empreintes, tva,
+                        &b.contenu.lignes, &empreintes, tva, &tenue_xof(),
                     ).unwrap();
                     let eq = brouillon.valider_equilibre().unwrap();
                     let exercice = contexte.exercices.exercice_contenant(DATES[date]).unwrap().code().clone();

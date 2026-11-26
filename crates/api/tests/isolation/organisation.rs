@@ -81,6 +81,20 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
             attendu(m.multi, a.cabinet, a.dossier, Cree),
             attendu(m.multi, b.cabinet, b.dossier, interdit()),
         ],
+        // Pack pays : mêmes droits que la création d'un dossier, jamais le cabinet d'autrui.
+        "/api/cabinets/{cabinet}/pays" => vec![
+            attendu(
+                a.administrateur,
+                a.cabinet,
+                a.dossier,
+                Statut(StatusCode::OK),
+            ),
+            attendu(m.valideur, a.cabinet, a.dossier, Statut(StatusCode::OK)),
+            attendu(a.collaborateur, a.cabinet, a.dossier, interdit()),
+            attendu(m.auditeur, a.cabinet, a.dossier, interdit()),
+            attendu(m.multi, a.cabinet, a.dossier, Statut(StatusCode::OK)),
+            attendu(m.multi, b.cabinet, b.dossier, interdit()),
+        ],
         _ => return None,
     })
 }

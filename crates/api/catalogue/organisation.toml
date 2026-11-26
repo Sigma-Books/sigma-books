@@ -33,3 +33,11 @@ nom = "acces_dossier"
 justification = """
 Administration des affectations et délégations (Q5.1, Q5.2) et liste des dossiers affectés à \
 un utilisateur : actions du cabinet, sans dossier choisi."""
+
+# Ajout seul : identifiants légaux du dossier (ADR 0027).
+[[ajout_seul]]
+nom = "dossier_identifiant_legal"
+justification = """
+Identifiants légaux du dossier (NINEA, RCCM, NIF…, ADR 0027) : inscrits à la création du dossier, \
+aucune modification ni suppression exposée en v1 (INSERT et SELECT seuls pour le rôle applicatif). \
+Table de dossier à la règle commune : RLS forcée, cabinet et dossier du contexte."""

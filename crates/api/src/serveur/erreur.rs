@@ -308,15 +308,25 @@ pub enum MotifValidation {
     DateValeurNonAnterieure,
     /// Montant dont l'échelle dépasse celle du format canonique.
     MontantEchelleExcessive,
+    /// Montant de ligne qui a plus de décimales que l'échelle de la devise de tenue du dossier.
+    MontantEchelleTenue,
     /// Autre invalidité de l'écriture (montant, texte).
     EcritureInvalide,
     /// Contenu qui ne se relit pas à l'identique du format canonique.
     NonRepresentable,
+    /// Création d'un dossier : pays absent du pack pays (États de l'OHADA).
+    PaysInconnu,
+    /// Création d'un dossier : devise de tenue absente de la table des devises du pack.
+    DeviseTenueInconnue,
+    /// Création d'un dossier : fuseau absent de la table des fuseaux du pack.
+    FuseauInconnu,
+    /// Création d'un dossier : langue, forme juridique ou identifiant légal invalide.
+    ContexteDossierInvalide,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 24] = [
+    pub const TOUS: [Self; 29] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -339,8 +349,13 @@ impl MotifValidation {
         Self::DateHorsExercice,
         Self::DateValeurNonAnterieure,
         Self::MontantEchelleExcessive,
+        Self::MontantEchelleTenue,
         Self::EcritureInvalide,
         Self::NonRepresentable,
+        Self::PaysInconnu,
+        Self::DeviseTenueInconnue,
+        Self::FuseauInconnu,
+        Self::ContexteDossierInvalide,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -386,8 +401,13 @@ impl MotifValidation {
             Self::DateHorsExercice => "validation_date_hors_exercice",
             Self::DateValeurNonAnterieure => "validation_date_valeur_non_anterieure",
             Self::MontantEchelleExcessive => "montant_echelle_excessive",
+            Self::MontantEchelleTenue => "montant_echelle_devise_tenue",
             Self::EcritureInvalide => "ecriture_invalide",
             Self::NonRepresentable => "ecriture_non_representable",
+            Self::PaysInconnu => "pays_inconnu",
+            Self::DeviseTenueInconnue => "devise_tenue_inconnue",
+            Self::FuseauInconnu => "fuseau_inconnu",
+            Self::ContexteDossierInvalide => "contexte_dossier_invalide",
         }
     }
 }

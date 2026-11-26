@@ -132,8 +132,9 @@ impl Version {
         }
     }
 
-    /// En-tête de l'export, que Sigma Books écrit pour les versions 3 à 5.
-    fn entete(self) -> &'static str {
+    /// Première ligne de l'export de cette version.
+    #[must_use]
+    pub fn entete(self) -> &'static str {
         match self {
             Self::V1 => ENTETE_EXPORT_V1,
             Self::V2 => ENTETE_EXPORT_V2,

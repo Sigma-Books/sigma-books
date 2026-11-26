@@ -93,6 +93,9 @@ pub enum RefusSaisie {
     /// Montant, cours ou devise invalide (non strictement positif, devise de tenue en devise
     /// étrangère…).
     MontantInvalide,
+    /// Montant de ligne qui a plus de décimales que l'échelle de la devise de tenue du dossier
+    /// (ADR 0027).
+    MontantEchelleTenue,
     /// Tiers inconnu du dossier.
     TiersInconnu,
     /// Tiers désactivé.
@@ -142,6 +145,7 @@ impl RefusSaisie {
             Self::CompteInactif => "compte_inactif",
             Self::CompteDeRegroupement => "compte_de_regroupement",
             Self::MontantInvalide => "montant_invalide",
+            Self::MontantEchelleTenue => "montant_echelle_devise_tenue",
             Self::TiersInconnu => "tiers_inconnu",
             Self::TiersInactif => "tiers_inactif",
             Self::CompteHorsFicheDuTiers => "compte_hors_fiche_du_tiers",
@@ -162,7 +166,7 @@ impl RefusSaisie {
     }
 
     /// Tous les motifs (test de l'unicité des codes).
-    pub const TOUS: [Self; 25] = [
+    pub const TOUS: [Self; 26] = [
         Self::JournalInconnu,
         Self::JournalSansSaisie,
         Self::DateHorsExercice,
@@ -172,6 +176,7 @@ impl RefusSaisie {
         Self::CompteInactif,
         Self::CompteDeRegroupement,
         Self::MontantInvalide,
+        Self::MontantEchelleTenue,
         Self::TiersInconnu,
         Self::TiersInactif,
         Self::CompteHorsFicheDuTiers,

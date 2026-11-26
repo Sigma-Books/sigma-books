@@ -185,13 +185,17 @@ pub async fn creer_cabinet(admin: &PgPool, nom: &str) -> CabinetTest {
         ajouter_membre(&mut tx, c.cabinet, utilisateur, role).await;
     }
     for (dossier, suffixe) in [(c.dossier, "1"), (c.autre_dossier, "2")] {
-        sqlx::query("INSERT INTO dossier (cabinet_id, id, nom) VALUES ($1, $2, $3)")
-            .bind(c.cabinet.uuid())
-            .bind(dossier.uuid())
-            .bind(format!("{nom} dossier {suffixe}"))
-            .execute(&mut *tx)
-            .await
-            .expect("dossier");
+        sqlx::query(
+            "INSERT INTO dossier (cabinet_id, id, nom, pays, devise_tenue, decimales_tenue, \
+                                  fuseau, langue) \
+             VALUES ($1, $2, $3, 'SN', 'XOF', 0, 'Africa/Dakar', 'fr')",
+        )
+        .bind(c.cabinet.uuid())
+        .bind(dossier.uuid())
+        .bind(format!("{nom} dossier {suffixe}"))
+        .execute(&mut *tx)
+        .await
+        .expect("dossier");
     }
     affecter(&mut tx, c.cabinet, c.dossier, c.collaborateur).await;
     tx.commit().await.expect("commit admin");
@@ -266,4 +270,22 @@ pub fn code_sql(erreur: &sqlx::Error) -> Option<String> {
         .as_database_error()
         .and_then(sqlx::error::DatabaseError::code)
         .map(std::borrow::Cow::into_owned)
+}
+
+/// Contexte d'un dossier sénégalais (XOF, sans décimale), pour les tests qui créent un dossier
+/// directement par `creer_dossier`.
+pub fn contexte_dossier_sn() -> api::contexte_dossier::ContexteDossier {
+    api::contexte_dossier::ContexteDossier {
+        pays: "SN".to_owned(),
+        devise: "XOF".to_owned(),
+        decimales: 0,
+        fuseau: "Africa/Dakar".to_owned(),
+        langue: "fr".to_owned(),
+        forme_juridique: None,
+    }
+}
+
+/// Devise de tenue XOF (sans décimale), pour relire des écritures d'un dossier de test.
+pub fn tenue_xof() -> compta_core::DeviseTenue {
+    compta_core::DeviseTenue::nouvelle(compta_core::Devise::parse("XOF").unwrap(), 0).unwrap()
 }

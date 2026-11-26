@@ -97,21 +97,23 @@ pub async fn page_chaine(
         .collect()
 }
 
-/// Vrai si une écriture du dossier est au format canonique v3 (étiquette fiscale) : l'export
-/// est alors en v4.
+/// Plus haut format canonique des écritures du dossier (1 si le dossier n'a aucune écriture) :
+/// l'export est de la version la plus basse qui les admet (v3, v4 avec étiquette fiscale, v5 avec
+/// une devise de tenue autre que le XOF sans décimale).
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
-pub async fn a_une_etiquette(tx: &mut TransactionTenant) -> Result<bool, ErreurBase> {
+pub async fn format_maximal(tx: &mut TransactionTenant) -> Result<u8, ErreurBase> {
     let (cabinet, dossier) = dossier(tx)?;
-    Ok(sqlx::query_scalar!(
-        r#"SELECT EXISTS (SELECT 1 FROM ecriture_validee
-                          WHERE cabinet_id = $1 AND dossier_id = $2 AND format = 3) AS "oui!""#,
+    let maximum = sqlx::query_scalar!(
+        r#"SELECT COALESCE(MAX(format), 1)::smallint AS "maximum!"
+           FROM ecriture_validee WHERE cabinet_id = $1 AND dossier_id = $2"#,
         cabinet,
         dossier,
     )
     .fetch_one(tx.connexion())
-    .await?)
+    .await?;
+    u8::try_from(maximum).map_err(|_| ErreurBase::Donnee("format canonique invalide"))
 }
 
 /// Jetons du dossier, dans l'ordre de la chaîne couverte puis de leur obtention (au plus

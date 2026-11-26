@@ -280,7 +280,7 @@ async fn relues(b: &Banc) -> Vec<compta_core::EcritureValidee> {
     let mut rendues = Vec::new();
     for id in ids {
         let e = base::lire(&mut tx, id).await.unwrap().unwrap();
-        rendues.push(reconstituer(&e, referentiel_tva().unwrap()).unwrap());
+        rendues.push(reconstituer(&e, referentiel_tva().unwrap(), &commun::tenue_xof()).unwrap());
     }
     tx.annuler().await.unwrap();
     rendues

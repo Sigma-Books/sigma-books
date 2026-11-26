@@ -64,6 +64,7 @@ use crate::base::{
     ContexteTenant, IdCabinet, IdDossier, IdSession, IdUtilisateur, TransactionTenant,
     ouvrir_transaction,
 };
+use crate::contexte_dossier::ContexteDossier;
 
 /// Point de décision d'autorisation. Le binaire utilise [`Autorisation`] (Cedar) ; l'interface
 /// existe pour que les tests vérifient que la requête et la RLS tiennent **même si Cedar se
@@ -227,6 +228,7 @@ pub struct Garde {
 pub struct DossierAutorise {
     id: IdDossier,
     nom: String,
+    contexte: ContexteDossier,
 }
 
 impl DossierAutorise {
@@ -240,6 +242,12 @@ impl DossierAutorise {
     #[must_use]
     pub fn nom(&self) -> &str {
         &self.nom
+    }
+
+    /// Pays, devise de tenue, fuseau et langue du dossier (ADR 0027).
+    #[must_use]
+    pub fn contexte(&self) -> &ContexteDossier {
+        &self.contexte
     }
 }
 
@@ -312,6 +320,7 @@ impl Garde {
                 autorises.push(DossierAutorise {
                     id,
                     nom: visible.dossier.nom,
+                    contexte: visible.dossier.contexte,
                 });
             }
         }
@@ -332,6 +341,7 @@ impl Garde {
             ) if id == dossier.id => Ok(DossierAutorise {
                 id,
                 nom: dossier.nom,
+                contexte: dossier.contexte,
             }),
             _ => Err(ErreurApi::Introuvable),
         }
@@ -936,6 +946,14 @@ mod tests {
                 id,
                 cabinet: IdCabinet::nouveau(),
                 nom: "nom".to_owned(),
+                contexte: ContexteDossier {
+                    pays: "SN".to_owned(),
+                    devise: "XOF".to_owned(),
+                    decimales: 0,
+                    fuseau: "Africa/Dakar".to_owned(),
+                    langue: "fr".to_owned(),
+                    forme_juridique: None,
+                },
                 cree_le: OffsetDateTime::UNIX_EPOCH,
             },
             acces: None,

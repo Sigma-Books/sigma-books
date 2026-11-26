@@ -17,9 +17,9 @@
 use std::sync::OnceLock;
 
 use compta_core::{
-    CodeJournal, CodeMotif, CodeRegime, Cours, Devise, EcritureBrouillon, ErreurEtiquette,
-    ErreurPlan, EtiquetteFiscale, Exigibilite, IdTiers, Ligne, Montant, NatureEtiquette,
-    NumeroCompte, Sens, SensTva, TauxTva, TexteCourt,
+    CodeJournal, CodeMotif, CodeRegime, Cours, Devise, DeviseTenue, EcritureBrouillon,
+    ErreurEtiquette, ErreurMontant, ErreurPlan, EtiquetteFiscale, Exigibilite, IdTiers, Ligne,
+    Montant, NatureEtiquette, NumeroCompte, Sens, SensTva, TauxTva, TexteCourt,
 };
 use fiscal_sn::ReferentielTva;
 use serde::Deserialize;
@@ -182,6 +182,7 @@ fn ligne(
     position: usize,
     referentiel: &ReferentielDossier,
     tva: &ReferentielTva,
+    tenue: &DeviseTenue,
 ) -> Result<Ligne, ErreurApi> {
     let numero = NumeroCompte::parse(&c.compte)
         .map_err(|_| refus(RefusSaisie::CompteInconnu, Some(position)))?;
@@ -204,11 +205,19 @@ fn ligne(
     let montant_invalide = || refus(RefusSaisie::MontantInvalide, Some(position));
     let mut ligne = match (&c.montant, &c.devise) {
         (Some(m), None) => {
-            let montant = Montant::parse(m, Devise::XOF).map_err(|_| montant_invalide())?;
+            // Échelle de la devise de tenue : plus de décimales que l'échelle est refusé
+            // (ADR 0027), un format invalide reste un montant invalide.
+            let montant = Montant::parse_tenue(m, tenue).map_err(|e| match e {
+                ErreurMontant::EchelleExcessive { .. } => {
+                    refus(RefusSaisie::MontantEchelleTenue, Some(position))
+                }
+                _ => montant_invalide(),
+            })?;
             if hors_borne(&montant.valeur().to_string()) {
                 return Err(montant_invalide());
             }
-            Ligne::en_xof(numero.clone(), sens, montant).map_err(|_| montant_invalide())?
+            Ligne::en_devise_tenue(numero.clone(), sens, montant, tenue)
+                .map_err(|_| montant_invalide())?
         }
         (None, Some(d)) => {
             let devise = Devise::parse(&d.code).map_err(|_| montant_invalide())?;
@@ -218,9 +227,9 @@ fn ligne(
             {
                 return Err(montant_invalide());
             }
-            let ligne = Ligne::en_devise(numero.clone(), sens, montant, cours)
+            let ligne = Ligne::en_devise(numero.clone(), sens, montant, cours, tenue)
                 .map_err(|_| montant_invalide())?;
-            // Contre-valeur XOF calculée par le moteur.
+            // Contre-valeur en devise de tenue calculée par le moteur.
             if hors_borne(&ligne.montant().valeur().to_string()) {
                 return Err(montant_invalide());
             }
@@ -258,6 +267,7 @@ pub(super) fn controler(
     corps: &CorpsContenu,
     referentiel: &ReferentielDossier,
     tva: &ReferentielTva,
+    tenue: &DeviseTenue,
 ) -> Result<Controle, ErreurApi> {
     let libelle = TexteCourt::parse(&corps.libelle).map_err(|_| ErreurApi::RequeteInvalide)?;
     let date = date_lue(&corps.date).ok_or(ErreurApi::RequeteInvalide)?;
@@ -288,7 +298,7 @@ pub(super) fn controler(
     ecriture.mentionner_date_valeur_comptable(date_valeur);
     let mut lignes = Vec::with_capacity(corps.lignes.len());
     for (i, c) in corps.lignes.iter().enumerate() {
-        let l = ligne(c, i + 1, referentiel, tva)?;
+        let l = ligne(c, i + 1, referentiel, tva, tenue)?;
         lignes.push(LigneStockee::depuis(&l)?);
         ecriture.ajouter_ligne(l);
     }

@@ -465,7 +465,7 @@ async fn isoler(m: &Monde, b: &(Uuid, Personne, Uuid), a: &Secrets, etape: &str)
         ),
         (
             format!("/api/cabinets/{ca}/dossiers"),
-            json!({"nom": "Intrus", "nature": "reprise", "annee": annee(m)}),
+            json!({"nom": "Intrus", "pays": "SN", "nature": "reprise", "annee": annee(m)}),
         ),
     ];
     if let Some(d) = a.dossier {
@@ -973,7 +973,7 @@ async fn scenario(m: Monde) {
         .poster(
             &admin_b.session,
             &format!("/api/cabinets/{cabinet_b}/dossiers"),
-            &json!({"nom": "Dossier du cabinet B", "nature": "reprise", "annee": annee(&m)}),
+            &json!({"nom": "Dossier du cabinet B", "pays": "SN", "nature": "reprise", "annee": annee(&m)}),
         )
         .await;
     let dossier_b: Uuid = attendre(&r, StatusCode::CREATED)["id"]
@@ -1024,6 +1024,7 @@ async fn scenario(m: Monde) {
             &format!("/api/cabinets/{cabinet_a}/dossiers"),
             &json!({
                 "nom": "Dossier A de la démonstration",
+                "pays": "SN",
                 "nature": "creation",
                 "debut_activite": date(&m, 1, 1),
                 "fin_premier_exercice": "annee_suivante"

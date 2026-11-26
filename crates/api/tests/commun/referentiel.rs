@@ -165,7 +165,7 @@ pub async fn doter(
 /// de l'application des tests).
 pub fn corps_creation(nom: &str) -> String {
     format!(
-        r#"{{"nom":"{nom}","nature":"reprise","annee":{}}}"#,
+        r#"{{"nom":"{nom}","pays":"SN","nature":"reprise","annee":{}}}"#,
         time::OffsetDateTime::now_utc().year()
     )
 }

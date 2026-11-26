@@ -7,6 +7,7 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde::Serialize;
+use syscohada::PackPays;
 
 use super::{
     ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route, referentiel,
@@ -14,11 +15,13 @@ use super::{
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{
-    affecter_utilisateur_du_contexte, creer_dossier, lire_appartenance, lire_cabinet,
-    lire_dossier_visible, lister_dossiers_visibles,
+    affecter_utilisateur_du_contexte, creer_dossier, inserer_identifiants_legaux,
+    lire_appartenance, lire_cabinet, lire_dossier_visible, lire_identifiants_legaux,
+    lister_dossiers_visibles,
 };
+use crate::contexte_dossier::IdentifiantLegal;
 use crate::serveur::audit::Trace;
-use crate::serveur::erreur::ErreurApi;
+use crate::serveur::erreur::{CategorieErreur, ErreurApi};
 use crate::serveur::pipeline::{CabinetAutorise, DossierAutorise, Garde};
 
 /// Cas d'usage du module.
@@ -33,6 +36,10 @@ pub enum Cas {
     /// Créer un dossier : inscrit au cabinet, puis en première entrée du dossier (ADR 0014) ;
     /// le créateur y est affecté.
     CreerDossier,
+    /// Pack pays (ADR 0027) : pays de l'OHADA, valeurs par défaut du dossier (devise de tenue,
+    /// fuseau, langue), types d'identifiants légaux, devises et fuseaux admis. Données publiques
+    /// du produit, lues pour la page de création d'un dossier.
+    ListerPays,
 }
 
 /// Tranche du module.
@@ -68,6 +75,14 @@ pub const ROUTES: &[Route] = &[
         portee: Portee::Cabinet,
         cas_usage: CasUsage::Organisation(Cas::CreerDossier),
     },
+    // Pack pays : mêmes droits que la création d'un dossier (c'est sa page qui s'en sert).
+    Route {
+        methode: Methode::Get,
+        chemin: "/api/cabinets/{cabinet}/pays",
+        action: ActionRoute::Cabinet(Action::CreerDossier),
+        portee: Portee::Cabinet,
+        cas_usage: CasUsage::Organisation(Cas::ListerPays),
+    },
     Route {
         methode: Methode::Get,
         chemin: "/api/cabinets/{cabinet}/dossiers/{dossier}",
@@ -102,18 +117,131 @@ struct VueCabinet {
 }
 
 /// Vue d'un dossier : ne se construit que depuis un [`DossierAutorise`], que seule la [`Garde`]
-/// fabrique.
+/// fabrique. Rend le contexte du dossier (ADR 0027) : pays, devise de tenue et son échelle,
+/// fuseau, langue, forme juridique. Les identifiants légaux ne sont rendus que par la lecture
+/// d'un dossier et sa création, jamais par la liste.
 #[derive(Debug, Serialize)]
 struct VueDossier {
     id: String,
     nom: String,
+    pays: String,
+    devise: String,
+    decimales: u8,
+    fuseau: String,
+    langue: String,
+    forme_juridique: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identifiants_legaux: Option<Vec<VueIdentifiant>>,
 }
 
-impl From<DossierAutorise> for VueDossier {
-    fn from(dossier: DossierAutorise) -> Self {
+/// Un identifiant légal rendu à l'interface.
+#[derive(Debug, Serialize)]
+struct VueIdentifiant {
+    #[serde(rename = "type")]
+    type_identifiant: String,
+    valeur: String,
+}
+
+impl VueDossier {
+    fn de(dossier: &DossierAutorise, identifiants: Option<Vec<IdentifiantLegal>>) -> Self {
+        let c = dossier.contexte();
         Self {
             id: dossier.id().to_string(),
             nom: dossier.nom().to_owned(),
+            pays: c.pays.clone(),
+            devise: c.devise.clone(),
+            decimales: c.decimales,
+            fuseau: c.fuseau.clone(),
+            langue: c.langue.clone(),
+            forme_juridique: c.forme_juridique.clone(),
+            identifiants_legaux: identifiants.map(|v| {
+                v.into_iter()
+                    .map(|i| VueIdentifiant {
+                        type_identifiant: i.type_identifiant,
+                        valeur: i.valeur,
+                    })
+                    .collect()
+            }),
+        }
+    }
+}
+
+/// Vue du pack pays (`GET /api/cabinets/{cabinet}/pays`).
+#[derive(Debug, Serialize)]
+struct VuePack {
+    pays: Vec<VuePays>,
+    devises: Vec<VueDevise>,
+    fuseaux: Vec<VueFuseau>,
+}
+
+#[derive(Debug, Serialize)]
+struct VuePays {
+    code: String,
+    nom: String,
+    devise: String,
+    fuseau: String,
+    langue: String,
+    identifiants: Vec<VueTypeIdentifiant>,
+}
+
+#[derive(Debug, Serialize)]
+struct VueTypeIdentifiant {
+    code: String,
+    libelle: String,
+}
+
+#[derive(Debug, Serialize)]
+struct VueDevise {
+    code: String,
+    intitule: String,
+    decimales: u8,
+}
+
+#[derive(Debug, Serialize)]
+struct VueFuseau {
+    nom: String,
+    decalage_minutes: i16,
+}
+
+impl VuePack {
+    fn de(pack: &PackPays) -> Self {
+        Self {
+            pays: pack
+                .pays()
+                .iter()
+                .map(|p| VuePays {
+                    code: p.code().to_owned(),
+                    nom: p.nom().to_owned(),
+                    devise: p.devise().to_owned(),
+                    fuseau: p.fuseau().to_owned(),
+                    langue: p.langue().to_owned(),
+                    identifiants: p
+                        .identifiants()
+                        .iter()
+                        .map(|t| VueTypeIdentifiant {
+                            code: t.code().to_owned(),
+                            libelle: t.libelle().to_owned(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            devises: pack
+                .devises()
+                .iter()
+                .map(|d| VueDevise {
+                    code: d.code().to_owned(),
+                    intitule: d.intitule().to_owned(),
+                    decimales: d.decimales(),
+                })
+                .collect(),
+            fuseaux: pack
+                .fuseaux()
+                .iter()
+                .map(|z| VueFuseau {
+                    nom: z.nom().to_owned(),
+                    decalage_minutes: z.decalage_minutes(),
+                })
+                .collect(),
         }
     }
 }
@@ -145,7 +273,7 @@ pub(crate) async fn executer(
         Cas::ListerDossiers => {
             // Filtre de la requête (affectation), puis décision Cedar pour chaque dossier.
             let autorises = garde.filtrer(lister_dossiers_visibles(tx).await?)?;
-            let vues: Vec<VueDossier> = autorises.into_iter().map(VueDossier::from).collect();
+            let vues: Vec<VueDossier> = autorises.iter().map(|d| VueDossier::de(d, None)).collect();
             Ok(Resultat::lecture(Json(vues).into_response()))
         }
         Cas::LireDossier => {
@@ -153,10 +281,19 @@ pub(crate) async fn executer(
             let dossier = lire_dossier_visible(tx, id)
                 .await?
                 .ok_or(ErreurApi::Introuvable)?;
-            let vue = VueDossier::from(garde.dossier_du_chemin(dossier)?);
+            let autorise = garde.dossier_du_chemin(dossier)?;
+            let identifiants = lire_identifiants_legaux(tx).await?;
+            let vue = VueDossier::de(&autorise, Some(identifiants));
             Ok(Resultat::lecture(Json(vue).into_response()))
         }
         Cas::CreerDossier => creer(tx, garde, requete).await,
+        Cas::ListerPays => {
+            garde.exiger_cabinet()?;
+            exiger_createur(tx).await?;
+            let pack =
+                PackPays::officiel().map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
+            Ok(Resultat::lecture(Json(VuePack::de(pack)).into_response()))
+        }
     }
 }
 
@@ -188,15 +325,41 @@ async fn creer(
     exiger_createur(tx).await?;
     // Tout le référentiel du dossier (plan, journaux, premier exercice) est calculé en pur
     // avant la première écriture (module `referentiel`, PR 11).
-    let demande = referentiel::lire_creation(requete.corps, requete.maintenant.date())?;
+    let demande = referentiel::lire_creation(requete.corps, requete.maintenant)?;
     let nom = nom_dossier(demande.nom())?;
-    let dossier = creer_dossier(tx, &nom).await?;
+    let dossier = creer_dossier(tx, &nom, demande.contexte()).await?;
     affecter_utilisateur_du_contexte(tx, dossier.id).await?;
-    let donnees = referentiel::instancier(tx, dossier.id, &demande).await?;
+    let mut donnees = referentiel::instancier(tx, dossier.id, &demande).await?;
+    // La transaction est restreinte au dossier créé (référentiel) : ses identifiants légaux
+    // s'inscrivent sous la RLS de dossier.
+    inserer_identifiants_legaux(tx, demande.identifiants()).await?;
+    let c = demande.contexte();
+    donnees.extend([
+        ("pays", c.pays.clone()),
+        (
+            "devise_tenue",
+            format!("{} ; {} décimale(s)", c.devise, c.decimales),
+        ),
+        ("fuseau", c.fuseau.clone()),
+        ("langue", c.langue.clone()),
+        (
+            "identifiants_legaux",
+            demande
+                .identifiants()
+                .iter()
+                .map(|i| i.type_identifiant.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
+        ),
+    ]);
     let id = dossier.id.uuid();
 
     let mut au_cabinet = Trace::new(PorteeAudit::Cabinet, "dossier", id);
     au_cabinet.champs.push(("nom", None, Some(nom.clone())));
+    au_cabinet.champs.push(("pays", None, Some(c.pays.clone())));
+    au_cabinet
+        .champs
+        .push(("devise_tenue", None, Some(c.devise.clone())));
     au_cabinet
         .champs
         .push(("affectation", None, Some(garde.utilisateur().to_string())));
@@ -207,6 +370,22 @@ async fn creer(
     let vue = VueDossier {
         id: dossier.id.to_string(),
         nom,
+        pays: c.pays.clone(),
+        devise: c.devise.clone(),
+        decimales: c.decimales,
+        fuseau: c.fuseau.clone(),
+        langue: c.langue.clone(),
+        forme_juridique: c.forme_juridique.clone(),
+        identifiants_legaux: Some(
+            demande
+                .identifiants()
+                .iter()
+                .map(|i| VueIdentifiant {
+                    type_identifiant: i.type_identifiant.clone(),
+                    valeur: i.valeur.clone(),
+                })
+                .collect(),
+        ),
     };
     Ok(Resultat {
         reponse: (StatusCode::CREATED, Json(vue)).into_response(),

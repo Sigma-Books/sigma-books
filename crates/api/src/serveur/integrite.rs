@@ -16,7 +16,7 @@ use axum::Json;
 use axum::http::{HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use base64ct::{Base64, Encoding};
-use integrite::export::{BASE64_LIGNE, ENTETE_EXPORT_V3, ENTETE_EXPORT_V4, FIN_EXPORT};
+use integrite::export::{BASE64_LIGNE, FIN_EXPORT, Version};
 use integrite::horodatage::{Ancre, Temoin, ancres_par_defaut};
 use integrite::{Empreinte, IdDossier, genese};
 use serde::Serialize;
@@ -29,7 +29,7 @@ use super::pipeline::Garde;
 use super::routes::Requete;
 use crate::base::audit::PorteeAudit;
 use crate::base::integrite::{
-    ResumeJeton, a_une_etiquette, compter_jetons, dernier_resume, horodatage_en_attente_depuis,
+    ResumeJeton, compter_jetons, dernier_resume, format_maximal, horodatage_en_attente_depuis,
     jetons, page_chaine, resumes_jetons,
 };
 use crate::base::jetons::lire_tete;
@@ -332,8 +332,8 @@ pub async fn temoin(tx: &TransactionTenant, requete: &Requete<'_>) -> Result<Res
     piece_jointe(temoin.contenu(), &nom)
 }
 
-/// Export d'intégrité du dossier : format en vigueur (v3, ou v4 si une écriture porte une
-/// étiquette fiscale), tel que la base le contient (texte canonique et empreintes stockés, sans
+/// Export d'intégrité du dossier : format en vigueur (v3, v4 si une écriture porte une
+/// étiquette fiscale, v5 si elle est tenue dans une autre devise que le XOF sans décimale), tel que la base le contient (texte canonique et empreintes stockés, sans
 /// rien recalculer : une altération de la base se voit alors à la vérification de l'export),
 /// avec les jetons. Inscrit à l'audit (tête, nombre, jetons) ; crée l'alerte à l'administrateur
 /// dans la même transaction.
@@ -347,19 +347,11 @@ pub async fn exporter(
 ) -> Result<(Response, Trace), ErreurApi> {
     let mut l = lecture(tx, requete).await?;
     let dossier = id_dossier(&l)?;
-    let v4 = a_une_etiquette(&mut l).await?;
+    let version = Version::pour_ecriture(format_maximal(&mut l).await?);
     let tous = jetons(&mut l).await?;
     let total_jetons = compter_jetons(&mut l).await?;
     let mut sortie = String::new();
-    let _ = writeln!(
-        sortie,
-        "{}\ndossier={dossier}",
-        if v4 {
-            ENTETE_EXPORT_V4
-        } else {
-            ENTETE_EXPORT_V3
-        }
-    );
+    let _ = writeln!(sortie, "{}\ndossier={dossier}", version.entete());
     let (mut nombre, mut tete) = (0_u64, genese(&dossier));
     let mut apres = 0;
     loop {

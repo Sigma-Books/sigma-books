@@ -205,6 +205,7 @@ pub(super) async fn valider_par_lot(
         .collect();
     base::verrouiller_comptes_et_tiers(tx, &comptes, &tiers).await?;
     let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
+    let tenue = dossier.contexte().tenue()?;
     let toutes_pieces: Vec<Uuid> = candidates
         .iter()
         .flat_map(|b| b.pieces.iter().map(|l| l.piece))
@@ -224,7 +225,7 @@ pub(super) async fn valider_par_lot(
             .collect();
         let controle = controler_pieces(&b, &pieces).and_then(|()| {
             let empreintes: Vec<String> = pieces.iter().map(|p| p.empreinte.clone()).collect();
-            let preparee = preparer(&b, &empreintes, tva, referentiel.exercices())?;
+            let preparee = preparer(&b, &empreintes, tva, &tenue, referentiel.exercices())?;
             let journal_id = referentiel
                 .id_journal(preparee.journal())
                 .ok_or_else(donnee)?;
@@ -275,12 +276,14 @@ pub(super) async fn valider_par_lot(
         let dernier = base::verrouiller_compteur(tx, journal, exercice).await?;
         compteurs.insert((journal, exercice), dernier);
     }
-    let date_validation = instant.date();
+    // Date du jour dans le fuseau du dossier (ADR 0027).
+    let date_validation = dossier.contexte().date_du_jour(instant)?;
     let contexte = Contexte {
         plan: &referentiel.etat().plan,
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
         delai_cloture: crate::base::referentiel::delai_cloture(),
+        tenue,
     };
 
     // (B) Validation pure de toutes les écritures, dans l'ordre : compteurs et tête avancent en

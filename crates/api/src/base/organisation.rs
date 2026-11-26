@@ -11,6 +11,8 @@
 
 use time::OffsetDateTime;
 
+use crate::contexte_dossier::{ContexteDossier, IdentifiantLegal};
+
 use super::{
     ErreurBase, IdAccesDossier, IdAppartenance, IdCabinet, IdDossier, IdUtilisateur,
     TransactionTenant, TransactionUtilisateur,
@@ -38,6 +40,8 @@ pub struct Dossier {
     pub cabinet: IdCabinet,
     /// Nom (raison sociale).
     pub nom: String,
+    /// Pays, devise de tenue, fuseau, langue, forme juridique (ADR 0027), fixés à la création.
+    pub contexte: ContexteDossier,
     /// Instant de création.
     pub cree_le: OffsetDateTime,
 }
@@ -198,6 +202,7 @@ pub async fn lister_dossiers_visibles(
     let lignes = sqlx::query!(
         r#"
         SELECT d.cabinet_id, d.id, d.nom, d.cree_le,
+               d.pays, d.devise_tenue, d.decimales_tenue, d.fuseau, d.langue, d.forme_juridique,
                ad.id AS "acces_id?", ad.validation_deleguee AS "validation_deleguee?"
         FROM dossier d
         JOIN appartenance a
@@ -215,11 +220,11 @@ pub async fn lister_dossiers_visibles(
     )
     .fetch_all(tx.connexion())
     .await?;
-    Ok(lignes
+    lignes
         .into_iter()
         .map(|l| {
             let dossier = IdDossier::depuis_uuid(l.id);
-            DossierVisible {
+            Ok(DossierVisible {
                 acces: l.acces_id.map(|id| AccesDossier {
                     id: IdAccesDossier::depuis_uuid(id),
                     dossier,
@@ -229,11 +234,19 @@ pub async fn lister_dossiers_visibles(
                     id: dossier,
                     cabinet: IdCabinet::depuis_uuid(l.cabinet_id),
                     nom: l.nom,
+                    contexte: ContexteDossier::relu(
+                        l.pays,
+                        l.devise_tenue,
+                        l.decimales_tenue,
+                        l.fuseau,
+                        l.langue,
+                        l.forme_juridique,
+                    )?,
                     cree_le: l.cree_le,
                 },
-            }
+            })
         })
-        .collect())
+        .collect()
 }
 
 /// Lit un dossier du cabinet du contexte **visible** par l'utilisateur du contexte (même règle
@@ -250,7 +263,8 @@ pub async fn lire_dossier_visible(
     let contexte = tx.contexte().id_dossier().map(IdDossier::uuid);
     let ligne = sqlx::query!(
         r#"
-        SELECT d.cabinet_id, d.id, d.nom, d.cree_le
+        SELECT d.cabinet_id, d.id, d.nom, d.cree_le,
+               d.pays, d.devise_tenue, d.decimales_tenue, d.fuseau, d.langue, d.forme_juridique
         FROM dossier d
         JOIN appartenance a
           ON a.cabinet_id = d.cabinet_id AND a.utilisateur_id = $3 AND a.actif
@@ -268,12 +282,24 @@ pub async fn lire_dossier_visible(
     )
     .fetch_optional(tx.connexion())
     .await?;
-    Ok(ligne.map(|l| Dossier {
-        id: IdDossier::depuis_uuid(l.id),
-        cabinet: IdCabinet::depuis_uuid(l.cabinet_id),
-        nom: l.nom,
-        cree_le: l.cree_le,
-    }))
+    ligne
+        .map(|l| {
+            Ok(Dossier {
+                id: IdDossier::depuis_uuid(l.id),
+                cabinet: IdCabinet::depuis_uuid(l.cabinet_id),
+                nom: l.nom,
+                contexte: ContexteDossier::relu(
+                    l.pays,
+                    l.devise_tenue,
+                    l.decimales_tenue,
+                    l.fuseau,
+                    l.langue,
+                    l.forme_juridique,
+                )?,
+                cree_le: l.cree_le,
+            })
+        })
+        .transpose()
 }
 
 /// Lit le cabinet du contexte, s'il compte l'utilisateur du contexte parmi ses membres
@@ -313,7 +339,8 @@ pub async fn lister_dossiers(tx: &mut TransactionTenant) -> Result<Vec<Dossier>,
     let cabinet = tx.contexte().id_cabinet().uuid();
     let dossier = tx.contexte().id_dossier().map(IdDossier::uuid);
     let lignes = sqlx::query!(
-        "SELECT cabinet_id, id, nom, cree_le FROM dossier \
+        "SELECT cabinet_id, id, nom, cree_le, pays, devise_tenue, decimales_tenue, fuseau, langue, \
+                forme_juridique FROM dossier \
          WHERE cabinet_id = $1 AND ($2::uuid IS NULL OR id = $2) \
          ORDER BY nom, id",
         cabinet,
@@ -321,15 +348,25 @@ pub async fn lister_dossiers(tx: &mut TransactionTenant) -> Result<Vec<Dossier>,
     )
     .fetch_all(tx.connexion())
     .await?;
-    Ok(lignes
+    lignes
         .into_iter()
-        .map(|l| Dossier {
-            id: IdDossier::depuis_uuid(l.id),
-            cabinet: IdCabinet::depuis_uuid(l.cabinet_id),
-            nom: l.nom,
-            cree_le: l.cree_le,
+        .map(|l| {
+            Ok(Dossier {
+                id: IdDossier::depuis_uuid(l.id),
+                cabinet: IdCabinet::depuis_uuid(l.cabinet_id),
+                nom: l.nom,
+                contexte: ContexteDossier::relu(
+                    l.pays,
+                    l.devise_tenue,
+                    l.decimales_tenue,
+                    l.fuseau,
+                    l.langue,
+                    l.forme_juridique,
+                )?,
+                cree_le: l.cree_le,
+            })
         })
-        .collect())
+        .collect()
 }
 
 /// Lit un dossier du cabinet du contexte. Un dossier d'un autre cabinet, ou autre que celui du
@@ -344,7 +381,8 @@ pub async fn lire_dossier(
     let cabinet = tx.contexte().id_cabinet().uuid();
     let dossier = tx.contexte().id_dossier().map(IdDossier::uuid);
     let ligne = sqlx::query!(
-        "SELECT cabinet_id, id, nom, cree_le FROM dossier \
+        "SELECT cabinet_id, id, nom, cree_le, pays, devise_tenue, decimales_tenue, fuseau, langue, \
+                forme_juridique FROM dossier \
          WHERE cabinet_id = $1 AND id = $2 AND ($3::uuid IS NULL OR id = $3)",
         cabinet,
         id.uuid(),
@@ -352,12 +390,24 @@ pub async fn lire_dossier(
     )
     .fetch_optional(tx.connexion())
     .await?;
-    Ok(ligne.map(|l| Dossier {
-        id: IdDossier::depuis_uuid(l.id),
-        cabinet: IdCabinet::depuis_uuid(l.cabinet_id),
-        nom: l.nom,
-        cree_le: l.cree_le,
-    }))
+    ligne
+        .map(|l| {
+            Ok(Dossier {
+                id: IdDossier::depuis_uuid(l.id),
+                cabinet: IdCabinet::depuis_uuid(l.cabinet_id),
+                nom: l.nom,
+                contexte: ContexteDossier::relu(
+                    l.pays,
+                    l.devise_tenue,
+                    l.decimales_tenue,
+                    l.fuseau,
+                    l.langue,
+                    l.forme_juridique,
+                )?,
+                cree_le: l.cree_le,
+            })
+        })
+        .transpose()
 }
 
 /// Crée un dossier dans le cabinet du contexte, avec un nouvel identifiant (UUID v4).
@@ -366,17 +416,29 @@ pub async fn lire_dossier(
 ///
 /// # Errors
 /// [`ErreurBase::ContexteDeDossier`], ou erreur de PostgreSQL (nom invalide, RLS).
-pub async fn creer_dossier(tx: &mut TransactionTenant, nom: &str) -> Result<Dossier, ErreurBase> {
+pub async fn creer_dossier(
+    tx: &mut TransactionTenant,
+    nom: &str,
+    contexte: &ContexteDossier,
+) -> Result<Dossier, ErreurBase> {
     if tx.contexte().id_dossier().is_some() {
         return Err(ErreurBase::ContexteDeDossier);
     }
     let cabinet = tx.contexte().id_cabinet().uuid();
     let id = IdDossier::nouveau();
     let ligne = sqlx::query!(
-        "INSERT INTO dossier (cabinet_id, id, nom) VALUES ($1, $2, $3) RETURNING cree_le",
+        "INSERT INTO dossier (cabinet_id, id, nom, pays, devise_tenue, decimales_tenue, fuseau, \
+                              langue, forme_juridique) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING cree_le",
         cabinet,
         id.uuid(),
         nom,
+        contexte.pays,
+        contexte.devise,
+        i16::from(contexte.decimales),
+        contexte.fuseau,
+        contexte.langue,
+        contexte.forme_juridique,
     )
     .fetch_one(tx.connexion())
     .await?;
@@ -384,8 +446,105 @@ pub async fn creer_dossier(tx: &mut TransactionTenant, nom: &str) -> Result<Doss
         id,
         cabinet: IdCabinet::depuis_uuid(cabinet),
         nom: nom.to_owned(),
+        contexte: contexte.clone(),
         cree_le: ligne.cree_le,
     })
+}
+
+/// Contexte (pays, devise de tenue, fuseau, langue) du dossier du contexte de la transaction.
+/// Les cas d'usage qui n'ont pas le [`Dossier`] autorisé sous la main (éditions, saisie) le
+/// relisent ici : même filtre que la RLS (cabinet et dossier du contexte).
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, [`ErreurBase::Donnee`] si le
+/// dossier est absent ou son contexte incohérent.
+pub async fn lire_contexte_du_dossier(
+    tx: &mut TransactionTenant,
+) -> Result<ContexteDossier, ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let l = sqlx::query!(
+        "SELECT pays, devise_tenue, decimales_tenue, fuseau, langue, forme_juridique \
+         FROM dossier WHERE cabinet_id = $1 AND id = $2",
+        cabinet,
+        dossier,
+    )
+    .fetch_optional(tx.connexion())
+    .await?
+    .ok_or(ErreurBase::Donnee("dossier absent"))?;
+    ContexteDossier::relu(
+        l.pays,
+        l.devise_tenue,
+        l.decimales_tenue,
+        l.fuseau,
+        l.langue,
+        l.forme_juridique,
+    )
+}
+
+/// Inscrit les identifiants légaux d'un dossier qui vient d'être créé. La transaction doit être
+/// restreinte à ce dossier (`restreindre_au_dossier`, comme pour son référentiel) : la table est
+/// une table de dossier à la règle commune.
+///
+/// # Errors
+/// [`ErreurBase::ContexteDeDossier`] hors du contexte d'un dossier, ou erreur de PostgreSQL
+/// (type en double, valeur invalide).
+pub async fn inserer_identifiants_legaux(
+    tx: &mut TransactionTenant,
+    identifiants: &[IdentifiantLegal],
+) -> Result<(), ErreurBase> {
+    let dossier = tx
+        .contexte()
+        .id_dossier()
+        .ok_or(ErreurBase::ContexteDeDossier)?
+        .uuid();
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    for i in identifiants {
+        sqlx::query!(
+            "INSERT INTO dossier_identifiant_legal (cabinet_id, dossier_id, type, valeur) \
+             VALUES ($1, $2, $3, $4)",
+            cabinet,
+            dossier,
+            i.type_identifiant,
+            i.valeur,
+        )
+        .execute(tx.connexion())
+        .await?;
+    }
+    Ok(())
+}
+
+/// Identifiants légaux du dossier du contexte, par type. Aucun dossier en contexte : liste vide
+/// (la table est sous RLS de dossier).
+///
+/// # Errors
+/// Erreur de PostgreSQL.
+pub async fn lire_identifiants_legaux(
+    tx: &mut TransactionTenant,
+) -> Result<Vec<IdentifiantLegal>, ErreurBase> {
+    let Some(dossier) = tx.contexte().id_dossier().map(IdDossier::uuid) else {
+        return Ok(Vec::new());
+    };
+    let cabinet = tx.contexte().id_cabinet().uuid();
+    let lignes = sqlx::query!(
+        "SELECT type, valeur FROM dossier_identifiant_legal \
+         WHERE cabinet_id = $1 AND dossier_id = $2 ORDER BY type",
+        cabinet,
+        dossier,
+    )
+    .fetch_all(tx.connexion())
+    .await?;
+    Ok(lignes
+        .into_iter()
+        .map(|l| IdentifiantLegal {
+            type_identifiant: l.r#type,
+            valeur: l.valeur,
+        })
+        .collect())
 }
 
 /// Affecte l'utilisateur du contexte à un dossier du cabinet du contexte (Q5.1), sans

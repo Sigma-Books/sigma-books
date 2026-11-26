@@ -215,7 +215,8 @@ pub(super) async fn contre_passer(
 
     // 2. Faits relus **après** la tête : l'origine et son intégrité.
     let stockee = base::lire(tx, id).await?.ok_or(ErreurApi::Introuvable)?;
-    let origine = reconstituer(&stockee, tva)?;
+    let tenue = dossier.contexte().tenue()?;
+    let origine = reconstituer(&stockee, tva, &tenue)?;
     let recalcule = EcritureCanonique::depuis(&origine).serialiser();
     if recalcule != stockee.canonique
         || chainer(&stockee.precedente, recalcule.as_bytes()) != stockee.empreinte
@@ -228,8 +229,10 @@ pub(super) async fn contre_passer(
         journaux: &referentiel.etat().journaux,
         exercices: referentiel.exercices(),
         delai_cloture: crate::base::referentiel::delai_cloture(),
+        tenue,
     };
-    let date_validation = instant.date();
+    // Date du jour dans le fuseau du dossier (ADR 0027).
+    let date_validation = dossier.contexte().date_du_jour(instant)?;
     let decision = decider_contre_passation(
         &origine,
         date,

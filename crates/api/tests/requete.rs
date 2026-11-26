@@ -15,7 +15,7 @@ use api::base::organisation::{
     lire_dossier_visible, lister_dossiers, lister_dossiers_visibles,
 };
 use api::base::{ContexteTenant, ErreurBase, IdDossier, ouvrir_transaction};
-use commun::{ROLE_CONTOURNEMENT, creer_cabinet, env, variable};
+use commun::{ROLE_CONTOURNEMENT, contexte_dossier_sn, creer_cabinet, env, variable};
 use sqlx::Executor;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
@@ -108,7 +108,7 @@ async fn les_fonctions_d_acces_filtrent_seules_par_tenant() {
     assert_eq!(lire_dossier(&mut tx, b.dossier).await.unwrap(), None);
     // Créer un dossier est une action du cabinet.
     assert!(matches!(
-        creer_dossier(&mut tx, "refusé").await,
+        creer_dossier(&mut tx, "refusé", &contexte_dossier_sn()).await,
         Err(ErreurBase::ContexteDeDossier)
     ));
     tx.annuler().await.unwrap();
@@ -137,7 +137,9 @@ async fn les_fonctions_d_acces_sous_le_role_applicatif() {
     )
     .await
     .unwrap();
-    let cree = creer_dossier(&mut tx, "Nouveau dossier").await.unwrap();
+    let cree = creer_dossier(&mut tx, "Nouveau dossier", &contexte_dossier_sn())
+        .await
+        .unwrap();
     assert_eq!(cree.cabinet, a.cabinet);
     assert_eq!(cree.id.uuid().get_version_num(), 4, "UUID v4");
     assert_eq!(
