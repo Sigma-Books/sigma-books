@@ -23,7 +23,8 @@ namespace Sigma {
   action ArchiverTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // Fusionner deux tiers par lien (ADR 0031 point 6) ; ré-authentification.
   action FusionnerTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
-  // Rompre une fusion (ligne de rupture, ADR 0031 point 6) ; ré-authentification.
+  // Rompre une fusion (ligne de rupture, ADR 0031 point 6) ; ré-authentification, comme la
+  // fusion (interprétation à confirmer : l'ADR ne la fixe que pour la fusion).
   action RompreFusionTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // Anonymiser un tiers, sous délai de rétention (ADR 0031 point 7) ; ré-authentification.
   action AnonymiserTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };

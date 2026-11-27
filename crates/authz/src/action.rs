@@ -180,11 +180,12 @@ actions! {
     CreerTiers => Dossier,
     /// Tenir la fiche courante d'un tiers, coordonnées bancaires comprises (comme la saisie).
     ModifierTiers => Dossier,
-    /// Archiver ou désarchiver un tiers (comme le paramétrage).
+    /// Archiver ou désarchiver un tiers (comme la saisie : archivage libre, ADR 0031 point 5).
     ArchiverTiers => Dossier,
     /// Fusionner deux tiers par lien (administrateur ; ré-authentification).
     FusionnerTiers => Dossier,
-    /// Rompre une fusion de tiers (administrateur ; ré-authentification).
+    /// Rompre une fusion de tiers (administrateur ; ré-authentification, comme la fusion :
+    /// interprétation à confirmer).
     RompreFusionTiers => Dossier,
     /// Anonymiser un tiers sous délai de rétention (administrateur ; ré-authentification).
     AnonymiserTiers => Dossier,

@@ -33,16 +33,13 @@ when {
   ].contains(principal.role)
 };
 
-// Créer un tiers, l'archiver ou le désarchiver, et tenir les conditions de règlement du
-// dossier : comme « Paramétrer plan, journaux, fiscalité » (administrateur, valideur ;
-// plan C6). L'archivage suit la création : c'est la ligne de L2 (`ModifierTiers` du
-// référentiel, qui portait `actif`, relevait du paramétrage).
+// Créer un tiers et tenir les conditions de règlement du dossier : comme « Paramétrer plan,
+// journaux, fiscalité » (administrateur, valideur ; plan C6).
 @id("l3-c6-parametrer-tiers")
 permit (
   principal,
   action in [
     Sigma::Action::"CreerTiers",
-    Sigma::Action::"ArchiverTiers",
     Sigma::Action::"ParametrerConditionsReglement"
   ],
   resource
@@ -51,15 +48,21 @@ when {
   [Sigma::Role::"administrateur", Sigma::Role::"valideur"].contains(principal.role)
 };
 
-// Tenir la fiche courante d'un tiers et réviser l'échéance d'une ligne de tiers : comme
-// « Saisir, corriger dans le brouillard » (administrateur, valideur, collaborateur ; plan C6,
-// ADR 0033). Ni l'une ni l'autre ne touche une écriture validée : la fiche est hors du contenu
-// haché, la révision d'échéance est une ligne en ajout seul. Une coordonnée bancaire modifiée
-// est journalisée et alerte l'administrateur (ADR 0031 point 3, F1.26).
+// Tenir la fiche courante d'un tiers, l'archiver ou le désarchiver, réviser l'échéance d'une
+// ligne de tiers : comme « Saisir, corriger dans le brouillard » (administrateur, valideur,
+// collaborateur ; plan C6, ADR 0033). L'archivage est libre et réversible (ADR 0031 point 5) :
+// décision du mainteneur du 2026-11-27, aucun contrôle plus strict que la saisie. Aucune de ces
+// actions ne touche une écriture validée : la fiche est hors du contenu haché, la révision
+// d'échéance est une ligne en ajout seul. Une coordonnée bancaire modifiée est journalisée et
+// alerte l'administrateur (ADR 0031 point 3, F1.26).
 @id("l3-c6-tenir-fiche-tiers-et-echeances")
 permit (
   principal,
-  action in [Sigma::Action::"ModifierTiers", Sigma::Action::"ReviserEcheance"],
+  action in [
+    Sigma::Action::"ModifierTiers",
+    Sigma::Action::"ArchiverTiers",
+    Sigma::Action::"ReviserEcheance"
+  ],
   resource
 )
 when {
@@ -72,7 +75,10 @@ when {
 
 // Fusion par lien, rupture d'une fusion, anonymisation : administrateur seul, avec
 // ré-authentification (invariants.cedar ; plan C6, ADR 0031 points 6 et 7). Comme Tryton, qui
-// réserve `Replace` et `Erase` au groupe d'administration des tiers.
+// réserve `Replace` et `Erase` au groupe d'administration des tiers. La **rupture** d'une fusion
+// n'est pas nommée par l'ADR 0031 point 6 ni par le plan C6 (qui ne parlent que de la fusion) :
+// elle en reçoit les conditions par interprétation, à confirmer (défaire une fusion change le
+// tiers résolu de toutes les lignes de la source, comme la fusion elle-même).
 @id("l3-c6-fusion-anonymisation-tiers")
 permit (
   principal,

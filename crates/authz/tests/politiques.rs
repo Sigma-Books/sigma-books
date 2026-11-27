@@ -4,6 +4,7 @@
 // Fichier de test : `expect` hors des fonctions `#[test]` (fixtures).
 #![allow(clippy::expect_used)]
 
+use std::collections::BTreeSet;
 use std::str::FromStr;
 use std::sync::LazyLock;
 
@@ -123,17 +124,19 @@ const MATRICE_TIERS: &[(Action, [bool; 5])] = &[
         Action::ConsulterCoordonneesBancairesTiers,
         [OUI, OUI, OUI, NON, NON],
     ),
-    // Création, archivage, conditions de règlement : comme « Paramétrer ».
+    // Création, conditions de règlement : comme « Paramétrer ».
     (Action::CreerTiers, [OUI, OUI, NON, NON, NON]),
-    (Action::ArchiverTiers, [OUI, OUI, NON, NON, NON]),
     (
         Action::ParametrerConditionsReglement,
         [OUI, OUI, NON, NON, NON],
     ),
-    // Fiche courante et révision d'échéance : comme « Saisir, corriger dans le brouillard ».
+    // Fiche courante, archivage (libre : ADR 0031 point 5, décision du mainteneur du
+    // 2026-11-27) et révision d'échéance : comme « Saisir, corriger dans le brouillard ».
     (Action::ModifierTiers, [OUI, OUI, OUI, NON, NON]),
+    (Action::ArchiverTiers, [OUI, OUI, OUI, NON, NON]),
     (Action::ReviserEcheance, [OUI, OUI, OUI, NON, NON]),
-    // Fusion, rupture de fusion, anonymisation : administrateur, session fraîche.
+    // Fusion, rupture de fusion, anonymisation : administrateur, session fraîche (la rupture :
+    // par interprétation de l'ADR 0031 point 6, à confirmer).
     (Action::FusionnerTiers, [OUI, NON, NON, NON, NON]),
     (Action::RompreFusionTiers, [OUI, NON, NON, NON, NON]),
     (Action::AnonymiserTiers, [OUI, NON, NON, NON, NON]),
@@ -450,7 +453,8 @@ const fn decision(autorise: bool) -> Decision {
 }
 
 // ---------------------------------------------------------------------------
-// Matrice rôle × action (§20)
+// Matrice rôle × action : §20 pour le lot L2 (`MATRICE_L2`), plan L3 point C6
+// pour les domaines de L3 (le §20 n'a pas de ligne pour eux)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -465,8 +469,10 @@ fn la_matrice_couvre_chaque_action_une_fois() {
     }
 }
 
+/// Décisions obtenues = matrices attendues : `MATRICE_L2` recopie le §20, les matrices de L3
+/// recopient les rôles du plan L3 (point C6) et les décisions du mainteneur, faute de ligne au §20.
 #[test]
-fn la_matrice_generee_est_celle_du_s20() {
+fn la_matrice_generee_est_celle_attendue() {
     let mut ecarts = Vec::new();
     for (action, ligne) in matrice() {
         for role in Role::TOUS {
@@ -476,7 +482,10 @@ fn la_matrice_generee_est_celle_du_s20() {
             }
         }
     }
-    assert!(ecarts.is_empty(), "écarts au §20 : {ecarts:#?}");
+    assert!(
+        ecarts.is_empty(),
+        "écarts aux matrices attendues : {ecarts:#?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -501,6 +510,48 @@ fn chaque_action_de_l3_est_autorisee_a_un_role_et_refusee_aux_autres() {
                 "{role:?} {action:?}"
             );
         }
+    }
+}
+
+/// Actions déclarées par les fragments de schéma des domaines de L3 (`tiers`, `lettrage`,
+/// `tresorerie`) : source unique de la frontière entre L2 et L3.
+fn actions_des_fragments_l3() -> BTreeSet<String> {
+    authz::SCHEMA
+        .iter()
+        .filter(|(nom, _)| {
+            [
+                "schema/tiers.cedarschema",
+                "schema/lettrage.cedarschema",
+                "schema/tresorerie.cedarschema",
+            ]
+            .contains(nom)
+        })
+        .flat_map(|(_, texte)| texte.lines())
+        .filter_map(|ligne| ligne.trim_start().strip_prefix("action "))
+        .map(|reste| {
+            reste
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn la_frontiere_entre_les_matrices_de_l2_et_de_l3_est_celle_du_schema() {
+    // Une action de L3 classée par erreur dans `MATRICE_L2` échapperait aux tests propres à L3 :
+    // les matrices de L3 doivent contenir exactement les actions des fragments de L3, et
+    // `MATRICE_L2` aucune.
+    let fragments = actions_des_fragments_l3();
+    assert!(!fragments.is_empty());
+    let matrices_l3: BTreeSet<String> = actions_l3().map(|a| a.nom().to_owned()).collect();
+    assert_eq!(matrices_l3, fragments);
+    for (action, _) in MATRICE_L2 {
+        assert!(
+            !fragments.contains(action.nom()),
+            "{action:?} : action de L3 dans MATRICE_L2"
+        );
     }
 }
 
