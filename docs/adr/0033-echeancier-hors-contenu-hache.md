@@ -1,0 +1,68 @@
+# 0033 — Échéancier hors du contenu haché : échéance copiée à la validation, révisions, conditions de règlement, balance âgée à une date
+
+- **Statut :** proposée
+- **Date :** 2026-11-27
+
+## Contexte
+L'échéancier (spec §10.2) et les éditions de tiers (spec §10.3) du lot L3 exigent une **date d'échéance par ligne de tiers**, modifiable dans la vie du dossier (report accordé, erreur de saisie), alors que l'écriture validée est **définitive** (règle absolue 5, ADR 0007) et que ses formats canoniques v1 à v5 sont **figés** (`docs/integrite/format-v1.md` §2 : la ligne porte `tiers=` mais aucune échéance). L'échéance est donc **hors du contenu haché**, comme chez les moteurs, et se révise **en ajout seul**. Cet ADR fixe aussi les **conditions de règlement**, le **statut calculé** d'une échéance, la **balance âgée à une date** et les autres éditions de tiers.
+
+Décisions du mainteneur du 2026-11-27 : recommandations du plan suivies pour B1 à B6 (aucune ne porte sur cet ADR) ; principe : si Odoo et Tryton convergent, Sigma fait pareil. Références de moteurs **relues le 2026-11-27** (Tryton `f5354cc`, Odoo `fa175fb`, OCA `account-financial-reporting` `94ad458`).
+
+### Ce que font les moteurs de référence (lecture réelle)
+- **Où est l'échéance.** Tryton : champ `maturity_date` de la ligne (`account/move.py:1020`), exclu du contrôle de modification d'une ligne comptabilisée (`:1074-1075`) : **modifiable après comptabilisation**, mais **plus une fois la ligne lettrée** (`_reconciliation_modify_disallow`, `:1076-1078`, refus `:1480-1487`). Odoo : `date_maturity` sur la ligne (`account/models/account_move_line.py:391`), **absent des champs hachés** (`nom, débit, crédit, compte, tiers`, `:3416-3422`). *Consensus : sur la ligne, modifiable, hors du hachage d'Odoo.* Tryton propose en plus un assistant de **rééchelonnement** qui, lui, crée une écriture (`RescheduleLines`, `move.py:2833`, `:3005-3052`) : non repris, Sigma ne crée aucune écriture pour reporter une échéance.
+- **Repli sans échéance.** Tryton : « échéance, sinon date de l'écriture » (`move.py:776`, `:829`) ; OCA `partner_statement` : même repli (`report_statement_common.py:78-81`). OCA `aged_partner_balance.py:55-59` traite une ligne **sans échéance comme non échue** : divergence, Sigma suit Tryton et `partner_statement`.
+- **Conditions de règlement.** Tryton : lignes `fixed`, `percent` (du reste), `percent_on_total`, `remainder` ; la **dernière ligne doit être `remainder`** (contrainte, `account_invoice/payment_term.py:40-47`) ; calcul en décimal, chaque terme arrondi à la devise, un terme fixe qui dépasse le reste est plafonné au reste (`:49-80`, `:176-187`) ; délais par `relativedelta` (jour du mois, mois, semaines, jours : `:222-263`) ; **une ligne d'écriture par terme** (`invoice.py:1342-1354`). Odoo : somme des lignes en pourcentage égale à 100 (contrainte, `account/models/account_payment_term.py:156-162`), **« la dernière ligne est toujours le solde »** (`:226-230`), quatre types de délai (`:294-299`, `_get_due_date` `:310-327`). Le tiers porte une condition par défaut (Odoo `account_move.py:1080-1087`). L'escompte pour paiement anticipé est **propre à Odoo** (`:163-169`, `:200-214`) : hors lot. *Consensus : termes en pourcentage ou montant, délais en jours et fin de mois, le dernier terme absorbe l'arrondi.* Cas de test de Tryton : 1 587,35 réparti en `25 % du reste`, `25 % du total`, `396,84 fixe` et `solde` donne 396,84, 396,84, 396,84 puis 396,83 (`tests/test_module.py:46-106`).
+- **Statut.** Odoo : état de paiement `not_paid`, `partial`, `paid`… (`account_move.py:49-57`) calculé du lettrage (`account_move_line.py:818-882`) ; Tryton : `reconciled` calculé (`account_invoice/invoice.py:883-895`). *Consensus : statut calculé, jamais stocké.*
+- **Balance âgée.** Tryton (`account.py:2950-3049`) : tranches par défaut **30, 60, 90** jours (`:2937-2938`) ; date de comparaison `Coalesce(maturity_date, move.date)` (`:3020`) ; lignes dont l'écriture est antérieure à la date et dont le **lettrage est absent ou postérieur** (`:3045-3047`, la date du lettrage étant la plus haute date des lignes, ADR 0032) ; **anomalie** : le champ `posted` existe (`:2900`) mais la requête ne l'applique pas. OCA (`aged_partner_balance.py:49-141`) : bornes 30, 60, 90, 120 jours, lettrages datés par `max_date`. Aucun moteur ne **reconstitue** les lettrages par la date de l'opération.
+- **Textes.** AUDCIF fiches 40, 41, 42 et 47 (p. PDF 382, 386, 390, 403) : aucune compensation entre clients débiteurs et créditeurs, ni au personnel (42) ; aux divers (47), « aucune compensation n'est **en principe** admise ». Art. 19, p. PDF 22-23 : seuls livre-journal, grand livre, balance générale et livre d'inventaire sont **obligatoires** ; les journaux et livres **auxiliaires** sont facultatifs.
+
+## Décision
+
+### 1. L'échéance est portée par la ligne de tiers, hors du contenu haché
+Une échéance par **ligne de tiers** (une ligne par terme, comme Tryton `invoice.py:1342-1354` et Odoo). Le brouillon porte une colonne facultative `brouillon_ligne.date_echeance` (refusée sur une ligne sans tiers : 422 `echeance_sans_tiers`). **À la validation** (unitaire et par lot), `base/validation.rs` copie cette date dans `echeance_ligne (écriture validée, rang de ligne, date)`, table **en ajout seul**, dans la même transaction : **un `INSERT` de plus, sans effet sur le contenu haché ni sur la chaîne**. C'est la **seule modification du chemin des écritures validées** de L3 : revue `core`, tests de L2 (numérotation, chaîne, concurrence) rejoués. Une **contre-passation** ne recopie pas l'échéance (repli sur la date comptable : elle sert à solder l'origine par lettrage). **Limite assumée** : l'échéance n'est pas dans la chaîne, donc `sigma-verifier` ne la vérifie pas ; sa protection est l'ajout seul (`GRANT` sans `UPDATE` ni `DELETE`) et l'audit chaîné de chaque révision.
+
+*Provenance : consensus (A6).* La date de la ligne de tiers saisie à la main est la seule source en L3 ; la lecture de la date d'échéance sur la facture (spec §8.3) viendra de L4 (plan C5).
+
+### 2. Échéance effective, révisions en ajout seul
+- `echeance_report (ligne, rang, nouvelle échéance, date de l'opération, auteur, motif)` : ajout seul ; **motif obligatoire** (texte de 400 octets au plus, sans caractère de contrôle ni de format). Aucune suppression ; une révision se révise par une nouvelle.
+- **Échéance effective à une date D** = nouvelle échéance de la dernière révision dont la date d'opération est ≤ D ; à défaut `echeance_ligne` ; à défaut la **date comptable** de l'écriture (repli, A7).
+- **Révision permise tant que le résiduel de la ligne n'est pas nul** (Tryton la refuse pour une ligne lettrée, `:1480-1487` ; Sigma, dont le lettrage est partiel, la refuse quand le résiduel est nul : 409 `echeance_soldee`). La révision prend le **`compteur_lettrage` du compte** (ADR 0032, point 8) pour lire le résiduel après le verrou.
+- Le **statut** (ouverte, partiellement réglée, soldée) est **calculé** du résiduel (ligne soldée : résiduel nul ; partielle : résiduel strictement entre 0 et |montant| ; ouverte sinon) ; « échue » se calcule sur l'échéance effective, jamais stockée.
+
+### 3. Conditions de règlement
+Table de conditions **par dossier** (configuration modifiable et journalisée) : `condition_reglement (code, libellé, actif)` et `condition_reglement_terme (rang, valeur, délai)`.
+- **Valeur d'un terme** : pourcentage **du total**, montant fixe ou **solde**. Le **dernier terme est toujours le solde** (convergence : Tryton `:40-47`, Odoo `:226-230`) ; la somme des pourcentages des autres termes est strictement inférieure à 100. Le calcul est **pur et en décimal** (`compta-core`, PR 3b) : chaque terme est arrondi à l'échelle de la devise de tenue (ADR 0027), **demi éloigné de zéro** (règle de la spec §6.6), et le dernier absorbe l'arrondi ; un terme fixe qui dépasse le reste est plafonné au reste (Tryton `:65-67`) ; le **signe** du montant est reporté sur chaque terme (avoir : Tryton `:57`, Odoo `sign`). Résultat trié par date.
+- **Délai** : liste fermée des quatre types d'Odoo (`:294-299`, `:310-327`), seule à couvrir « 30 jours fin de mois » et « le X du mois suivant » sans généraliser à la façon de Tryton : *jours après la date*, *jours après la fin du mois*, *jours après la fin du mois suivant*, *jours, puis le X du mois suivant* (X borné au dernier jour du mois ; X nul = fin du mois). Tryton sait aussi exprimer le jour de la semaine, non repris.
+- **Modèles d'usage** fournis à la création du dossier, **éditables** ; **aucune valeur légale de délai n'est livrée** (non sourcée : l'AUDCIF lu ne fixe pas de délai de règlement). Le tiers peut porter une condition par défaut (ADR 0031).
+- **Assistant à la saisie** : l'API calcule les échéances à partir du total de la ligne de tiers, de la condition et de la date de référence (la date comptable en L3) ; l'interface affiche, elle ne calcule pas (P6).
+- Hors lot : escompte (Odoo seul), jours ouvrés (Tryton : « TODO », `payment_term.py:55`).
+
+### 4. Balance âgée à une date, par reconstitution (A12, A'1, C8)
+- **Lignes prises en compte** : lignes de tiers des écritures dont la date comptable est ≤ D, en mode **définitif** (validées) ou **provisoire** (avec le brouillard, à leur montant entier) comme les éditions de L2. *Sigma applique le mode, que Tryton ignore (anomalie `:2900`).*
+- **Reconstitution** : le résiduel d'une ligne à D est son montant moins les liens **dont le lettrage a une date ≤ D** et qui n'étaient pas **rompus à D** (date de la rupture ≤ D), dates **d'opération** (ADR 0032, point 3) ; l'échéance est l'échéance **effective à D** (point 2). Le résultat à une date **ne dépend d'aucune opération postérieure** (propriété de test) : il se reproduit à l'identique plus tard. *Écart assumé avec Tryton, Odoo et OCA, qui datent par la plus haute date des lignes.*
+- **Retard** = D moins l'échéance effective, en jours. **Non échu** : ≤ 0 ; puis **1 à 30**, **31 à 60**, **61 à 90**, **plus de 90** (spec §10.3 : « 0–30 » y est ambigu, plan C8). Bornes **paramétrables** (valeurs par défaut 30, 60, 90 : Tryton `:2937-2938`, OCA ; croissantes, au plus quatre).
+- **Aucune compensation** (A'1) : la balance âgée se calcule **par compte collectif puis par tiers résolu** (ADR 0031) ; les débits (créances) et les crédits (avoirs, acomptes) restent présentés **séparément** dans chaque tranche, et les totaux généraux des soldes débiteurs et créditeurs ne se compensent pas entre tiers. La somme des tranches et du non échu d'un tiers égale son solde ouvert, égal au solde de son compte auxiliaire (propriété de test, avec fusion de tiers). Le reclassement des soldes inversés (409, 419) est de L7.
+- **Performance** : calcul par agrégat en base ; objectif de départ (mesure en PR 10, non bloquant) : moins de 2 s sur 10 000 tiers ouverts ; pagination imposée ; un état dérivé mutable (`D`) n'est ajouté que si la mesure l'exige, sans toucher aux lignes validées.
+
+### 5. Autres éditions de tiers
+- **Grand livre auxiliaire et balance auxiliaire** : mêmes filtres et même pagination que les éditions de L2 (`compta-core/src/editions.rs` : `Filtre`, `grand_livre`, `Balance`), regroupés par compte collectif puis par tiers résolu, **solde cumulé** ; la **lettre** (lettrages non rompus à la date de l'édition) est affichée, un lettrage **postérieur** à la date est marqué.
+- **Relevé de compte d'un tiers** : lignes du tiers avec lettres et échéances, solde cumulé ; rendu PDF en L7.
+- *Ces éditions sont des éditions de gestion et de justification : L3 les livre sans les rendre obligatoires* (AUDCIF art. 19, p. PDF 22-23 : journaux et livres auxiliaires facultatifs, centralisés au moins une fois par mois ; plan A'7).
+- Toutes les lectures de tiers passent par la résolution de la fusion, en un seul endroit.
+
+### 6. Migrations, droits, autorisation
+Migrations **`0510` à `0519`** : conditions de règlement, `brouillon_ligne.date_echeance`, `echeance_ligne`, `echeance_report` (PR 8). Tables `echeance_ligne` et `echeance_report` en ajout seul (catalogue). Cedar : saisie et révision comme « Saisir, corriger dans le brouillard » pour la saisie, conditions de règlement comme paramétrage (spec §20, plan C6 : à amender dans la spec par le mainteneur) ; détail en PR 6.
+
+## Conséquences
+- Formats canoniques v1 à v5 **inchangés** ; vecteurs et empreintes existants intacts ; aucun nouveau document dans `docs/integrite/` pour cet ADR.
+- Une édition à date passée est **reproductible** ; en contrepartie, un règlement lettré après D reste visible comme crédit non lettré à D.
+- L5 (TVA à l'encaissement) lira le lettrage de L3 ; L6 (créances douteuses, à-nouveaux détaillés par tiers) lira la balance âgée ; L8 (FEC) lira les lettres.
+- Spec §26 à compléter (plan C11) : aucun nouveau point propre à cet ADR ; C5 et C8 documentés.
+
+## Alternatives écartées
+- **Échéance dans le contenu haché** (nouveau format v6) : casserait les vecteurs figés ; Odoo exclut lui aussi l'échéance du hachage ; la modification en place (moteurs) serait alors impossible.
+- **Modifier `echeance_ligne` en place** : mutation ; la révision en ajout seul garde l'historique.
+- **Rééchelonnement par écriture** (Tryton `RescheduleLines`) : crée des écritures pour un simple report.
+- **Statut stocké** : divergent après chaque lettrage.
+- **Tranches fixes ou ligne sans échéance non échue** (OCA `aged_partner_balance.py:55-59`) : le repli sur la date comptable (Tryton, `partner_statement`) est le plus répandu.
+- **Lettrage daté par la plus haute date des lignes** dans la balance âgée : voir ADR 0032, point 3.
