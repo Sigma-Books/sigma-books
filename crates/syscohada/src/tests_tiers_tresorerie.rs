@@ -535,3 +535,82 @@ proptest! {
         }
     }
 }
+
+// --- Marque `virement_interne` (L3-21) ---------------------------------------------------------
+
+#[test]
+fn seul_585_est_marque_virement_interne_et_ses_sous_comptes_heritent() {
+    let r = officiel();
+    let marques: Vec<(&str, u16)> = r
+        .comptes()
+        .filter_map(|c| {
+            c.marque_virement_interne()
+                .map(|p| (c.numero().as_str(), p))
+        })
+        .collect();
+    assert_eq!(marques, [("585", 430)]);
+    assert!(r.est_virement_interne(&n("585")));
+    assert!(r.est_virement_interne(&n("585-BQWAVE")));
+    assert!(!r.est_virement_interne(&n("588")));
+    assert!(!r.est_virement_interne(&n("58")));
+    assert!(!r.est_virement_interne(&n("5711")));
+}
+
+#[test]
+fn une_marque_virement_interne_invalide_est_refusee() {
+    let lettrable = ("585", "lettrable = true\npage_lettrable = 430");
+    // Valide : sur un compte lettrable, page de la fiche.
+    let r = base_avec(&[(
+        "585",
+        "lettrable = true\npage_lettrable = 430\nvirement_interne = true\npage_virement_interne = 430",
+    )])
+    .unwrap();
+    assert!(r.est_virement_interne(&n("585-01")));
+    for (marques, numero) in [
+        // Sans page, sans valeur, valeur fausse, page hors des fiches.
+        (vec![lettrable, ("585", "virement_interne = true")], "585"),
+        (
+            vec![lettrable, ("585", "page_virement_interne = 430")],
+            "585",
+        ),
+        (
+            vec![
+                lettrable,
+                (
+                    "585",
+                    "virement_interne = false\npage_virement_interne = 430",
+                ),
+            ],
+            "585",
+        ),
+        (
+            vec![
+                lettrable,
+                ("585", "virement_interne = true\npage_virement_interne = 12"),
+            ],
+            "585",
+        ),
+        // Compte non lettrable.
+        (
+            vec![(
+                "585",
+                "virement_interne = true\npage_virement_interne = 430",
+            )],
+            "585",
+        ),
+        // Compte admis en journal de trésorerie.
+        (
+            vec![(
+                "571",
+                "virement_interne = true\npage_virement_interne = 428",
+            )],
+            "571",
+        ),
+    ] {
+        let erreur = base_avec(&marques).unwrap_err();
+        assert!(
+            matches!(&erreur, ErreurReferentiel::MarqueVirementInterne(c) if c.as_str() == numero),
+            "{marques:?} : {erreur}"
+        );
+    }
+}
