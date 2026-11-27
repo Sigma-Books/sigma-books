@@ -129,12 +129,27 @@ pub enum ErreurProfil {
     /// Guillemet : au plus un caractère, ni fin de ligne.
     #[error("guillemet invalide")]
     Guillemet,
-    /// Séparateur décimal : un caractère.
+    /// Séparateur décimal : un caractère, ni chiffre ni signe.
     #[error("séparateur décimal invalide")]
     SeparateurDecimal,
-    /// Séparateur de milliers : un caractère, distinct du séparateur décimal (OCA).
+    /// Séparateur de milliers : un caractère, ni chiffre ni signe (il est retiré avant la
+    /// lecture du signe et des chiffres), distinct du séparateur décimal (OCA).
     #[error("séparateur de milliers invalide")]
     SeparateurMilliers,
+    /// Texte du profil plus long que [`TAILLE_MAX_PROFIL`].
+    #[error("profil trop grand : {taille} octets pour {limite} admis")]
+    ProfilTropGrand {
+        /// Taille du texte, en octets.
+        taille: usize,
+        /// Taille admise.
+        limite: usize,
+    },
+    /// Format de date plus long que [`LONGUEUR_MAX_FORMAT_DATE`].
+    #[error("format de date trop long")]
+    FormatDateTropLong,
+    /// Titre de colonne plus long que [`LONGUEUR_MAX_TITRE`].
+    #[error("colonne « {0} » : titre trop long")]
+    TitreTropLong(Champ),
     /// Format de date refusé.
     #[error(transparent)]
     FormatDate(#[from] ErreurFormatDate),
@@ -182,6 +197,22 @@ pub struct ProfilReleve {
     pub(crate) montants: Montants,
 }
 
+/// Taille maximale du texte d'un profil, en octets (un profil réel en fait moins d'un Kio).
+/// Bornes du **profil**, donnée de configuration : distinctes des limites d'un fichier importé,
+/// qui sont des paramètres de l'instance ([`super::Limites`], ADR 0034 §6).
+pub const TAILLE_MAX_PROFIL: usize = 16 * 1024;
+/// Longueur maximale d'un format de date, en octets.
+pub const LONGUEUR_MAX_FORMAT_DATE: usize = 64;
+/// Longueur maximale d'un titre de colonne, en caractères.
+pub const LONGUEUR_MAX_TITRE: usize = 256;
+
+/// Un séparateur de nombre ne peut être ni un chiffre ni un signe : il serait retiré ou pris
+/// pour la virgule avant la lecture du signe et des chiffres, et le nombre changerait sans
+/// erreur (un séparateur de milliers `-` effacerait le signe de tous les montants).
+fn separateur_de_nombre(c: char) -> bool {
+    !c.is_ascii_digit() && c != '+' && c != '-'
+}
+
 fn un_caractere(s: &str) -> Option<char> {
     let mut c = s.chars();
     let premier = c.next()?;
@@ -196,9 +227,16 @@ impl ProfilReleve {
     /// Lit et valide un profil TOML.
     ///
     /// # Errors
-    /// [`ErreurProfil::Syntaxe`] si le texte n'est pas un profil TOML ; sinon les refus de
-    /// [`ProfilReleve::try_from`].
+    /// [`ErreurProfil::ProfilTropGrand`] au-delà de [`TAILLE_MAX_PROFIL`], avant toute
+    /// lecture ; [`ErreurProfil::Syntaxe`] si le texte n'est pas un profil TOML ; sinon les
+    /// refus de [`ProfilReleve::try_from`].
     pub fn depuis_toml(texte: &str) -> Result<Self, ErreurProfil> {
+        if texte.len() > TAILLE_MAX_PROFIL {
+            return Err(ErreurProfil::ProfilTropGrand {
+                taille: texte.len(),
+                limite: TAILLE_MAX_PROFIL,
+            });
+        }
         let brut: ProfilBrut =
             toml::from_str(texte).map_err(|e| ErreurProfil::Syntaxe(e.message().to_owned()))?;
         Self::try_from(brut)
@@ -261,16 +299,20 @@ impl TryFrom<ProfilBrut> for ProfilReleve {
         let delimiteur = un_caractere(&b.delimiteur)
             .filter(|&c| !fin_de_ligne(c) && Some(c) != guillemet)
             .ok_or(ErreurProfil::Delimiteur)?;
-        let separateur_decimal =
-            un_caractere(&b.separateur_decimal).ok_or(ErreurProfil::SeparateurDecimal)?;
+        let separateur_decimal = un_caractere(&b.separateur_decimal)
+            .filter(|&c| separateur_de_nombre(c))
+            .ok_or(ErreurProfil::SeparateurDecimal)?;
         let separateur_milliers = match b.separateur_milliers.as_deref() {
             None => None,
             Some(s) => Some(
                 un_caractere(s)
-                    .filter(|&c| c != separateur_decimal)
+                    .filter(|&c| separateur_de_nombre(c) && c != separateur_decimal)
                     .ok_or(ErreurProfil::SeparateurMilliers)?,
             ),
         };
+        if b.format_date.len() > LONGUEUR_MAX_FORMAT_DATE {
+            return Err(ErreurProfil::FormatDateTropLong);
+        }
         let format_date = FormatDate::analyser(&b.format_date)?;
         let c = b.colonnes;
         let montants = match (c.montant, c.debit, c.credit) {
@@ -308,6 +350,9 @@ impl TryFrom<ProfilBrut> for ProfilReleve {
             if let Colonne::Titre(t) = col {
                 if t.trim().is_empty() {
                     return Err(ErreurProfil::TitreVide(champ));
+                }
+                if t.chars().count() > LONGUEUR_MAX_TITRE {
+                    return Err(ErreurProfil::TitreTropLong(champ));
                 }
                 if profil.lignes_entete == 0 {
                     return Err(ErreurProfil::TitreSansEntete(champ));
@@ -411,6 +456,35 @@ montant = "Montant"
             refus("milliers = \" \"", "milliers = \",\""),
             ErreurProfil::SeparateurMilliers
         );
+        for interdit in ["-", "+", "0", "7"] {
+            assert_eq!(
+                refus("milliers = \" \"", &format!("milliers = \"{interdit}\"")),
+                ErreurProfil::SeparateurMilliers
+            );
+            assert_eq!(
+                refus("decimal = \",\"", &format!("decimal = \"{interdit}\"")),
+                ErreurProfil::SeparateurDecimal
+            );
+        }
+        assert_eq!(
+            refus(
+                "%d/%m/%Y",
+                &format!("%d/%m/%Y{}", " ".repeat(LONGUEUR_MAX_FORMAT_DATE))
+            ),
+            ErreurProfil::FormatDateTropLong
+        );
+        assert_eq!(
+            refus(
+                "\"Date\"",
+                &format!("\"{}\"", "D".repeat(LONGUEUR_MAX_TITRE + 1))
+            ),
+            ErreurProfil::TitreTropLong(Champ::Date)
+        );
+        let long = format!("{BASE}\n{}", "#".repeat(TAILLE_MAX_PROFIL));
+        assert!(matches!(
+            ProfilReleve::depuis_toml(&long),
+            Err(ErreurProfil::ProfilTropGrand { .. })
+        ));
         assert_eq!(
             refus("%d/%m/%Y", "%d/%m"),
             ErreurProfil::FormatDate(ErreurFormatDate::SansAnnee)

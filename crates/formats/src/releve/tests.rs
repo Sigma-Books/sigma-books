@@ -257,21 +257,58 @@ fn debit_credit_entete_pied_et_signe_inverse() {
 }
 
 #[test]
-fn alerte_libelle_formule() {
-    let f = "x\n01/01/2026;=SOMME(A1);1;;\n01/01/2026;+33 77;1;;\n01/01/2026;Normal;1;;\n01/01/2026;@cmd;1;;\n";
+fn alertes_formule_et_bidirectionnel() {
+    let f = "x\n01/01/2026;=SOMME(A1);1;;\n01/01/2026;+33 77;1;;\n01/01/2026;Normal;1;;\n01/01/2026;@cmd;1;;\n01/01/2026;fac\u{202E}fdp.exe;1;;\n";
     let r = analyser(f.as_bytes(), &debit_credit(1, 0, false), &LIMITES).unwrap();
-    assert_eq!(r.lignes().len(), 4);
+    assert_eq!(r.lignes().len(), 5);
     assert_eq!(r.lignes()[0].mouvement().libelle, "=SOMME(A1)");
-    assert_eq!(
+    assert_eq!(r.lignes()[4].mouvement().libelle, "fac\u{202E}fdp.exe");
+    let codes = |r: &Releve| {
         r.alertes()
             .iter()
-            .map(|a| (a.ligne, a.nature.code()))
-            .collect::<Vec<_>>(),
+            .map(|a| (a.ligne, a.champ, a.nature.code()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        codes(&r),
         [
-            (2, "libelle_formule"),
-            (3, "libelle_formule"),
-            (5, "libelle_formule")
+            (2, Champ::Libelle, "libelle_formule"),
+            (3, Champ::Libelle, "libelle_formule"),
+            (5, Champ::Libelle, "libelle_formule"),
+            (6, Champ::Libelle, "caractere_bidirectionnel"),
         ]
+    );
+    // Référence, devise et identifiant sont aussi contrôlés.
+    let f = "Date,Libelle,Montant,Ref,Id\n2026-01-05,a,1,@ref,\u{2067}T1\n2026-01-06,b,-1,,-T2\n";
+    let r = analyser(f.as_bytes(), &signe(), &LIMITES).unwrap();
+    assert_eq!(
+        codes(&r),
+        [
+            (2, Champ::Reference, "libelle_formule"),
+            (2, Champ::IdentifiantTransaction, "caractere_bidirectionnel"),
+            (3, Champ::IdentifiantTransaction, "libelle_formule"),
+        ]
+    );
+}
+
+#[test]
+fn signe_conserve_avec_separateur_de_milliers() {
+    let p = profil(
+        r#"
+encodage = "utf-8"
+delimiteur = ";"
+format_date = "%d/%m/%Y"
+separateur_decimal = ","
+separateur_milliers = "."
+[colonnes]
+date = 0
+montant = 1
+"#,
+    );
+    let r = analyser(b"01/01/2026;-1.500,25\n02/01/2026;+2.000\n", &p, &LIMITES).unwrap();
+    assert_eq!(
+        r.mouvements().map(|m| m.montant).collect::<Vec<_>>(),
+        [d("-1500.25"), d("2000")]
     );
 }
 

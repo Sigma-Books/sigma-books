@@ -5,6 +5,10 @@
 //! désignées par titre, `-` sinon), une ligne par mouvement, `lignes_pied` lignes `-`, fins de
 //! ligne `\n`, sans BOM. Les colonnes désignées par titre occupent les premiers rangs libres.
 //! Montants sans séparateur de milliers ; dates selon le format du profil.
+//!
+//! **Réservé aux tests et aux fichiers de référence, jamais pour un export** : les cellules
+//! sont écrites telles quelles, sans neutralisation des formules (F7.6 ; la neutralisation des
+//! exports relève de L7).
 
 use rust_decimal::Decimal;
 use thiserror::Error;
@@ -103,6 +107,8 @@ fn nombre(profil: &ProfilReleve, d: Decimal) -> String {
 }
 
 /// Écrit des mouvements selon le profil, dans son encodage.
+/// Réservé aux tests et aux fichiers de référence, **jamais pour un export** : aucune
+/// neutralisation des formules (F7.6, L7).
 ///
 /// # Errors
 /// Voir [`ErreurEcriture`].

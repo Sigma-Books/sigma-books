@@ -280,15 +280,27 @@ jobs:
         run: |
           rustup toolchain install "$NIGHTLY" --profile minimal
           cargo +"$NIGHTLY" install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
-      # Le paquet de fuzzing est hors du workspace : il reprend le Cargo.lock du workspace pour que
-      # les dépendances communes restent aux versions contrôlées par rust-deny.
+      # Le paquet de fuzzing est hors du workspace : son Cargo.lock est versionné
+      # (crates/formats/fuzz/Cargo.lock) et doit être complet et à jour (`--locked`) ; la
+      # compilation ne le modifie pas (vérifié après l'exécution).
       - name: Fuzzing smoke, 60 secondes par cible
         if: steps.chemins.outputs.modifie == 'true'
         working-directory: crates/formats
         run: |
-          cp ../../Cargo.lock fuzz/Cargo.lock
+          cargo +"$NIGHTLY" metadata --locked --format-version 1 \
+            --manifest-path fuzz/Cargo.toml > /dev/null
           for cible in $(cargo +"$NIGHTLY" fuzz list); do
             mkdir -p "fuzz/corpus/$cible" "fuzz/seeds/$cible"
             cargo +"$NIGHTLY" fuzz run "$cible" "fuzz/corpus/$cible" "fuzz/seeds/$cible" \
               -- -max_total_time=60
           done
+          git diff --exit-code -- fuzz/Cargo.lock
+      # Entrée fautive conservée pour la reproduire (`cargo fuzz run <cible> <fichier>`).
+      - name: Conserver les plantages
+        if: failure() && steps.chemins.outputs.modifie == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-plantages
+          path: crates/formats/fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -9,7 +9,8 @@
 //! 4. lignes vides finales retirées, puis `lignes_entete` lignes en tête et `lignes_pied` en
 //!    fin ignorées ; lignes entièrement vides ignorées (OCA `skip_empty_lines`) ;
 //! 5. chaque ligne restante devient un [`Mouvement`] lu par le profil ; la ligne brute est
-//!    conservée telle quelle ; un libellé à formule est importé tel quel avec une alerte.
+//!    conservée telle quelle ; un texte à formule ou à caractère bidirectionnel est importé
+//!    tel quel avec une alerte.
 //!
 //! La première erreur arrête l'analyse et porte le rang de la ligne fautive (comme Tryton et
 //! OCA, qui lèvent une exception sur la ligne).
@@ -38,7 +39,10 @@ pub use empreinte::{
     normaliser_libelle,
 };
 pub use erreur::ErreurReleve;
-pub use profil::{Colonne, ColonnesBrutes, ErreurProfil, Montants, ProfilBrut, ProfilReleve};
+pub use profil::{
+    Colonne, ColonnesBrutes, ErreurProfil, LONGUEUR_MAX_FORMAT_DATE, LONGUEUR_MAX_TITRE, Montants,
+    ProfilBrut, ProfilReleve, TAILLE_MAX_PROFIL,
+};
 
 use lecteur::Enregistrement;
 
@@ -163,9 +167,14 @@ impl LigneReleve {
 /// Nature d'une alerte d'analyse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NatureAlerte {
-    /// Libellé commençant par `=`, `+`, `-`, `@`, une tabulation ou un retour chariot :
-    /// importé tel quel, jamais exécuté (ADR 0034 §6, F7.6, F11.8).
+    /// Texte (libellé, référence, devise, identifiant) commençant par `=`, `+`, `-`, `@`, une
+    /// tabulation ou un retour chariot : importé tel quel, jamais exécuté (ADR 0034 §6, F7.6,
+    /// F11.8). Le code reste `libelle_formule` (nom de l'ADR) ; le champ est dans l'alerte.
     LibelleFormule,
+    /// Texte contenant un caractère de contrôle bidirectionnel (U+061C, U+200E, U+200F,
+    /// U+202A à U+202E, U+2066 à U+2069), qui peut inverser l'affichage (F11.8) : importé
+    /// tel quel.
+    CaractereBidirectionnel,
 }
 
 impl NatureAlerte {
@@ -174,6 +183,7 @@ impl NatureAlerte {
     pub fn code(self) -> &'static str {
         match self {
             Self::LibelleFormule => "libelle_formule",
+            Self::CaractereBidirectionnel => "caractere_bidirectionnel",
         }
     }
 }
@@ -183,6 +193,8 @@ impl NatureAlerte {
 pub struct Alerte {
     /// Ligne physique.
     pub ligne: usize,
+    /// Champ concerné.
+    pub champ: Champ,
     /// Nature.
     pub nature: NatureAlerte,
 }
@@ -385,8 +397,42 @@ impl Ligne<'_> {
     }
 }
 
-fn libelle_formule(libelle: &str) -> bool {
-    libelle.starts_with(['=', '+', '-', '@', '\t', '\r'])
+fn formule(texte: &str) -> bool {
+    texte.starts_with(['=', '+', '-', '@', '\t', '\r'])
+}
+
+fn bidirectionnel(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// Alertes des champs texte d'un mouvement, dans l'ordre des champs.
+fn alertes_texte(ligne: usize, m: &Mouvement, alertes: &mut Vec<Alerte>) {
+    let textes = [
+        (Champ::Libelle, Some(m.libelle.as_str())),
+        (Champ::Reference, m.reference.as_deref()),
+        (Champ::Devise, m.devise.as_deref()),
+        (
+            Champ::IdentifiantTransaction,
+            m.identifiant_transaction.as_deref(),
+        ),
+    ];
+    for (champ, texte) in textes {
+        let Some(texte) = texte else { continue };
+        if formule(texte) {
+            alertes.push(Alerte {
+                ligne,
+                champ,
+                nature: NatureAlerte::LibelleFormule,
+            });
+        }
+        if texte.contains(bidirectionnel) {
+            alertes.push(Alerte {
+                ligne,
+                champ,
+                nature: NatureAlerte::CaractereBidirectionnel,
+            });
+        }
+    }
 }
 
 /// Analyse un relevé (aperçu sans écriture). Voir le module.
@@ -426,12 +472,7 @@ pub fn analyser(
             profil,
         }
         .mouvement()?;
-        if libelle_formule(&mouvement.libelle) {
-            alertes.push(Alerte {
-                ligne: e.ligne,
-                nature: NatureAlerte::LibelleFormule,
-            });
-        }
+        alertes_texte(e.ligne, &mouvement, &mut alertes);
         lignes.push(LigneReleve {
             ligne: e.ligne,
             brut: e.brut,

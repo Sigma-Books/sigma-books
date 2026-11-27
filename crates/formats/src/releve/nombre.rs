@@ -7,6 +7,12 @@
 //! chiffres ASCII, au plus un séparateur décimal, au moins un chiffre. Exposant, `NaN` et
 //! infinis (admis par `Decimal` de Python) sont refusés ; au-delà de la précision de
 //! `rust_decimal` (28 chiffres), le nombre est refusé plutôt qu'arrondi.
+//!
+//! Le séparateur de milliers est retiré **où qu'il soit** (comme Tryton, sans contrôle des
+//! groupes de trois chiffres) ; il n'est ni un chiffre ni un signe (contrôlé à la validation du
+//! profil). Conséquence : un profil mal réglé (milliers `,` et décimale `.` pour un fichier
+//! écrit `12,50`) lit `1250` sans erreur ; seul le contrôle des soldes du relevé (ADR 0034
+//! §7, A17), quand ils sont connus, ou l'aperçu le révèle.
 
 use rust_decimal::Decimal;
 

@@ -61,7 +61,13 @@ fn rendu(releve: &Releve) -> String {
         let _ = writeln!(s, "  empreinte {} rang {}", e.empreinte, e.rang);
     }
     for a in releve.alertes() {
-        let _ = writeln!(s, "alerte ligne {} {}", a.ligne, a.nature.code());
+        let _ = writeln!(
+            s,
+            "alerte ligne {} {} {}",
+            a.ligne,
+            a.champ,
+            a.nature.code()
+        );
     }
     s
 }
