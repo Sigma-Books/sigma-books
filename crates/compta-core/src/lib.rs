@@ -13,6 +13,7 @@ pub mod editions;
 pub mod etiquette;
 pub mod exercice;
 pub mod journal;
+pub mod lettrage;
 pub mod livre;
 pub mod montant;
 pub mod numerotation;
@@ -46,6 +47,10 @@ pub use exercice::{
 };
 pub use journal::{
     CodeJournal, ErreurJournal, Journal, Journaux, ModeleJournal, TypeJournal, journaux_par_defaut,
+};
+pub use lettrage::{
+    BilanGroupe, Bornes, ErreurLettrage, IdLigne, Lettrage, Lettre, Lien, LigneLettrable,
+    MotifRupture, Origine, Proposition, Propositions, RegistreLettrage, Regle, Rupture,
 };
 pub use livre::{
     Avertissement, Contexte, EcritureValidee, ErreurReconstitution, ErreurValidation, Livre,
