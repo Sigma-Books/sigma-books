@@ -173,11 +173,16 @@ async fn fiche_complete_doublons_signales_et_audit_sans_valeur_personnelle() {
     // Audit : une entrée par changement, aucune valeur personnelle (ADR 0031 point 8).
     let entrees = audit_depuis(&b, rang).await;
     let tout = entrees.join("\n");
-    for secret in [
+    // Les valeurs saisies ne sont jamais affichées par le test (rang dans la liste seulement).
+    let saisies = [
         "Ndiaye", "0012345", "0099999", "SN-DKR", "Carnot", "Dakar", "Bamako", "compta@", "+221",
         "CLI-001",
-    ] {
-        assert!(!tout.contains(secret), "{secret} dans l'audit :\n{tout}");
+    ];
+    for (rang_saisie, saisie) in saisies.iter().enumerate() {
+        assert!(
+            !tout.contains(saisie),
+            "valeur n° {rang_saisie} dans l'audit"
+        );
     }
     // Le changement du pays de l'adresse et celui d'un identifiant sont journalisés, par leurs
     // noms (ADR 0031 point 2).
