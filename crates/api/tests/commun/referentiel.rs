@@ -108,12 +108,24 @@ pub async fn doter(
     utilisateur: IdUtilisateur,
 ) -> Fixtures {
     let aujourd_hui = time::OffsetDateTime::now_utc().date();
+    doter_repris(pool, cabinet, dossier, utilisateur, aujourd_hui).await
+}
+
+/// Comme [`doter`], le dossier étant repris sur l'année de `reference` (jour de référence fixe :
+/// un test daté reste valable les années suivantes).
+pub async fn doter_repris(
+    pool: &PgPool,
+    cabinet: IdCabinet,
+    dossier: IdDossier,
+    utilisateur: IdUtilisateur,
+    reference: time::Date,
+) -> Fixtures {
     let instanciation = Instanciation::preparer(
         Modele::officiel().unwrap(),
         Ouverture::Reprise {
-            annee: aujourd_hui.year(),
+            annee: reference.year(),
         },
-        aujourd_hui,
+        reference,
     )
     .unwrap();
     let mut tx = ouvrir_transaction(pool, ContexteTenant::cabinet(cabinet, utilisateur))

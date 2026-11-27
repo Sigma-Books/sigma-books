@@ -1,5 +1,6 @@
 # Motifs d'exonération de TVA du Sénégal (version 2025.2 des paramètres fiscaux ; ADR 0019 et 0030),
-# repris SANS CHANGEMENT de la version 2025.1 (seul cet en-tête diffère) :
+# repris SANS CHANGEMENT de la version 2025.1, sauf cet en-tête et la ligne `document` de chaque
+# entrée (la version 2025.2 cite deux documents : chaque source nomme le sien) :
 # liste FERMÉE des codes portés par l'étiquette d'une ligne de base d'une opération exonérée.
 # Les codes d'un pays gardent leur sens dans toutes ses versions : on en ajoute, on ne retire
 # ni ne réaffecte jamais un code (ils entrent dans le contenu haché des écritures). Une fin de
@@ -32,6 +33,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "1"
 pages = [176]
+document = "cgi-sn-2025-01"
 libelle = "Hospitalisation, soins à la personne"
 deduction = "non"
 
@@ -41,6 +43,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "2"
 pages = [176]
+document = "cgi-sn-2025-01"
 libelle = "Médicaments et produits pharmaceutiques, matériels médicaux listés"
 deduction = "non"
 
@@ -50,6 +53,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "3"
 pages = [176]
+document = "cgi-sn-2025-01"
 libelle = "Produits alimentaires non transformés de première nécessité"
 deduction = "non"
 
@@ -59,6 +63,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "4"
 pages = [177]
+document = "cgi-sn-2025-01"
 libelle = "Enseignement scolaire ou universitaire"
 deduction = "non"
 
@@ -68,6 +73,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "5"
 pages = [177]
+document = "cgi-sn-2025-01"
 libelle = "Eau et électricité, tranche sociale"
 deduction = "non"
 
@@ -77,6 +83,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "6"
 pages = [177]
+document = "cgi-sn-2025-01"
 libelle = "Opérations financières, assurance et réassurance"
 deduction = "non"
 
@@ -86,6 +93,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "7"
 pages = [177]
+document = "cgi-sn-2025-01"
 libelle = "Mutations d'immeubles et de fonds de commerce"
 deduction = "non"
 
@@ -95,6 +103,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "8"
 pages = [177]
+document = "cgi-sn-2025-01"
 libelle = "Timbres-poste, timbres fiscaux et valeurs similaires"
 deduction = "non"
 
@@ -104,6 +113,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "9"
 pages = [178]
+document = "cgi-sn-2025-01"
 libelle = "Livres, journaux et publications périodiques"
 deduction = "non"
 
@@ -113,6 +123,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "10"
 pages = [178]
+document = "cgi-sn-2025-01"
 libelle = "Œuvres d'art originales vendues par leur auteur"
 deduction = "non"
 
@@ -122,6 +133,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "11"
 pages = [178]
+document = "cgi-sn-2025-01"
 libelle = "Location d'immeubles nus à usage d'habitation"
 deduction = "non"
 
@@ -131,6 +143,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "12"
 pages = [178]
+document = "cgi-sn-2025-01"
 libelle = "Importation de biens dont la livraison est exonérée"
 deduction = "non"
 
@@ -140,6 +153,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "13"
 pages = [178]
+document = "cgi-sn-2025-01"
 libelle = "Importation sous régime douanier suspensif, transit"
 deduction = "non"
 
@@ -149,6 +163,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "16"
 pages = [178]
+document = "cgi-sn-2025-01"
 libelle = "Transport international de voyageurs"
 deduction = "non"
 
@@ -158,6 +173,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "17"
 pages = [178]
+document = "cgi-sn-2025-01"
 libelle = "Bateaux de pêche ou de haute mer"
 deduction = "non"
 
@@ -167,6 +183,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "18"
 pages = [179]
+document = "cgi-sn-2025-01"
 libelle = "Aéronefs de compagnies de navigation aérienne internationale"
 deduction = "non"
 
@@ -176,6 +193,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "19"
 pages = [179]
+document = "cgi-sn-2025-01"
 libelle = "Ventes et prestations des services administratifs"
 deduction = "non"
 
@@ -185,6 +203,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "20"
 pages = [179]
+document = "cgi-sn-2025-01"
 libelle = "Transport public de voyageurs à tarifs homologués"
 deduction = "non"
 
@@ -194,6 +213,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "21"
 pages = [179]
+document = "cgi-sn-2025-01"
 libelle = "Produits livrés à l'État, aux communes et aux établissements publics"
 deduction = "non"
 
@@ -203,6 +223,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "22"
 pages = [179]
+document = "cgi-sn-2025-01"
 libelle = "Semences, engrais et intrants agricoles"
 deduction = "non"
 
@@ -212,6 +233,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "23"
 pages = [179]
+document = "cgi-sn-2025-01"
 libelle = "Crédit-bail et finance islamique sur biens exonérés"
 deduction = "non"
 
@@ -221,6 +243,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "24"
 pages = [179]
+document = "cgi-sn-2025-01"
 libelle = "Gaz butane à usage domestique"
 deduction = "non"
 
@@ -230,6 +253,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "25"
 pages = [180]
+document = "cgi-sn-2025-01"
 libelle = "Hydrocarbures et substances minérales (prospection, exploration)"
 deduction = "non"
 
@@ -239,6 +263,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "27"
 pages = [180]
+document = "cgi-sn-2025-01"
 libelle = "Matériels de production d'énergies renouvelables"
 deduction = "non"
 
@@ -248,6 +273,7 @@ regime = "EXO_SANS_DEDUCTION"
 article = "361"
 alinea = "28"
 pages = [181]
+document = "cgi-sn-2025-01"
 libelle = "Intérêts et commissions sur prêts et avances à l'État"
 deduction = "non"
 
@@ -257,6 +283,7 @@ regime = "EXO_AVEC_DEDUCTION"
 article = "380"
 alinea = "a"
 pages = [189]
+document = "cgi-sn-2025-01"
 libelle = "Exportations et opérations assimilées, services directement liés"
 deduction = "oui"
 
@@ -266,6 +293,7 @@ regime = "EXO_AVEC_DEDUCTION"
 article = "380"
 alinea = "b"
 pages = [189]
+document = "cgi-sn-2025-01"
 libelle = "Services rendus à l'étranger par un assujetti identifié, non imposables au Sénégal, hors prestations de télécommunications de l'art. 358"
 deduction = "oui"
 
@@ -275,6 +303,7 @@ regime = "EXO_AVEC_DEDUCTION"
 article = "380"
 alinea = "c"
 pages = [189]
+document = "cgi-sn-2025-01"
 libelle = "Livraisons et prestations à des entreprises en régime franc ou à exonération visée"
 deduction = "oui"
 
@@ -284,6 +313,7 @@ regime = "EXO_AVEC_DEDUCTION"
 article = "380"
 alinea = "d"
 pages = [189]
+document = "cgi-sn-2025-01"
 libelle = "Transport international de biens à destination de l'étranger"
 deduction = "oui"
 
@@ -293,6 +323,7 @@ regime = "EXO_AVEC_DEDUCTION"
 article = "380"
 alinea = "e"
 pages = [189]
+document = "cgi-sn-2025-01"
 libelle = "Matériels et services agricoles visés à l'art. 361-26"
 deduction = "oui"
 fin = "2026-12-31"
@@ -303,6 +334,7 @@ regime = "EXO_AVEC_DEDUCTION"
 article = "380"
 alinea = "f"
 pages = [189]
+document = "cgi-sn-2025-01"
 libelle = "Livraisons de lait pasteurisé"
 deduction = "oui"
 
@@ -310,6 +342,7 @@ deduction = "oui"
 article = "361"
 alinea = "14"
 pages = [178, 189]
+document = "cgi-sn-2025-01"
 motif = "EXO_AVEC_DEDUCTION-a"
 note = "Exportations directes et opérations assimilées, services directement liés."
 
@@ -317,6 +350,7 @@ note = "Exportations directes et opérations assimilées, services directement l
 article = "361"
 alinea = "15"
 pages = [178, 189]
+document = "cgi-sn-2025-01"
 motif = "EXO_AVEC_DEDUCTION-d"
 note = "Transport international de biens à destination de l'étranger."
 
@@ -324,5 +358,6 @@ note = "Transport international de biens à destination de l'étranger."
 article = "361"
 alinea = "26"
 pages = [180, 189]
+document = "cgi-sn-2025-01"
 motif = "EXO_AVEC_DEDUCTION-e"
 note = "Matériels agricoles, aménagements et services agricoles, jusqu'au 31 décembre 2026 (l'art. 380 e renvoie au 26 de l'art. 361)."

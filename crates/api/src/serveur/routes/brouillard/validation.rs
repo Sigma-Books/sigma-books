@@ -1163,7 +1163,11 @@ mod tests {
     /// Version du Sénégal applicable aux dates des tests (toutes postérieures au 2025-10-02) :
     /// 2025.2.
     fn ref_sn() -> &'static ParametresFiscaux {
-        &registre().versions_du_pays("SN")[1]
+        registre()
+            .versions_du_pays("SN")
+            .iter()
+            .find(|v| v.identifiant() == "sn-2025.2")
+            .unwrap()
     }
 
     fn stockee(sens: &'static str, compte: &str, montant: &str) -> LigneStockee {

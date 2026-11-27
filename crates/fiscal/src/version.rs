@@ -175,6 +175,11 @@ impl RegimeTva {
     pub fn pages(&self) -> &[u16] {
         &self.pages
     }
+    /// Document source, s'il est nommé.
+    #[must_use]
+    pub fn document(&self) -> Option<&str> {
+        self.document.as_deref()
+    }
     /// Régime d'exonération.
     #[must_use]
     pub fn est_exonere(&self) -> bool {
@@ -293,6 +298,11 @@ impl MotifExoneration {
     pub fn pages(&self) -> &[u16] {
         &self.pages
     }
+    /// Document source, s'il est nommé.
+    #[must_use]
+    pub fn document(&self) -> Option<&str> {
+        self.document.as_deref()
+    }
     /// Intitulé court.
     #[must_use]
     pub fn libelle(&self) -> &str {
@@ -389,8 +399,8 @@ impl Unicite {
 }
 
 /// Résout le document d'une entrée et contrôle sa source : article, pages dans la plage. Une
-/// entrée qui ne nomme pas son document renvoie au **premier** document de la version (document
-/// principal ; le seul, le plus souvent).
+/// entrée qui ne nomme pas son document n'est admise que si la version n'en cite qu'un ; sinon la
+/// source est ambiguë et l'entrée refusée.
 fn controler_source(
     nom: &str,
     article: &str,
@@ -403,8 +413,8 @@ fn controler_source(
     }
     let doc = match (document, documents) {
         (Some(id), _) => documents.iter().find(|d| d.id == id),
-        (None, [principal, ..]) => Some(principal),
-        (None, []) => None,
+        (None, [seul]) => Some(seul),
+        _ => None,
     }
     .ok_or_else(|| ErreurFiscale::Document(nom.to_owned()))?;
     if let Some((min, max)) = doc.pages {

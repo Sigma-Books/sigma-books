@@ -8,8 +8,8 @@ use std::path::Path;
 
 use compta_core::{Devise, Montant};
 use fiscal::{
-    Assiette, ErreurFiscale, ExigibiliteLegale, ParametresFiscaux, Portee, Registre, Socle,
-    Surcharge,
+    Assiette, Chevauchement, ErreurFiscale, ExigibiliteLegale, MotifExoneration, ParametresFiscaux,
+    Portee, RegimeTva, Registre, Socle, Surcharge,
 };
 use proptest::prelude::*;
 use rust_decimal::Decimal;
@@ -92,9 +92,65 @@ fn la_version_2025_2_ne_change_que_les_prelevements() {
     assert_eq!(v2.identifiant(), "sn-2025.2");
     assert_eq!(v1.prelevements(), []);
     assert_eq!(v2.prelevements().len(), 2);
-    assert_eq!(v1.regimes(), v2.regimes());
-    assert_eq!(v1.motifs(), v2.motifs());
-    assert_eq!(v1.chevauchements(), v2.chevauchements());
+    // Mêmes régimes, motifs et chevauchements ; seul le document, nommé dans 2025.2 (deux
+    // documents), diffère.
+    let regime = |r: &RegimeTva| {
+        (
+            r.code().clone(),
+            r.libelle().to_owned(),
+            r.article().to_owned(),
+            r.alinea().map(str::to_owned),
+            r.pages().to_vec(),
+            r.deduction(),
+            r.exigibilite(),
+            r.taux().to_vec(),
+            r.debut(),
+            r.fin(),
+        )
+    };
+    let motif = |m: &MotifExoneration| {
+        (
+            m.code().clone(),
+            m.regime().clone(),
+            m.article().to_owned(),
+            m.alinea().to_owned(),
+            m.pages().to_vec(),
+            m.libelle().to_owned(),
+            m.deduction(),
+            m.debut(),
+            m.fin(),
+        )
+    };
+    assert_eq!(
+        v1.regimes().iter().map(regime).collect::<Vec<_>>(),
+        v2.regimes().iter().map(regime).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        v1.motifs().iter().map(motif).collect::<Vec<_>>(),
+        v2.motifs().iter().map(motif).collect::<Vec<_>>()
+    );
+    let sans_document = |c: &Chevauchement| Chevauchement {
+        document: None,
+        ..c.clone()
+    };
+    assert_eq!(
+        v1.chevauchements()
+            .iter()
+            .map(sans_document)
+            .collect::<Vec<_>>(),
+        v2.chevauchements()
+            .iter()
+            .map(sans_document)
+            .collect::<Vec<_>>()
+    );
+    let cgi = Some("cgi-sn-2025-01");
+    assert!(v2.regimes().iter().all(|r| r.document() == cgi));
+    assert!(v2.motifs().iter().all(|m| m.document() == cgi));
+    assert!(
+        v2.chevauchements()
+            .iter()
+            .all(|c| c.document.as_deref() == cgi)
+    );
     assert_eq!(v1.taux(), v2.taux());
     assert_eq!(v1.retention(), v2.retention());
     assert_eq!(v2.date_effet(), date!(2025 - 10 - 02));
@@ -525,4 +581,32 @@ fn le_socle_refuse_les_prelevements_invalides() {
             "{par}"
         );
     }
+}
+
+/// Avec deux documents, une entrée qui ne nomme pas le sien est refusée (source ambiguë, règle
+/// absolue 9) ; avec un seul document, elle y renvoie sans ambiguïté (pack factice ZZ, 2025.1).
+#[test]
+fn une_source_ambigue_est_refusee() {
+    let sans_document = |texte: &str| {
+        let ancre = "document = \"cgi-sn-2025-01\"\n";
+        assert!(texte.contains(ancre));
+        texte.replacen(ancre, "", 1)
+    };
+    for (version, regimes, motifs) in [
+        (VERSION, sans_document(REGIMES), MOTIFS.to_owned()),
+        (VERSION, REGIMES.to_owned(), sans_document(MOTIFS)),
+    ] {
+        let texte = [version, &regimes, &motifs, PRELEVEMENTS].join("\n");
+        assert!(matches!(
+            ParametresFiscaux::depuis_texte(&socle(), Portee::Pack, &texte),
+            Err(ErreurFiscale::Document(_))
+        ));
+    }
+    // Un prélèvement sans document, dans une version à deux documents : refusé aussi.
+    assert!(matches!(
+        charger(&PRELEVEMENTS.replacen("document = \"jo-sn-7853\"\n", "", 1)),
+        Err(ErreurFiscale::Document(_))
+    ));
+    // Version à un seul document : une entrée sans `document` y renvoie.
+    assert!(factice().regimes().iter().all(|r| r.document().is_none()));
 }

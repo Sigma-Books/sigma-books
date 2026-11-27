@@ -18,8 +18,7 @@ version = "2025.2"
 date_effet = "2025-10-02"
 source = "CGI du Sénégal consolidé, DGID, janvier 2025 (TVA, inchangée) ; loi n° 2025-17 du 27/09/2025 modifiant le CGI, JO n° 7853 du 02/10/2025, p. JO 1272 à 1274 (prélèvement de l'art. 220 ter, taxe des art. 395 à 399 ter)"
 
-# Premier document : document principal ; une entrée qui ne nomme pas son document y renvoie
-# (régimes et motifs de TVA, repris de 2025.1).
+# Deux documents : chaque entrée nomme le sien (`document`), sans quoi elle est refusée.
 [[document]]
 id = "cgi-sn-2025-01"
 titre = "Code général des impôts du Sénégal, version consolidée DGID, janvier 2025"

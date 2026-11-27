@@ -8,7 +8,7 @@
 mod commun;
 
 use axum::http::StatusCode;
-use commun::banc::{Banc, banc, banc_avec_registre, banque, caisse, code, contenu};
+use commun::banc::{Banc, banc, banc_avec_registre, banc_repris, banque, caisse, code, contenu};
 use commun::brouillard::{aujourd_hui, journal_de_saisie, ligne, texte_date};
 use commun::paquets_de_test::{registre_cm, registre_cm_evolutif};
 use commun::serveur::{Reponse, envoyer, lire};
@@ -79,6 +79,38 @@ async fn version_validee(b: &Banc, rang: i64) -> Option<String> {
     .await
     .unwrap()
     .get(0)
+}
+
+/// Bascule du paquet du Sénégal (loi n° 2025-17) : une écriture datée la veille de la date
+/// d'effet de 2025.2 (2025-10-02, à confirmer par le fiscaliste) se valide et enregistre
+/// `sn-2025.1` ; une écriture datée de ce jour enregistre `sn-2025.2` (colonne et contenu haché).
+#[tokio::test]
+async fn une_ecriture_suit_la_version_du_paquet_a_sa_date() {
+    let b = banc_repris(jour(2025, 12, 1)).await;
+    for (rang, (date, attendue)) in [("2025-10-01", "sn-2025.1"), ("2025-10-02", "sn-2025.2")]
+        .into_iter()
+        .enumerate()
+    {
+        let r = creer(&b, &corps(date, etiquetee("18", "TAXABLE_NORMAL"))).await;
+        assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+        assert_eq!(r.json()["version_parametres"], attendue);
+        let id: Uuid = r.json()["id"].as_str().unwrap().parse().unwrap();
+        let (_, version) = b.lier(id, 1).await;
+        let v = b.valider(id, version).await;
+        assert_eq!(v.statut, StatusCode::OK, "{date} : {}", v.texte());
+        let rang = i64::try_from(rang).unwrap() + 1;
+        assert_eq!(version_validee(&b, rang).await.as_deref(), Some(attendue));
+        let chaine = b.chaine().await;
+        let ligne = usize::try_from(rang - 1).unwrap();
+        assert!(
+            chaine[ligne]
+                .2
+                .contains(&format!("\nparametres={attendue}\n")),
+            "{}",
+            chaine[ligne].2
+        );
+    }
+    assert!(b.chaine_valide().await);
 }
 
 #[tokio::test]
