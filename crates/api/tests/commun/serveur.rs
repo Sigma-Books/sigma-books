@@ -15,7 +15,7 @@ use api::facteurs::cle::CleInstance;
 use api::serveur::authentification::{
     Authentification, ErreurAuthentification, Identite, ResultatAuthentification,
 };
-use api::serveur::routes::{CasUsage, Methode, Route, organisation, pieces};
+use api::serveur::routes::{CasUsage, Methode, Route, organisation, parametres_fiscaux, pieces};
 use api::serveur::session::{SessionOuverte, ouvrir_session};
 use api::serveur::{
     Application, AuthentificationSession, Decideur, Etat, Horloge, HorlogeSysteme, Reglages,
@@ -486,6 +486,11 @@ pub fn corps_de(route: &Route) -> &'static str {
             CORPS.get_or_init(|| super::referentiel::corps_creation("Dossier créé par le test"))
         }
         CasUsage::Organisation(organisation::Cas::ModifierContexte) => r#"{"langue":"fr"}"#,
+        // Paramètres fiscaux du dossier (ADR 0030) : une version sans aucun changement, refusée
+        // (422) pour qui a le droit, sans rien créer.
+        CasUsage::ParametresFiscaux(parametres_fiscaux::Cas::Creer) => {
+            r#"{"date_effet":"2099-01-01","motif":"Test d'isolation"}"#
+        }
         // Voie pièces (PR 12) : un PDF minimal (signature seule), une note d'OD, un motif.
         CasUsage::Pieces(pieces::Cas::Deposer) => "%PDF-1.7\n% pièce de test\n",
         CasUsage::Pieces(pieces::Cas::CreerInterne) => {

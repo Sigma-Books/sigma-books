@@ -63,7 +63,7 @@ use crate::base::validation::{
     self as base, Circonstances, EcritureStockee, Inscription, PieceVerrouillee, Tete,
 };
 use crate::base::{ErreurBase, TransactionTenant, ouvrir_transaction_lecture};
-use crate::parametres_fiscaux::ParametresDuDossier;
+use crate::parametres_fiscaux::{ParametresDuDossier, lire_propres};
 use crate::pieces::interne;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit, MotifValidation};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
@@ -769,7 +769,9 @@ pub(super) async fn valider(
     // Avant tout contrôle de forme : un brouillon d'une autre devise de tenue est périmé (409),
     // pas « invalide » ; la devise est relue après le verrou de la tête ci-dessous.
     exiger_meme_tenue(&b.contenu, &tenue)?;
-    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &[]);
+    let propres = lire_propres(tx, registre).await?;
+    let nombre_de_versions = propres.len();
+    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &propres);
     let preparee = preparer(&b, &empreintes, &fiscal, &tenue, referentiel.exercices())?;
     let journal_id = referentiel
         .id_journal(preparee.journal())
@@ -789,7 +791,12 @@ pub(super) async fn valider(
     // prend le même verrou (ADR 0027) ; si elle est passée entre-temps, la validation se rejoue
     // (la version des paramètres fiscaux a été choisie sur le pays lu avant les verrous).
     let courant = lire_contexte_du_dossier(tx).await?;
-    if courant.tenue()? != tenue || courant.pays != dossier.contexte().pays {
+    // Versions propres relues aussi : une version créée entre-temps rejoue la validation.
+    if courant.tenue()? != tenue
+        || courant.pays != dossier.contexte().pays
+        || i32::try_from(nombre_de_versions).ok()
+            != Some(crate::base::parametres_fiscaux::numero_maximal(tx).await?)
+    {
         return Err(conflit(MotifConflit::ContexteDossierModifie));
     }
     // Instant relu **après** la tête : la validation a pu attendre, ou franchir minuit.

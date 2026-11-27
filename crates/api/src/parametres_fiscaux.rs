@@ -4,10 +4,12 @@
 //! Le registre ([`fiscal::Registre`]) est porté par l'application ; le pays vient du contexte du
 //! dossier (ADR 0027). Aucun pays n'est nommé ici.
 
-use fiscal::{ParametresFiscaux, Registre, VersionsDuDossier};
+use fiscal::{ParametresFiscaux, Portee, Registre, VersionsDuDossier};
+use integrite::Empreinte;
 use time::Date;
 
-use crate::base::ErreurBase;
+use crate::base::parametres_fiscaux::{VersionPropre, lire_versions};
+use crate::base::{ErreurBase, TransactionTenant};
 
 /// Versions de paramètres fiscaux que voit un dossier : le paquet de son pays et ses versions
 /// propres.
@@ -62,6 +64,54 @@ impl<'a> ParametresDuDossier<'a> {
             None => Ok(self.applicable(jour)),
         }
     }
+}
+
+/// Version propre rebâtie d'une ligne de la table, **contrôlée** : le contenu se relit par le
+/// validateur commun, son identifiant, son pays, sa version de base et ses dates sont ceux des
+/// colonnes, et son empreinte est celle du contenu (une ligne altérée est une donnée incohérente).
+///
+/// # Errors
+/// [`ErreurBase::Donnee`] si la ligne n'est pas celle qu'a écrite le cas d'usage.
+pub fn version_depuis_ligne(
+    registre: &Registre,
+    ligne: &VersionPropre,
+) -> Result<ParametresFiscaux, ErreurBase> {
+    let incoherent = || ErreurBase::VersionParametresIllisible;
+    let numero = u32::try_from(ligne.numero).map_err(|_| incoherent())?;
+    let p =
+        ParametresFiscaux::depuis_texte(registre.socle(), Portee::Dossier(numero), &ligne.contenu)
+            .map_err(|_| incoherent())?;
+    let identifiant = format!(
+        "{}-{}+d{numero}",
+        ligne.pays.to_ascii_lowercase(),
+        ligne.version
+    );
+    let empreinte = Empreinte::calculer(ligne.contenu.as_bytes());
+    if p.pays() != ligne.pays
+        || p.version() != ligne.version
+        || p.identifiant() != identifiant
+        || p.date_effet() != ligne.date_effet
+        || p.date_fin() != ligne.date_fin
+        || empreinte.octets().as_slice() != ligne.empreinte.as_slice()
+    {
+        return Err(incoherent());
+    }
+    Ok(p)
+}
+
+/// Versions propres du dossier du contexte, rebâties et contrôlées, par numéro croissant.
+///
+/// # Errors
+/// [`ErreurBase::Donnee`] si une ligne est incohérente, erreur de PostgreSQL.
+pub async fn lire_propres(
+    tx: &mut TransactionTenant,
+    registre: &Registre,
+) -> Result<Vec<ParametresFiscaux>, ErreurBase> {
+    lire_versions(tx)
+        .await?
+        .iter()
+        .map(|l| version_depuis_ligne(registre, l))
+        .collect()
 }
 
 #[cfg(test)]
@@ -120,5 +170,89 @@ mod tests {
         // Pays sans paquet : plancher OHADA du socle.
         let autre = ParametresDuDossier::nouveau(&registre, "GA", &[]);
         assert_eq!(autre.retention_des_pieces(date!(2026 - 03 - 15)), 10);
+    }
+
+    fn ligne_de_test(registre: &Registre) -> VersionPropre {
+        let base = &registre.versions_du_pays("SN")[0];
+        let taux = [("normal".to_owned(), "19".to_owned())];
+        let d = base
+            .deriver(
+                registre.socle(),
+                &fiscal::Surcharge {
+                    numero: 1,
+                    date_effet: date!(2027 - 01 - 01),
+                    date_fin: None,
+                    motif: "Convention",
+                    taux: &taux,
+                    regimes_retires: &[],
+                },
+            )
+            .unwrap();
+        let contenu = d.vers_texte();
+        VersionPropre {
+            id: uuid::Uuid::nil(),
+            numero: 1,
+            pays: "SN".to_owned(),
+            version: "2025.1".to_owned(),
+            date_effet: date!(2027 - 01 - 01),
+            date_fin: None,
+            empreinte: Empreinte::calculer(contenu.as_bytes()).octets().to_vec(),
+            contenu,
+            motif: "Convention".to_owned(),
+            cree_par: uuid::Uuid::nil(),
+            cree_le: time::OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn une_ligne_intacte_se_relit_et_une_ligne_alteree_est_refusee() {
+        let registre = Registre::officiel().unwrap();
+        let ligne = ligne_de_test(&registre);
+        let p = version_depuis_ligne(&registre, &ligne).unwrap();
+        assert_eq!(p.identifiant(), "sn-2025.1+d1");
+        let sn = ParametresDuDossier::nouveau(&registre, "SN", std::slice::from_ref(&p));
+        assert_eq!(
+            sn.applicable(date!(2027 - 06 - 01))
+                .map(ParametresFiscaux::identifiant),
+            Some("sn-2025.1+d1")
+        );
+        assert_eq!(
+            sn.enregistree(Some("sn-2025.1+d1"), date!(2020 - 01 - 01))
+                .unwrap()
+                .map(ParametresFiscaux::identifiant),
+            Some("sn-2025.1+d1")
+        );
+        // Contenu altéré (taux 19 -> 5) sans changer l'empreinte, ou colonnes qui divergent.
+        let mut altere = ligne.clone();
+        altere.contenu = altere.contenu.replace("valeur = \"19\"", "valeur = \"5\"");
+        assert!(version_depuis_ligne(&registre, &altere).is_err());
+        for modifie in [
+            VersionPropre {
+                pays: "CM".to_owned(),
+                ..ligne.clone()
+            },
+            VersionPropre {
+                version: "2025.2".to_owned(),
+                ..ligne.clone()
+            },
+            VersionPropre {
+                date_effet: date!(2027 - 02 - 01),
+                ..ligne.clone()
+            },
+            VersionPropre {
+                date_fin: Some(date!(2027 - 12 - 31)),
+                ..ligne.clone()
+            },
+            VersionPropre {
+                empreinte: vec![0; 32],
+                ..ligne.clone()
+            },
+            VersionPropre {
+                contenu: "pas du toml".to_owned(),
+                ..ligne.clone()
+            },
+        ] {
+            assert!(version_depuis_ligne(&registre, &modifie).is_err());
+        }
     }
 }

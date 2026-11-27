@@ -104,6 +104,9 @@ struct ChevauchementBrut {
     note: String,
 }
 
+mod surcharge;
+pub use surcharge::{MOTIF_MAX_OCTETS, Surcharge, motif_sur};
+
 // --- Types validés ------------------------------------------------------------------------
 
 /// Document source d'une version.
@@ -125,6 +128,7 @@ pub struct RegimeTva {
     article: String,
     alinea: Option<String>,
     pages: Vec<u16>,
+    document: Option<String>,
     exonere: bool,
     deduction: Deduction,
     exigibilite: ExigibiliteLegale,
@@ -252,6 +256,7 @@ pub struct MotifExoneration {
     article: String,
     alinea: String,
     pages: Vec<u16>,
+    document: Option<String>,
     libelle: String,
     deduction: Deduction,
     debut: Option<Date>,
@@ -321,6 +326,8 @@ pub struct Chevauchement {
     pub alinea: String,
     /// Pages de la source.
     pub pages: Vec<u16>,
+    /// Document source, s'il est nommé.
+    pub document: Option<String>,
     /// Code retenu.
     pub motif: CodeMotif,
     /// Précision.
@@ -747,6 +754,7 @@ fn regime_valide(
         article: r.article,
         alinea: r.alinea,
         pages: r.pages,
+        document: r.document,
         exonere: base.est_exonere(),
         deduction: r.deduction,
         exigibilite: r.exigibilite,
@@ -816,6 +824,7 @@ fn motif_valide(
         article: m.article,
         alinea: m.alinea,
         pages: m.pages,
+        document: m.document,
         libelle: m.libelle,
         deduction: m.deduction,
         debut,
@@ -845,6 +854,7 @@ fn chevauchement_valide(
         article: c.article,
         alinea: c.alinea,
         pages: c.pages,
+        document: c.document,
         motif,
         note: c.note,
     })

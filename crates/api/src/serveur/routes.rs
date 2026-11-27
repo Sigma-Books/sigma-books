@@ -24,6 +24,7 @@ pub mod facteurs;
 pub mod integrite;
 pub mod moi;
 pub mod organisation;
+pub mod parametres_fiscaux;
 pub mod passkeys;
 pub mod pieces;
 pub mod referentiel;
@@ -182,6 +183,8 @@ pub enum CasUsage {
     Editions(editions::Cas),
     /// Horodatage et intégrité (PR 15, [`integrite`]).
     Integrite(integrite::Cas),
+    /// Paramètres fiscaux du dossier (ADR 0030, [`parametres_fiscaux`]).
+    ParametresFiscaux(parametres_fiscaux::Cas),
 }
 
 impl CasUsage {
@@ -213,6 +216,7 @@ impl CasUsage {
             Self::Brouillard(_) => brouillard::MODULE.nom,
             Self::Editions(_) => editions::MODULE.nom,
             Self::Integrite(_) => integrite::MODULE.nom,
+            Self::ParametresFiscaux(_) => parametres_fiscaux::MODULE.nom,
         }
     }
 }
@@ -280,6 +284,8 @@ pub const MODULES: &[Module] = &[
     pieces::MODULE,
     // Voie intégrité et horodatage (PR 15).
     integrite::MODULE,
+    // Paramètres fiscaux du dossier (ADR 0030).
+    parametres_fiscaux::MODULE,
 ];
 
 /// Toutes les routes de l'API : les tranches de [`MODULES`], bout à bout.
@@ -407,6 +413,10 @@ pub(crate) async fn executer(
         CasUsage::Pieces(cas) => pieces::executer(cas, tx, garde, requete).await,
         // Voie intégrité et horodatage (PR 15).
         CasUsage::Integrite(cas) => integrite::executer(cas, tx, garde, requete).await,
+        // Paramètres fiscaux du dossier (ADR 0030).
+        CasUsage::ParametresFiscaux(cas) => {
+            parametres_fiscaux::executer(cas, tx, garde, requete).await
+        }
     }
 }
 

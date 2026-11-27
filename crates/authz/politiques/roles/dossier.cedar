@@ -36,6 +36,26 @@ when {
 permit (principal, action == Sigma::Action::"ModifierContexteDossier", resource)
 when { principal.role == Sigma::Role::"administrateur" };
 
+// Consulter les versions de paramètres fiscaux du dossier (ADR 0030) : tout rôle qui voit le
+// dossier (la saisie et les éditions en dépendent).
+@id("adr0030-consulter-parametres-fiscaux")
+permit (principal, action == Sigma::Action::"ConsulterParametresFiscaux", resource)
+when {
+  [
+    Sigma::Role::"administrateur",
+    Sigma::Role::"valideur",
+    Sigma::Role::"collaborateur",
+    Sigma::Role::"auditeur"
+  ].contains(principal.role)
+};
+
+// Créer une version de paramètres fiscaux propre au dossier (ADR 0030) : administrateur du
+// cabinet seul. La ré-authentification est un invariant (invariants.cedar) et le cas d'usage la
+// recontrôle.
+@id("adr0030-creer-version-parametres-fiscaux")
+permit (principal, action == Sigma::Action::"CreerVersionParametresFiscaux", resource)
+when { principal.role == Sigma::Role::"administrateur" };
+
 // §20 « Déposer des pièces » : administrateur, valideur, collaborateur.
 // (Client « ses dossiers » : portail, L4.)
 @id("s20-deposer-pieces")

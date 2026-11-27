@@ -108,6 +108,12 @@ actions! {
     /// (ADR 0027) ; administrateur du cabinet. La ré-authentification n'est exigée que si le pays
     /// ou la devise changent : elle est contrôlée par le cas d'usage, pas par un invariant.
     ModifierContexteDossier => Dossier,
+    /// Consulter les versions de paramètres fiscaux du dossier : paquet du pays et versions
+    /// propres (ADR 0030) ; tout rôle qui voit le dossier.
+    ConsulterParametresFiscaux => Dossier,
+    /// Créer une version de paramètres fiscaux propre au dossier (ADR 0030) : administrateur du
+    /// cabinet ; ré-authentification. Une version n'est jamais modifiée ni supprimée.
+    CreerVersionParametresFiscaux => Dossier,
     /// Déposer des pièces (§20).
     DeposerPiece => Dossier,
     /// Créer un brouillon (§20 « Saisir dans le brouillard »).

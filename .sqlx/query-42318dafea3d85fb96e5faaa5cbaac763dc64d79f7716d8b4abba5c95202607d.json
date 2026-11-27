@@ -1,0 +1,149 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, numero, pays, version, date_effet, date_fin, contenu, empreinte, motif,\n               cree_par, cree_le\n        FROM parametres_fiscaux_dossier\n        WHERE cabinet_id = $1 AND dossier_id = $2\n        ORDER BY numero\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "numero",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "pays",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "pays"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "version",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "date_effet",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "date_effet"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "date_fin",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "date_fin"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "contenu",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "contenu"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "empreinte"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "motif",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "motif"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "cree_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "cree_par"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "parametres_fiscaux_dossier",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "42318dafea3d85fb96e5faaa5cbaac763dc64d79f7716d8b4abba5c95202607d"
+}

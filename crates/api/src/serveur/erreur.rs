@@ -196,6 +196,14 @@ pub enum MotifConflit {
     /// Le dossier a des pièces : leur rétention est celle de son pays à la date du dépôt, le pays
     /// ne change plus (ADR 0030).
     DossierPiecesPresentes,
+    /// La date d'effet d'une version propre tombe dans une période clôturée ou un exercice clos.
+    ParametresDateEffetCloturee,
+    /// La date d'effet n'est pas postérieure à celle de la dernière version propre du dossier.
+    ParametresDateEffetAnterieure,
+    /// Une écriture validée du dossier utilise un des régimes que la version retirerait.
+    ParametresRegimeUtilise,
+    /// Le dossier a déjà le nombre maximal de versions propres.
+    ParametresTropDeVersions,
     /// La devise de tenue du dossier a changé pendant l'attente du verrou : réessayer.
     ContexteDossierModifie,
     /// Brouillon saisi sous une autre devise de tenue ou une autre échelle que celles du dossier.
@@ -204,7 +212,7 @@ pub enum MotifConflit {
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 35] = [
+    pub const TOUS: [Self; 39] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -238,6 +246,10 @@ impl MotifConflit {
         Self::DossierBrouillardNonVide,
         Self::DossierParametresFiscauxPropres,
         Self::DossierPiecesPresentes,
+        Self::ParametresDateEffetCloturee,
+        Self::ParametresDateEffetAnterieure,
+        Self::ParametresRegimeUtilise,
+        Self::ParametresTropDeVersions,
         Self::ContexteDossierModifie,
         Self::BrouillonDeviseTenuePerimee,
     ];
@@ -278,6 +290,10 @@ impl MotifConflit {
             Self::DossierDejaEcritures => "dossier_deja_ecritures",
             Self::DossierParametresFiscauxPropres => "dossier_parametres_fiscaux_propres",
             Self::DossierPiecesPresentes => "dossier_pieces_presentes",
+            Self::ParametresDateEffetCloturee => "parametres_date_effet_cloturee",
+            Self::ParametresDateEffetAnterieure => "parametres_date_effet_anterieure",
+            Self::ParametresRegimeUtilise => "parametres_regime_utilise",
+            Self::ParametresTropDeVersions => "parametres_trop_de_versions",
             Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
             Self::ContexteDossierModifie => "contexte_dossier_modifie",
             Self::BrouillonDeviseTenuePerimee => "brouillon_devise_tenue_perimee",
@@ -354,11 +370,32 @@ pub enum MotifValidation {
     FuseauInconnu,
     /// Création d'un dossier : langue, forme juridique ou identifiant légal invalide.
     ContexteDossierInvalide,
+    /// Le pays du dossier n'a aucun paquet de paramètres fiscaux : pas de version propre.
+    ParametresPaysSansPaquet,
+    /// Aucune version de base ne s'applique à la date d'effet.
+    ParametresAucuneBase,
+    /// La version propre ne change ni taux ni régime.
+    ParametresAucunChangement,
+    /// Taux hors de ]0 ; 100], non décimal ou non canonique.
+    ParametresTauxInvalide,
+    /// Rôle de taux absent de la version de base.
+    ParametresRoleInconnu,
+    /// Régime absent de la version de base.
+    ParametresRegimeInconnu,
+    /// Régime exonéré ou qui a des motifs : il n'est jamais retiré.
+    ParametresRegimeNonRetirable,
+    /// Motif vide, de plus de 400 octets ou avec un caractère de contrôle.
+    ParametresMotifInvalide,
+    /// Date de fin antérieure à la date d'effet.
+    ParametresPeriodeInvalide,
+    /// Date d'effet au-delà d'un an après le jour du dossier : la croissance stricte des dates et
+    /// l'ajout seul rendraient toute surcharge ultérieure impossible.
+    ParametresDateEffetLointaine,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 31] = [
+    pub const TOUS: [Self; 41] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -390,6 +427,16 @@ impl MotifValidation {
         Self::DeviseTenueInconnue,
         Self::FuseauInconnu,
         Self::ContexteDossierInvalide,
+        Self::ParametresPaysSansPaquet,
+        Self::ParametresAucuneBase,
+        Self::ParametresAucunChangement,
+        Self::ParametresTauxInvalide,
+        Self::ParametresRoleInconnu,
+        Self::ParametresRegimeInconnu,
+        Self::ParametresRegimeNonRetirable,
+        Self::ParametresMotifInvalide,
+        Self::ParametresPeriodeInvalide,
+        Self::ParametresDateEffetLointaine,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -444,6 +491,16 @@ impl MotifValidation {
             Self::DeviseTenueInconnue => "devise_tenue_inconnue",
             Self::FuseauInconnu => "fuseau_inconnu",
             Self::ContexteDossierInvalide => "contexte_dossier_invalide",
+            Self::ParametresPaysSansPaquet => "parametres_pays_sans_paquet",
+            Self::ParametresAucuneBase => "parametres_aucune_base",
+            Self::ParametresAucunChangement => "parametres_aucun_changement",
+            Self::ParametresTauxInvalide => "parametres_taux_invalide",
+            Self::ParametresRoleInconnu => "parametres_role_inconnu",
+            Self::ParametresRegimeInconnu => "parametres_regime_inconnu",
+            Self::ParametresRegimeNonRetirable => "parametres_regime_non_retirable",
+            Self::ParametresMotifInvalide => "parametres_motif_invalide",
+            Self::ParametresPeriodeInvalide => "parametres_periode_invalide",
+            Self::ParametresDateEffetLointaine => "parametres_date_effet_lointaine",
         }
     }
 }
@@ -466,6 +523,9 @@ pub enum CategorieErreur {
     Audit,
     /// Stockage objet des pièces indisponible, non configuré, ou objet altéré (ADR 0015).
     Stockage,
+    /// Version de paramètres fiscaux d'un dossier illisible ou altérée (ADR 0030) : la lecture
+    /// échoue (fermeture sûre) et le journal technique porte ce code, sans aucune donnée.
+    ParametresFiscauxIllisibles,
 }
 
 impl CategorieErreur {
@@ -480,6 +540,7 @@ impl CategorieErreur {
             Self::Couche => "couche",
             Self::Audit => "audit",
             Self::Stockage => "stockage",
+            Self::ParametresFiscauxIllisibles => "parametres_fiscaux_illisibles",
         }
     }
 }
@@ -533,6 +594,9 @@ impl From<crate::base::ErreurBase> for ErreurApi {
         // valeurs (F2.11). La catégorie suffit au diagnostic, avec l'identifiant de requête.
         match erreur {
             crate::base::ErreurBase::Audit(_) => Self::Interne(CategorieErreur::Audit),
+            crate::base::ErreurBase::VersionParametresIllisible => {
+                Self::Interne(CategorieErreur::ParametresFiscauxIllisibles)
+            }
             crate::base::ErreurBase::Donnee(_) => Self::Interne(CategorieErreur::Donnee),
             _ => Self::Interne(CategorieErreur::Base),
         }
@@ -693,6 +757,21 @@ mod tests {
                 .iter()
                 .all(|c| c.bytes().all(|o| o.is_ascii_lowercase() || o == b'_'))
         );
+    }
+
+    #[test]
+    fn une_version_de_parametres_illisible_a_sa_categorie_sans_detail() {
+        let erreur = ErreurApi::from(crate::base::ErreurBase::VersionParametresIllisible);
+        assert_eq!(
+            erreur,
+            ErreurApi::Interne(CategorieErreur::ParametresFiscauxIllisibles)
+        );
+        assert_eq!(
+            CategorieErreur::ParametresFiscauxIllisibles.nom(),
+            "parametres_fiscaux_illisibles"
+        );
+        // Le client ne voit que le corps uniforme.
+        assert_eq!(erreur.code(), "erreur_interne");
     }
 
     #[tokio::test]

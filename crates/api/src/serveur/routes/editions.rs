@@ -56,7 +56,7 @@ use crate::base::editions::{brouillons_entre, brouillons_par_journal_et_date, va
 use crate::base::organisation::{lire_contexte_du_dossier, lire_dossier_visible};
 use crate::base::referentiel::charger;
 use crate::base::{TransactionTenant, ouvrir_transaction_lecture};
-use crate::parametres_fiscaux::ParametresDuDossier;
+use crate::parametres_fiscaux::{ParametresDuDossier, lire_propres};
 use crate::pieces::interne;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit};
 use crate::serveur::pipeline::Garde;
@@ -303,7 +303,8 @@ async fn lire_dans_instantane(
     let referentiel = charger(instantane).await?.ok_or(ErreurApi::Introuvable)?;
     let contexte = lire_contexte_du_dossier(instantane).await?;
     let tenue = contexte.tenue()?;
-    let fiscal = ParametresDuDossier::nouveau(registre, &contexte.pays, &[]);
+    let propres = lire_propres(instantane, registre).await?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &contexte.pays, &propres);
     let exercice = choisir_exercice(referentiel.exercices(), p)?;
     let du = p.du.unwrap_or_else(|| exercice.debut());
     let au = p.au.unwrap_or_else(|| exercice.fin());

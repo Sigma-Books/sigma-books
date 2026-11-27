@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(max(numero), 0) AS \"n!\" FROM parametres_fiscaux_dossier\n           WHERE cabinet_id = $1 AND dossier_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b52eed0b922653648d0469618b2cedc14377261adad62c752dbfd5236a8691bc"
+}

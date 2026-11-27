@@ -431,3 +431,118 @@ proptest! {
         }
     }
 }
+
+/// Une version de dossier ne reprend pas la `date_fin` du paquet : elle survit à l'abrogation de
+/// la version qu'elle dérive, et sans `date_fin` elle masque les paquets suivants (ADR 0030, la
+/// priorité d'une version de dossier ne tient aucun compte de l'abrogation du paquet).
+#[test]
+fn une_version_de_dossier_survit_a_l_abrogation_du_paquet() {
+    let socle = Socle::officiel().unwrap();
+    // Paquet : v2024.1 abrogée le 2025-12-31 sans successeur immédiat, v2026.1 dès le 2026-07-01.
+    let abrogee = fixture("2024.1").replacen(
+        "date_effet = \"2024-01-01\"",
+        "date_effet = \"2024-01-01\"\ndate_fin = \"2025-12-31\"",
+        1,
+    );
+    let v1 = charger(Portee::Pack, &abrogee);
+    assert_eq!(v1.date_fin(), Some(date!(2025 - 12 - 31)));
+    let registre = Registre::depuis_versions(
+        Socle::officiel().unwrap(),
+        vec![v1.clone(), charger(Portee::Pack, &fixture("2026.1"))],
+    )
+    .unwrap();
+    // Dérivée de v2024.1 le 2025-06-01, sans date de fin : le paquet (abrogé) n'est pas hérité.
+    let taux = [("normal".to_owned(), "20".to_owned())];
+    let d = v1
+        .deriver(
+            &socle,
+            &fiscal::Surcharge {
+                numero: 1,
+                date_effet: date!(2025 - 06 - 01),
+                date_fin: None,
+                motif: "Convention",
+                taux: &taux,
+                regimes_retires: &[],
+            },
+        )
+        .unwrap();
+    assert_eq!(d.date_fin(), None);
+    let propres = vec![d];
+    let versions = registre.versions_du_dossier("ZZ", &propres);
+    let id = |j: Date| versions.applicable(j).map(|v| v.identifiant().to_owned());
+    // Le paquet est abrogé le 2025-12-31 (aucune version) : la version du dossier s'applique encore.
+    assert_eq!(id(date!(2026 - 03 - 01)).as_deref(), Some("zz-2024.1+d1"));
+    // Et, sans date de fin, elle masque le paquet suivant (2026.1) : à poser par l'administrateur.
+    assert_eq!(id(date!(2026 - 08 - 01)).as_deref(), Some("zz-2024.1+d1"));
+    // Avec une date de fin, la main revient au paquet.
+    let avec_fin = v1
+        .deriver(
+            &socle,
+            &fiscal::Surcharge {
+                numero: 1,
+                date_effet: date!(2025 - 06 - 01),
+                date_fin: Some(date!(2026 - 06 - 30)),
+                motif: "Convention",
+                taux: &taux,
+                regimes_retires: &[],
+            },
+        )
+        .unwrap();
+    let propres = vec![avec_fin];
+    let versions = registre.versions_du_dossier("ZZ", &propres);
+    assert_eq!(
+        versions
+            .applicable(date!(2026 - 08 - 01))
+            .unwrap()
+            .identifiant(),
+        "zz-2026.1"
+    );
+}
+
+proptest! {
+    /// Avec des versions de pays et de dossier : la version choisie est celle du dossier de plus
+    /// grande date d'effet <= date qui couvre la date, sinon celle du pays, sinon aucune.
+    #[test]
+    fn la_selection_avec_des_versions_de_dossier(
+        pays in proptest::collection::btree_set(0i64..2000, 1..4),
+        propres in proptest::collection::btree_set(0i64..2000, 0..4),
+        fins in proptest::collection::vec(proptest::option::of(1i64..500), 8),
+        jour in -50i64..2600,
+    ) {
+        let socle = Socle::officiel().unwrap();
+        let origine = date!(2020 - 01 - 01);
+        let texte = |effet: Date, version: &str, fin: Option<i64>| {
+            let mut t = fixture("2024.1").replacen("2024-01-01", &effet.to_string(), 1)
+                .replacen("version = \"2024.1\"", &format!("version = \"{version}\""), 1);
+            if let Some(f) = fin {
+                t = t.replacen(
+                    &format!("date_effet = \"{effet}\""),
+                    &format!("date_effet = \"{effet}\"\ndate_fin = \"{}\"", effet + Duration::days(f)),
+                    1,
+                );
+            }
+            t
+        };
+        let mut vp = Vec::new();
+        for (i, d) in pays.iter().enumerate() {
+            let effet = origine + Duration::days(*d);
+            vp.push(ParametresFiscaux::depuis_texte(&socle, Portee::Pack, &texte(effet, &format!("2024.{}", i + 1), fins[i])).unwrap());
+        }
+        let registre = Registre::depuis_versions(Socle::officiel().unwrap(), vp.clone()).unwrap();
+        let mut dossier = Vec::new();
+        for (i, d) in propres.iter().enumerate() {
+            let effet = origine + Duration::days(*d);
+            let n = u32::try_from(i).unwrap() + 1;
+            dossier.push(ParametresFiscaux::depuis_texte(&socle, Portee::Dossier(n), &texte(effet, "2024.1", fins[4 + i])).unwrap());
+        }
+        let cible = origine + Duration::days(jour);
+        let versions = registre.versions_du_dossier("ZZ", &dossier);
+        let choisie = versions.applicable(cible).map(|v| v.identifiant().to_owned());
+        let en_vigueur = |liste: &[ParametresFiscaux]| {
+            liste.iter().filter(|v| v.date_effet() <= cible).max_by_key(|v| v.date_effet())
+                .filter(|v| v.couvre(cible)).map(|v| v.identifiant().to_owned())
+        };
+        let attendue = en_vigueur(&dossier).or_else(|| en_vigueur(&vp));
+        prop_assert_eq!(choisie, attendue);
+    }
+}

@@ -109,6 +109,18 @@ pub enum ErreurFiscale {
     /// Version de dossier pour un pays qui n'a aucun paquet : elle n'aurait pas de base.
     #[error("le pays {0} n'a aucun paquet : pas de version de dossier")]
     PaysSansPaquet(String),
+    /// Surcharge qui cite un régime que la version de base n'offre pas.
+    #[error("régime {0} non offert par la version de base")]
+    RegimeNonOffert(String),
+    /// Surcharge qui retire un régime exonéré ou qui a des motifs : ils ne disparaissent jamais.
+    #[error("régime {0} non retirable : il a des motifs")]
+    RegimeNonRetirable(String),
+    /// Surcharge sans aucun changement.
+    #[error("la surcharge ne change rien")]
+    SurchargeVide,
+    /// Texte de surcharge (motif) invalide.
+    #[error("motif de surcharge invalide")]
+    MotifInvalide,
     /// Plancher de rétention hors de 1 à 100 ans.
     #[error("plancher de rétention invalide : {0} ans")]
     PlancherInvalide(u16),

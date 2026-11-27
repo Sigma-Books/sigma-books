@@ -27,5 +27,6 @@ pub use registre::{Registre, VersionsDuDossier};
 pub use socle::{RegimeSocle, Socle};
 pub use types::{Deduction, ExigibiliteLegale, Portee, Retention, RoleTaux, TauxNomme};
 pub use version::{
-    Chevauchement, Document, MotifExoneration, ParametresFiscaux, RegimeTva, VueAuJour,
+    Chevauchement, Document, MOTIF_MAX_OCTETS, MotifExoneration, ParametresFiscaux, RegimeTva,
+    Surcharge, VueAuJour, motif_sur,
 };
