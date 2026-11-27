@@ -80,7 +80,7 @@ Sous-plages de la voie L3 (réservées par la PR 2 du lot ; une PR n'écrit que 
 | `0500`–`0509` | Tiers : fiche, identifiants, contacts, adresses, banques, fusion, anonymisation (PR 7a : `0500`–`0504`) |
 | `0510`–`0519` | Conditions de règlement, `brouillon_ligne.date_echeance`, `echeance_ligne`, `echeance_report` (PR 8 : `0510`–`0514`) |
 | `0520`–`0539` | Lettrage : `lettrage`, `lettrage_lien`, `lettrage_rupture`, `compteur_lettrage`, règles (PR 9a : `0520`–`0529`) |
-| `0540`–`0559` | Comptes de trésorerie (PR 11 : `0540`–`0549`) |
+| `0540`–`0559` | Comptes de trésorerie (PR 11 : `0540` `compte_tresorerie`, `0541` `arrete_caisse` ; `0542`–`0549` libres) |
 | `0560`–`0579` | Profils, relevés importés, lignes de relevé, règles et propositions (PR 12a : `0560`–`0569`) |
 | `0580`–`0589` | Pointage, `etat_rapprochement` (PR 13a : `0580`–`0584`) |
 | `0590`–`0599` | Alertes de L3 (nouveaux sujets de `tache`, PR 15 : `0590`), correctifs |
@@ -661,6 +661,39 @@ cabinet de la tâche : exports d'audit et d'intégrité (#157), retard d'horodat
 changement de droits, séparation des tâches désactivée, connexion par le secours ou par un code de
 récupération. Le membre conteste sa propre réinitialisation par
 `POST /api/cabinets/{cabinet}/reinitialisations/{id}/contestation`. Tests : `tests/alertes.rs`.
+
+## Trésorerie (L3-21, PR 11 ; ADR 0034 points 1 à 3)
+
+Code : `src/serveur/routes/tresorerie.rs` (cas d'usage), `src/base/tresorerie.rs` (tables),
+migrations `0540_compte_tresorerie.sql` et `0541_arrete_caisse.sql`, catalogue `tresorerie.toml`.
+
+- **Compte de trésorerie** (banque, caisse, portefeuille) = un compte du plan + un journal de
+  trésorerie. Création **assistée** par `muter` (seule voie de mutation du référentiel) : sous-compte
+  `<défaut>-01`… du compte par défaut du type (marque `type_tresorerie` de `syscohada`, jamais un
+  numéro dans le code) et journal `BQ1`, `CA1`, `MM1`… (spec §5.2), ou reprise d'un journal de
+  trésorerie existant (`journal_existant`, le journal CA par défaut). Devise = devise de tenue (422
+  `tresorerie_devise_etrangere` sinon) ; deux déclencheurs ordinaires gardent cette égalité. Compte,
+  journal, type et devise ne changent plus ; nom, plafond (caisse), comptes d'écart (caisse) et
+  archivage sont modifiables et journalisés.
+- **Avertissements**, jamais des refus : `caisse_solde_crediteur`, `portefeuille_solde_crediteur`,
+  `caisse_plafond_depasse` (`compta_core::rapprochement::avertissements_solde`) et
+  `virement_interne_non_solde` (marque `virement_interne` de `syscohada`, 585), **calculés à la
+  demande** sur les écritures validées (`?au=AAAA-MM-JJ` facultatif). La validation n'est pas
+  modifiée (le plan L3 n'y admet que la copie de l'échéance).
+- **Arrêté de caisse** : comptage figé en pièce interne `piece-interne-v1` (note d'OD, format
+  inchangé) ; écart non nul proposé au brouillard (journal de la caisse, mêmes contrôles que la
+  saisie, note en pièce principale) sur le compte d'excédent ou de manquant désigné ; sans compte
+  désigné, avertissement `compte_ecart_non_designe`. Table `arrete_caisse` en ajout seul.
+- Fonctions partagées ajoutées hors du module : `routes::brouillard::{proposer, lier_principale}`
+  et `routes::pieces::creer_note` (mêmes contrôles et même stockage que les routes de L2).
+
+| Route | Cedar |
+|---|---|
+| `GET …/tresorerie/comptes`, `GET …/tresorerie/comptes/{compte_tresorerie}` : solde et avertissements | `ConsulterTresorerie` |
+| `POST …/tresorerie/comptes` : création | `ParametrerTresorerie` |
+| `POST …/tresorerie/comptes/{compte_tresorerie}/modification` | `ParametrerTresorerie` |
+| `GET …/tresorerie/virements-internes` | `ConsulterTresorerie` |
+| `POST …/tresorerie/comptes/{compte_tresorerie}/arretes`, `GET` (100 derniers) | `ArreterCaisse`, `ConsulterTresorerie` |
 
 ## Travailler en voies parallèles
 
