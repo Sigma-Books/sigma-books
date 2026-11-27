@@ -30,6 +30,17 @@ pub mod pieces;
 pub mod referentiel;
 pub mod session;
 
+// Lot L3 (squelettes de la PR 6, L3-14) : un module par PR de voie, branché d'avance ici, dans
+// `CasUsage`, `MODULES` et `executer` ; une PR de L3 n'édite que le fichier de son module.
+pub mod echeancier;
+pub mod editions_tiers;
+pub mod lettrage;
+pub mod prelevements;
+pub mod rapprochement;
+pub mod releves;
+pub mod tiers;
+pub mod tresorerie;
+
 use authz::{Action, ActionFacteur, ActionUtilisateur};
 use axum::extract::RawPathParams;
 use axum::http::Method;
@@ -185,6 +196,22 @@ pub enum CasUsage {
     Integrite(integrite::Cas),
     /// Paramètres fiscaux du dossier (ADR 0030, [`parametres_fiscaux`]).
     ParametresFiscaux(parametres_fiscaux::Cas),
+    /// Tiers : fiche, archivage, fusion, anonymisation (L3, PR 7a et 7b, [`tiers`]).
+    Tiers(tiers::Cas),
+    /// Conditions de règlement et échéances (L3, PR 8, [`echeancier`]).
+    Echeancier(echeancier::Cas),
+    /// Lettrage manuel et automatique (L3, PR 9a et 9b, [`lettrage`]).
+    Lettrage(lettrage::Cas),
+    /// Éditions de tiers (L3, PR 10, [`editions_tiers`]).
+    EditionsTiers(editions_tiers::Cas),
+    /// Comptes de trésorerie, arrêté de caisse (L3, PR 11, [`tresorerie`]).
+    Tresorerie(tresorerie::Cas),
+    /// Relevés importés (L3, PR 12a et 12b, [`releves`]).
+    Releves(releves::Cas),
+    /// Rapprochement bancaire (L3, PR 13a et 13b, [`rapprochement`]).
+    Rapprochement(rapprochement::Cas),
+    /// Prélèvements et taxe sur les transferts d'argent (L3, PR 14, [`prelevements`]).
+    Prelevements(prelevements::Cas),
 }
 
 impl CasUsage {
@@ -217,6 +244,14 @@ impl CasUsage {
             Self::Editions(_) => editions::MODULE.nom,
             Self::Integrite(_) => integrite::MODULE.nom,
             Self::ParametresFiscaux(_) => parametres_fiscaux::MODULE.nom,
+            Self::Tiers(_) => tiers::MODULE.nom,
+            Self::Echeancier(_) => echeancier::MODULE.nom,
+            Self::Lettrage(_) => lettrage::MODULE.nom,
+            Self::EditionsTiers(_) => editions_tiers::MODULE.nom,
+            Self::Tresorerie(_) => tresorerie::MODULE.nom,
+            Self::Releves(_) => releves::MODULE.nom,
+            Self::Rapprochement(_) => rapprochement::MODULE.nom,
+            Self::Prelevements(_) => prelevements::MODULE.nom,
         }
     }
 }
@@ -286,6 +321,16 @@ pub const MODULES: &[Module] = &[
     integrite::MODULE,
     // Paramètres fiscaux du dossier (ADR 0030).
     parametres_fiscaux::MODULE,
+    // Lot L3 (PR 7 à 14) : tiers, échéancier, lettrage, éditions de tiers, trésorerie, relevés,
+    // rapprochement, prélèvements.
+    tiers::MODULE,
+    echeancier::MODULE,
+    lettrage::MODULE,
+    editions_tiers::MODULE,
+    tresorerie::MODULE,
+    releves::MODULE,
+    rapprochement::MODULE,
+    prelevements::MODULE,
 ];
 
 /// Toutes les routes de l'API : les tranches de [`MODULES`], bout à bout.
@@ -417,6 +462,15 @@ pub(crate) async fn executer(
         CasUsage::ParametresFiscaux(cas) => {
             parametres_fiscaux::executer(cas, tx, garde, requete).await
         }
+        // Lot L3 : chaque module exécute ses cas (squelettes vides jusqu'à leur PR).
+        CasUsage::Tiers(cas) => tiers::executer(cas, tx, garde, requete).await,
+        CasUsage::Echeancier(cas) => echeancier::executer(cas, tx, garde, requete).await,
+        CasUsage::Lettrage(cas) => lettrage::executer(cas, tx, garde, requete).await,
+        CasUsage::EditionsTiers(cas) => editions_tiers::executer(cas, tx, garde, requete).await,
+        CasUsage::Tresorerie(cas) => tresorerie::executer(cas, tx, garde, requete).await,
+        CasUsage::Releves(cas) => releves::executer(cas, tx, garde, requete).await,
+        CasUsage::Rapprochement(cas) => rapprochement::executer(cas, tx, garde, requete).await,
+        CasUsage::Prelevements(cas) => prelevements::executer(cas, tx, garde, requete).await,
     }
 }
 

@@ -1,0 +1,7 @@
+# Catalogue « prelevements » (lot L3, PR 14 ; aucune migration prévue par le plan) : exceptions du
+# test de catalogue (ADR 0011 ; crates/api/tests/catalogue.rs). Voir `socle.toml` pour le format ; toute modification
+# passe par la revue de l'équipe core.
+#
+# Squelette posé par la PR 6 (L3-14) : aucune table encore. La PR 14 déclare ici les siennes
+# (tables en ajout seul du modèle de données de `docs/lots/L3.md`, avec leur justification), sans
+# éditer le fichier d'une autre voie.

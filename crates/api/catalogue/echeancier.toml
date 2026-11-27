@@ -1,0 +1,7 @@
+# Catalogue « echeancier » (lot L3, PR 8 ; migrations `0510` à `0519`) : exceptions du test de catalogue
+# (ADR 0011 ; crates/api/tests/catalogue.rs). Voir `socle.toml` pour le format ; toute modification
+# passe par la revue de l'équipe core.
+#
+# Squelette posé par la PR 6 (L3-14) : aucune table encore. La PR 8 déclare ici les siennes
+# (tables en ajout seul du modèle de données de `docs/lots/L3.md`, avec leur justification), sans
+# éditer le fichier d'une autre voie.

@@ -22,6 +22,16 @@ pub mod pieces;
 pub mod referentiel;
 pub mod serveur;
 
+// Lot L3 (squelettes de la PR 6, L3-14) : aides de test d'un module de routes chacun.
+pub mod echeancier;
+pub mod editions_tiers;
+pub mod lettrage;
+pub mod prelevements;
+pub mod rapprochement;
+pub mod releves;
+pub mod tiers;
+pub mod tresorerie;
+
 use api::base::{IdCabinet, IdDossier, IdUtilisateur};
 use sqlx::migrate::Migrator;
 use sqlx::postgres::{PgPool, PgPoolOptions};

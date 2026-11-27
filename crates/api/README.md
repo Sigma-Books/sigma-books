@@ -685,6 +685,36 @@ déclarent dans sa tranche (`Module::champs_journal`), ceux d'un module hors rou
 `horodatage::CHAMPS_JOURNAL`. `crates/authz/politiques/invariants.cedar` reste d'un seul tenant :
 une modification y est revue par toutes les voies.
 
+### Lot L3 : voie « tiers et trésorerie » (PR 6 de `docs/lots/L3.md`, L3-14)
+
+La PR 6 a branché d'avance **tous** les modules de L3 : `pub mod`, variante de `CasUsage`, bras de
+`CasUsage::module`, entrée de `MODULES` et bras de `routes::executer` (qui appelle déjà
+`<module>::executer`), `mod` et bras de `cas_du_module` dans `tests/isolation/main.rs`. Chaque
+squelette a une tranche vide, une énumération `Cas` vide et un `executer` réduit à `match cas {}` :
+aucune route, aucun accès à la base. **Une PR de L3 n'édite donc aucun registre commun** : elle
+remplit les fichiers de son module (`src/serveur/routes/<module>.rs`, `tests/isolation/<module>.rs`,
+`tests/commun/<module>.rs`, `catalogue/<module>.toml`) et sa sous-plage de migrations. Les actions Cedar de L3 sont **toutes** déclarées, avec leurs politiques
+et leurs tests (une matrice par domaine dans `crates/authz/tests/politiques.rs`).
+
+| PR | Module de routes et fichier de cas | Catalogue | Migrations | Fichiers Cedar (si une action manque) |
+|---|---|---|---|---|
+| 7a, 7b | `tiers` | `tiers.toml` | `0500`–`0509` | `schema/tiers.cedarschema`, `roles/tiers.cedar`, section « tiers » de `action.rs`, `MATRICE_TIERS` |
+| 8 | `echeancier` | `echeancier.toml` | `0510`–`0519` | idem (domaine « tiers ») |
+| 9a, 9b | `lettrage` | `lettrage.toml` | `0520`–`0539` | `schema/lettrage.cedarschema`, `roles/lettrage.cedar`, section « lettrage », `MATRICE_LETTRAGE` |
+| 10 | `editions_tiers` | aucun (lecture seule) | aucune | domaine « tiers » |
+| 11 | `tresorerie` | `tresorerie.toml` | `0540`–`0559` | `schema/tresorerie.cedarschema`, `roles/tresorerie.cedar`, section « trésorerie », `MATRICE_TRESORERIE` |
+| 12a, 12b | `releves` | `releves.toml` | `0560`–`0579` | domaine « trésorerie » |
+| 13a, 13b | `rapprochement` | `rapprochement.toml` | `0580`–`0589` | domaine « trésorerie » |
+| 14 | `prelevements` | `prelevements.toml` | aucune prévue | domaine « trésorerie » |
+
+Les routes de tiers de L2 (`referentiel` : `ListerTiers`, `CreerTiers`, `ModifierTiers`, sous
+`AccederDossier` et `ParametrerDossier`) restent en place : la PR 7a les reprend dans `tiers` avec
+les actions de L3 (deux fichiers seulement : `referentiel.rs` et `tiers.rs`, plus leurs cas).
+Points communs restants, rarement touchés : `invariants.cedar` (une action de L3 qui exigerait la
+ré-authentification ; déjà fait pour la fusion et l'anonymisation) et `SENSIBLES` dans les tests de
+`authz`. Le corps d'exemple d'une mutation (`corps_de` de `tests/commun/serveur.rs`) est déjà
+délégué à `tests/commun/<module>.rs` (fonction `corps`, réduite à `match cas {}`).
+
 `Cargo.lock` se **régénère**, il ne se fusionne pas à la main : en cas de conflit, reprendre la
 version de `main` puis relancer `cargo build` (ou `cargo update -p <crate>` pour la seule
 dépendance ajoutée). De même, `.sqlx/` se régénère par `cargo sqlx prepare --workspace`.
