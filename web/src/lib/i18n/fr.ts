@@ -138,6 +138,43 @@ export const fr = {
 		'Un montant a plus de décimales que la devise de tenue du dossier n’en admet.',
 	'saisie.motif.validation_montant_echelle_devise_tenue':
 		'Un montant de l’écriture a plus de décimales que la devise de tenue du dossier n’en admet.',
+	'saisie.motif.dossier_parametres_fiscaux_propres':
+		'Le dossier a des versions de paramètres fiscaux propres : son pays ne peut plus changer.',
+	'saisie.motif.dossier_pieces_presentes':
+		'Le dossier a des pièces justificatives : son pays ne peut plus changer.',
+	'saisie.motif.parametres_date_effet_lointaine':
+		'La date d’effet est trop lointaine : au plus un an après le jour du dossier.',
+	'saisie.motif.parametres_aucun_changement':
+		'La version ne change ni taux ni régime : il n’y a rien à enregistrer.',
+	'saisie.motif.parametres_taux_invalide':
+		'Un taux est refusé : décimal supérieur à 0 et au plus 100, sans zéro superflu.',
+	'saisie.motif.parametres_role_inconnu':
+		'Un taux porte sur un rôle que la version de base ignore.',
+	'saisie.motif.parametres_regime_inconnu':
+		'Un régime retiré n’est pas offert par la version de base.',
+	'saisie.motif.parametres_regime_non_retirable':
+		'Un régime exonéré ou qui a des motifs ne peut pas être retiré.',
+	'saisie.motif.parametres_motif_invalide':
+		'Le motif est refusé : 1 à 400 octets, sans caractère de contrôle.',
+	'saisie.motif.parametres_periode_invalide': 'La date de fin est antérieure à la date d’effet.',
+	'saisie.motif.parametres_aucune_base':
+		'Aucune version du pays ne s’applique à la date d’effet : elle ne peut pas servir de base.',
+	'saisie.motif.parametres_pays_sans_paquet':
+		'Le pays du dossier n’a aucun paquet de paramètres fiscaux : aucune version propre n’est possible.',
+	'saisie.motif.parametres_date_effet_cloturee':
+		'La date d’effet tombe dans une période clôturée ou un exercice clos.',
+	'saisie.motif.parametres_date_effet_anterieure':
+		'La date d’effet doit être postérieure à celle de la dernière version propre du dossier.',
+	'saisie.motif.parametres_regime_utilise':
+		'Un régime retiré est utilisé par une écriture validée de la période d’application.',
+	'saisie.motif.parametres_trop_de_versions':
+		'Le dossier a atteint le nombre maximal de versions propres.',
+	'saisie.motif.etiquette_invalide':
+		'L’étiquette fiscale d’une ligne est refusée par les paramètres applicables à la date de l’écriture.',
+	'saisie.motif.parametres_fiscaux_absents':
+		'Aucun paramètre fiscal ne s’applique à cette date : une ligne ne peut pas porter d’étiquette fiscale.',
+	'saisie.motif.validation_parametres_fiscaux_absents':
+		'Aucun paramètre fiscal ne s’applique à la date de l’écriture : une ligne étiquetée ne peut pas être validée.',
 	'saisie.ligne': 'Ligne {ligne} : {message}',
 
 	// Contrôles de forme du contexte du dossier (`contexte-saisie.ts`).
@@ -165,7 +202,30 @@ export const fr = {
 	'contexte.creation_incertaine':
 		'Le serveur a répondu, mais sa réponse est illisible : le dossier a peut-être été créé. La liste est rechargée, vérifiez-la avant de recommencer.',
 
-	// Paramètres fiscaux du dossier.
+	// Paramètres fiscaux du dossier : contrôles de forme de la création d'une version propre.
+	'parametres.probleme.date_effet_invalide': 'Saisissez une date d’effet valide.',
+	'parametres.probleme.date_effet_lointaine':
+		'La date d’effet ne peut pas dépasser le {limite} (un an après le jour du dossier).',
+	'parametres.probleme.date_effet_anterieure':
+		'La date d’effet doit être postérieure au {derniere}, date d’effet de la dernière version propre.',
+	'parametres.probleme.date_fin_invalide': 'Saisissez une date de fin valide, ou laissez-la vide.',
+	'parametres.probleme.date_fin_anterieure': 'La date de fin précède la date d’effet.',
+	'parametres.probleme.motif_invalide':
+		'Le motif est obligatoire : {max} octets au plus, sans caractère de contrôle.',
+	'parametres.probleme.taux_invalide':
+		'Taux refusé : décimal supérieur à 0 et au plus 100, sans zéro de tête ni zéro final.',
+	'parametres.probleme.aucun_changement': 'Changez au moins un taux ou retirez au moins un régime.',
+	'parametres.probleme.trop_de_versions':
+		'Le dossier a atteint le nombre maximal de versions propres ({max}).',
+	'parametres.probleme.aucune_version_applicable':
+		'Aucune version du pays ne s’applique à cette date : elle ne peut pas servir de base.',
+	'parametres.avertissement.ecritures_deja_validees':
+		'{nombre} écriture(s) validée(s) sont déjà datées dans la période d’application. Elles gardent la version de paramètres enregistrée : cette période porte donc deux jeux de taux.',
+	'parametres.retroactive_avant':
+		'Des écritures validées peuvent déjà être datées dans la période d’application (de la date d’effet à la date de fin, ou sans fin). Elles gardent la version de paramètres enregistrée : une même période pourra porter deux jeux de taux. Le nombre d’écritures concernées est indiqué après la création.',
+	'parametres.reauth_annulee': 'Création annulée : la ré-authentification n’a pas eu lieu.',
+	'parametres.creation_incertaine':
+		'Le serveur a répondu, mais sa réponse est illisible : la version a peut-être été créée. La liste est rechargée, vérifiez-la avant de recommencer.',
 	'parametres.sans_fin':
 		'Sans date de fin, cette version reste applicable et masque les versions suivantes du pays tant qu’elle s’applique.',
 	'parametres.immuable':

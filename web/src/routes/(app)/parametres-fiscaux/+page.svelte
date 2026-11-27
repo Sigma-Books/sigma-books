@@ -2,10 +2,12 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import AdresseInvalide from '#lib/composants/AdresseInvalide.svelte';
+	import FormulaireVersion from '#lib/composants/fiscal/FormulaireVersion.svelte';
 	import ParametresApplicables from '#lib/composants/fiscal/ParametresApplicables.svelte';
 	import TableVersions from '#lib/composants/fiscal/TableVersions.svelte';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import NavigationDossier from '#lib/composants/NavigationDossier.svelte';
+	import { ROLES_PARAMETRES_CREATION } from '#lib/contexte-dossier.ts';
 	import { afficherDate, estDateIso } from '#lib/dates.ts';
 	import { traduire } from '#lib/i18n/index.ts';
 	import type { PageProps } from './$types';
@@ -98,4 +100,16 @@
 			<ParametresApplicables {applicable} regional={contexte.regional} />
 		{/if}
 	</section>
+
+	{#if ROLES_PARAMETRES_CREATION.includes(contexte.membre.role)}
+		<!-- Un déroulement par dossier : le retour arrière vers un autre dossier repart de zéro. -->
+		{#key `${contexte.cabinet}/${contexte.dossier}`}
+			<FormulaireVersion
+				cabinet={contexte.cabinet}
+				dossier={contexte.dossier}
+				versions={liste.versions}
+				regional={contexte.regional}
+			/>
+		{/key}
+	{/if}
 {/if}

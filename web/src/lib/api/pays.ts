@@ -151,5 +151,7 @@ export const MOTIFS_CONTEXTE = [
 	['dossier_brouillard_non_vide', 409],
 	['contexte_dossier_modifie', 409],
 	['brouillon_devise_tenue_perimee', 409],
+	['dossier_parametres_fiscaux_propres', 409],
+	['dossier_pieces_presentes', 409],
 	['aucun_changement', 409]
 ] as const;

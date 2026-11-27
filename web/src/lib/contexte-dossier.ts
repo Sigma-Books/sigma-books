@@ -20,6 +20,8 @@ export interface ContexteDossier {
 
 /** Rôle auquel l'interface propose la modification du contexte du dossier (le serveur décide). */
 export const ROLES_CONTEXTE: readonly string[] = ['administrateur'];
+/** Rôle auquel l'interface propose de créer une version de paramètres fiscaux (le serveur décide). */
+export const ROLES_PARAMETRES_CREATION: readonly string[] = ['administrateur'];
 /** Rôles auxquels l'interface propose la saisie (simple masquage : le serveur décide, §20). */
 export const ROLES_SAISIE: readonly string[] = ['administrateur', 'valideur', 'collaborateur'];
 /** Rôles auxquels elle propose la validation par lot et la contre-passation. */

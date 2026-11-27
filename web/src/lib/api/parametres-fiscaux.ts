@@ -131,6 +131,36 @@ export const estApplicable: Garde<Applicable> = (v): v is Applicable =>
 	// Sans version, rien n'est détaillé.
 	(v.version !== null || (v.taux.length === 0 && v.regimes.length === 0));
 
+/** Avertissement d'une création réussie. */
+export interface AvertissementVersion {
+	code: string;
+	nombre: number;
+}
+
+/** Réponse de `POST …/parametres-fiscaux` : la version, plus ses avertissements éventuels. */
+export type VersionCreee = VersionFiscale & { avertissements: AvertissementVersion[] };
+
+function estAvertissement(v: unknown): v is AvertissementVersion {
+	return estObjet(v) && estCode(v.code) && entier(v.nombre);
+}
+
+export const estVersionCreee: Garde<VersionCreee> = (v): v is VersionCreee =>
+	estVersionFiscale(v) && tableauDe((v as unknown as Objet).avertissements, estAvertissement);
+
+/** Corps de `POST …/parametres-fiscaux` : une version propre dérivée de celle qui s'applique. */
+export interface CorpsVersion {
+	date_effet: string;
+	date_fin?: string;
+	motif: string;
+	/** Taux remplacés, par rôle : décimal canonique dans ]0 ; 100]. */
+	taux?: Record<string, string>;
+	/** Codes des régimes retirés de l'offre du dossier à partir de `date_effet`. */
+	regimes_retires?: string[];
+}
+
+/** Code de l'avertissement d'une création rétroactive (écritures déjà validées dans la période). */
+export const AVERTISSEMENT_ECRITURES_VALIDEES = 'ecritures_deja_validees';
+
 const base = (cabinet: Uuid, dossier: Uuid) =>
 	`/api/cabinets/${cabinet}/dossiers/${dossier}/parametres-fiscaux`;
 
@@ -157,3 +187,41 @@ export function lireApplicable(
 	const suite = date === undefined ? '' : `?date=${date}`;
 	return api.lire(`${base(cabinet, dossier)}/applicable${suite}`, estApplicable);
 }
+
+/**
+ * Création d'une version propre (administrateur, session fraîche : l'appelant passe par
+ * `executerSensible`). Jamais une modification : une version publiée est immuable.
+ */
+export function creerVersion(
+	api: ClientApi,
+	cabinet: Uuid,
+	dossier: Uuid,
+	corps: CorpsVersion
+): Promise<VersionCreee> {
+	return api.muter('POST', base(cabinet, dossier), estVersionCreee, corps);
+}
+
+/**
+ * Motifs de refus de la création d'une version et leur statut (422 : refus de forme ; 409 :
+ * conflit d'état), avec les refus du contexte qu'elle entraîne. Chacun a son message
+ * (`saisie.motif.<motif>`) ; les tests le vérifient en passant par `traduireReponse`.
+ */
+export const MOTIFS_PARAMETRES = [
+	['parametres_date_effet_lointaine', 422],
+	['parametres_aucun_changement', 422],
+	['parametres_taux_invalide', 422],
+	['parametres_role_inconnu', 422],
+	['parametres_regime_inconnu', 422],
+	['parametres_regime_non_retirable', 422],
+	['parametres_motif_invalide', 422],
+	['parametres_periode_invalide', 422],
+	['parametres_aucune_base', 422],
+	['parametres_pays_sans_paquet', 422],
+	['parametres_date_effet_cloturee', 409],
+	['parametres_date_effet_anterieure', 409],
+	['parametres_regime_utilise', 409],
+	['parametres_trop_de_versions', 409],
+	['etiquette_invalide', 422],
+	['parametres_fiscaux_absents', 422],
+	['validation_parametres_fiscaux_absents', 422]
+] as const;
