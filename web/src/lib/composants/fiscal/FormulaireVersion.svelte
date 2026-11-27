@@ -5,18 +5,16 @@
 	créée est définitive : elle ne se modifie ni ne se supprime.
 
 	La création exige une session fraîche (`executerSensible`, avec reprise unique de la requête) ;
-	l'avertissement de rétroactivité est donné avant (la date est déjà atteinte) et
-	après (le nombre d'écritures validées concernées, calculé par le serveur).
+	l'avertissement de rétroactivité est donné avant (des écritures validées peuvent déjà exister
+	dans la période) et après (leur nombre, calculé par le serveur). Le déroulement (lectures,
+	vérification, requête) est dans `creation-version.ts`, testé sous `node --test`.
 -->
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { onMount, tick } from 'svelte';
-	import { ErreurApi } from '#lib/api/erreurs.ts';
 	import {
 		creerVersion,
 		lireApplicable,
-		type Applicable,
-		type VersionCreee,
 		type VersionFiscale
 	} from '#lib/api/parametres-fiscaux.ts';
 	import { longueurOctets } from '#lib/api/texte.ts';
@@ -24,20 +22,18 @@
 	import { api } from '#lib/application.ts';
 	import MessageErreur from '#lib/composants/MessageErreur.svelte';
 	import MessageMetier from '#lib/composants/MessageMetier.svelte';
+	import { CreationVersion } from '#lib/creation-version.ts';
 	import { afficherDate, dateDuJour } from '#lib/dates.ts';
+	import { afficherTaux } from '#lib/fiscal-affichage.ts';
 	import { traduire } from '#lib/i18n/index.ts';
 	import {
-		corpsVersion,
 		dateEffetLimite,
-		diagnostiquerVersion,
 		formulaireVersionVide,
 		messageProblemeVersion,
 		MOTIF_MAX_OCTETS,
-		pourraitEtreRetroactive,
 		regimesRetirables,
-		tauxChanges,
-		type FormulaireVersion,
-		type ProblemeVersion
+		tauxSaisis,
+		type FormulaireVersion
 	} from '#lib/parametres-fiscaux.ts';
 	import { executerSensible } from '#lib/reauthentification.svelte.ts';
 	import type { Regional } from '#lib/regional.ts';
@@ -50,119 +46,69 @@
 		regional: Regional;
 	}
 
+	// L'écran est recréé pour chaque dossier (`{#key}` de la page) : le déroulement, ses lectures et
+	// ses requêtes en vol appartiennent à un seul dossier et ne survivent pas à son départ.
 	let { cabinet, dossier, versions, regional }: Props = $props();
 
-	const aujourdhui = $derived(dateDuJour(regional.fuseau));
-
 	let formulaire = $state<FormulaireVersion>(formulaireVersionVide());
-	let base = $state<Applicable | null>(null);
-	let erreurBase = $state<ErreurApi | null>(null);
-	let problemes = $state<ProblemeVersion[]>([]);
-	let phase = $state<'saisie' | 'confirmation' | 'fait'>('saisie');
-	let enCours = $state(false);
-	let erreur = $state<ErreurApi | null>(null);
-	let info = $state<string | null>(null);
-	let creee = $state<VersionCreee | null>(null);
 	let formulaireDom = $state<HTMLFormElement>();
 	let zoneMessage = $state<HTMLElement>();
-	let monte = true;
-	/** Numéro de la dernière lecture de la base : une réponse tardive d'une date périmée est ignorée. */
-	let lecture = 0;
 
-	onMount(() => () => {
-		monte = false;
-	});
+	const ctrl = new CreationVersion(
+		{
+			lireBase: (date) => lireApplicable(api, cabinet, dossier, date),
+			creer: (corps) => creerVersion(api, cabinet, dossier, corps),
+			executerSensible,
+			actualiser: () => invalidateAll(),
+			formulaire: () => $state.snapshot(formulaire),
+			reinitialiserSaisies: (tout) => {
+				if (tout) formulaire = formulaireVersionVide();
+				else {
+					formulaire.taux = {};
+					formulaire.retires = [];
+				}
+			},
+			aujourdhui: () => dateDuJour(regional.fuseau),
+			versions: () => versions,
+			regional: () => regional
+		},
+		() => (vue = ctrl.vue)
+	);
+	let vue = $state(ctrl.vue);
 
-	const etat = $derived({ aujourdhui, versions, base });
-	const retirables = $derived(base === null ? [] : regimesRetirables(base));
+	onMount(() => () => ctrl.detruire());
+
+	const aujourdhui = $derived(dateDuJour(regional.fuseau));
+	const retirables = $derived(vue.base === null ? [] : regimesRetirables(vue.base));
 	const octets = $derived(longueurOctets(formulaire.motif));
-	const retroactive = $derived(pourraitEtreRetroactive(formulaire.dateEffet, aujourdhui));
 	const messagesDe = (champ: string): string[] =>
-		problemes.filter((p) => p.champ === champ).map(messageProblemeVersion);
+		vue.problemes.filter((p) => p.champ === champ).map(messageProblemeVersion);
 
+	/** Amène le focus sur le message d'erreur ou sur le premier champ refusé : le bouton est en bas. */
 	async function montrer(): Promise<void> {
 		await tick();
-		const cible =
-			erreur !== null || info !== null || erreurBase !== null
-				? zoneMessage
-				: formulaireDom?.querySelector<HTMLElement>('[aria-invalid="true"]');
+		const message =
+			vue.erreur !== null ||
+			vue.erreurBase !== null ||
+			vue.reauthAnnulee ||
+			vue.incertaine ||
+			vue.creee !== null;
+		const cible = message
+			? zoneMessage
+			: formulaireDom?.querySelector<HTMLElement>('[aria-invalid="true"]');
 		cible?.focus();
 		cible?.scrollIntoView({ block: 'center' });
 	}
 
-	/** Lit la version qui servira de base à la date d'effet (rôles de taux et régimes offerts). */
-	async function lireBase(): Promise<void> {
-		const date = formulaire.dateEffet;
-		const numero = ++lecture;
-		base = null;
-		erreurBase = null;
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-		try {
-			const lue = await lireApplicable(api, cabinet, dossier, date);
-			if (numero !== lecture) return;
-			base = lue;
-			// Les saisies portaient sur la base précédente : elles repartent de zéro.
-			formulaire.taux = {};
-			formulaire.retires = [];
-		} catch (e) {
-			if (numero !== lecture) return;
-			if (e instanceof ErreurApi) erreurBase = e;
-			else if (!(e instanceof TypeError)) throw e;
-		}
-	}
-
-	function verifier(evenement: SubmitEvent): void {
+	async function verifier(evenement: SubmitEvent): Promise<void> {
 		evenement.preventDefault();
-		erreur = null;
-		info = null;
-		problemes = diagnostiquerVersion(formulaire, etat);
-		if (problemes.length === 0) phase = 'confirmation';
-		else void montrer();
+		await ctrl.verifier();
+		if (vue.phase === 'saisie') await montrer();
 	}
 
-	/**
-	 * Crée la version : ré-authentification d'abord si la session n'est plus fraîche, requête
-	 * rejouée une seule fois si la fraîcheur expire entre-temps (`executerSensible`).
-	 */
 	async function creer(): Promise<void> {
-		const corps = corpsVersion(formulaire, etat);
-		if (corps === null) {
-			phase = 'saisie';
-			return;
-		}
-		erreur = null;
-		info = null;
-		enCours = true;
-		try {
-			const issue = await executerSensible(() => creerVersion(api, cabinet, dossier, corps));
-			if (!monte) return;
-			if (!issue.fait) {
-				info = 'Création annulée : la ré-authentification n’a pas eu lieu.';
-				phase = 'saisie';
-				await montrer();
-				return;
-			}
-			creee = issue.valeur;
-			phase = 'fait';
-			formulaire = formulaireVersionVide();
-			base = null;
-			await invalidateAll();
-			await montrer();
-		} catch (e) {
-			if (!(e instanceof ErreurApi)) throw e;
-			if (!monte) return;
-			erreur = e;
-			phase = 'saisie';
-			await montrer();
-		} finally {
-			if (monte) enCours = false;
-		}
-	}
-
-	function recommencer(): void {
-		creee = null;
-		phase = 'saisie';
-		info = null;
+		await ctrl.creer();
+		await montrer();
 	}
 
 	function avertissement(code: string, nombre: number): string {
@@ -177,19 +123,27 @@
 	<p class="aide">{traduire('parametres.immuable')}</p>
 
 	<div bind:this={zoneMessage} tabindex="-1">
-		{#if erreur}
-			<MessageMetier {erreur} contexte="La version n’a pas été créée." />
+		{#if vue.erreur}
+			<MessageMetier erreur={vue.erreur} contexte="La version n’a pas été créée." />
 		{/if}
-		{#if erreurBase}
+		{#if vue.erreurBase}
 			<MessageErreur
-				erreur={erreurBase}
+				erreur={vue.erreurBase}
 				contexte="Les taux et régimes applicables à cette date n’ont pas pu être lus."
 			/>
 		{/if}
-		{#if info}
-			<div class="message message-avertissement" role="status"><p>{info}</p></div>
+		{#if vue.reauthAnnulee}
+			<div class="message message-avertissement" role="status">
+				<p>{traduire('parametres.reauth_annulee')}</p>
+			</div>
 		{/if}
-		{#if creee}
+		{#if vue.incertaine}
+			<div class="message message-avertissement" role="alert">
+				<p>{traduire('parametres.creation_incertaine')}</p>
+			</div>
+		{/if}
+		{#if vue.creee}
+			{@const creee = vue.creee}
 			<div class="message message-succes" role="status">
 				<p>
 					Version <strong class="mono">{creee.identifiant}</strong> créée, effective depuis le
@@ -204,12 +158,13 @@
 		{/if}
 	</div>
 
-	{#if phase === 'fait'}
-		<button type="button" class="bouton bouton-secondaire" onclick={recommencer}>
+	{#if vue.phase === 'fait'}
+		<button type="button" class="bouton bouton-secondaire" onclick={() => ctrl.recommencer()}>
 			Créer une autre version
 		</button>
-	{:else if phase === 'confirmation' && base !== null}
-		{@const changes = tauxChanges(formulaire, base.taux)}
+	{:else if vue.phase === 'confirmation' && vue.base !== null}
+		{@const base = vue.base}
+		{@const changes = tauxSaisis(formulaire, base.taux, regional)}
 		<div class="message message-avertissement" role="alert">
 			<p><strong>Confirmer la création (définitive).</strong></p>
 			<ul>
@@ -220,28 +175,32 @@
 				</li>
 				{#each changes as [role, valeur] (role)}
 					<li>
-						Taux « {role} » : {base.taux.find((t) => t.role === role)?.valeur} % → {valeur} %.
+						Taux « {role} » : {afficherTaux(
+							base.taux.find((t) => t.role === role)?.valeur ?? '',
+							regional
+						)} % → {afficherTaux(valeur, regional)} %.
 					</li>
 				{/each}
 				{#each formulaire.retires as code (code)}
 					<li>
-						Régime retiré : {base.regimes.find((r) => r.code === code)?.libelle ?? code} ({code}).
+						Régime retiré : <bdi>{base.regimes.find((r) => r.code === code)?.libelle ?? code}</bdi>
+						({code}).
 					</li>
 				{/each}
 				<li>Motif : <bdi>{formulaire.motif.trim()}</bdi></li>
 			</ul>
-			{#if retroactive}<p>{traduire('parametres.retroactive_avant')}</p>{/if}
+			<p>{traduire('parametres.retroactive_avant')}</p>
 			{#if !formulaire.dateFin}<p>{traduire('parametres.sans_fin')}</p>{/if}
 		</div>
 		<div class="barre-actions">
-			<button type="button" class="bouton" disabled={enCours} onclick={creer}>
+			<button type="button" class="bouton" disabled={vue.enCours} onclick={creer}>
 				Créer la version
 			</button>
 			<button
 				type="button"
 				class="bouton bouton-secondaire"
-				disabled={enCours}
-				onclick={() => (phase = 'saisie')}
+				disabled={vue.enCours}
+				onclick={() => ctrl.modifier()}
 			>
 				Modifier
 			</button>
@@ -258,7 +217,7 @@
 					aria-describedby="aide-date-effet"
 					aria-invalid={messagesDe('date_effet').length > 0}
 					bind:value={formulaire.dateEffet}
-					onchange={lireBase}
+					onchange={() => void ctrl.choisirDate(formulaire.dateEffet)}
 				/>
 				<span id="aide-date-effet" class="aide">
 					Au plus un an après le jour du dossier, postérieure à la dernière version propre, hors
@@ -270,11 +229,9 @@
 					</span>{/each}
 			</div>
 
-			{#if retroactive}
-				<div class="message message-avertissement" role="status">
-					<p>{traduire('parametres.retroactive_avant')}</p>
-				</div>
-			{/if}
+			<div class="message message-avertissement" role="status">
+				<p>{traduire('parametres.retroactive_avant')}</p>
+			</div>
 
 			<div class="champ">
 				<label for="pf-date-fin">Date de fin (facultative)</label>
@@ -291,12 +248,16 @@
 					</span>{/each}
 			</div>
 
-			{#if base !== null && base.version !== null}
+			{#if vue.lectureEnCours}
+				<p class="aide" role="status">Lecture des taux et régimes applicables à cette date…</p>
+			{:else if vue.base !== null && vue.base.version !== null}
 				<fieldset class="groupe">
-					<legend>Taux (laisser vide pour ne pas changer)</legend>
-					{#each base.taux as t (t.role)}
+					<legend>Taux (laisser vide pour ne pas changer ; séparateur décimal du dossier)</legend>
+					{#each vue.base.taux as t (t.role)}
 						<div class="champ">
-							<label for={`pf-taux-${t.role}`}>Taux « {t.role} » (actuellement {t.valeur} %)</label>
+							<label for={`pf-taux-${t.role}`}>
+								Taux « {t.role} » (actuellement {afficherTaux(t.valeur, regional)} %)
+							</label>
 							<input
 								id={`pf-taux-${t.role}`}
 								type="text"
@@ -322,7 +283,7 @@
 							{#each retirables as r (r.code)}
 								<label>
 									<input type="checkbox" value={r.code} bind:group={formulaire.retires} />
-									{r.libelle} ({r.code})
+									<bdi>{r.libelle}</bdi> ({r.code})
 								</label>
 							{/each}
 						</div>
@@ -331,7 +292,7 @@
 				{#each messagesDe('changement') as m (m)}<span class="erreur-champ" role="alert">
 						{m}
 					</span>{/each}
-			{:else if base !== null}
+			{:else if vue.base !== null}
 				<p class="aide">{traduire('parametres.probleme.aucune_version_applicable')}</p>
 			{/if}
 
@@ -355,7 +316,7 @@
 			{#each messagesDe('versions') as m (m)}<span class="erreur-champ" role="alert">
 					{m}
 				</span>{/each}
-			<button type="submit" class="bouton" disabled={enCours}>Vérifier</button>
+			<button type="submit" class="bouton" disabled={vue.enCours}>Vérifier</button>
 		</form>
 	{/if}
 </section>

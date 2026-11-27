@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { ErreurApi, traduireReponse } from './api/erreurs.ts';
 import { messageMetier } from './api/messages.ts';
+import { MOTIFS_CONTEXTE } from './api/pays.ts';
 import {
 	MOTIFS_PARAMETRES,
 	type Applicable,
@@ -18,10 +20,10 @@ import {
 	formulaireVersionVide,
 	messageProblemeVersion,
 	motifSur,
-	pourraitEtreRetroactive,
+	lireTaux,
 	regimesRetirables,
 	tauxCanonique,
-	tauxChanges,
+	tauxSaisis,
 	VERSIONS_PROPRES_MAX,
 	type EtatVersions,
 	type FormulaireVersion
@@ -85,7 +87,13 @@ const BASE: Applicable = {
 	motifs: [{ code: 'R_MOTIFS-1', regime: 'R_MOTIFS', libelle: 'Motif' }],
 	retention_annees: 10
 };
-const ETAT: EtatVersions = { aujourdhui: '2026-11-27', versions: [PAYS], base: BASE };
+const FR = { langue: 'fr', pays: 'SN' };
+const ETAT: EtatVersions = {
+	aujourdhui: '2026-11-27',
+	versions: [PAYS],
+	base: BASE,
+	regional: FR
+};
 const VALIDE: FormulaireVersion = {
 	...formulaireVersionVide(),
 	dateEffet: '2026-12-01',
@@ -164,13 +172,6 @@ describe('dates', () => {
 			'2026-09-01'
 		);
 	});
-
-	it('une date déjà atteinte peut être rétroactive', () => {
-		assert.equal(pourraitEtreRetroactive('2026-11-27', '2026-11-27'), true);
-		assert.equal(pourraitEtreRetroactive('2026-01-01', '2026-11-27'), true);
-		assert.equal(pourraitEtreRetroactive('2026-11-28', '2026-11-27'), false);
-		assert.equal(pourraitEtreRetroactive('nimporte', '2026-11-27'), false);
-	});
 });
 
 describe('régimes retirables', () => {
@@ -179,6 +180,23 @@ describe('régimes retirables', () => {
 			regimesRetirables(BASE).map((r) => r.code),
 			['R_TAXABLE']
 		);
+	});
+});
+
+describe('lecture d’un taux selon le format du dossier', () => {
+	it('le séparateur décimal du dossier devient le point ; le point reste admis', () => {
+		assert.equal(lireTaux('7,5', FR), '7.5');
+		assert.equal(lireTaux(' 7.5 ', FR), '7.5');
+		assert.equal(lireTaux('18', FR), '18');
+		assert.equal(lireTaux('7.5', { langue: 'en', pays: 'CM' }), '7.5');
+		// Dans un locale à point décimal, la virgule est un séparateur de milliers : refusée.
+		assert.equal(lireTaux('7,5', { langue: 'en', pays: 'CM' }), null);
+	});
+
+	it('aucun zéro n’est ajouté ni retiré, aucune forme douteuse n’est acceptée', () => {
+		for (const mauvais of ['7,50', '07', '0', '1e2', '-1', '7,5,1', '7;5', '101', ',5', '5,', '']) {
+			assert.equal(lireTaux(mauvais, FR), null, mauvais);
+		}
 	});
 });
 
@@ -221,11 +239,15 @@ describe('contrôle de la création', () => {
 		assert.deepEqual(cles({ ...VALIDE, motif: 'x'.repeat(401) }), ['motif_invalide']);
 	});
 
-	it('taux : forme canonique ; au moins un changement ; une valeur identique n’en est pas un', () => {
-		assert.deepEqual(cles({ ...VALIDE, taux: { normal: '19,5' } }), ['taux_invalide']);
+	it('taux : lus dans le format du dossier ; au moins un taux ou un retrait', () => {
+		assert.deepEqual(cles({ ...VALIDE, taux: { normal: '19,5' } }), []);
+		assert.deepEqual(cles({ ...VALIDE, taux: { normal: '19,50' } }), ['taux_invalide']);
+		assert.deepEqual(cles({ ...VALIDE, taux: { normal: '19,5,1' } }), ['taux_invalide']);
 		assert.deepEqual(cles({ ...VALIDE, taux: { normal: '0' } }), ['taux_invalide']);
 		assert.deepEqual(cles({ ...VALIDE, taux: {} }), ['aucun_changement']);
-		assert.deepEqual(cles({ ...VALIDE, taux: { normal: '20' } }), ['aucun_changement']);
+		// Une valeur identique à l'actuelle n'est pas refusée ici : seule l'API juge ce qui change.
+		assert.deepEqual(cles({ ...VALIDE, taux: { normal: '20' } }), []);
+		assert.deepEqual(cles({ ...VALIDE, taux: { normal: ' ' } }), ['aucun_changement']);
 		assert.deepEqual(cles({ ...VALIDE, taux: {}, retires: ['R_TAXABLE'] }), []);
 	});
 
@@ -269,7 +291,7 @@ describe('corps de la création', () => {
 				...VALIDE,
 				dateFin: '2027-12-31',
 				motif: '  Décision  ',
-				taux: { normal: '19', reduit: '7.5', inconnu: '3' },
+				taux: { normal: '19', reduit: '7,5', inconnu: '3' },
 				retires: ['R_TAXABLE', 'R_EXO', 'AUTRE']
 			},
 			ETAT
@@ -278,7 +300,7 @@ describe('corps de la création', () => {
 			date_effet: '2026-12-01',
 			date_fin: '2027-12-31',
 			motif: 'Décision',
-			taux: { normal: '19' },
+			taux: { normal: '19', reduit: '7.5' },
 			regimes_retires: ['R_TAXABLE']
 		});
 	});
@@ -296,10 +318,17 @@ describe('corps de la création', () => {
 		assert.equal(corpsVersion(VALIDE, { ...ETAT, base: null }), null);
 	});
 
-	it('les écarts de taux ignorent les champs vides', () => {
-		assert.deepEqual(tauxChanges({ ...VALIDE, taux: { normal: ' ', reduit: '8' } }, BASE.taux), [
-			['reduit', '8']
+	it('les taux saisis sont envoyés tels quels, convertis au format canonique, sans les champs vides', () => {
+		assert.deepEqual(
+			tauxSaisis({ ...VALIDE, taux: { normal: ' ', reduit: '8,25' } }, BASE.taux, FR),
+			[['reduit', '8.25']]
+		);
+		// Un taux égal à l'actuel part aussi : le serveur décide de ce qui change.
+		assert.deepEqual(tauxSaisis({ ...VALIDE, taux: { normal: '20' } }, BASE.taux, FR), [
+			['normal', '20']
 		]);
+		// Une saisie illisible est exclue (le contrôle de forme la signale).
+		assert.deepEqual(tauxSaisis({ ...VALIDE, taux: { normal: '2o' } }, BASE.taux, FR), []);
 	});
 });
 
@@ -334,4 +363,48 @@ describe('messages des refus', () => {
 			assert.ok((chercher(cle) ?? '') !== '', cle);
 		}
 	});
+});
+
+describe('cohérence avec les codes du serveur', () => {
+	const ERREUR = new URL('../../../crates/api/src/serveur/erreur.rs', import.meta.url);
+
+	/** Codes (et statut) de la table `code()` d'un `impl` de `erreur.rs`. */
+	function codesDe(source: string, impl: string, statut: number): [string, number][] {
+		const debut = source.indexOf(`impl ${impl} {`);
+		assert.notEqual(debut, -1, impl);
+		const fin = source.indexOf('\nimpl ', debut + 1);
+		const bloc = source.slice(debut, fin === -1 ? undefined : fin);
+		return [...bloc.matchAll(/=>\s*"([a-z0-9_]+)"/g)].map((m): [string, number] => [
+			m[1] as string,
+			statut
+		]);
+	}
+
+	// Sans les sources du serveur (dépôt partiel), le contrôle est sauté, comme celui de la CSP.
+	it(
+		'chaque code de la surcharge et du pays figé du serveur est connu de l’interface, avec son statut',
+		{ skip: !existsSync(ERREUR) },
+		() => {
+			const source = readFileSync(ERREUR, 'utf8');
+			const serveur = [
+				...codesDe(source, 'MotifConflit', 409),
+				...codesDe(source, 'MotifValidation', 422)
+			].filter(([code]) =>
+				/^(parametres_|validation_parametres_|dossier_parametres_|dossier_pieces_)/.test(code)
+			);
+			assert.ok(serveur.length >= 15, `codes lus : ${serveur.length}`);
+			const connus = new Map<string, number>([...MOTIFS_PARAMETRES, ...MOTIFS_CONTEXTE]);
+			for (const [code, statut] of serveur) {
+				assert.equal(connus.get(code), statut, `${code} : absent de l’interface ou mauvais statut`);
+				assert.ok(chercher(`saisie.motif.${code}`) !== null, `${code} : sans message`);
+			}
+			// Réciproque pour la surcharge : aucun code que le serveur ne connaît pas.
+			const nomsServeur = new Set(serveur.map(([c]) => c));
+			for (const [code] of MOTIFS_PARAMETRES) {
+				if (code.startsWith('parametres_') && code !== 'parametres_fiscaux_absents') {
+					assert.ok(nomsServeur.has(code), `${code} : inconnu du serveur`);
+				}
+			}
+		}
+	);
 });

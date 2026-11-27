@@ -102,11 +102,14 @@
 	</section>
 
 	{#if ROLES_PARAMETRES_CREATION.includes(contexte.membre.role)}
-		<FormulaireVersion
-			cabinet={contexte.cabinet}
-			dossier={contexte.dossier}
-			versions={liste.versions}
-			regional={contexte.regional}
-		/>
+		<!-- Un déroulement par dossier : le retour arrière vers un autre dossier repart de zéro. -->
+		{#key `${contexte.cabinet}/${contexte.dossier}`}
+			<FormulaireVersion
+				cabinet={contexte.cabinet}
+				dossier={contexte.dossier}
+				versions={liste.versions}
+				regional={contexte.regional}
+			/>
+		{/key}
 	{/if}
 {/if}

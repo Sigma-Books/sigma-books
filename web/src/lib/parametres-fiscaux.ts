@@ -16,6 +16,7 @@ import type {
 import { longueurOctets } from './api/texte.ts';
 import { estDateIso } from './dates.ts';
 import { chercher } from './i18n/index.ts';
+import { localeDe, separateurs, type Regional } from './regional.ts';
 
 /** Bornes de l'API (`parametres_fiscaux.rs`, `fiscal::motif_sur`, `VERSIONS_MAX`). */
 export const MOTIF_MAX_OCTETS = 400;
@@ -50,6 +51,21 @@ export function tauxCanonique(texte: string): boolean {
 	const nul = /^0+$/.test(entier) && (fraction === undefined || /^0+$/.test(fraction));
 	if (nul) return false;
 	return Number(entier) < 100 || (entier === '100' && fraction === undefined);
+}
+
+/**
+ * Taux saisi dans le format du dossier (`7,5` en `fr`, le point étant toujours admis), rendu sous la
+ * forme canonique de l'API (`7.5`), ou `null`. Pure conversion du séparateur : la valeur reste une
+ * chaîne exacte, jamais un nombre, et aucun zéro n'est ajouté ni retiré.
+ */
+export function lireTaux(
+	saisie: string,
+	r: Pick<Regional, 'langue'> & { pays?: string }
+): string | null {
+	const decimal = separateurs(localeDe(r)).decimal;
+	const brut = saisie.trim();
+	const canonique = decimal === '.' ? brut : brut.replace(decimal, '.');
+	return tauxCanonique(canonique) ? canonique : null;
 }
 
 /** Date `AAAA-MM-JJ` décalée de `jours` jours (calcul de calendrier, en UTC). */
@@ -127,22 +143,31 @@ export interface EtatVersions {
 	versions: readonly VersionFiscale[];
 	/** Version applicable à la date d'effet (donne les rôles de taux et les régimes). */
 	base: Applicable | null;
+	/** Format des nombres saisis (séparateur décimal du dossier). */
+	regional: Pick<Regional, 'langue'> & { pays?: string };
 }
 
-/** Taux qui diffèrent de la valeur actuelle de leur rôle (les champs vides sont ignorés). */
-export function tauxChanges(
+/**
+ * Taux saisis, sous leur forme canonique : tout champ rempli est envoyé tel quel (le serveur décide
+ * de ce qui est un changement), les champs vides sont ignorés. Une saisie illisible est exclue (le
+ * contrôle de forme la signale).
+ */
+export function tauxSaisis(
 	f: FormulaireVersion,
-	actuels: readonly TauxFiscal[]
+	actuels: readonly TauxFiscal[],
+	r: EtatVersions['regional']
 ): [string, string][] {
 	return actuels.flatMap((t): [string, string][] => {
 		const saisi = (f.taux[t.role] ?? '').trim();
-		return saisi === '' || saisi === t.valeur ? [] : [[t.role, saisi]];
+		const canonique = saisi === '' ? null : lireTaux(saisi, r);
+		return canonique === null ? [] : [[t.role, canonique]];
 	});
 }
 
 /**
  * Contrôles de forme et d'état de la création, ceux que l'API refuse ensuite (confort : le
- * serveur décide). `[]` : la requête peut partir.
+ * serveur décide). `[]` : la requête peut partir. Un taux égal à la valeur actuelle n'est pas
+ * refusé ici : seule l'API juge ce qui est un changement.
  */
 export function diagnostiquerVersion(f: FormulaireVersion, etat: EtatVersions): ProblemeVersion[] {
 	const problemes: ProblemeVersion[] = [];
@@ -184,11 +209,14 @@ export function diagnostiquerVersion(f: FormulaireVersion, etat: EtatVersions): 
 	} else {
 		for (const t of etat.base.taux) {
 			const saisi = (f.taux[t.role] ?? '').trim();
-			if (saisi !== '' && !tauxCanonique(saisi)) {
+			if (saisi !== '' && lireTaux(saisi, etat.regional) === null) {
 				problemes.push({ champ: `taux:${t.role}`, cle: 'taux_invalide' });
 			}
 		}
-		if (tauxChanges(f, etat.base.taux).length === 0 && f.retires.length === 0) {
+		if (
+			f.retires.length === 0 &&
+			!etat.base.taux.some((t) => (f.taux[t.role] ?? '').trim() !== '')
+		) {
 			problemes.push({ champ: 'changement', cle: 'aucun_changement' });
 		}
 	}
@@ -201,7 +229,7 @@ export function diagnostiquerVersion(f: FormulaireVersion, etat: EtatVersions): 
  */
 export function corpsVersion(f: FormulaireVersion, etat: EtatVersions): CorpsVersion | null {
 	if (diagnostiquerVersion(f, etat).length > 0 || etat.base === null) return null;
-	const taux = Object.fromEntries(tauxChanges(f, etat.base.taux));
+	const taux = Object.fromEntries(tauxSaisis(f, etat.base.taux, etat.regional));
 	const offerts = new Set(regimesRetirables(etat.base).map((r) => r.code));
 	const retires = f.retires.filter((c) => offerts.has(c));
 	return {
@@ -211,15 +239,6 @@ export function corpsVersion(f: FormulaireVersion, etat: EtatVersions): CorpsVer
 		...(Object.keys(taux).length === 0 ? {} : { taux }),
 		...(retires.length === 0 ? {} : { regimes_retires: retires })
 	};
-}
-
-/**
- * Vrai si la version prendrait effet à une date déjà atteinte : des écritures validées peuvent
- * alors y être datées, elles garderaient leur version enregistrée (deux taux dans une même
- * période). Le nombre exact n'est connu qu'après la création (avertissement de l'API).
- */
-export function pourraitEtreRetroactive(dateEffet: string, aujourdhui: string): boolean {
-	return estDateIso(dateEffet) && dateEffet <= aujourdhui;
 }
 
 /** Message d'un contrôle de forme, dans la langue courante. */

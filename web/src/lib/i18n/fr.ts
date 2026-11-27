@@ -222,7 +222,10 @@ export const fr = {
 	'parametres.avertissement.ecritures_deja_validees':
 		'{nombre} écriture(s) validée(s) sont déjà datées dans la période d’application. Elles gardent la version de paramètres enregistrée : cette période porte donc deux jeux de taux.',
 	'parametres.retroactive_avant':
-		'Cette date d’effet est déjà atteinte. Les écritures déjà validées à partir de cette date garderont la version enregistrée : une même période pourra porter deux jeux de taux. Le nombre d’écritures concernées est indiqué après la création.',
+		'Des écritures validées peuvent déjà être datées dans la période d’application (de la date d’effet à la date de fin, ou sans fin). Elles gardent la version de paramètres enregistrée : une même période pourra porter deux jeux de taux. Le nombre d’écritures concernées est indiqué après la création.',
+	'parametres.reauth_annulee': 'Création annulée : la ré-authentification n’a pas eu lieu.',
+	'parametres.creation_incertaine':
+		'Le serveur a répondu, mais sa réponse est illisible : la version a peut-être été créée. La liste est rechargée, vérifiez-la avant de recommencer.',
 	'parametres.sans_fin':
 		'Sans date de fin, cette version reste applicable et masque les versions suivantes du pays tant qu’elle s’applique.',
 	'parametres.immuable':
