@@ -3,6 +3,8 @@
 use compta_core::TauxTva;
 use serde::Deserialize;
 
+use crate::erreur::ErreurFiscale;
+
 /// Droit à déduction de la taxe d'amont.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -70,6 +72,62 @@ impl ExigibiliteLegale {
             Self::SansObjet => "sans_objet",
             Self::NonTrouve => "non_trouve",
         }
+    }
+}
+
+/// Assiette légale d'un prélèvement (la règle exacte et ses exclusions sont dans la source).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Assiette {
+    /// Chaque paiement reçu, tel qu'enregistré au compte du bénéficiaire.
+    PaiementRecu,
+    /// Montant transféré, hors commission de l'intermédiaire et hors taxes (dont la taxe
+    /// elle-même).
+    MontantTransfereHorsCommissionEtTaxes,
+    /// Non trouvée dans le texte de référence.
+    NonTrouve,
+}
+
+impl Assiette {
+    /// Nom dans les fichiers de données.
+    #[must_use]
+    pub const fn nom(self) -> &'static str {
+        match self {
+            Self::PaiementRecu => "paiement_recu",
+            Self::MontantTransfereHorsCommissionEtTaxes => {
+                "montant_transfere_hors_commission_et_taxes"
+            }
+            Self::NonTrouve => "non_trouve",
+        }
+    }
+}
+
+/// Code générique d'un prélèvement (socle) : majuscules ASCII et `_`, sans chiffre (aucun code
+/// ne porte un taux ni un article de loi), 3 à 40 caractères.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CodePrelevement(String);
+
+impl CodePrelevement {
+    /// Lit un code.
+    ///
+    /// # Errors
+    /// [`ErreurFiscale::CodePrelevement`] si le code est mal formé.
+    pub fn parse(texte: &str) -> Result<Self, ErreurFiscale> {
+        let forme = (3..=40).contains(&texte.len())
+            && texte.bytes().all(|b| b.is_ascii_uppercase() || b == b'_')
+            && !texte.starts_with('_')
+            && !texte.ends_with('_');
+        if forme {
+            Ok(Self(texte.to_owned()))
+        } else {
+            Err(ErreurFiscale::CodePrelevement(texte.to_owned()))
+        }
+    }
+
+    /// Le code.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

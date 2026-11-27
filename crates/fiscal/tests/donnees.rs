@@ -482,7 +482,10 @@ fn le_registre_officiel_charge_le_senegal() {
     let registre = Registre::officiel().unwrap();
     assert_eq!(registre.pays().collect::<Vec<_>>(), ["SN"]);
     let versions = registre.versions_du_pays("SN");
-    assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].identifiant(), "sn-2025.1");
+    let ids: Vec<&str> = versions
+        .iter()
+        .map(ParametresFiscaux::identifiant)
+        .collect();
+    assert_eq!(ids, ["sn-2025.1", "sn-2025.2"]);
     assert_eq!(registre.versions_du_pays("CM").len(), 0);
 }

@@ -13,6 +13,9 @@ workspace = true
 
 [dependencies]
 compta-core = { path = "../compta-core" }
+# Décimal exact du calcul de contrôle des prélèvements (règle absolue 2) : déjà dans l'arbre
+# (`compta-core`), aucune nouvelle dépendance.
+rust_decimal.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 time.workspace = true

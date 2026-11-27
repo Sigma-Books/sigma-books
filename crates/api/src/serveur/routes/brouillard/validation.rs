@@ -1160,9 +1160,10 @@ mod tests {
         ParametresDuDossier::nouveau(registre(), "SN", &[])
     }
 
-    /// Version 2025.1 du Sénégal.
+    /// Version du Sénégal applicable aux dates des tests (toutes postérieures au 2025-10-02) :
+    /// 2025.2.
     fn ref_sn() -> &'static ParametresFiscaux {
-        &registre().versions_du_pays("SN")[0]
+        &registre().versions_du_pays("SN")[1]
     }
 
     fn stockee(sens: &'static str, compte: &str, montant: &str) -> LigneStockee {
@@ -1550,7 +1551,7 @@ mod tests {
 
                 // Côté `Livre`.
                 let brouillon = brouillon_de(
-                    &b.contenu.journal, date, date_valeur, &b.contenu.libelle, Some("sn-2025.1"),
+                    &b.contenu.journal, date, date_valeur, &b.contenu.libelle, Some("sn-2025.2"),
                     &b.contenu.lignes, &empreintes, Some(ref_sn()), tenue_xof(),
                 ).unwrap();
                 let attendu: Result<(NumeroEcriture, String), ErreurApi> = match brouillon.valider_equilibre() {
@@ -1627,7 +1628,7 @@ mod tests {
             date!(2026 - 03 - 15),
             None,
             "Origine",
-            Some("sn-2025.1"),
+            Some("sn-2025.2"),
             &[
                 stockee("debit", &d.caisse, "1000"),
                 stockee("credit", &d.banque, "1000"),
@@ -1851,7 +1852,7 @@ mod tests {
                     if let Ok(r) = resultat {
                         // Même moteur que `Livre` : on rejoue l'écriture dans le livre.
                         let brouillon = brouillon_de(
-                            &b.contenu.journal, DATES[date], None, &b.contenu.libelle, Some("sn-2025.1"),
+                            &b.contenu.journal, DATES[date], None, &b.contenu.libelle, Some("sn-2025.2"),
                             &b.contenu.lignes, &empreintes, Some(ref_sn()), tenue_xof(),
                         ).unwrap();
                         let eq = brouillon.valider_equilibre().unwrap();

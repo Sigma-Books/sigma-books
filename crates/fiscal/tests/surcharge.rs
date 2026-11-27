@@ -28,12 +28,14 @@ fn factice(version: &str) -> ParametresFiscaux {
                 .join(version)
                 .join(f),
         )
-        .unwrap()
+        .unwrap_or_default()
     };
     let texte = [
         lire("version.toml"),
         lire("regimes-tva.toml"),
         lire("motifs-exoneration.toml"),
+        // Facultatif : prélèvements (ADR 0034 point 10).
+        lire("prelevements.toml"),
     ]
     .join("\n");
     ParametresFiscaux::depuis_texte(&socle(), Portee::Pack, &texte).unwrap()
@@ -56,7 +58,11 @@ fn surcharge<'a>(
 
 #[test]
 fn le_contenu_se_relit_a_l_identique() {
-    for p in [sn(), factice("2024.1"), factice("2026.1")] {
+    let registre = Registre::officiel().unwrap();
+    let mut versions = registre.versions_du_pays("SN").to_vec();
+    versions.extend([factice("2024.1"), factice("2026.1")]);
+    assert!(versions.iter().any(|p| !p.prelevements().is_empty()));
+    for p in versions {
         let relu =
             ParametresFiscaux::depuis_texte(&socle(), Portee::Pack, &p.vers_texte()).unwrap();
         assert_eq!(relu, p, "{}", p.identifiant());

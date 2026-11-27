@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 
 use time::Date;
 
-use super::{ParametresFiscaux, RegimeTva};
+use super::{ParametresFiscaux, Prelevement, RegimeTva};
 use crate::erreur::ErreurFiscale;
 use crate::socle::Socle;
 use crate::types::Portee;
@@ -155,6 +155,9 @@ impl ParametresFiscaux {
                 chaine(&c.note)
             );
         }
+        for p in &self.prelevements {
+            ecrire_prelevement(&mut t, p);
+        }
         t
     }
 
@@ -209,6 +212,71 @@ impl ParametresFiscaux {
         }
         // Relecture par le validateur commun : les taux admis de chaque régime sont recalculés.
         Self::depuis_texte(socle, Portee::Dossier(s.numero), &d.vers_texte())
+    }
+}
+
+/// Un prélèvement et ses exonérations, dans le format de `prelevements.toml`.
+fn ecrire_prelevement(t: &mut String, p: &Prelevement) {
+    let _ = writeln!(
+        t,
+        "\n[[prelevement]]\ncode = {}\nlibelle = {}\narticle = {}",
+        chaine(p.code().as_str()),
+        chaine(p.libelle()),
+        chaine(p.article())
+    );
+    ligne_optionnelle(t, "alinea", p.alinea());
+    let _ = writeln!(t, "pages = {}", pages(p.pages()));
+    ligne_optionnelle(t, "document", p.document());
+    let _ = writeln!(
+        t,
+        "taux = {}\nsource_taux = {}",
+        chaine(&p.taux().to_string()),
+        chaine(p.source_taux())
+    );
+    ligne_optionnelle(
+        t,
+        "plafond",
+        p.plafond().map(|m| m.valeur().to_string()).as_deref(),
+    );
+    ligne_optionnelle(t, "source_plafond", p.source_plafond());
+    for (nom, valeur) in [
+        ("devise", p.devise().code()),
+        ("assiette", p.assiette().nom()),
+        ("source_assiette", p.source_assiette()),
+        ("redevable", p.redevable()),
+        ("source_redevable", p.source_redevable()),
+        ("collecte_par", p.collecte_par()),
+        ("source_collecte", p.source_collecte()),
+        ("fait_generateur", p.fait_generateur()),
+        ("source_fait_generateur", p.source_fait_generateur()),
+        ("exigibilite", p.exigibilite().nom()),
+        ("source_exigibilite", p.source_exigibilite()),
+    ] {
+        let _ = writeln!(t, "{nom} = {}", chaine(valeur));
+    }
+    let _ = writeln!(t, "a_valider = {}", p.a_valider());
+    ligne_optionnelle(t, "note", p.note());
+    ligne_optionnelle(t, "debut", p.debut().map(|d| d.to_string()).as_deref());
+    ligne_optionnelle(t, "fin", p.fin().map(|d| d.to_string()).as_deref());
+    for e in p.exonerations() {
+        let _ = writeln!(
+            t,
+            "\n[[prelevement.exoneration]]\ncode = {}\narticle = {}\nalinea = {}\npages = {}",
+            chaine(e.code()),
+            chaine(e.article()),
+            chaine(e.alinea()),
+            pages(e.pages())
+        );
+        ligne_optionnelle(t, "document", e.document());
+        let _ = writeln!(t, "libelle = {}", chaine(e.libelle()));
+        ligne_optionnelle(
+            t,
+            "seuil",
+            e.seuil().map(|m| m.valeur().to_string()).as_deref(),
+        );
+        if let Some(h) = e.fenetre_heures() {
+            let _ = writeln!(t, "fenetre_heures = {h}");
+        }
     }
 }
 

@@ -1,0 +1,208 @@
+# Régimes de TVA du Sénégal (version 2025.2 des paramètres fiscaux ; ADR 0019 et 0030), repris
+# SANS CHANGEMENT de la version 2025.1 (seul cet en-tête diffère : `diff` entre les deux). Ce fichier
+# donne, pour chaque régime GÉNÉRIQUE du socle (`data/socle/regimes-tva.toml`), ce qui relève du
+# PAYS : article et pages de la source, droit à déduction et exigibilité légales, validité.
+# Ce que `compta-core` suppose d'un régime (exonéré, ligne de taxe, rôles de taux admis,
+# exigibilités d'étiquette) vient du socle et ne se redéfinit pas ici ; les taux (`normal`,
+# `reduit`) sont dans `version.toml`.
+#
+# Source qui fait foi : Code général des impôts du Sénégal consolidé, DGID, janvier 2025
+# (references/officiel/CGI_Senegal_consolide_2025-01_DGID.pdf). La loi n° 2025-17 du 27/09/2025
+# ne modifie pas la TVA. Page = page PDF = folio imprimé du CGI. Seuls des faits sont repris
+# (numéros d'articles, taux, pages), jamais le texte.
+#
+# Champs de chaque régime :
+# - code : code du socle. Un régime du socle absent de ce fichier n'est pas offert dans ce pays.
+# - libelle : intitulé court, rédigé pour Sigma Books (non reproduit du CGI).
+# - article, alinea : référence dans le CGI. `alinea` absent : l'article entier.
+# - pages : pages PDF où figure la règle (plage du chapitre TVA, `version.toml`).
+# - deduction : droit à déduction de la taxe d'amont ; `oui`, `non`, `non_sauf_exceptions`,
+#   `oui_si_declaree` (précompte), `sans_objet`, ou `non_trouve` (le texte ne le dit pas).
+# - exigibilite : règle légale ; `fait_generateur` (art. 362-1 à 4), `encaissement`, `general`,
+#   `declaration_periodique` (art. 363-4 : trimestrielle), `delai_apres_evenement` (art. 387-1 :
+#   mois suivant), `sans_objet` ou `non_trouve`.
+# - source_deduction, source_exigibilite : article (et page) qui fonde ces deux champs.
+# - source_ligne_taxe : article et page qui fondent la présence ou l'absence d'une ligne de taxe.
+# - a_valider : à faire valider par l'expert-comptable et le fiscaliste (spec §26).
+# - note : précision.
+# - debut, fin : validité facultative (AAAA-MM-JJ, inclus), appliquée à la date de l'écriture.
+#
+# Prorata de déduction et période d'exigibilité à l'encaissement : HORS étiquette (L5, lettrage).
+
+[[regime]]
+code = "TAXABLE_NORMAL"
+libelle = "Opération imposable au taux normal de 18 %"
+article = "369"
+pages = [184]
+deduction = "oui"
+exigibilite = "fait_generateur"
+source_deduction = "art. 374-1, p. 187"
+source_exigibilite = "art. 362-1 à 4 et 363-1, p. 181-182"
+source_ligne_taxe = "art. 369, p. 184 : la taxe est calculée au taux de 18 %"
+a_valider = false
+note = "Encaissement admis : acompte ou prix encaissé avant la livraison ou la facture (art. 362, p. 182)."
+
+[[regime]]
+code = "TAXABLE_REDUIT"
+libelle = "Opération imposable au taux réduit de 10 % (hébergement touristique agréé)"
+article = "369"
+alinea = "2"
+pages = [184]
+deduction = "oui"
+exigibilite = "fait_generateur"
+source_deduction = "art. 374-1, p. 187"
+source_exigibilite = "art. 362-1 à 4 et 363-1, p. 181-182"
+source_ligne_taxe = "art. 369 al. 2, p. 184 : taux réduit de 10 %"
+a_valider = false
+note = "Prestations des établissements d'hébergement touristique agréés (loi 2015-06). Le CGI ne numérote pas l'alinéa : le second alinéa de l'article 369 est cité."
+
+[[regime]]
+code = "TAXABLE_ENCAISSEMENT"
+libelle = "Opération imposable dont le fait générateur est l'encaissement"
+article = "362"
+alinea = "5"
+pages = [181, 182]
+deduction = "oui"
+exigibilite = "encaissement"
+source_deduction = "art. 374-1, p. 187"
+source_exigibilite = "art. 362-5, p. 181-182"
+source_ligne_taxe = "art. 362-5, p. 181-182 : taxe due, exigible à l'encaissement"
+a_valider = false
+note = "Art. 362-5 a) crédit-bail et finance islamique ; b) opérations payées sur fonds publics ou soumises au précompte ; c) adhérents des centres de gestion agréés au réel simplifié (régularisation annuelle au plus tard à la fin du troisième mois suivant la clôture)."
+
+[[regime]]
+code = "EXO_SANS_DEDUCTION"
+libelle = "Opération exonérée sans droit à déduction (art. 361)"
+article = "361"
+pages = [176, 177, 178, 179, 180, 181]
+deduction = "non_sauf_exceptions"
+exigibilite = "general"
+source_deduction = "art. 374-1 et 380, p. 187 et 189"
+source_exigibilite = "art. 362, p. 181-182"
+source_ligne_taxe = "art. 361, p. 176-181 : opérations exonérées, aucune taxe n'est facturée"
+a_valider = true
+note = "Le motif (liste motifs-exoneration.toml) est obligatoire. Les alinéas 14, 15 et 26 de l'art. 361 sont aussi à l'art. 380 : voir EXO_AVEC_DEDUCTION et les chevauchements."
+
+[[regime]]
+code = "EXO_AVEC_DEDUCTION"
+libelle = "Opération exonérée ou exemptée ouvrant droit à déduction (art. 380)"
+article = "380"
+pages = [189]
+deduction = "oui"
+exigibilite = "general"
+source_deduction = "art. 380, p. 189"
+source_exigibilite = "art. 362, p. 181-182"
+source_ligne_taxe = "art. 380, p. 189 : opérations exonérées ou exemptées, aucune taxe n'est facturée"
+a_valider = true
+note = "Ouvre droit à déduction comme si l'opération était taxée. Le motif (a à f) est obligatoire."
+
+[[regime]]
+code = "HORS_CHAMP"
+libelle = "Opération hors du champ : lieu d'imposition hors du Sénégal"
+article = "356 à 359 et 352"
+pages = [157, 174, 175]
+deduction = "sans_objet"
+exigibilite = "sans_objet"
+source_deduction = "sans objet"
+source_exigibilite = "sans objet"
+source_ligne_taxe = "art. 356 à 359, p. 174-175 : lieu d'imposition hors du Sénégal, aucune TVA sénégalaise"
+a_valider = true
+note = "Règles de territorialité (art. 356 à 359) et exclusions du champ (art. 352, p. 157-158). La déduction des opérations de services rendus à l'étranger relève de l'art. 380 b (EXO_AVEC_DEDUCTION)."
+
+[[regime]]
+code = "AUTOLIQUIDATION"
+libelle = "Taxe due par le destinataire, faute de représentant fiscal"
+article = "355"
+alinea = "3"
+pages = [159, 160]
+deduction = "non_trouve"
+exigibilite = "non_trouve"
+source_deduction = "non trouvé dans le CGI consolidé"
+source_exigibilite = "non trouvé dans le CGI consolidé"
+source_ligne_taxe = "art. 355-3, p. 159-160 : la TVA est due par le destinataire, d'où une ligne de taxe"
+a_valider = true
+note = "À défaut de représentant fiscal, la TVA et les pénalités sont dues par le destinataire. Déduction et exigibilité non trouvées : à instruire pour L5 ; l'étiquette n'en porte pas."
+
+# Contrôle du 2026-11-26 : art. 355 bis relu p. 160 (PDF = folio) ; édition CGI 2025 confirmée
+# identique à celle de dgid.sn. Alinéa 1 : collecte par l'intermédiaire ; alinéa 2 : collecte
+# directe par le fournisseur étranger disposant de sa propre technologie ; alinéa 3 : la TVA
+# s'applique aussi, le cas échéant, aux commissions des intermédiaires.
+[[regime]]
+code = "COLLECTE_NUM"
+libelle = "TVA sur services numériques d'un fournisseur étranger : collectée par l'intermédiaire ou directement par le fournisseur, y compris sur la commission de l'intermédiaire"
+article = "355 bis"
+alinea = "1 à 3"
+pages = [160]
+deduction = "non_trouve"
+exigibilite = "declaration_periodique"
+source_deduction = "non trouvé dans le CGI consolidé"
+source_exigibilite = "art. 363-4, p. 182 (déclaration au plus tard le 15 de janvier, avril, juillet et octobre)"
+source_ligne_taxe = "art. 355 bis 1) à 3), p. 160 : TVA collectée et reversée par l'intermédiaire (1), par le fournisseur étranger disposant de sa propre technologie (2), et applicable aux commissions des intermédiaires (3)"
+a_valider = true
+note = "Prestations de services numériques d'un fournisseur étranger (loi 2023-18) : TVA collectée par l'intermédiaire (al. 1), ou directement par le fournisseur disposant de sa propre technologie (al. 2) ; TVA aussi sur les commissions des intermédiaires (al. 3). Modalités : arrêté n° 034269 du 08/11/2023 (p. 160). À valider par le fiscaliste."
+
+[[regime]]
+code = "PRECOMPTE"
+libelle = "Précompte de TVA"
+article = "372"
+alinea = "1 et 2"
+pages = [185, 186]
+deduction = "oui_si_declaree"
+exigibilite = "encaissement"
+source_deduction = "art. 372-2 e, p. 186 : aucune taxe ne peut être déduite si elle n'a pas été déclarée"
+source_exigibilite = "art. 372-2 a, p. 186 : le paiement est le fait générateur"
+source_ligne_taxe = "art. 372-2 b et e, p. 186 : la TVA est retenue, déclarée puis déductible"
+a_valider = true
+note = "Le redevable est l'acquéreur ou le preneur (art. 372-2), qui retient et déclare la taxe sur une déclaration de précompte distincte."
+
+[[regime]]
+code = "MARGE"
+libelle = "Régime de la marge (agences de voyages, biens d'occasion)"
+article = "370 et 371"
+pages = [184, 185]
+deduction = "non"
+exigibilite = "general"
+source_deduction = "art. 370-4, p. 184 ; art. 382, p. 190"
+source_exigibilite = "art. 362, p. 181-182"
+source_ligne_taxe = "art. 370-3 et 371-4, p. 184-185 : imposition de la marge"
+a_valider = true
+note = "Base = marge. Pas de déduction de la taxe d'amont sur les opérations sous ce régime ; les reventes hors marge relèvent du droit commun (art. 371-5)."
+
+[[regime]]
+code = "SUSPENSION"
+libelle = "Achat ou importation en suspension de TVA (agrément au code des investissements)"
+article = "373"
+pages = [187]
+deduction = "sans_objet"
+exigibilite = "sans_objet"
+source_deduction = "sans objet"
+source_exigibilite = "sans objet"
+source_ligne_taxe = "art. 373-1, p. 187 : achats réalisés en suspension de TVA, aucune taxe facturée"
+a_valider = true
+note = "Aucune taxe n'est facturée ni comptabilisée : la ligne de base est étiquetée."
+
+[[regime]]
+code = "REGUL"
+libelle = "Régularisation de déduction"
+article = "386 et 387"
+pages = [193, 194]
+deduction = "sans_objet"
+exigibilite = "delai_apres_evenement"
+source_deduction = "sans objet"
+source_exigibilite = "art. 387-1, p. 194 : dans le mois qui suit l'événement"
+source_ligne_taxe = "art. 387-1, p. 194 : versement d'un montant d'impôt à titre de régularisation"
+a_valider = true
+note = "Reversement d'une déduction initiale (cessation, cession, changement d'affectation, pertes), sur une déclaration distincte (art. 387-1)."
+
+[[regime]]
+code = "REMB_ANNUL"
+libelle = "Remboursement ou imputation de TVA collectée (erreur, créance irrécouvrable, annulation)"
+article = "389"
+pages = [194, 195]
+deduction = "sans_objet"
+exigibilite = "non_trouve"
+source_deduction = "sans objet"
+source_exigibilite = "non trouvé dans le CGI consolidé"
+source_ligne_taxe = "art. 389-1, p. 194 : imputation ou remboursement de la TVA précédemment collectée"
+a_valider = true
+note = "Art. 389-1 a (versement erroné), b (créance irrécouvrable), c (opération annulée ou résiliée)."

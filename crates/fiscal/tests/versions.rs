@@ -27,12 +27,14 @@ fn fixture(version: &str) -> String {
                 .join(version)
                 .join(f),
         )
-        .unwrap()
+        .unwrap_or_default()
     };
     [
         lire("version.toml"),
         lire("regimes-tva.toml"),
         lire("motifs-exoneration.toml"),
+        // Facultatif : prélèvements (ADR 0034 point 10).
+        lire("prelevements.toml"),
     ]
     .join("\n")
 }
