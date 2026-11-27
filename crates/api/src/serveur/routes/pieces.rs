@@ -24,7 +24,7 @@ use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, R
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier_visible};
-use crate::parametres_fiscaux::ParametresDuDossier;
+use crate::parametres_fiscaux::{ParametresDuDossier, lire_propres};
 use crate::pieces::base::{
     IssueEcart, NouvellePiece, Piece, ecarter_piece, inserer_piece, lire_piece, lister_pieces,
     pieces_de_meme_empreinte, verrouiller_dossier,
@@ -391,7 +391,8 @@ async fn stocker(
     let instant = maintenant();
     // Rétention : paramètre du paquet du pays du dossier à la date du dépôt, **dans le fuseau du
     // dossier** (ADR 0027 et 0030), relevée par le réglage d'instance.
-    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &[]);
+    let propres = lire_propres(tx, registre).await?;
+    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &propres);
     let annees = fiscal.retention_des_pieces(dossier.contexte().date_du_jour(instant)?);
     let retenir = pieces.fin_de_retention(instant, annees);
     let cle = CleObjet::nouvelle(cabinet, dossier.id());
