@@ -13,6 +13,7 @@
 #![allow(dead_code, clippy::expect_used)]
 
 pub mod administration;
+pub mod audit_valeurs;
 pub mod banc;
 pub mod brouillard;
 pub mod envoi;
