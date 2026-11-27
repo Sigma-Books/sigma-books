@@ -118,11 +118,6 @@ fieldset.groupe legend {
 	font-weight: 600;
 }
 
-.mono {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-	overflow-wrap: anywhere;
-}
-
 @media print {
 	/* L'en-tête imprimé (`.identite-edition`) cite le dossier et la devise des montants. */
 	.identite-edition {

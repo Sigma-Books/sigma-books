@@ -137,6 +137,10 @@
 			<dt>Date de valeur</dt>
 			<dd>{afficherDate(e.date_valeur_comptable, contexte.regional)}</dd>
 		{/if}
+		{#if e.version_parametres}
+			<dt>Paramètres fiscaux</dt>
+			<dd class="mono">{e.version_parametres}</dd>
+		{/if}
 		<dt>Validée le</dt>
 		<dd>{afficherDate(e.date_validation, contexte.regional)}</dd>
 		<dt>Rang dans la chaîne</dt>

@@ -351,6 +351,12 @@
 			<label for="entete-valeur">Date de valeur (facultative)</label>
 			<input id="entete-valeur" type="date" bind:value={entete.dateValeur} />
 		</div>
+		{#if courant?.version_parametres}
+			<p class="aide champ-large">
+				Paramètres fiscaux appliqués à la dernière saisie :
+				<span class="mono">{courant.version_parametres}</span>
+			</p>
+		{/if}
 	</fieldset>
 
 	<p class="aide" id="aide-raccourcis">
