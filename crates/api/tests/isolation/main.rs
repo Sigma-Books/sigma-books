@@ -147,6 +147,10 @@ async fn monde(admin: &PgPool) -> Monde {
             let e = commun::brouillard::doter_validee(admin, c.cabinet, dossier, c.administrateur)
                 .await;
             inscrire_sous_ressource(dossier, "ecriture", e);
+            // Une caisse réelle (L3, PR 11), sous-ressource `{compte_tresorerie}`.
+            let caisse =
+                commun::tresorerie::doter(admin, c.cabinet, dossier, c.administrateur).await;
+            inscrire_sous_ressource(dossier, "compte_tresorerie", caisse);
             fixtures.insert(dossier, f);
         }
     }
