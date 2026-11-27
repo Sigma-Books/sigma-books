@@ -18,7 +18,7 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0012 | Sessions, secours, récupération de compte et création des cabinets | Acceptée |
 | 0013 | Chiffrement : disques des serveurs obligatoire, chiffrement par cabinet facultatif | Acceptée |
 | 0014 | Journal d'audit chaîné | Acceptée |
-| 0015 | Pièces justificatives en L2 | Acceptée |
+| 0015 | Pièces justificatives en L2 (amendé par l'ADR 0034 : type texte pour les relevés CSV) | Acceptée |
 | 0016 | Consultation de l'audit : la portée cabinet est réservée à l'administrateur (précise l'ADR 0014) | Acceptée |
 | 0017 | Événements d'authentification hors cabinet et conservation des sessions (complète les ADR 0012 et 0014) | Acceptée |
 | 0018 | Passkeys : copie corrigée de `crypto-glue` en attendant sa version 0.2.3 | Acceptée |
@@ -34,5 +34,9 @@ Chaque décision structurante est consignée dans un fichier `NNNN-titre.md` : c
 | 0028 | Séparation des tâches : activée par défaut, appliquée tant que le paramètre du cabinet est actif (clarifie les ADR 0014 et 0020) | Proposée |
 | 0029 | Règles de gestion alignées sur Odoo et Tryton : échéance de clôture, date de contre-passation, compte de trésorerie sans blocage, motif de contre-passation facultatif ; ligne à zéro et numéro à largeur variable renvoyés (format canonique figé) | Proposée |
 | 0030 | Paramètres fiscaux par pays et codes de régime génériques : crate `fiscal`, versions datées immuables, version enregistrée à la validation, surcharge par dossier, régimes `TAXABLE_*`/`EXO_*` | Proposée |
+| 0031 | Tiers : fiche, identifiants typés par pays, fusion par lien, archivage, anonymisation sous délai de rétention et protection des données | Proposée |
+| 0032 | Lettrage en ajout seul : liens partiels, lettres, ruptures, écarts, règles automatiques, verrou par compte et ordre des verrous | Proposée |
+| 0033 | Échéancier hors du contenu haché : échéance copiée à la validation, révisions, conditions de règlement, balance âgée à une date | Proposée |
+| 0034 | Trésorerie, relevés importés (amende l'ADR 0015) et rapprochement : empreinte de doublon, pointage en ajout seul, état figé, prélèvements du pack | Proposée |
 
 Modèle : copier `0000-modele.md`.
