@@ -71,6 +71,21 @@ prennent jamais le même numéro.
 | `0200` à `0299` | Comptabilité (PR 11, 13, 14) |
 | `0300` à `0399` | Pièces (PR 12) |
 | `0400` à `0499` | Intégrité et horodatage (PR 15) |
+| `0500` à `0599` | Tiers et trésorerie (lot L3, plan `docs/lots/L3.md`, ADR 0031 à 0034) : sous-plages ci-dessous |
+
+Sous-plages de la voie L3 (réservées par la PR 2 du lot ; une PR n'écrit que dans sa sous-plage) :
+
+| Sous-plage | Contenu |
+|---|---|
+| `0500`–`0509` | Tiers : fiche, identifiants, contacts, adresses, banques, fusion, anonymisation (PR 7a : `0500`–`0504`) |
+| `0510`–`0519` | Conditions de règlement, `brouillon_ligne.date_echeance`, `echeance_ligne`, `echeance_report` (PR 8 : `0510`–`0514`) |
+| `0520`–`0539` | Lettrage : `lettrage`, `lettrage_lien`, `lettrage_rupture`, `compteur_lettrage`, règles (PR 9a : `0520`–`0529`) |
+| `0540`–`0559` | Comptes de trésorerie (PR 11 : `0540`–`0549`) |
+| `0560`–`0579` | Profils, relevés importés, lignes de relevé, règles et propositions (PR 12a : `0560`–`0569`) |
+| `0580`–`0589` | Pointage, `etat_rapprochement` (PR 13a : `0580`–`0584`) |
+| `0590`–`0599` | Alertes de L3 (nouveaux sujets de `tache`, PR 15 : `0590`), correctifs |
+
+Une migration fusionnée n'est **jamais modifiée** : colonne ajoutée, droit élargi ou contrainte nouvelle = **nouvelle** migration (comme `0451` pour `0400`), dans la sous-plage de la voie. Les tables dont dépend la voie (`tiers` en `0200`, `brouillon_ligne` en `0202`, `ecriture_validee` en `0203`, pièces en `0300`) appartiennent à des plages **inférieures déjà fusionnées** : aucune exception de numérotation n'est nécessaire.
 
 Exception, pour la dépendance entre voies décrite ci-dessous : `0350_brouillard_pieces.sql` (voie
 comptabilité, PR 13a) lie le brouillard aux pièces (`0300_pieces.sql`) ; elle porte un numéro
