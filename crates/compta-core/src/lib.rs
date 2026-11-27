@@ -17,6 +17,7 @@ pub mod livre;
 pub mod montant;
 pub mod numerotation;
 pub mod plan;
+pub mod rapprochement;
 pub mod texte;
 pub mod validation;
 
