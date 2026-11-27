@@ -2,21 +2,35 @@
 //!
 //! Règles **déterministes**, appliquées dans l'ordre de la spec, par groupe (compte, tiers
 //! résolu), sur les lignes au résiduel non nul triées par échéance effective (à défaut date
-//! comptable) puis rang de chaîne : le résultat ne dépend pas de l'ordre d'ajout des lignes.
+//! comptable) puis rang de chaîne.
 //!
-//! 1. **Référence** : la référence normalisée d'une ligne est contenue dans celle d'une ligne
-//!    de sens opposé, **candidat unique** (OCA `account_bank_statement_line.py:980-1060`) ;
-//! 2. **Montant exact** : résiduels égaux, sens opposés, **candidat unique** (OCA, `COUNT = 1`) ;
+//! 1. **Référence** : références normalisées d'au moins [`REFERENCE_LONGUEUR_MIN`] caractères,
+//!    l'une contenue dans l'autre, **résiduels égaux**, sens opposés ;
+//! 2. **Montant exact** : résiduels égaux, sens opposés ;
 //! 3. **Combinaison bornée** : plusieurs lignes d'un sens dont les résiduels somment exactement
 //!    le résiduel d'une ligne de l'autre sens (somme de factures = règlement). Fonctionnalité
 //!    Sigma, absente des moteurs (Tryton n'a qu'une approximation gloutonne, `move.py:1828-1871`).
-//!    Recherche en profondeur dans l'ordre fixé, bornée en **nombre de lignes** et en
-//!    **budget d'évaluations** par groupe ; la première combinaison trouvée est proposée.
+//!    Recherche en profondeur dans l'ordre fixé, bornée en nombre de lignes ; la première
+//!    combinaison trouvée est proposée.
+//!
+//! **Candidat unique réciproque** (règles 1 et 2) : une paire n'est proposée que si chaque
+//! ligne est l'unique candidat libre de l'autre. OCA compte le candidat du seul côté de la
+//! ligne de relevé (`account_bank_statement_line.py:1044-1059`, `COUNT(*) = 1`) ; dans un
+//! grand livre, aucun côté n'est privilégié : deux factures de 100 et un règlement de 100 sont
+//! ambigus, et ne donnent **aucune** proposition automatique. L'ambiguïté est rendue
+//! ([`Ambiguite`] : la ligne et ses candidats) pour que l'utilisateur tranche.
+//!
+//! **Équilibre** : une proposition solde toujours ses lignes (débit = crédit, ADR 0032 :
+//! « ni un groupe déséquilibré ») ; le lettrage partiel reste manuel.
+//!
+//! **Budget** (F2.16) : chaque ligne examinée, en boucle externe comme parmi les candidats ou
+//! dans la recherche de combinaison, consomme une évaluation ; le budget s'applique par groupe
+//! et par règle. Un groupe sans ligne de l'un des deux sens n'est pas parcouru. Le coût d'un
+//! appel est donc borné par le tri et l'indexation des lignes, et `3 × budget` évaluations par
+//! groupe.
 //!
 //! Une ligne entre dans au plus une proposition. Chaque proposition est contrôlée comme un
-//! lettrage manuel ([`RegistreLettrage::imputer`]) : elle ne mélange jamais deux comptes, deux
-//! tiers ni un groupe déséquilibré. Rien n'est inscrit : la proposition est validée par un
-//! utilisateur, ou appliquée automatiquement si le paramètre du dossier l'autorise (API).
+//! lettrage manuel ([`RegistreLettrage::imputer`]). Rien n'est inscrit.
 
 use std::collections::BTreeMap;
 
@@ -24,6 +38,12 @@ use rust_decimal::Decimal;
 
 use super::{ErreurLettrage, IdLigne, Lien, RegistreLettrage};
 use crate::ecriture::{IdTiers, Sens};
+
+/// Longueur minimale (en caractères, après normalisation) d'une référence prise en compte par
+/// la règle de référence. Une référence d'un ou deux caractères (« 1 », « A2 ») est contenue
+/// dans presque toute autre et produirait de faux rapprochements ; OCA n'a pas de minimum
+/// (une référence vide y correspond à tout).
+pub const REFERENCE_LONGUEUR_MIN: usize = 3;
 
 /// Bornes du lettrage automatique (F2.16 : déni de service par combinaison exponentielle).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +94,7 @@ impl Default for Bornes {
 }
 
 /// Règle qui a produit une proposition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Regle {
     /// Même référence.
     Reference,
@@ -120,12 +140,39 @@ impl Proposition {
     }
 }
 
+/// Ligne qui a plusieurs candidats pour une règle : aucune proposition automatique.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ambiguite {
+    regle: Regle,
+    ligne: IdLigne,
+    candidats: Vec<IdLigne>,
+}
+
+impl Ambiguite {
+    /// Règle concernée.
+    #[must_use]
+    pub fn regle(&self) -> Regle {
+        self.regle
+    }
+
+    /// Ligne examinée.
+    #[must_use]
+    pub fn ligne(&self) -> IdLigne {
+        self.ligne
+    }
+
+    /// Ses candidats (au moins deux), dans l'ordre de recherche.
+    #[must_use]
+    pub fn candidats(&self) -> &[IdLigne] {
+        &self.candidats
+    }
+}
+
 /// Bilan d'un groupe (compte, tiers) : évaluations consommées et épuisement du budget.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BilanGroupe {
     tiers: Option<IdTiers>,
-    evaluations_reference: u64,
-    evaluations_combinaison: u64,
+    evaluations: [u64; 3],
     epuise: bool,
 }
 
@@ -136,16 +183,10 @@ impl BilanGroupe {
         self.tiers.as_ref()
     }
 
-    /// Évaluations de la règle de référence (au plus le budget).
+    /// Évaluations consommées par une règle (au plus le budget).
     #[must_use]
-    pub fn evaluations_reference(&self) -> u64 {
-        self.evaluations_reference
-    }
-
-    /// Évaluations de la règle de combinaison (au plus le budget).
-    #[must_use]
-    pub fn evaluations_combinaison(&self) -> u64 {
-        self.evaluations_combinaison
+    pub fn evaluations(&self, regle: Regle) -> u64 {
+        self.evaluations[regle as usize]
     }
 
     /// Vrai si une règle a épuisé son budget : la recherche du groupe est incomplète.
@@ -158,7 +199,8 @@ impl BilanGroupe {
 /// Résultat du lettrage automatique.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Propositions {
-    propositions: Vec<Proposition>,
+    retenues: Vec<Proposition>,
+    ambiguites: Vec<Ambiguite>,
     groupes: Vec<BilanGroupe>,
 }
 
@@ -166,7 +208,13 @@ impl Propositions {
     /// Propositions, par groupe puis par règle.
     #[must_use]
     pub fn propositions(&self) -> &[Proposition] {
-        &self.propositions
+        &self.retenues
+    }
+
+    /// Ambiguïtés relevées par les règles 1 et 2 (lignes laissées à l'utilisateur).
+    #[must_use]
+    pub fn ambiguites(&self) -> &[Ambiguite] {
+        &self.ambiguites
     }
 
     /// Bilan de chaque groupe, dans l'ordre des tiers.
@@ -187,11 +235,20 @@ struct Ouverte<'a> {
 /// Budget d'évaluations épuisé.
 struct Epuise;
 
-/// Issue d'une recherche bornée.
-enum Issue {
-    Trouvee,
-    Absente,
-    Epuisee,
+/// Compteur d'évaluations d'une règle.
+struct Compteur {
+    budget: u64,
+    consomme: u64,
+}
+
+impl Compteur {
+    fn evaluer(&mut self) -> Result<(), Epuise> {
+        if self.consomme >= self.budget {
+            return Err(Epuise);
+        }
+        self.consomme += 1;
+        Ok(())
+    }
 }
 
 impl RegistreLettrage {
@@ -208,7 +265,10 @@ impl RegistreLettrage {
                         id: ligne.id,
                         sens: ligne.sens,
                         residuel,
-                        reference: ligne.reference.as_deref(),
+                        reference: ligne
+                            .reference
+                            .as_deref()
+                            .filter(|r| r.chars().count() >= REFERENCE_LONGUEUR_MIN),
                     },
                 ));
             }
@@ -217,22 +277,50 @@ impl RegistreLettrage {
         for (tiers, mut lignes) in groupes {
             lignes.sort_by_key(|(cle, _)| *cle);
             let lignes: Vec<Ouverte<'_>> = lignes.into_iter().map(|(_, o)| o).collect();
+            let (debits, credits): (Vec<usize>, Vec<usize>) =
+                (0..lignes.len()).partition(|&i| lignes[i].sens == Sens::Debit);
+            let mut index: BTreeMap<(Sens, Decimal), Vec<usize>> = BTreeMap::new();
+            for (i, ligne) in lignes.iter().enumerate() {
+                index
+                    .entry((ligne.sens, ligne.residuel))
+                    .or_default()
+                    .push(i);
+            }
             let mut groupe = Groupe {
                 registre: self,
                 tiers: tiers.cloned(),
                 lignes: &lignes,
+                debits,
+                credits,
+                index,
                 prise: vec![false; lignes.len()],
                 propositions: Vec::new(),
+                ambiguites: Vec::new(),
             };
-            let (evaluations_reference, epuise_reference) = groupe.par_reference(bornes.budget);
-            groupe.par_montant();
-            let (evaluations_combinaison, epuise_combinaison) = groupe.par_combinaison(bornes);
-            resultat.propositions.append(&mut groupe.propositions);
+            let mut evaluations = [0; 3];
+            let mut epuise = false;
+            if !groupe.debits.is_empty() && !groupe.credits.is_empty() {
+                for regle in [Regle::Reference, Regle::MontantExact, Regle::Combinaison] {
+                    let mut compteur = Compteur {
+                        budget: bornes.budget,
+                        consomme: 0,
+                    };
+                    let issue = match regle {
+                        Regle::Reference | Regle::MontantExact => {
+                            groupe.apparier(regle, &mut compteur)
+                        }
+                        Regle::Combinaison => groupe.combiner(bornes, &mut compteur),
+                    };
+                    epuise |= issue.is_err();
+                    evaluations[regle as usize] = compteur.consomme;
+                }
+            }
+            resultat.retenues.append(&mut groupe.propositions);
+            resultat.ambiguites.append(&mut groupe.ambiguites);
             resultat.groupes.push(BilanGroupe {
                 tiers: tiers.cloned(),
-                evaluations_reference,
-                evaluations_combinaison,
-                epuise: epuise_reference || epuise_combinaison,
+                evaluations,
+                epuise,
             });
         }
         resultat
@@ -244,18 +332,146 @@ struct Groupe<'r, 'l> {
     registre: &'r RegistreLettrage,
     tiers: Option<IdTiers>,
     lignes: &'l [Ouverte<'l>],
+    debits: Vec<usize>,
+    credits: Vec<usize>,
+    /// Lignes par (sens, résiduel), dans l'ordre de recherche.
+    index: BTreeMap<(Sens, Decimal), Vec<usize>>,
     prise: Vec<bool>,
     propositions: Vec<Proposition>,
+    ambiguites: Vec<Ambiguite>,
 }
 
 impl Groupe<'_, '_> {
-    /// Retient la proposition si elle passe les contrôles d'un lettrage manuel.
-    fn retenir(&mut self, regle: Regle, indices: &[usize]) -> bool {
+    /// Indices des lignes de sens opposé à la ligne `i`, dans l'ordre de recherche.
+    fn opposees(&self, i: usize) -> &[usize] {
+        match self.lignes[i].sens {
+            Sens::Debit => &self.credits,
+            Sens::Credit => &self.debits,
+        }
+    }
+
+    /// Vrai si les lignes `a` et `b` (de sens opposés) se correspondent pour la règle.
+    fn correspondent(&self, regle: Regle, a: usize, b: usize) -> bool {
+        let (a, b) = (&self.lignes[a], &self.lignes[b]);
+        a.residuel == b.residuel
+            && match regle {
+                Regle::Reference => match (a.reference, b.reference) {
+                    (Some(x), Some(y)) => x.contains(y) || y.contains(x),
+                    _ => false,
+                },
+                Regle::MontantExact | Regle::Combinaison => true,
+            }
+    }
+
+    /// Candidats libres de la ligne `i` pour les règles 1 et 2, parmi les lignes de sens
+    /// opposé au même résiduel (index) ; chaque ligne parcourue est évaluée.
+    fn candidats(
+        &self,
+        regle: Regle,
+        i: usize,
+        compteur: &mut Compteur,
+    ) -> Result<Vec<usize>, Epuise> {
+        let cle = (self.lignes[i].sens.inverse(), self.lignes[i].residuel);
+        let source = self.index.get(&cle).map_or_default(Vec::as_slice);
+        let mut trouves = Vec::new();
+        for &j in source {
+            compteur.evaluer()?;
+            if !self.prise[j] && self.correspondent(regle, i, j) {
+                trouves.push(j);
+            }
+        }
+        Ok(trouves)
+    }
+
+    /// Règles 1 et 2 : paires à candidat unique réciproque ; les ambiguïtés sont relevées.
+    fn apparier(&mut self, regle: Regle, compteur: &mut Compteur) -> Result<(), Epuise> {
+        let mut signalee = vec![false; self.lignes.len()];
+        for i in 0..self.lignes.len() {
+            compteur.evaluer()?;
+            if self.prise[i] || (regle == Regle::Reference && self.lignes[i].reference.is_none()) {
+                continue;
+            }
+            let candidats = self.candidats(regle, i, compteur)?;
+            let (ambigue, candidats) = match candidats.as_slice() {
+                [] => continue,
+                [j] => {
+                    let retour = self.candidats(regle, *j, compteur)?;
+                    if retour == [i] {
+                        self.retenir(regle, &[i, *j]);
+                        continue;
+                    }
+                    (*j, retour)
+                }
+                _ => (i, candidats),
+            };
+            if !signalee[ambigue] {
+                signalee[ambigue] = true;
+                self.ambiguites.push(Ambiguite {
+                    regle,
+                    ligne: self.lignes[ambigue].id,
+                    candidats: candidats.iter().map(|&k| self.lignes[k].id).collect(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Règle 3 : combinaison bornée.
+    fn combiner(&mut self, bornes: &Bornes, compteur: &mut Compteur) -> Result<(), Epuise> {
+        for i in 0..self.lignes.len() {
+            compteur.evaluer()?;
+            if self.prise[i] {
+                continue;
+            }
+            let cible = self.lignes[i].residuel;
+            let mut candidats = Vec::new();
+            for &j in self.opposees(i) {
+                compteur.evaluer()?;
+                if !self.prise[j] && self.lignes[j].residuel < cible {
+                    candidats.push(j);
+                }
+            }
+            let mut choisis = Vec::new();
+            if chercher(
+                self.lignes,
+                &candidats,
+                0,
+                cible,
+                bornes.lignes_max - 1,
+                compteur,
+                &mut choisis,
+            )? {
+                let indices: Vec<usize> = std::iter::once(i)
+                    .chain(choisis.iter().map(|&k| candidats[k]))
+                    .collect();
+                self.retenir(Regle::Combinaison, &indices);
+            }
+        }
+        Ok(())
+    }
+
+    /// Retient la proposition si elle passe les contrôles d'un lettrage manuel et solde
+    /// toutes ses lignes.
+    fn retenir(&mut self, regle: Regle, indices: &[usize]) {
         let mut lignes: Vec<IdLigne> = indices.iter().map(|&i| self.lignes[i].id).collect();
         lignes.sort_unstable();
         let Ok(liens) = self.registre.imputer(&lignes) else {
-            return false;
+            return;
         };
+        let lettre: Decimal = liens.iter().map(Lien::montant).sum();
+        let debit: Decimal = indices
+            .iter()
+            .filter(|&&i| self.lignes[i].sens == Sens::Debit)
+            .map(|&i| self.lignes[i].residuel)
+            .sum();
+        let credit: Decimal = indices
+            .iter()
+            .filter(|&&i| self.lignes[i].sens == Sens::Credit)
+            .map(|&i| self.lignes[i].residuel)
+            .sum();
+        if lettre != debit || lettre != credit {
+            return;
+        }
         for &i in indices {
             self.prise[i] = true;
         }
@@ -265,163 +481,47 @@ impl Groupe<'_, '_> {
             lignes,
             liens,
         });
-        true
-    }
-
-    /// Candidat libre, de sens opposé, qui satisfait `critere` : `Some` s'il est unique,
-    /// `None` s'il n'y en a aucun ou plusieurs ; [`Epuise`] si `critere` épuise le budget.
-    fn candidat_unique(
-        &self,
-        i: usize,
-        candidats: impl Iterator<Item = usize>,
-        mut critere: impl FnMut(&Ouverte<'_>) -> Result<bool, Epuise>,
-    ) -> Result<Option<usize>, Epuise> {
-        let mut trouve = None;
-        for j in candidats {
-            if j == i || self.prise[j] || self.lignes[j].sens == self.lignes[i].sens {
-                continue;
-            }
-            if critere(&self.lignes[j])? {
-                if trouve.is_some() {
-                    return Ok(None);
-                }
-                trouve = Some(j);
-            }
-        }
-        Ok(trouve)
-    }
-
-    /// Règle 1 : référence. Renvoie (évaluations, budget épuisé).
-    fn par_reference(&mut self, budget: u64) -> (u64, bool) {
-        let mut evaluations = 0u64;
-        for i in 0..self.lignes.len() {
-            let Some(reference) = self.lignes[i].reference else {
-                continue;
-            };
-            if self.prise[i] {
-                continue;
-            }
-            let critere = |autre: &Ouverte<'_>| {
-                if evaluations >= budget {
-                    return Err(Epuise);
-                }
-                evaluations += 1;
-                Ok(autre.reference.is_some_and(|r| r.contains(reference)))
-            };
-            match self.candidat_unique(i, 0..self.lignes.len(), critere) {
-                Err(Epuise) => return (evaluations, true),
-                Ok(Some(j)) => {
-                    self.retenir(Regle::Reference, &[i, j]);
-                }
-                Ok(None) => {}
-            }
-        }
-        (evaluations, false)
-    }
-
-    /// Règle 2 : montant exact, par index des résiduels (coût quasi linéaire, sans budget).
-    fn par_montant(&mut self) {
-        let mut index: BTreeMap<(Sens, Decimal), Vec<usize>> = BTreeMap::new();
-        for (j, ligne) in self.lignes.iter().enumerate() {
-            index
-                .entry((ligne.sens, ligne.residuel))
-                .or_default()
-                .push(j);
-        }
-        for i in 0..self.lignes.len() {
-            if self.prise[i] {
-                continue;
-            }
-            let cle = (self.lignes[i].sens.inverse(), self.lignes[i].residuel);
-            let candidats = index.get(&cle).map_or_default(Vec::as_slice);
-            if let Ok(Some(j)) = self.candidat_unique(i, candidats.iter().copied(), |_| Ok(true)) {
-                self.retenir(Regle::MontantExact, &[i, j]);
-            }
-        }
-    }
-
-    /// Règle 3 : combinaison bornée. Renvoie (évaluations, budget épuisé).
-    fn par_combinaison(&mut self, bornes: &Bornes) -> (u64, bool) {
-        let mut restant = bornes.budget;
-        for i in 0..self.lignes.len() {
-            if self.prise[i] {
-                continue;
-            }
-            let cible = &self.lignes[i];
-            let candidats: Vec<usize> = (0..self.lignes.len())
-                .filter(|&j| {
-                    !self.prise[j]
-                        && self.lignes[j].sens != cible.sens
-                        && self.lignes[j].residuel < cible.residuel
-                })
-                .collect();
-            let mut choisis = Vec::new();
-            match chercher(
-                self.lignes,
-                &candidats,
-                0,
-                cible.residuel,
-                bornes.lignes_max - 1,
-                &mut restant,
-                &mut choisis,
-            ) {
-                Issue::Epuisee => return (bornes.budget - restant, true),
-                Issue::Trouvee => {
-                    let indices: Vec<usize> = std::iter::once(i)
-                        .chain(choisis.iter().map(|&k| candidats[k]))
-                        .collect();
-                    self.retenir(Regle::Combinaison, &indices);
-                }
-                Issue::Absente => {}
-            }
-        }
-        (bornes.budget - restant, false)
     }
 }
 
 /// Recherche en profondeur d'au moins deux candidats (au plus `max`) dont les résiduels
 /// somment exactement `reste`, dans l'ordre des candidats. Chaque candidat examiné consomme
-/// une évaluation du budget ; la profondeur est bornée par `max`.
+/// une évaluation ; la profondeur est bornée par `max`. `Ok(true)` : `choisis` est rempli.
 fn chercher(
     lignes: &[Ouverte<'_>],
     candidats: &[usize],
     debut: usize,
     reste: Decimal,
     max: usize,
-    restant: &mut u64,
+    compteur: &mut Compteur,
     choisis: &mut Vec<usize>,
-) -> Issue {
+) -> Result<bool, Epuise> {
     for k in debut..candidats.len() {
-        if *restant == 0 {
-            return Issue::Epuisee;
-        }
-        *restant -= 1;
+        compteur.evaluer()?;
         let valeur = lignes[candidats[k]].residuel;
         if valeur > reste {
             continue;
         }
         choisis.push(k);
         if valeur == reste {
-            // Un seul candidat égal : c'est la règle du montant exact (ambiguë ici), pas une
-            // combinaison.
+            // Un seul candidat égal relève de la règle du montant exact, pas d'une combinaison.
             if choisis.len() >= 2 {
-                return Issue::Trouvee;
+                return Ok(true);
             }
-        } else if choisis.len() < max {
-            match chercher(
+        } else if choisis.len() < max
+            && chercher(
                 lignes,
                 candidats,
                 k + 1,
                 reste - valeur,
                 max,
-                restant,
+                compteur,
                 choisis,
-            ) {
-                Issue::Absente => {}
-                issue => return issue,
-            }
+            )?
+        {
+            return Ok(true);
         }
         choisis.pop();
     }
-    Issue::Absente
+    Ok(false)
 }

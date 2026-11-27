@@ -16,7 +16,10 @@
 //!   la plus haute date des lignes.
 //!
 //! Le [`RegistreLettrage`] d'un compte ne modifie jamais une ligne : il ne garde que les
-//! lettrages et les ruptures ajoutés, et un état dérivé (montant imputé par ligne).
+//! lettrages et les ruptures ajoutés, et un état dérivé (montant imputé par ligne). Chaque
+//! opération (lettrage ou rupture) reçoit un **rang d'opération** croissant par compte : la
+//! relecture de la persistance ([`RegistreLettrage::rejouer`]) suit ce rang, jamais les dates
+//! (deux opérations du même jour s'ordonnent sans ambiguïté).
 
 mod lettre;
 mod propositions;
@@ -33,7 +36,9 @@ use crate::livre::EcritureValidee;
 use crate::montant::Montant;
 
 pub use lettre::Lettre;
-pub use propositions::{BilanGroupe, Bornes, Proposition, Propositions, Regle};
+pub use propositions::{
+    Ambiguite, BilanGroupe, Bornes, Proposition, Propositions, REFERENCE_LONGUEUR_MIN, Regle,
+};
 
 /// Longueur maximale d'un motif de rupture, en octets (ADR 0032, point 5).
 pub const MOTIF_OCTETS_MAX: usize = 400;
@@ -112,6 +117,12 @@ pub enum ErreurLettrage {
     /// Motif de rupture vide, trop long ou contenant un caractère interdit.
     #[error("motif de rupture invalide")]
     MotifInvalide,
+    /// Rang d'opération nul, en double ou qui ne suit pas le dernier rang du registre.
+    #[error("rang d'opération invalide : {0}")]
+    RangOperationInvalide(u64),
+    /// Lettre relue qui ne suit pas la dernière lettre du compte (suite croissante).
+    #[error("lettre hors de la suite du compte : {0}")]
+    LettreHorsSuite(Lettre),
     /// Bornes de combinaison hors des limites admises.
     #[error("bornes de combinaison invalides")]
     BornesInvalides,
@@ -176,6 +187,12 @@ pub struct LigneLettrable {
 
 impl LigneLettrable {
     /// Ligne relue d'une écriture validée (rang de chaîne dans `id`).
+    ///
+    /// **Contrat** : `ligne` est la ligne `id.position()` de l'écriture **validée** de rang de
+    /// chaîne `id.rang()`, relue de la persistance ; c'est à l'appelant (la couche de
+    /// persistance, PR 9a) de le garantir, comme pour [`EcritureValidee::reconstituer`]. Ce
+    /// constructeur évite de reconstituer toute l'écriture pour lire les lignes d'un compte ;
+    /// [`Self::depuis_validee`] est la variante qui part d'une [`EcritureValidee`].
     ///
     /// - `date` : date comptable de l'écriture ;
     /// - `tiers_resolu` : tiers de la ligne **résolu** au sens de la fusion (ADR 0031) ;
@@ -356,6 +373,7 @@ pub enum Origine {
 /// Lettrage : une opération, immuable une fois inscrite.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lettrage {
+    rang: u64,
     lettre: Lettre,
     date: Date,
     origine: Origine,
@@ -363,6 +381,12 @@ pub struct Lettrage {
 }
 
 impl Lettrage {
+    /// Rang d'opération (à persister ; ordonne la relecture).
+    #[must_use]
+    pub fn rang(&self) -> u64 {
+        self.rang
+    }
+
     /// Lettre.
     #[must_use]
     pub fn lettre(&self) -> Lettre {
@@ -463,12 +487,19 @@ fn caractere_interdit(c: char) -> bool {
 /// Rupture d'un lettrage : ajoutée, jamais supprimée.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rupture {
+    rang: u64,
     lettre: Lettre,
     date: Date,
     motif: MotifRupture,
 }
 
 impl Rupture {
+    /// Rang d'opération (à persister ; ordonne la relecture).
+    #[must_use]
+    pub fn rang(&self) -> u64 {
+        self.rang
+    }
+
     /// Lettre du lettrage rompu.
     #[must_use]
     pub fn lettre(&self) -> Lettre {
@@ -488,6 +519,31 @@ impl Rupture {
     }
 }
 
+/// Opération relue de la persistance, à rejouer par [`RegistreLettrage::rejouer`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Operation {
+    /// Lettrage.
+    Lettrage {
+        /// Lettre.
+        lettre: Lettre,
+        /// Date de l'opération.
+        date: Date,
+        /// Origine.
+        origine: Origine,
+        /// Liens.
+        liens: Vec<Lien>,
+    },
+    /// Rupture d'un lettrage.
+    Rupture {
+        /// Lettre du lettrage rompu.
+        lettre: Lettre,
+        /// Date de l'opération.
+        date: Date,
+        /// Motif.
+        motif: MotifRupture,
+    },
+}
+
 /// Lettrages d'un compte lettrable : lignes, lettrages et ruptures, en ajout seul.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistreLettrage {
@@ -497,6 +553,8 @@ pub struct RegistreLettrage {
     impute: BTreeMap<IdLigne, Decimal>,
     lettrages: BTreeMap<Lettre, Lettrage>,
     ruptures: BTreeMap<Lettre, Rupture>,
+    /// Dernier rang d'opération (0 : aucune).
+    dernier_rang: u64,
 }
 
 impl RegistreLettrage {
@@ -514,6 +572,7 @@ impl RegistreLettrage {
             impute: BTreeMap::new(),
             lettrages: BTreeMap::new(),
             ruptures: BTreeMap::new(),
+            dernier_rang: 0,
         })
     }
 
@@ -615,7 +674,14 @@ impl RegistreLettrage {
     ) -> Result<&Lettrage, ErreurLettrage> {
         let liens = self.imputer(selection)?;
         let lettre = self.prochaine_lettre()?;
-        self.inscrire(lettre, date, origine, liens)
+        let rang = self.prochain_rang()?;
+        self.inscrire(rang, lettre, date, origine, liens)
+    }
+
+    fn prochain_rang(&self) -> Result<u64, ErreurLettrage> {
+        self.dernier_rang
+            .checked_add(1)
+            .ok_or(ErreurLettrage::RangOperationInvalide(self.dernier_rang))
     }
 
     /// Calcule les liens de [`Self::lettrer`] sans rien inscrire.
@@ -653,19 +719,81 @@ impl RegistreLettrage {
         Ok(liens)
     }
 
-    /// Inscrit un lettrage relu de la persistance, après contrôle des mêmes conditions. Les
-    /// lettrages et les ruptures se relisent dans l'ordre où les opérations ont eu lieu.
+    /// Rejoue des opérations relues de la persistance, **dans l'ordre de leur rang** (l'ordre
+    /// de l'itérateur est indifférent), avec les contrôles d'un lettrage et d'une rupture, sauf
+    /// celui de l'exercice clos (historique). Tout ou rien : en cas d'erreur, le registre est
+    /// inchangé.
     ///
     /// # Errors
-    /// Lettre déjà employée, liens invalides (voir [`Self::lettrer`]).
-    pub fn reprendre(
+    /// [`ErreurLettrage::RangOperationInvalide`] (rang nul, en double, ou pas au-delà du
+    /// dernier rang du registre) ; [`ErreurLettrage::LettreHorsSuite`] ; contrôles de
+    /// [`Self::lettrer`] et de [`Self::rompre`].
+    pub fn rejouer(
         &mut self,
-        lettre: Lettre,
-        date: Date,
-        origine: Origine,
-        liens: Vec<Lien>,
-    ) -> Result<&Lettrage, ErreurLettrage> {
-        self.inscrire(lettre, date, origine, liens)
+        operations: impl IntoIterator<Item = (u64, Operation)>,
+    ) -> Result<(), ErreurLettrage> {
+        let mut operations: Vec<(u64, Operation)> = operations.into_iter().collect();
+        operations.sort_by_key(|(rang, _)| *rang);
+        let mut copie = self.clone();
+        for (rang, operation) in operations {
+            if rang <= copie.dernier_rang {
+                return Err(ErreurLettrage::RangOperationInvalide(rang));
+            }
+            match operation {
+                Operation::Lettrage {
+                    lettre,
+                    date,
+                    origine,
+                    liens,
+                } => {
+                    if copie.lettrages.contains_key(&lettre) {
+                        return Err(ErreurLettrage::LettreDejaEmployee(lettre));
+                    }
+                    if lettre < copie.prochaine_lettre()? {
+                        return Err(ErreurLettrage::LettreHorsSuite(lettre));
+                    }
+                    copie.inscrire(rang, lettre, date, origine, liens)?;
+                }
+                Operation::Rupture {
+                    lettre,
+                    date,
+                    motif,
+                } => {
+                    copie.inscrire_rupture(rang, lettre, date, motif)?;
+                }
+            }
+        }
+        *self = copie;
+        Ok(())
+    }
+
+    /// Historique des opérations, par rang : ce que [`Self::rejouer`] relit.
+    #[must_use]
+    pub fn historique(&self) -> Vec<(u64, Operation)> {
+        let lettrages = self.lettrages.values().map(|l| {
+            (
+                l.rang,
+                Operation::Lettrage {
+                    lettre: l.lettre,
+                    date: l.date,
+                    origine: l.origine,
+                    liens: l.liens.clone(),
+                },
+            )
+        });
+        let ruptures = self.ruptures.values().map(|r| {
+            (
+                r.rang,
+                Operation::Rupture {
+                    lettre: r.lettre,
+                    date: r.date,
+                    motif: r.motif.clone(),
+                },
+            )
+        });
+        let mut historique: Vec<(u64, Operation)> = lettrages.chain(ruptures).collect();
+        historique.sort_by_key(|(rang, _)| *rang);
+        historique
     }
 
     /// Rompt un lettrage (dé-lettrage) : ajoute une rupture datée du jour de l'opération. Les
@@ -691,15 +819,13 @@ impl RegistreLettrage {
         {
             return Err(ErreurLettrage::ExerciceClos(lettre));
         }
-        self.reprendre_rupture(lettre, date, motif)
+        let rang = self.prochain_rang()?;
+        self.inscrire_rupture(rang, lettre, date, motif)
     }
 
-    /// Inscrit une rupture relue de la persistance (sans contrôle d'exercice : historique).
-    ///
-    /// # Errors
-    /// Lettre inconnue, déjà rompue, date antérieure au lettrage.
-    pub fn reprendre_rupture(
+    fn inscrire_rupture(
         &mut self,
+        rang: u64,
         lettre: Lettre,
         date: Date,
         motif: MotifRupture,
@@ -721,7 +847,9 @@ impl RegistreLettrage {
                 }
             }
         }
+        self.dernier_rang = rang;
         Ok(self.ruptures.entry(lettre).or_insert(Rupture {
+            rang,
             lettre,
             date,
             motif,
@@ -730,6 +858,7 @@ impl RegistreLettrage {
 
     fn inscrire(
         &mut self,
+        rang: u64,
         lettre: Lettre,
         date: Date,
         origine: Origine,
@@ -742,7 +871,9 @@ impl RegistreLettrage {
         for (id, montant) in cumul {
             *self.impute.entry(id).or_default() += montant;
         }
+        self.dernier_rang = rang;
         Ok(self.lettrages.entry(lettre).or_insert(Lettrage {
+            rang,
             lettre,
             date,
             origine,
