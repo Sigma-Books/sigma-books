@@ -4,6 +4,7 @@ import { chercher, fixerLangue } from '../i18n/index.ts';
 import {
 	estApplicable,
 	estListeVersions,
+	estVersionCreee,
 	lireApplicable,
 	type Applicable,
 	type VersionFiscale
@@ -91,6 +92,23 @@ describe('réponses de l’API', () => {
 		);
 		assert.equal(estListeVersions({ pays: 'XX', versions: [{ ...PROPRE, numero: 1.5 }] }), false);
 		assert.equal(estListeVersions({ pays: 'XX' }), false);
+	});
+
+	it('la création rend ses avertissements', () => {
+		assert.equal(estVersionCreee({ ...PROPRE, avertissements: [] }), true);
+		assert.equal(
+			estVersionCreee({
+				...PROPRE,
+				avertissements: [{ code: 'ecritures_deja_validees', nombre: 3 }]
+			}),
+			true
+		);
+		assert.equal(estVersionCreee({ ...PROPRE }), false);
+		assert.equal(estVersionCreee({ ...PROPRE, avertissements: [{ code: 'x' }] }), false);
+		assert.equal(
+			estVersionCreee({ ...PROPRE, avertissements: [{ code: 'x', nombre: 1.5 }] }),
+			false
+		);
 	});
 
 	it('la date demandée est vérifiée avant de former l’adresse', () => {
