@@ -750,19 +750,76 @@ async fn creer(
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
     sans_parametres(requete)?;
-    let c: saisie::CorpsContenu = corps(requete.corps)?;
-    if c.version.is_some() {
-        return Err(ErreurApi::RequeteInvalide);
-    }
-    let contenu = contenu_controle(tx, &c, requete.registre_fiscal()?).await?;
-    let id = Uuid::new_v4();
-    brouillard::creer(tx, id, &contenu, maintenant()).await?;
-    let b = relire(tx, id).await?;
-    let traces = traces_contenu(dossier, id, "creation", None, Some((&contenu, b.version)));
+    let (b, traces) = creer_depuis(tx, dossier, requete.corps, requete.registre_fiscal()?).await?;
     Ok(Resultat {
         reponse: reponse_brouillon(StatusCode::CREATED, &b),
         traces,
     })
+}
+
+/// Crée un brouillon du corps `octets` (celui de la création), avec les contrôles de la saisie ;
+/// rend le brouillon relu et ses traces.
+async fn creer_depuis(
+    tx: &mut TransactionTenant,
+    dossier: &DossierAutorise,
+    octets: &[u8],
+    registre: &fiscal::Registre,
+) -> Result<(BrouillonStocke, Vec<Trace>), ErreurApi> {
+    let c: saisie::CorpsContenu = corps(octets)?;
+    if c.version.is_some() {
+        return Err(ErreurApi::RequeteInvalide);
+    }
+    let contenu = contenu_controle(tx, &c, registre).await?;
+    let id = Uuid::new_v4();
+    brouillard::creer(tx, id, &contenu, maintenant()).await?;
+    let b = relire(tx, id).await?;
+    let traces = traces_contenu(dossier, id, "creation", None, Some((&contenu, b.version)));
+    Ok((b, traces))
+}
+
+/// Brouillon **proposé** par un autre cas d'usage (écart d'un arrêté de caisse, L3-21 ; ADR 0034
+/// point 3) : le corps est celui de la création, soumis aux **mêmes contrôles** que la saisie
+/// (comptes, journal, période ouverte…). Rien n'est validé (règle absolue 6). Rend l'identifiant
+/// du brouillon, sa version et ses traces.
+pub(crate) async fn proposer(
+    tx: &mut TransactionTenant,
+    dossier: &DossierAutorise,
+    octets: &[u8],
+    registre: &fiscal::Registre,
+) -> Result<(Uuid, i32, Vec<Trace>), ErreurApi> {
+    let (b, traces) = creer_depuis(tx, dossier, octets, registre).await?;
+    Ok((b.id, b.version, traces))
+}
+
+/// Lie la pièce `piece`, créée dans cette transaction, comme pièce **principale** du brouillon
+/// `id` tout juste [`proposer`] (version `version`, sans autre pièce). Rend la trace du lien.
+pub(crate) async fn lier_principale(
+    tx: &mut TransactionTenant,
+    dossier: &DossierAutorise,
+    id: Uuid,
+    version: i32,
+    piece: Uuid,
+) -> Result<Trace, ErreurApi> {
+    verrouiller_a_la_version(tx, id, version).await?;
+    match brouillard::verrouiller_piece(tx, piece).await? {
+        PieceALier::Liable => {}
+        PieceALier::Absente | PieceALier::Ecartee => {
+            return Err(ErreurApi::Interne(CategorieErreur::Donnee));
+        }
+    }
+    let nouvelle =
+        brouillard::lier_piece(tx, id, piece, RolePiece::Principale, maintenant()).await?;
+    let mut trace = trace_de(dossier, id, "lien_piece");
+    trace.donnees.push(("piece", piece.to_string()));
+    trace
+        .donnees
+        .push(("role", RolePiece::Principale.nom().to_owned()));
+    trace.champs.push((
+        "version",
+        Some(version.to_string()),
+        Some(nouvelle.to_string()),
+    ));
+    Ok(trace)
 }
 
 // --- Modification -------------------------------------------------------------------------

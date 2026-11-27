@@ -208,11 +208,19 @@ pub enum MotifConflit {
     ContexteDossierModifie,
     /// Brouillon saisi sous une autre devise de tenue ou une autre échelle que celles du dossier.
     BrouillonDeviseTenuePerimee,
+    /// Compte de trésorerie archivé : aucun arrêté de caisse (L3-21).
+    CompteTresorerieArchive,
+    /// Journal ou compte déjà lié à un compte de trésorerie, ou journal qui n'est pas de
+    /// trésorerie (L3-21).
+    JournalDejaTresorerie,
+    /// Plus aucun numéro de sous-compte ou code de journal libre pour la création assistée
+    /// (`01` à `99`) : fournir le segment ou le code (L3-21).
+    NumerotationTresorerieEpuisee,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 39] = [
+    pub const TOUS: [Self; 42] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -252,6 +260,9 @@ impl MotifConflit {
         Self::ParametresTropDeVersions,
         Self::ContexteDossierModifie,
         Self::BrouillonDeviseTenuePerimee,
+        Self::CompteTresorerieArchive,
+        Self::JournalDejaTresorerie,
+        Self::NumerotationTresorerieEpuisee,
     ];
 
     /// Code du corps de la réponse.
@@ -297,6 +308,9 @@ impl MotifConflit {
             Self::DossierBrouillardNonVide => "dossier_brouillard_non_vide",
             Self::ContexteDossierModifie => "contexte_dossier_modifie",
             Self::BrouillonDeviseTenuePerimee => "brouillon_devise_tenue_perimee",
+            Self::CompteTresorerieArchive => "compte_tresorerie_archive",
+            Self::JournalDejaTresorerie => "journal_deja_tresorerie",
+            Self::NumerotationTresorerieEpuisee => "numerotation_tresorerie_epuisee",
         }
     }
 }
@@ -391,11 +405,19 @@ pub enum MotifValidation {
     /// Date d'effet au-delà d'un an après le jour du dossier : la croissance stricte des dates et
     /// l'ajout seul rendraient toute surcharge ultérieure impossible.
     ParametresDateEffetLointaine,
+    /// Compte de trésorerie dans une autre devise que celle de tenue : relève de L6 (ADR 0034
+    /// point 1).
+    TresorerieDeviseEtrangere,
+    /// Arrêté de caisse demandé sur un compte de trésorerie qui n'est pas une caisse.
+    TresoreriePasUneCaisse,
+    /// Plafond ou compte d'écart sur un compte de trésorerie qui n'est pas une caisse, ou
+    /// plafond non strictement positif.
+    TresorerieParametreInvalide,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 41] = [
+    pub const TOUS: [Self; 44] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -437,6 +459,9 @@ impl MotifValidation {
         Self::ParametresMotifInvalide,
         Self::ParametresPeriodeInvalide,
         Self::ParametresDateEffetLointaine,
+        Self::TresorerieDeviseEtrangere,
+        Self::TresoreriePasUneCaisse,
+        Self::TresorerieParametreInvalide,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -501,6 +526,9 @@ impl MotifValidation {
             Self::ParametresMotifInvalide => "parametres_motif_invalide",
             Self::ParametresPeriodeInvalide => "parametres_periode_invalide",
             Self::ParametresDateEffetLointaine => "parametres_date_effet_lointaine",
+            Self::TresorerieDeviseEtrangere => "tresorerie_devise_etrangere",
+            Self::TresoreriePasUneCaisse => "tresorerie_pas_une_caisse",
+            Self::TresorerieParametreInvalide => "tresorerie_parametre_invalide",
         }
     }
 }
