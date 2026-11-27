@@ -15,10 +15,12 @@ use api::base::{ContexteTenant, ouvrir_transaction};
 use axum::http::StatusCode;
 use commun::banc::{Banc, aujourd, banc, banque, caisse, code, contenu};
 use commun::brouillard::{journal_de_saisie, ligne};
+use commun::code_sql;
 use commun::referentiel::sous_compte_fixe;
 use commun::serveur::{Reponse, envoyer, lire};
 use serde_json::{Value, json};
 use syscohada::TypeTresorerie;
+use uuid::Uuid;
 
 fn defaut(t: TypeTresorerie) -> String {
     syscohada::Referentiel::officiel()
@@ -210,6 +212,16 @@ async fn creation_assistee_du_sous_compte_et_du_journal() {
 async fn reprise_d_un_journal_de_tresorerie_existant() {
     let banc_de_test = banc().await;
     let b = &banc_de_test;
+    // Le type demandé doit être celui du compte du journal repris (CA : compte de caisse).
+    let r = poster(
+        b,
+        b.c.administrateur,
+        "/comptes",
+        &json!({"type":"banque","nom":"Banque sur la caisse","journal_existant":"CA"}),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "tresorerie_type_incoherent");
     let caisse_par_defaut = creer(
         b,
         &json!({"type":"caisse","nom":"Caisse principale","journal_existant":"CA"}),
@@ -652,18 +664,223 @@ async fn rls_et_ajout_seul_des_tables_de_tresorerie() {
         );
     }
 
-    // La devise de tenue d'un dossier qui a un compte de trésorerie ne change plus.
-    let mut admin = b.env.admin.begin().await.unwrap();
-    sqlx::query("SELECT set_config('sigma.dossier', $1::text, true)")
-        .bind(b.c.dossier.uuid())
-        .execute(&mut *admin)
+    // Écritures croisées, rôle applicatif au contexte du dossier : une ligne d'un autre dossier
+    // est refusée par `WITH CHECK` (42501), un compte d'un autre dossier par la clé composite.
+    let autre = commun::referentiel::doter(
+        &b.env.application,
+        b.c.cabinet,
+        b.c.autre_dossier,
+        b.c.administrateur,
+    )
+    .await;
+    let caisse_id = Uuid::parse_str(caisse["id"].as_str().unwrap()).unwrap();
+    let compte_id = Uuid::parse_str(caisse["compte"]["id"].as_str().unwrap()).unwrap();
+    let journal_id = Uuid::parse_str(caisse["journal"]["id"].as_str().unwrap()).unwrap();
+    let piece: Uuid =
+        sqlx::query_scalar("SELECT piece_id FROM arrete_caisse WHERE dossier_id = $1")
+            .bind(b.c.dossier.uuid())
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+    let cas: [(&str, &str, Uuid); 4] = [
+        (
+            "INSERT INTO compte_tresorerie (cabinet_id, dossier_id, id, type, nom, compte_id, \
+             journal_id, devise, cree_par, cree_le) \
+             VALUES ($1, $2, gen_random_uuid(), 'caisse', 'X', $3, $4, 'XOF', $5, now())",
+            "42501",
+            b.c.autre_dossier.uuid(),
+        ),
+        (
+            "INSERT INTO arrete_caisse (cabinet_id, dossier_id, id, compte_tresorerie_id, \
+             date_arrete, montant_compte, solde_comptable, ecart, piece_id, arrete_par, arrete_le) \
+             VALUES ($1, $2, gen_random_uuid(), $3, current_date, 0, 0, 0, $4, $5, now())",
+            "42501",
+            b.c.autre_dossier.uuid(),
+        ),
+        (
+            "UPDATE compte_tresorerie SET compte_excedent_id = $3 \
+             WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $4",
+            "23503",
+            b.c.dossier.uuid(),
+        ),
+        (
+            "UPDATE compte_tresorerie SET devise = 'EUR' \
+             WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $4 AND $3::uuid IS NOT NULL",
+            "23514",
+            b.c.dossier.uuid(),
+        ),
+    ];
+    for (rang, (requete, sqlstate, dossier)) in cas.into_iter().enumerate() {
+        let mut tx = ouvrir_transaction(
+            &b.env.application,
+            ContexteTenant::cabinet(b.c.cabinet, b.c.administrateur),
+        )
         .await
         .unwrap();
-    let e =
+        tx.restreindre_au_dossier(b.c.dossier).await.unwrap();
+        let q = sqlx::query(requete).bind(b.c.cabinet.uuid()).bind(dossier);
+        let q = match rang {
+            0 => q
+                .bind(compte_id)
+                .bind(journal_id)
+                .bind(b.c.administrateur.uuid()),
+            1 => q
+                .bind(caisse_id)
+                .bind(piece)
+                .bind(b.c.administrateur.uuid()),
+            2 => q.bind(autre.compte).bind(caisse_id),
+            _ => q.bind(Uuid::nil()).bind(caisse_id),
+        };
+        let erreur = q.execute(tx.connexion()).await.unwrap_err();
+        assert_eq!(
+            code_sql(&erreur).as_deref(),
+            Some(sqlstate),
+            "{requete} : {erreur}"
+        );
+    }
+}
+
+/// Change la devise de tenue par le rôle applicatif, au contexte du dossier ; rend la devise du
+/// compte de trésorerie vue dans la même transaction, ou le SQLSTATE du refus. Rien n'est validé.
+async fn changer_devise_brute(b: &Banc, compte: Uuid) -> Result<String, String> {
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::cabinet(b.c.cabinet, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    tx.restreindre_au_dossier(b.c.dossier).await.unwrap();
+    let r =
         sqlx::query("UPDATE dossier SET devise_tenue = 'EUR', decimales_tenue = 2 WHERE id = $1")
             .bind(b.c.dossier.uuid())
-            .execute(&mut *admin)
-            .await
-            .unwrap_err();
-    assert!(e.to_string().contains("comptes de trésorerie"), "{e}");
+            .execute(tx.connexion())
+            .await;
+    match r {
+        Err(e) => Err(code_sql(&e).unwrap_or_default()),
+        Ok(r) => {
+            assert_eq!(r.rows_affected(), 1);
+            Ok(
+                sqlx::query_scalar("SELECT devise FROM compte_tresorerie WHERE id = $1")
+                    .bind(compte)
+                    .fetch_one(tx.connexion())
+                    .await
+                    .unwrap(),
+            )
+        }
+    }
+}
+
+#[tokio::test]
+async fn la_devise_suit_la_tenue_jusqu_au_premier_mouvement() {
+    let banc_de_test = banc().await;
+    let b = &banc_de_test;
+    let caisse = creer(b, &json!({"type":"caisse","nom":"Caisse"})).await;
+    let id = Uuid::parse_str(caisse["id"].as_str().unwrap()).unwrap();
+    // Sans mouvement : la devise de tenue change (rôle applicatif), le compte la suit.
+    assert_eq!(changer_devise_brute(b, id).await, Ok("EUR".to_owned()));
+    // Par l'API aussi (session fraîche) ; puis retour au XOF, le compte suit encore.
+    let contexte = format!(
+        "/api/cabinets/{}/dossiers/{}/contexte",
+        b.c.cabinet, b.c.dossier
+    );
+    for (devise, attendue) in [("EUR", "EUR"), ("XOF", "XOF")] {
+        let r = envoyer(
+            &b.routeur,
+            &contexte,
+            Some(b.c.administrateur),
+            &json!({"devise": devise}).to_string(),
+            None,
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+        assert_eq!(fiche(b, &id.to_string(), "").await["devise"], attendue);
+    }
+    // Premier mouvement : un arrêté de caisse. La devise de tenue est figée : 409 par l'API,
+    // check_violation par le rôle applicatif (seconde barrière).
+    let r = poster(
+        b,
+        b.c.collaborateur,
+        &format!("/comptes/{id}/arretes"),
+        &json!({"date": aujourd(), "montant_compte": "0"}),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    let r = envoyer(
+        &b.routeur,
+        &contexte,
+        Some(b.c.administrateur),
+        r#"{"devise":"EUR"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "dossier_arretes_de_caisse");
+    assert_eq!(changer_devise_brute(b, id).await, Err("23514".to_owned()));
+}
+
+#[tokio::test]
+async fn un_brouillon_d_ecart_refuse_n_empeche_pas_l_arrete() {
+    let banc_de_test = banc().await;
+    let b = &banc_de_test;
+    let caisse = creer(b, &json!({"type":"caisse","nom":"Caisse"})).await;
+    let id = caisse["id"].as_str().unwrap().to_owned();
+    let manquant = sous_compte_fixe().to_string();
+    let r = poster(
+        b,
+        b.valideur,
+        &format!("/comptes/{id}/modification"),
+        &json!({"compte_manquant": manquant}),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    // Le compte d'écart est désactivé ensuite : la saisie refuserait le brouillon.
+    let r = envoyer(
+        &b.routeur,
+        &format!(
+            "/api/cabinets/{}/dossiers/{}/comptes/{}/desactivation",
+            b.c.cabinet, b.c.dossier, b.f.compte
+        ),
+        Some(b.c.administrateur),
+        "{}",
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let brouillons = b.compter("brouillon").await;
+    let pieces = b.compter("piece").await;
+    let r = poster(
+        b,
+        b.c.collaborateur,
+        &format!("/comptes/{id}/arretes"),
+        &json!({"date": aujourd(), "montant_compte": "0", "detail": []}),
+    )
+    .await;
+    // Solde nul, compté nul : aucun écart. Un comptage négatif est refusé ; on crée donc un
+    // solde positif d'abord.
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    let nc = caisse["compte"]["numero"].as_str().unwrap().to_owned();
+    valider(
+        b,
+        &[ligne(&nc, "debit", "500"), ligne(banque(), "credit", "500")],
+    )
+    .await;
+    let r = poster(
+        b,
+        b.c.collaborateur,
+        &format!("/comptes/{id}/arretes"),
+        &json!({"date": aujourd(), "montant_compte": "400"}),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    let a = r.json();
+    assert_eq!(a["ecart"], "-100");
+    assert!(a["brouillon"].is_null());
+    assert_eq!(codes(&a), ["brouillon_ecart_non_cree"]);
+    let raison = a["avertissements"][0]["raison"].as_str().unwrap();
+    assert!(raison.contains("compte"), "{raison}");
+    assert_eq!(a["avertissements"][0]["compte"], manquant.as_str());
+    // Procès-verbal enregistré (pièce et arrêté), aucun brouillon de plus que la validation.
+    assert_eq!(b.compter("brouillon").await, brouillons);
+    assert!(b.compter("piece").await > pieces + 1);
+    assert_eq!(b.compter("arrete_caisse").await, 2);
 }

@@ -216,11 +216,15 @@ pub enum MotifConflit {
     /// Plus aucun numéro de sous-compte ou code de journal libre pour la création assistée
     /// (`01` à `99`) : fournir le segment ou le code (L3-21).
     NumerotationTresorerieEpuisee,
+    /// Le dossier a des arrêtés de caisse : sa devise de tenue ne change plus (L3-21).
+    DossierArretesDeCaisse,
+    /// Type demandé autre que celui du compte du journal repris (L3-21).
+    TresorerieTypeIncoherent,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 42] = [
+    pub const TOUS: [Self; 44] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -263,6 +267,8 @@ impl MotifConflit {
         Self::CompteTresorerieArchive,
         Self::JournalDejaTresorerie,
         Self::NumerotationTresorerieEpuisee,
+        Self::DossierArretesDeCaisse,
+        Self::TresorerieTypeIncoherent,
     ];
 
     /// Code du corps de la réponse.
@@ -311,6 +317,8 @@ impl MotifConflit {
             Self::CompteTresorerieArchive => "compte_tresorerie_archive",
             Self::JournalDejaTresorerie => "journal_deja_tresorerie",
             Self::NumerotationTresorerieEpuisee => "numerotation_tresorerie_epuisee",
+            Self::DossierArretesDeCaisse => "dossier_arretes_de_caisse",
+            Self::TresorerieTypeIncoherent => "tresorerie_type_incoherent",
         }
     }
 }

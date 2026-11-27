@@ -62,12 +62,15 @@ CREATE POLICY compte_tresorerie_tenant ON compte_tresorerie
     );
 
 GRANT SELECT, INSERT ON compte_tresorerie TO sigma_application;
-GRANT UPDATE (nom, plafond, compte_excedent_id, compte_manquant_id, archive)
+-- `devise` : seulement pour suivre la devise de tenue du dossier (déclencheur
+-- `dossier_devise_tresorerie` ci-dessous, contrôlé par `compte_tresorerie_devise_de_tenue`).
+GRANT UPDATE (nom, plafond, compte_excedent_id, compte_manquant_id, archive, devise)
     ON compte_tresorerie TO sigma_application;
 
 -- La devise d'un compte de trésorerie est celle de tenue du dossier (ADR 0034 point 1 : un compte
 -- en devise étrangère relève de L6). Seconde barrière du contrôle de `api` (422
--- `tresorerie_devise_etrangere`). Fonction ordinaire (droits de l'appelant, sous RLS).
+-- `tresorerie_devise_etrangere`), à l'insertion comme à toute modification de la devise.
+-- Fonction ordinaire (droits de l'appelant, sous RLS).
 CREATE FUNCTION compte_tresorerie_devise_de_tenue() RETURNS trigger
     LANGUAGE plpgsql
     SET search_path = pg_catalog, pg_temp
@@ -84,30 +87,55 @@ END
 $$;
 REVOKE EXECUTE ON FUNCTION compte_tresorerie_devise_de_tenue() FROM PUBLIC;
 
+-- `AFTER` : la politique RLS (`WITH CHECK`) est appliquée d'abord ; une ligne d'un autre dossier
+-- est refusée par elle, non par ce contrôle.
 CREATE TRIGGER compte_tresorerie_devise_de_tenue
-    BEFORE INSERT ON compte_tresorerie
+    AFTER INSERT OR UPDATE OF devise ON compte_tresorerie
     FOR EACH ROW EXECUTE FUNCTION compte_tresorerie_devise_de_tenue();
 
--- Réciproque : la devise de tenue d'un dossier qui a un compte de trésorerie ne change plus (le
--- compte la porte). Déclencheur **distinct** de `dossier_contexte_fige` (0206, 0208, 0209) : une
--- voie de L3 n'en remplace pas la fonction, pour ne pas effacer la règle d'une autre.
-CREATE FUNCTION dossier_devise_figee_tresorerie() RETURNS trigger
+-- Devise de tenue et comptes de trésorerie (plan : « figés dès le premier mouvement ») :
+-- - un compte de trésorerie **sans mouvement** suit la devise de tenue quand elle change (la
+--   création d'un compte ne fige rien : aucun compte ne se supprime) ;
+-- - dès qu'un compte de trésorerie a un **mouvement** (ligne d'écriture validée sur son compte,
+--   ou arrêté de caisse : table `arrete_caisse`, `0541`), la devise de tenue ne change plus.
+-- Les écritures et brouillons du dossier figent déjà la devise (`dossier_contexte_fige`, 0206) :
+-- la règle propre à la trésorerie est l'arrêté. Déclencheur **distinct** de
+-- `dossier_contexte_fige` (une voie de L3 n'en remplace pas la fonction, pour ne pas effacer la
+-- règle d'une autre). `AFTER` : la ligne du dossier porte déjà la nouvelle devise quand les
+-- comptes la suivent. Fonction ordinaire (droits de l'appelant, sous RLS : le contexte du dossier
+-- est exigé par `dossier_contexte_fige` pour tout changement de devise).
+CREATE FUNCTION dossier_devise_tresorerie() RETURNS trigger
     LANGUAGE plpgsql
     SET search_path = pg_catalog, pg_temp
 AS $$
 BEGIN
     IF (NEW.devise_tenue, NEW.decimales_tenue)
-           IS DISTINCT FROM (OLD.devise_tenue, OLD.decimales_tenue)
-       AND EXISTS (SELECT 1 FROM public.compte_tresorerie t
-                    WHERE t.cabinet_id = OLD.cabinet_id AND t.dossier_id = OLD.id) THEN
-        RAISE EXCEPTION 'devise de tenue figée : le dossier a des comptes de trésorerie'
+           IS NOT DISTINCT FROM (OLD.devise_tenue, OLD.decimales_tenue) THEN
+        RETURN NEW;
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.compte_tresorerie t
+                WHERE t.cabinet_id = OLD.cabinet_id AND t.dossier_id = OLD.id
+                  AND (EXISTS (SELECT 1 FROM public.arrete_caisse a
+                                WHERE a.cabinet_id = t.cabinet_id AND a.dossier_id = t.dossier_id
+                                  AND a.compte_tresorerie_id = t.id)
+                       OR EXISTS (SELECT 1 FROM public.ecriture_validee_ligne l
+                                   JOIN public.compte c ON c.cabinet_id = l.cabinet_id
+                                                       AND c.dossier_id = l.dossier_id
+                                                       AND c.numero = l.compte_numero
+                                   WHERE l.cabinet_id = t.cabinet_id
+                                     AND l.dossier_id = t.dossier_id
+                                     AND c.id = t.compte_id))) THEN
+        RAISE EXCEPTION 'devise de tenue figée : un compte de trésorerie a des mouvements'
             USING ERRCODE = 'check_violation';
     END IF;
+    UPDATE public.compte_tresorerie SET devise = NEW.devise_tenue
+     WHERE cabinet_id = OLD.cabinet_id AND dossier_id = OLD.id
+       AND devise IS DISTINCT FROM NEW.devise_tenue;
     RETURN NEW;
 END
 $$;
-REVOKE EXECUTE ON FUNCTION dossier_devise_figee_tresorerie() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dossier_devise_tresorerie() FROM PUBLIC;
 
-CREATE TRIGGER dossier_devise_figee_tresorerie
-    BEFORE UPDATE ON dossier
-    FOR EACH ROW EXECUTE FUNCTION dossier_devise_figee_tresorerie();
+CREATE TRIGGER dossier_devise_tresorerie
+    AFTER UPDATE ON dossier
+    FOR EACH ROW EXECUTE FUNCTION dossier_devise_tresorerie();

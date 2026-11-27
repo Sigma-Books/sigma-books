@@ -10,9 +10,11 @@
 //! et un journal de trésorerie au premier code libre `BQ1`, `CA1`, `MM1`… (préfixes de la spec
 //! §5.2 ; ou celui fourni), par la **seule voie de mutation du référentiel** (`muter` : verrou,
 //! contrôles de `compta-core`, audit de chaque changement). Un journal de trésorerie existant (le
-//! journal CA par défaut) peut aussi être repris tel quel. Compte, journal, type et devise ne
-//! changent plus ; nom, plafond, comptes d'écart et archivage sont modifiables et journalisés.
-//! En L3, la devise est celle de tenue (422 `tresorerie_devise_etrangere` sinon : L6).
+//! journal CA par défaut) peut aussi être repris tel quel, avec le type du compte de ce journal
+//! (409 `tresorerie_type_incoherent` sinon). Compte, journal et type ne changent plus ; nom,
+//! plafond, comptes d'écart et archivage sont modifiables et journalisés. En L3, la devise est
+//! celle de tenue (422 `tresorerie_devise_etrangere` sinon : L6) ; elle la suit tant que les
+//! comptes de trésorerie n'ont aucun mouvement, puis la fige (migration 0540).
 //!
 //! # Avertissements de solde (ADR 0034 point 2, décision D2)
 //! **Jamais un refus** (aucun moteur ne bloque ; AUDCIF p. PDF 428 parle de « présomption
@@ -33,8 +35,10 @@
 //! contrôles que la saisie, note en pièce principale) sur le compte d'écart **désigné** par le
 //! dossier pour cette caisse (excédent ou manquant ; Odoo : comptes de gain et de perte de caisse
 //! par journal, `account_journal.py:234-243`) ; sans compte désigné, l'arrêté est enregistré avec
-//! l'avertissement `compte_ecart_non_designe`, sans brouillon. Rien n'est validé (règle
-//! absolue 6).
+//! l'avertissement `compte_ecart_non_designe`, sans brouillon ; si la saisie refuse le brouillon
+//! (période clôturée, compte d'écart désactivé…), l'arrêté est enregistré quand même, avec
+//! l'avertissement `brouillon_ecart_non_cree` et le code du refus (`raison`). Rien n'est validé
+//! (règle absolue 6).
 //!
 //! # Défense en profondeur (ADR 0011)
 //! Même si Cedar se trompait : chaque cas relit le dossier **visible** (affecté, sauf
@@ -343,6 +347,9 @@ struct VueAvertissement {
     solde: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     plafond: Option<String>,
+    /// Code du refus qui a empêché une proposition (`brouillon_ecart_non_cree`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    raison: Option<&'static str>,
 }
 
 fn vue_avertissement(a: &AvertissementSolde) -> VueAvertissement {
@@ -356,6 +363,7 @@ fn vue_avertissement(a: &AvertissementSolde) -> VueAvertissement {
         compte: None,
         solde: Some(solde.normalize().to_string()),
         plafond: plafond.map(|p| p.normalize().to_string()),
+        raison: None,
     }
 }
 
@@ -518,6 +526,7 @@ async fn virements_internes(
                 compte: Some(numero.clone()),
                 solde: Some(normalise.clone()),
                 plafond: None,
+                raison: None,
             });
         }
         comptes.push(VueVirement {
@@ -684,7 +693,7 @@ async fn creer(
         if c.segment.is_some() || c.code_journal.is_some() {
             return Err(ErreurApi::RequeteInvalide);
         }
-        reprendre_journal(tx, code).await?
+        reprendre_journal(tx, code, type_tresorerie).await?
     } else {
         let (compte_id, journal_id, t) =
             creation_assistee(tx, dossier, type_tresorerie, &nom, &c).await?;
@@ -728,11 +737,27 @@ async fn creer(
     })
 }
 
+/// Type de trésorerie que porte un compte : celui dont le compte par défaut (marque de données
+/// `type_tresorerie`) est lui-même ou l'un de ses ascendants ; `None` hors de ces comptes (par
+/// exemple un établissement financier, 53).
+fn type_du_compte(numero: &NumeroCompte) -> Result<Option<TypeTresorerie>, ErreurApi> {
+    let officiel = officiel()?;
+    Ok(TypeTresorerie::TOUS.into_iter().find(|t| {
+        officiel
+            .compte_par_defaut_tresorerie(*t)
+            .is_some_and(|d| d.est_ascendant_ou_egal(numero))
+    }))
+}
+
 /// Reprise d'un journal de trésorerie existant (journal CA par défaut…) : son compte devient
 /// celui du compte de trésorerie. Journal inconnu : 400 ; d'un autre type ou déjà lié : 409.
+/// Le type demandé doit être celui du compte du journal quand les données en désignent un (sinon
+/// une caisse porterait un compte bancaire, et ses avertissements de solde seraient faux) : 409
+/// `tresorerie_type_incoherent` ; hors des comptes par défaut, le type demandé est retenu.
 async fn reprendre_journal(
     tx: &mut TransactionTenant,
     code: &str,
+    type_tresorerie: TypeTresorerie,
 ) -> Result<(Uuid, Uuid), ErreurApi> {
     // Verrou du référentiel : les créations de comptes de trésorerie d'un dossier se suivent.
     if !verrouiller(tx).await? {
@@ -748,6 +773,9 @@ async fn reprendre_journal(
     let numero = journal
         .compte_tresorerie()
         .ok_or(conflit(MotifConflit::JournalDejaTresorerie))?;
+    if type_du_compte(numero)?.is_some_and(|t| t != type_tresorerie) {
+        return Err(conflit(MotifConflit::TresorerieTypeIncoherent));
+    }
     let journal_id = r.id_journal(&code).ok_or_else(donnee)?;
     let compte_id = r.id_compte(numero).ok_or_else(donnee)?;
     let deja = base::lister(tx)
@@ -1121,17 +1149,39 @@ async fn arreter(
             compte: None,
             solde: None,
             plafond: None,
+            raison: None,
         });
     }
     let brouillon = match contrepartie {
         None => None,
         Some((_, numero)) => {
             let octets = corps_ecart(&caisse, date, &ecart, numero);
-            let (id, version, t) =
-                super::brouillard::proposer(tx, dossier, &octets, requete.registre_fiscal()?)
-                    .await?;
-            traces.extend(t);
-            Some((id, version))
+            match super::brouillard::proposer(tx, dossier, &octets, requete.registre_fiscal()?)
+                .await
+            {
+                Ok((id, version, t)) => {
+                    traces.extend(t);
+                    Some((id, version))
+                }
+                // Refus de la saisie (période clôturée, compte d'écart désactivé…), rendu avant
+                // toute écriture : le procès-verbal de caisse est enregistré quand même, sans
+                // brouillon, avec la raison (aucun contrôle plus strict que la saisie elle-même).
+                Err(
+                    refus @ (ErreurApi::Saisie { .. }
+                    | ErreurApi::Conflit { .. }
+                    | ErreurApi::Validation { .. }),
+                ) => {
+                    avertissements.push(VueAvertissement {
+                        code: "brouillon_ecart_non_cree",
+                        compte: Some(numero.clone()),
+                        solde: None,
+                        plafond: None,
+                        raison: Some(refus.code()),
+                    });
+                    None
+                }
+                Err(e) => return Err(e),
+            }
         }
     };
 

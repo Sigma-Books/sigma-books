@@ -7,10 +7,10 @@
 # éditer le fichier d'une autre voie.
 #
 # `compte_tresorerie` (migration 0540) est une table de dossier ordinaire (régime « C » du plan) :
-# `UPDATE` des seules colonnes de configuration (nom, plafond, comptes d'écart, archivage), jamais
-# `DELETE`. Ses deux fonctions de déclencheur (`compte_tresorerie_devise_de_tenue`,
-# `dossier_devise_figee_tresorerie`) sont ordinaires (droits de l'appelant, sous RLS), sans
-# `SECURITY DEFINER`, `EXECUTE` retiré à PUBLIC.
+# `UPDATE` des seules colonnes de configuration (nom, plafond, comptes d'écart, archivage) et de la
+# devise, qui ne peut que suivre la devise de tenue du dossier ; jamais `DELETE`. Ses deux
+# fonctions de déclencheur (`compte_tresorerie_devise_de_tenue`, `dossier_devise_tresorerie`) sont
+# ordinaires (droits de l'appelant, sous RLS), sans `SECURITY DEFINER`, `EXECUTE` retiré à PUBLIC.
 
 [[ajout_seul]]
 nom = "arrete_caisse"

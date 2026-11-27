@@ -414,3 +414,20 @@ pub async fn arretes(
         })
         .collect())
 }
+
+/// Vrai si le dossier du contexte a au moins un arrêté de caisse (mouvement qui fige la devise de
+/// tenue, migration 0540).
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn a_des_arretes(tx: &mut TransactionTenant) -> Result<bool, ErreurBase> {
+    let (cabinet, dossier) = contexte(tx)?;
+    Ok(sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM arrete_caisse WHERE cabinet_id = $1 AND dossier_id = $2)
+           AS "existe!""#,
+        cabinet,
+        dossier,
+    )
+    .fetch_one(tx.connexion())
+    .await?)
+}

@@ -672,9 +672,11 @@ migrations `0540_compte_tresorerie.sql` et `0541_arrete_caisse.sql`, catalogue `
   `<défaut>-01`… du compte par défaut du type (marque `type_tresorerie` de `syscohada`, jamais un
   numéro dans le code) et journal `BQ1`, `CA1`, `MM1`… (spec §5.2), ou reprise d'un journal de
   trésorerie existant (`journal_existant`, le journal CA par défaut). Devise = devise de tenue (422
-  `tresorerie_devise_etrangere` sinon) ; deux déclencheurs ordinaires gardent cette égalité. Compte,
-  journal, type et devise ne changent plus ; nom, plafond (caisse), comptes d'écart (caisse) et
-  archivage sont modifiables et journalisés.
+  `tresorerie_devise_etrangere` sinon) : la devise d'un compte suit la devise de tenue tant
+  qu'aucun compte de trésorerie n'a de mouvement (écriture validée ou arrêté), puis la devise de
+  tenue est figée (déclencheurs ordinaires de `0540`). Un journal repris garde le type de son compte
+  (409 `tresorerie_type_incoherent`). Compte, journal et type ne changent plus ; nom, plafond
+  (caisse), comptes d'écart (caisse) et archivage sont modifiables et journalisés.
 - **Avertissements**, jamais des refus : `caisse_solde_crediteur`, `portefeuille_solde_crediteur`,
   `caisse_plafond_depasse` (`compta_core::rapprochement::avertissements_solde`) et
   `virement_interne_non_solde` (marque `virement_interne` de `syscohada`, 585), **calculés à la
@@ -683,7 +685,9 @@ migrations `0540_compte_tresorerie.sql` et `0541_arrete_caisse.sql`, catalogue `
 - **Arrêté de caisse** : comptage figé en pièce interne `piece-interne-v1` (note d'OD, format
   inchangé) ; écart non nul proposé au brouillard (journal de la caisse, mêmes contrôles que la
   saisie, note en pièce principale) sur le compte d'excédent ou de manquant désigné ; sans compte
-  désigné, avertissement `compte_ecart_non_designe`. Table `arrete_caisse` en ajout seul.
+  désigné, avertissement `compte_ecart_non_designe` ; brouillon refusé par la saisie : arrêté
+  enregistré quand même, avertissement `brouillon_ecart_non_cree` (`raison`). Table `arrete_caisse`
+  en ajout seul.
 - Fonctions partagées ajoutées hors du module : `routes::brouillard::{proposer, lier_principale}`
   et `routes::pieces::creer_note` (mêmes contrôles et même stockage que les routes de L2).
 

@@ -600,6 +600,11 @@ async fn modifier(
         if sensible && brouillon {
             return Err(conflit(MotifConflit::DossierBrouillardNonVide));
         }
+        // Un arrêté de caisse fige aussi la devise (L3-21 ; seconde barrière : déclencheur
+        // `dossier_devise_tresorerie`, migration 0540).
+        if sensible && crate::base::tresorerie::a_des_arretes(tx).await? {
+            return Err(conflit(MotifConflit::DossierArretesDeCaisse));
+        }
     }
     // Le pays d'un dossier qui a une version de paramètres fiscaux propre ne change plus : la
     // table, en ajout seul, deviendrait orpheline (ADR 0030).
