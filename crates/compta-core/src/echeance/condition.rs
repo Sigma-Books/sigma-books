@@ -4,9 +4,9 @@
 //!   terme est toujours le solde**, et lui seul (Tryton `payment_term.py:40-47`, Odoo
 //!   `account_payment_term.py:226-230`) ; la somme des pourcentages est strictement inférieure
 //!   à 100.
-//! - Calcul en décimal exact : chaque terme est arrondi à l'échelle de la devise de tenue,
-//!   demi éloigné de zéro ([`DeviseTenue::arrondir`]), et le solde absorbe l'arrondi : la somme
-//!   des termes est **exactement** le total. Un terme qui dépasse le reste est plafonné au
+//! - Calcul en décimal exact : chaque terme autre que le solde est arrondi à l'échelle de la
+//!   devise de tenue, demi éloigné de zéro ([`DeviseTenue::arrondir`]) ; le solde, non arrondi,
+//!   absorbe l'arrondi : la somme des termes est **exactement** le total (Odoo). Un terme qui dépasse le reste est plafonné au
 //!   reste ; un terme nul est omis (Tryton `:65-70`). Le signe du total est reporté sur chaque
 //!   terme (avoir). Un total nul donne un seul terme nul daté de la référence (Tryton `:72-74`).
 //! - Le résultat est trié par date (tri stable : à date égale, l'ordre des termes).
@@ -160,13 +160,16 @@ impl ConditionReglement {
         &self.termes
     }
 
-    /// Répartit `total` (montant de la ligne de tiers, en devise de tenue, à l'échelle de
-    /// cette devise) en termes datés à partir de `reference` (date de la pièce ; en L3, la date
-    /// comptable). La somme des termes est exactement `total`.
+    /// Répartit `total` (montant de la ligne de tiers, en devise de tenue) en termes datés à
+    /// partir de `reference` (date de la pièce ; en L3, la date comptable). La somme des termes
+    /// est exactement `total`, même si `total` est plus précis que l'échelle de la devise : les
+    /// termes en pourcentage ou fixes sont arrondis à cette échelle, le solde ne l'est pas et
+    /// garde la précision du total (Odoo `account_payment_term.py:226-230` ; Tryton arrondit
+    /// aussi le reste, `payment_term.py:185-186`, et perd l'écart sous l'unité, `:76`).
     ///
     /// # Errors
-    /// [`ErreurEcheance::PasEnDeviseTenue`], [`ErreurEcheance::EchelleExcessive`],
-    /// [`ErreurEcheance::Depassement`], [`ErreurEcheance::DateHorsLimites`].
+    /// [`ErreurEcheance::PasEnDeviseTenue`], [`ErreurEcheance::Depassement`],
+    /// [`ErreurEcheance::DateHorsLimites`].
     pub fn repartir(
         &self,
         total: Montant,
@@ -176,11 +179,6 @@ impl ConditionReglement {
         let devise = tenue.devise();
         if total.devise() != devise {
             return Err(ErreurEcheance::PasEnDeviseTenue(total.devise()));
-        }
-        if tenue.arrondir(total.valeur()) != total.valeur() {
-            return Err(ErreurEcheance::EchelleExcessive {
-                decimales: tenue.decimales(),
-            });
         }
         let absolu = total.valeur().abs();
         let negatif = total.valeur().is_sign_negative();

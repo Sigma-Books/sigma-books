@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f67f533eb3e86575774bdebd61c3f5d41b67bb374e748f4a86f05785ee2f7757 # shrinks to c = ConditionReglement { termes: [Terme { valeur: Pourcentage(Pourcentage(0.000001)), delai: Jours(0) }, Terme { valeur: Pourcentage(Pourcentage(0.224006)), delai: Jours(0) }, Terme { valeur: Solde, delai: Jours(0) }] }, unites = 149695559494, decimales = 0, echelle_total = 0, reference = 1900-01-01

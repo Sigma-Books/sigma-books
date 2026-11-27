@@ -226,6 +226,28 @@ fn condition_invalide_refusee() {
     assert_eq!(jour_du_mois(31).jour(), 31);
 }
 
+/// Total plus précis que l'échelle de la devise : les termes autres que le solde sont arrondis,
+/// le solde garde la précision du total et la somme reste exacte (Odoo ; aucune erreur).
+#[test]
+fn total_plus_precis_que_la_devise() {
+    let c = condition(vec![pct("50", Delai::Jours(0)), solde(Delai::Jours(30))]);
+    let r = date!(2026 - 01 - 01);
+    assert_eq!(
+        repartir(&c, "10.001", tenue(2), r),
+        [
+            (r, "5.00".to_owned()),
+            (date!(2026 - 01 - 31), "5.001".to_owned())
+        ]
+    );
+    assert_eq!(
+        repartir(&c, "-10.5", xof(), r),
+        [
+            (r, "-5".to_owned()),
+            (date!(2026 - 01 - 31), "-5.5".to_owned())
+        ]
+    );
+}
+
 #[test]
 fn total_invalide_refuse() {
     let c = condition(vec![pct("50", Delai::Jours(0)), solde(Delai::Jours(30))]);
@@ -236,15 +258,6 @@ fn total_invalide_refuse() {
         Err(ErreurEcheance::PasEnDeviseTenue(eur))
     );
     let xof_devise = xof().devise();
-    assert_eq!(
-        c.repartir(Montant::nouveau(d("10.5"), xof_devise), r, &xof()),
-        Err(ErreurEcheance::EchelleExcessive { decimales: 0 })
-    );
-    // Zéros finaux admis.
-    assert!(
-        c.repartir(Montant::nouveau(d("10.00"), xof_devise), r, &xof())
-            .is_ok()
-    );
     assert_eq!(
         c.repartir(Montant::nouveau(Decimal::MAX, xof_devise), r, &xof()),
         Err(ErreurEcheance::Depassement)
@@ -600,6 +613,11 @@ fn statut_et_situation_calcules() {
         ligne.situation(date!(2026 - 01 - 01), &r),
         Situation::AEchoir
     );
+    // Borne : à échoir le jour de l'échéance, échu d'un jour le lendemain.
+    assert_eq!(
+        ligne.situation(date!(2026 - 03 - 01), &r),
+        Situation::Echue { retard_jours: 1 }
+    );
     assert_eq!(
         ligne.situation(date!(2026 - 03 - 31), &r),
         Situation::Echue { retard_jours: 31 }
@@ -646,29 +664,107 @@ fn delai_quelconque() -> impl Strategy<Value = Delai> {
     ]
 }
 
-/// Terme autre que le solde : au plus 15 % (six termes au plus : somme < 100) ou un montant
-/// fixe jusqu'à 10 millions, à quatre décimales au plus.
-fn terme_quelconque() -> impl Strategy<Value = Terme> {
-    let valeur = prop_oneof![
-        (1i64..=15_000_000).prop_map(|p| ValeurTerme::Pourcentage(
+/// Terme autre que le solde : pourcentage jusqu'à 99,999999 % ou montant fixe jusqu'à
+/// 10¹³ (souvent plus grand que le total : terme plafonné), à quatre décimales au plus.
+fn valeur_quelconque() -> impl Strategy<Value = ValeurTerme> {
+    prop_oneof![
+        (1i64..=99_999_999).prop_map(|p| ValeurTerme::Pourcentage(
             Pourcentage::nouveau(Decimal::new(p, 6)).unwrap()
         )),
-        (1i64..100_000_000_000, 0u32..=4).prop_map(|(m, e)| ValeurTerme::Fixe(
+        (1i64..10_000_000_000_000, 0u32..=4).prop_map(|(m, e)| ValeurTerme::Fixe(
             MontantFixe::nouveau(Decimal::new(m, e)).unwrap()
         )),
-    ];
-    (valeur, delai_quelconque()).prop_map(|(v, d)| Terme::nouveau(v, d))
+    ]
 }
 
+/// Condition quelconque : un pourcentage qui porterait la somme à 100 ou plus devient un
+/// montant fixe de même valeur numérique (la somme des pourcentages peut approcher 100).
 fn condition_quelconque() -> impl Strategy<Value = ConditionReglement> {
     (
-        prop::collection::vec(terme_quelconque(), 0..6),
+        prop::collection::vec((valeur_quelconque(), delai_quelconque()), 0..8),
         delai_quelconque(),
     )
-        .prop_map(|(mut termes, delai)| {
+        .prop_map(|(valeurs, delai)| {
+            let mut somme = Decimal::ZERO;
+            let mut termes: Vec<Terme> = valeurs
+                .into_iter()
+                .map(|(valeur, delai)| match valeur {
+                    ValeurTerme::Pourcentage(p) if somme + p.valeur() >= Decimal::ONE_HUNDRED => {
+                        let f = MontantFixe::nouveau(p.valeur()).unwrap();
+                        Terme::nouveau(ValeurTerme::Fixe(f), delai)
+                    }
+                    ValeurTerme::Pourcentage(p) => {
+                        somme += p.valeur();
+                        Terme::nouveau(valeur, delai)
+                    }
+                    _ => Terme::nouveau(valeur, delai),
+                })
+                .collect();
             termes.push(solde(delai));
             ConditionReglement::nouvelle(termes).unwrap()
         })
+}
+
+/// Oracle naïf des dates : avance jour par jour, sans arithmétique de mois.
+fn date_oracle(delai: Delai, reference: Date) -> Date {
+    let plus = |d: Date, n: i32| d + Duration::days(i64::from(n));
+    let fin_mois = |mut d: Date| {
+        while d.next_day().unwrap().month() == d.month() {
+            d = d.next_day().unwrap();
+        }
+        d
+    };
+    let debut_suivant = |d: Date| fin_mois(d).next_day().unwrap();
+    match delai {
+        Delai::Jours(n) => plus(reference, n),
+        Delai::JoursApresFinDeMois(n) => plus(fin_mois(reference), n),
+        Delai::JoursApresFinDuMoisSuivant(n) => plus(fin_mois(debut_suivant(reference)), n),
+        Delai::JoursPuisJourDuMoisSuivant { jours, jour } => {
+            let apres = plus(reference, jours);
+            if jour.jour() == 0 {
+                return fin_mois(apres);
+            }
+            let mut d = debut_suivant(apres);
+            while d.day() < jour.jour() && d.next_day().unwrap().day() != 1 {
+                d = d.next_day().unwrap();
+            }
+            d
+        }
+    }
+}
+
+/// Oracle naïf de la répartition, formulé par cumuls : le cumul des termes jusqu'au rang i est
+/// min(|total|, somme des valeurs brutes arrondies jusqu'au rang i), le solde valant |total| ;
+/// le terme i est la différence de deux cumuls, les termes nuls sont omis.
+fn repartition_oracle(
+    c: &ConditionReglement,
+    total: Decimal,
+    reference: Date,
+    t: DeviseTenue,
+) -> Vec<(Date, Decimal)> {
+    let absolu = total.abs();
+    if absolu.is_zero() {
+        return vec![(reference, Decimal::ZERO)];
+    }
+    let (mut brut_cumule, mut cumul_precedent) = (Decimal::ZERO, Decimal::ZERO);
+    let mut attendu = Vec::new();
+    for terme in c.termes() {
+        let brut = match terme.valeur() {
+            ValeurTerme::Pourcentage(p) => t.arrondir(absolu * (p.valeur() / Decimal::ONE_HUNDRED)),
+            ValeurTerme::Fixe(f) => t.arrondir(f.valeur()),
+            ValeurTerme::Solde => absolu,
+        };
+        brut_cumule += brut;
+        let cumul = brut_cumule.min(absolu);
+        let v = cumul - cumul_precedent;
+        cumul_precedent = cumul;
+        if !v.is_zero() {
+            let signe = if total.is_sign_negative() { -v } else { v };
+            attendu.push((date_oracle(terme.delai(), reference), signe));
+        }
+    }
+    attendu.sort_by_key(|(d, _)| *d);
+    attendu
 }
 
 fn est_bissextile(annee: i32) -> bool {
@@ -676,26 +772,30 @@ fn est_bissextile(annee: i32) -> bool {
 }
 
 proptest! {
-    /// Aucun centime perdu : la somme des termes est exactement le total ; chaque terme est
-    /// non nul, du signe du total, à l'échelle de la devise ; les dates sont croissantes, au
-    /// plus un terme par terme de la condition ; le calcul est déterministe.
+    /// Aucun centime perdu : la somme des termes est exactement le total (même plus précis que
+    /// la devise) ; montants et dates égaux à ceux de l'oracle naïf ; chaque terme est non nul,
+    /// du signe du total ; dates croissantes ; au plus un terme par terme de la condition ;
+    /// calcul déterministe.
     #[test]
     fn repartition_exacte(
         c in condition_quelconque(),
         unites in -1_000_000_000_000i64..1_000_000_000_000,
         decimales in 0u8..=4,
+        echelle_total in 0u32..=6,
         reference in date_quelconque(),
     ) {
         let t = tenue(decimales);
-        let total = Montant::nouveau(Decimal::new(unites, u32::from(decimales)), t.devise());
+        let total = Montant::nouveau(Decimal::new(unites, echelle_total), t.devise());
         let termes = c.repartir(total, reference, &t).unwrap();
         prop_assert_eq!(&termes, &c.repartir(total, reference, &t).unwrap());
+        let obtenu: Vec<(Date, Decimal)> =
+            termes.iter().map(|x| (x.date(), x.montant().valeur())).collect();
+        prop_assert_eq!(obtenu, repartition_oracle(&c, total.valeur(), reference, t));
         let somme: Decimal = termes.iter().map(|x| x.montant().valeur()).sum();
         prop_assert_eq!(somme, total.valeur());
         prop_assert!(!termes.is_empty() && termes.len() <= c.termes().len());
         for terme in &termes {
             let v = terme.montant().valeur();
-            prop_assert_eq!(t.arrondir(v), v);
             prop_assert_eq!(terme.montant().devise(), t.devise());
             if total.est_nul() {
                 prop_assert!(v.is_zero());
@@ -733,15 +833,28 @@ proptest! {
         prop_assert_eq!(suivant.month(), date.month().next());
     }
 
-    /// « Jours, puis le X du mois suivant » : jour borné au dernier jour de ce mois.
+    /// « Jours, puis le X du mois suivant » : jour borné au dernier jour de ce mois ; X nul :
+    /// fin du mois atteint après les jours.
     #[test]
-    fn jour_du_mois_suivant_borne(date in date_quelconque(), jours in -400i32..400, x in 1u8..=31) {
+    fn jour_du_mois_suivant_borne(date in date_quelconque(), jours in -400i32..400, x in 0u8..=31) {
         let delai = Delai::JoursPuisJourDuMoisSuivant { jours, jour: JourDuMois::nouveau(x).unwrap() };
         let obtenu = delai.echeance(date).unwrap();
         let apres = date + Duration::days(i64::from(jours));
-        prop_assert_eq!(obtenu.month(), apres.month().next());
-        prop_assert_eq!(obtenu.day(), x.min(obtenu.month().length(obtenu.year())));
-        prop_assert!(obtenu > apres);
+        prop_assert_eq!(obtenu, date_oracle(delai, date));
+        if x == 0 {
+            prop_assert_eq!((obtenu.year(), obtenu.month()), (apres.year(), apres.month()));
+            prop_assert_eq!(obtenu.next_day().unwrap().day(), 1);
+        } else {
+            prop_assert_eq!(obtenu.month(), apres.month().next());
+            prop_assert_eq!(obtenu.day(), x.min(obtenu.month().length(obtenu.year())));
+            prop_assert!(obtenu > apres);
+        }
+    }
+
+    /// Chaque type de délai égale l'oracle naïf (jour par jour).
+    #[test]
+    fn delai_egal_oracle(delai in delai_quelconque(), date in date_quelconque()) {
+        prop_assert_eq!(delai.echeance(date).unwrap(), date_oracle(delai, date));
     }
 
     /// Reconstitution : l'échéance effective à une date ne dépend d'aucune révision dont

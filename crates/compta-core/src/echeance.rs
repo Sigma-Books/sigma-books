@@ -58,12 +58,6 @@ pub enum ErreurEcheance {
     /// Total à répartir dans une autre devise que la devise de tenue.
     #[error("le montant est en {0}, pas dans la devise de tenue")]
     PasEnDeviseTenue(Devise),
-    /// Total à répartir plus précis que l'échelle de la devise de tenue.
-    #[error("montant invalide : plus de {decimales} décimale(s) pour la devise de tenue")]
-    EchelleExcessive {
-        /// Échelle de la devise de tenue.
-        decimales: u8,
-    },
     /// Date calculée hors des bornes du calendrier.
     #[error("date d'échéance hors des limites du calendrier")]
     DateHorsLimites,
