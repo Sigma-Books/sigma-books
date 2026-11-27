@@ -37,6 +37,9 @@ struct Fichier {
     devise: Vec<BrutDevise>,
     fuseau: Vec<BrutFuseau>,
     identifiant: Vec<BrutIdentifiant>,
+    /// Types d'identifiants bancaires des tiers (ADR 0031 point 3), communs à tous les pays.
+    #[serde(default)]
+    identifiant_bancaire: Vec<BrutIdentifiant>,
     pays: Vec<BrutPays>,
 }
 
@@ -239,12 +242,13 @@ impl Pays {
     }
 }
 
-/// Le pack pays : États, devises, fuseaux.
+/// Le pack pays : États, devises, fuseaux, types d'identifiants bancaires.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackPays {
     pays: Vec<Pays>,
     devises: Vec<InfoDevise>,
     fuseaux: Vec<Fuseau>,
+    identifiants_bancaires: Vec<TypeIdentifiant>,
 }
 
 impl PackPays {
@@ -368,6 +372,19 @@ impl PackPays {
             communs.push(converti(t));
         }
 
+        // Types d'identifiants bancaires (RIB, IBAN, portefeuille…) : même forme que les types
+        // d'identifiants légaux, sans doublon. Aucune règle de forme : le pack n'en porte pas.
+        let mut identifiants_bancaires: Vec<TypeIdentifiant> = Vec::new();
+        for t in f.identifiant_bancaire {
+            if !type_ok(&t) || identifiants_bancaires.iter().any(|x| x.code == t.code) {
+                return Err(incoherent(format!(
+                    "type d'identifiant bancaire {} invalide ou en double",
+                    t.code
+                )));
+            }
+            identifiants_bancaires.push(converti(t));
+        }
+
         let mut pays = Vec::new();
         let mut vus = BTreeSet::new();
         for p in f.pays {
@@ -423,6 +440,7 @@ impl PackPays {
             pays,
             devises,
             fuseaux,
+            identifiants_bancaires,
         })
     }
 
@@ -461,6 +479,18 @@ impl PackPays {
     pub fn fuseau(&self, nom: &str) -> Option<&Fuseau> {
         self.fuseaux.iter().find(|z| z.nom == nom)
     }
+
+    /// Types d'identifiants bancaires des coordonnées d'un tiers (ADR 0031 point 3).
+    #[must_use]
+    pub fn identifiants_bancaires(&self) -> &[TypeIdentifiant] {
+        &self.identifiants_bancaires
+    }
+
+    /// Le type d'identifiant bancaire de ce code, s'il existe.
+    #[must_use]
+    pub fn type_identifiant_bancaire(&self, code: &str) -> Option<&TypeIdentifiant> {
+        self.identifiants_bancaires.iter().find(|t| t.code == code)
+    }
 }
 
 /// Forme d'une langue BCP 47 (simplifiée) : sous-étiquettes alphanumériques de 1 à 8 caractères
@@ -487,6 +517,27 @@ mod tests {
     fn les_donnees_embarquees_sont_valides() {
         let pack = PackPays::charger().unwrap();
         assert_eq!(PackPays::officiel().unwrap(), &pack);
+    }
+
+    #[test]
+    fn types_d_identifiants_bancaires() {
+        // ADR 0031 point 3 : RIB, IBAN, portefeuille, autre ; aucune règle de forme.
+        let pack = PackPays::officiel().unwrap();
+        let codes: Vec<&str> = pack
+            .identifiants_bancaires()
+            .iter()
+            .map(TypeIdentifiant::code)
+            .collect();
+        assert_eq!(codes, ["RIB", "IBAN", "PORTEFEUILLE", "AUTRE"]);
+        assert!(pack.type_identifiant_bancaire("NINEA").is_none());
+        let double = PAYS_TOML.replace(
+            "[[identifiant_bancaire]]\ncode = \"IBAN\"",
+            "[[identifiant_bancaire]]\ncode = \"RIB\"",
+        );
+        assert!(matches!(
+            PackPays::depuis_toml(&double),
+            Err(ErreurPack::Incoherent(_))
+        ));
     }
 
     #[test]

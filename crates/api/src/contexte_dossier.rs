@@ -88,7 +88,7 @@ fn est_format_bidirectionnel(c: char) -> bool {
 
 /// Longueur en caractères, sans caractère de contrôle ni de format bidirectionnel, non vide après
 /// retrait des blancs.
-fn texte_borne(texte: &str, max: usize) -> bool {
+pub(crate) fn texte_borne(texte: &str, max: usize) -> bool {
     !texte.trim().is_empty()
         && texte.chars().count() <= max
         && !texte
