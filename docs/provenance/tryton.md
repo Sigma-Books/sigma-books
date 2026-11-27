@@ -31,3 +31,18 @@ Tryton est publié sous GPL-3.0-or-later (fichiers `LICENSE` et `COPYRIGHT` à l
 | Destination | `crates/syscohada/data/comptes.toml` (champs `collectif` et `intitule`) |
 | Modifications | Comptes absents de la liste officielle écartés (4126…). Ajout de 404, 413 et 467 comme collectifs. Intitulés alignés sur le texte officiel du JO OHADA du 15/02/2017. Détail dans `crates/syscohada/README.md`. |
 | PR | voir la PR de l'issue #53 |
+
+## payment-term — répartition d'un total selon une condition de règlement
+
+| Champ | Valeur |
+|---|---|
+| Projet | Tryton (module `account_invoice`) |
+| Dépôt | https://github.com/tryton/tryton |
+| Fichier(s) d'origine | `modules/account_invoice/payment_term.py` (`PaymentTerm.compute`, `check_remainder`) ; `modules/account_invoice/tests/test_module.py` (`test_payment_term`, `test_negative_amount`) |
+| Commit ou version | `f5354ccd9231703470611d7ebf1c9cdc65e952bc` |
+| Licence | GPL-3.0-or-later (en-tête des fichiers : « This file is part of Tryton », renvoi au fichier COPYRIGHT, vérifié) |
+| Auteurs / titulaires | © 2008-2026 Cédric Krier, © 2008-2013 Bertrand Chenal, © 2008-2026 B2CK SRL, © 2004-2008 Tiny SPRL (fichier `modules/account_invoice/COPYRIGHT`) |
+| Nature de la reprise | Algorithme adapté (reste décroissant, terme plafonné au reste, terme nul omis, total nul donnant un terme nul, signe reporté) et cas de test repris (montants et dates attendus), réécrits en Rust |
+| Destination | `crates/compta-core/src/echeance/condition.rs`, `crates/compta-core/src/echeance/tests.rs` |
+| Modifications | Pourcentage du total seulement (pas de « pourcentage du reste » : ADR 0033) ; premier terme du test exprimé en pourcentage du total (même montant) et délais `relativedelta` exprimés en jours (mêmes dates) ; arrondi demi éloigné de zéro (Tryton : au pair) ; résultat trié par date ; total plus précis que la devise refusé au lieu de l'erreur « reste non nul » |
+| PR | PR 3b du lot L3 (L3-08) |
