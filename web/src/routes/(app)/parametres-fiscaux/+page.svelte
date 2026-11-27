@@ -59,7 +59,11 @@
 		{#if liste.versions.length === 0}
 			<p>Le pays du dossier n’a aucun paquet de paramètres fiscaux.</p>
 		{:else}
-			<TableVersions versions={liste.versions} regional={contexte.regional} />
+			<TableVersions
+				versions={liste.versions}
+				regional={contexte.regional}
+				auteurs={valeur.auteurs}
+			/>
 		{/if}
 	</section>
 
@@ -91,7 +95,7 @@
 					Conservation des pièces : {applicable.retention_annees} ans.
 				{/if}
 			</p>
-			<ParametresApplicables {applicable} />
+			<ParametresApplicables {applicable} regional={contexte.regional} />
 		{/if}
 	</section>
 {/if}

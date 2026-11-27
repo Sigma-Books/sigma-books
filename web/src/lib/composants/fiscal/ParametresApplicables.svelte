@@ -4,9 +4,11 @@
 -->
 <script lang="ts">
 	import type { Applicable } from '#lib/api/parametres-fiscaux.ts';
+	import { afficherTaux } from '#lib/fiscal-affichage.ts';
+	import type { Regional } from '#lib/regional.ts';
 	import '#lib/styles/editions.css';
 
-	let { applicable }: { applicable: Applicable } = $props();
+	let { applicable, regional }: { applicable: Applicable; regional: Regional } = $props();
 </script>
 
 {#if applicable.taux.length > 0}
@@ -24,8 +26,8 @@
 				{#each applicable.taux as t (t.role)}
 					<tr>
 						<th scope="row" class="mono">{t.role}</th>
-						<td class="num">{t.valeur}</td>
-						<td>{t.source}</td>
+						<td class="num">{afficherTaux(t.valeur, regional)}</td>
+						<td><bdi>{t.source}</bdi></td>
 					</tr>
 				{/each}
 			</tbody>
@@ -52,10 +54,12 @@
 				{#each applicable.regimes as r (r.code)}
 					<tr>
 						<th scope="row" class="mono">{r.code}</th>
-						<td>{r.libelle}</td>
+						<td><bdi>{r.libelle}</bdi></td>
 						<td>{r.exonere ? 'oui' : 'non'}</td>
 						<td>{r.ligne_taxe ? 'oui' : 'non'}</td>
-						<td>{r.taux.length === 0 ? '—' : r.taux.join(', ')}</td>
+						<td>
+							{r.taux.length === 0 ? '—' : r.taux.map((t) => afficherTaux(t, regional)).join(', ')}
+						</td>
 						<td class="mono">{r.exigibilites.length === 0 ? '—' : r.exigibilites.join(', ')}</td>
 						<td class="mono">{r.deduction}</td>
 					</tr>
@@ -81,7 +85,7 @@
 					<tr>
 						<th scope="row" class="mono">{m.code}</th>
 						<td class="mono">{m.regime}</td>
-						<td>{m.libelle}</td>
+						<td><bdi>{m.libelle}</bdi></td>
 					</tr>
 				{/each}
 			</tbody>

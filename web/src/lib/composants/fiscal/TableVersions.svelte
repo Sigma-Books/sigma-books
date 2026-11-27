@@ -6,6 +6,7 @@
 <script lang="ts">
 	import type { VersionFiscale } from '#lib/api/parametres-fiscaux.ts';
 	import { afficherDate } from '#lib/dates.ts';
+	import { libelleAuteur } from '#lib/fiscal-affichage.ts';
 	import { dateHeure } from '#lib/instants.ts';
 	import { traduire } from '#lib/i18n/index.ts';
 	import type { Regional } from '#lib/regional.ts';
@@ -14,9 +15,11 @@
 	interface Props {
 		versions: readonly VersionFiscale[];
 		regional: Regional;
+		/** Noms des auteurs connus (identifiant → nom) : l'API ne renvoie que l'identifiant. */
+		auteurs?: ReadonlyMap<string, string>;
 	}
 
-	let { versions, regional }: Props = $props();
+	let { versions, regional, auteurs = new Map() }: Props = $props();
 </script>
 
 <div class="defilement" role="region" aria-label="Versions de paramètres fiscaux" tabindex="-1">
@@ -54,7 +57,15 @@
 					<td>
 						{#if v.motif}<bdi>{v.motif}</bdi>{:else}—{/if}
 					</td>
-					<td class="mono">{v.cree_par ?? '—'}</td>
+					<td>
+						{#if v.cree_par}
+							<span class="mono" title={v.cree_par}>
+								<bdi>{libelleAuteur(v.cree_par, auteurs)}</bdi>
+							</span>
+						{:else}
+							—
+						{/if}
+					</td>
 					<td>{v.cree_le ? dateHeure(v.cree_le, regional) : '—'}</td>
 					<td class="mono">{v.empreinte ? v.empreinte.slice(0, 12) : '—'}</td>
 				</tr>
