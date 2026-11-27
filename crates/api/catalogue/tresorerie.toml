@@ -5,3 +5,16 @@
 # Squelette posé par la PR 6 (L3-14) : aucune table encore. La PR 11 déclare ici les siennes
 # (tables en ajout seul du modèle de données de `docs/lots/L3.md`, avec leur justification), sans
 # éditer le fichier d'une autre voie.
+#
+# `compte_tresorerie` (migration 0540) est une table de dossier ordinaire (régime « C » du plan) :
+# `UPDATE` des seules colonnes de configuration (nom, plafond, comptes d'écart, archivage) et de la
+# devise, qui ne peut que suivre la devise de tenue du dossier ; jamais `DELETE`. Ses deux
+# fonctions de déclencheur (`compte_tresorerie_devise_de_tenue`, `dossier_devise_tresorerie`) sont
+# ordinaires (droits de l'appelant, sous RLS), sans `SECURITY DEFINER`, `EXECUTE` retiré à PUBLIC.
+
+[[ajout_seul]]
+nom = "arrete_caisse"
+justification = """
+Arrêté de caisse (ADR 0034 point 3, migration 0541) : comptage figé, adossé à une pièce interne \
+hachée ; ni UPDATE ni DELETE pour le rôle applicatif. Un nouveau comptage est un nouvel arrêté ; \
+l'écart n'est qu'une proposition de brouillon, validée par un humain (règle absolue 6)."""

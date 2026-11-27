@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO arrete_caisse (cabinet_id, dossier_id, id, compte_tresorerie_id, date_arrete, montant_compte, solde_comptable, ecart, piece_id, brouillon_id, arrete_par, arrete_le) VALUES ($1, $2, $3, $4, $5, $6::text::numeric, $7::text::numeric, $8::text::numeric, $9, $10, $11, $12)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Date",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "589523a88409e2d40e85aa7137227cf8cfe735c7ea6587b586351724fd5c3b7f"
+}

@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT l.compte_numero,\n               SUM(CASE WHEN l.sens = 'debit' THEN l.montant ELSE -l.montant END)::text\n                   AS \"solde!\"\n        FROM ecriture_validee_ligne l\n        JOIN ecriture_validee e ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id\n                               AND e.id = l.ecriture_id\n        WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.compte_numero = ANY($3)\n          AND ($4::date IS NULL OR e.date_comptable <= $4)\n        GROUP BY l.compte_numero\n        ORDER BY l.compte_numero\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "compte_numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "compte_numero"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "solde!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "TextArray",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "0599379793aefcfe7b76818c7028096617ccfe5aac9e7e978630910e4e3d93d1"
+}

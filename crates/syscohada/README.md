@@ -89,6 +89,7 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
 
   **Non marqués, faute de source** : 103, 109, 181 à 185, 467, 481, 482 (collectifs qu'aucun des deux moteurs ne rend lettrables ; les fiches ne parlent pas de lettrage). Le chargement refuse une marque sans page de fiche (ou l'inverse), une valeur autre que `true`, une marque sous un ascendant déjà lettrable et une marque qui couvrirait un compte admis en journal de trésorerie.
 - **`type_tresorerie`** et **`page_type_tresorerie`** (L3-12, ADR 0034) : compte par défaut d'un type de compte de trésorerie, sous lequel la création assistée ouvre le sous-compte ; `Referentiel::compte_par_defaut_tresorerie`. Spec §9.1.
+- **`virement_interne`** et **`page_virement_interne`** (L3-21, ADR 0034 point 2) : compte de virements internes qui doit revenir à zéro (585, fiche 58, p. 430) ; marque héritée par les sous-comptes, sur un compte lettrable hors des journaux de trésorerie ; `Referentiel::est_virement_interne`. Spec §9.3 et §15.1 : un solde non nul avertit, sans refus.
 
   | Type | Compte | Fiche (p. PDF) |
   |---|---|---|

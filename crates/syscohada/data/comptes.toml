@@ -93,6 +93,14 @@
 #     5711, sous-compte de 571 (`journaux.toml`) ;
 #   - 552 « MONNAIE ÉLECTRONIQUE - TÉLÉPHONE PORTABLE » (fiche 55, p. 423) : `portefeuille` ;
 #     Guide d'application du SYSCOHADA révisé (1er mai 2017), ch. 4, section 4, p. 52.
+#
+# - virement_interne, page_virement_interne (L3-21, ADR 0034 point 2) : compte de virements
+#   internes, qui doit revenir à zéro ; son solde non nul **avertit** (spec §9.3 « alerte si 585 ne
+#   revient pas à zéro », §15.1 « 585 soldé »), sans rien refuser. Marque héritée par les
+#   sous-comptes ; le compte doit être lettrable et hors des journaux de trésorerie.
+#   - 585 « VIREMENTS DE FONDS » (fiche 58, p. 430 : comptes de passage « soldés au terme de leur
+#     utilisation ») ; 588 « AUTRES VIREMENTS INTERNES » n'est pas marqué : la spec et l'ADR 0034
+#     ne citent que 585 (question ouverte au mainteneur, PR L3-21).
 #   Odoo `l10n_syscohada` retient les mêmes préfixes pour la banque et la caisse (521, 571 :
 #   models/template_syscohada.py:21-22) ; Tryton n'a pas de compte par défaut.
 
@@ -6457,6 +6465,8 @@ nature = "bilan"
 sens = "variable"
 lettrable = true
 page_lettrable = 430
+virement_interne = true
+page_virement_interne = 430
 
 [[compte]]
 numero = "588"

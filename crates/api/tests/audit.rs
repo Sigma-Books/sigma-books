@@ -828,6 +828,9 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let mut invitation = uuid::Uuid::nil();
     // `{reinitialisation}` : celle que crée la route de demande, contestée ensuite par le membre.
     let mut reinitialisation = uuid::Uuid::nil();
+    // Trésorerie (L3, PR 11) : `{compte_tresorerie}` est une caisse fixe.
+    let caisse =
+        commun::tresorerie::doter(&env.admin, c.cabinet, c.dossier, c.administrateur).await;
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -852,6 +855,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "invitation" => invitation,
                 "reinitialisation" => reinitialisation,
                 "ecriture" => validee,
+                "compte_tresorerie" => caisse,
                 autre => fixtures.sous_ressource(autre),
             },
         );

@@ -387,6 +387,33 @@ async fn stocker(
     motif_trace: Option<String>,
     doublon_de: &[String],
 ) -> Result<Resultat, ErreurApi> {
+    let (piece, trace) = enregistrer(
+        tx,
+        dossier,
+        pieces,
+        registre,
+        contenu,
+        motif_trace,
+        doublon_de,
+    )
+    .await?;
+    Ok(Resultat {
+        reponse: (StatusCode::CREATED, Json(VuePiece::new(dossier, &piece))).into_response(),
+        traces: vec![trace],
+    })
+}
+
+/// Dépose l'objet, inscrit la pièce et rend la pièce relue avec sa trace d'audit.
+#[allow(clippy::too_many_arguments)]
+async fn enregistrer(
+    tx: &mut TransactionTenant,
+    dossier: &DossierAutorise,
+    pieces: &Pieces,
+    registre: &fiscal::Registre,
+    contenu: Contenu<'_>,
+    motif_trace: Option<String>,
+    doublon_de: &[String],
+) -> Result<(Piece, Trace), ErreurApi> {
     let cabinet = tx.contexte().id_cabinet();
     let instant = maintenant();
     // Rétention : paramètre du paquet du pays du dossier à la date du dépôt, **dans le fuseau du
@@ -443,10 +470,32 @@ async fn stocker(
             .donnees
             .push(("doublon_confirme_de", doublon_de.join(",")));
     }
-    Ok(Resultat {
-        reponse: (StatusCode::CREATED, Json(VuePiece::new(dossier, &piece))).into_response(),
-        traces: vec![trace],
-    })
+    Ok((piece, trace))
+}
+
+/// Pièce interne rédigée par un autre cas d'usage (comptage d'un arrêté de caisse, L3-21 ;
+/// ADR 0034 point 3) : la note est sérialisée sous la forme canonique figée `piece-interne-v1`,
+/// hachée et stockée comme toute pièce interne. Rend l'identifiant de la pièce et sa trace.
+pub(crate) async fn creer_note(
+    tx: &mut TransactionTenant,
+    dossier: &DossierAutorise,
+    requete: &Requete<'_>,
+    note: &NoteOd,
+) -> Result<(Uuid, Trace), ErreurApi> {
+    let pieces = service(requete)?;
+    let texte = note.serialiser();
+    let contenu = Contenu {
+        octets: texte.as_bytes(),
+        type_piece: TypePiece::NoteOd,
+        empreinte: Empreinte::calculer(texte.as_bytes()),
+        nature: Nature::Interne,
+        nom_origine: Some(format!("note-od-{}.txt", interne::date(note.date()))),
+    };
+    let registre = requete.registre_fiscal()?;
+    let motif = note.motif().to_owned();
+    let (piece, trace) =
+        enregistrer(tx, dossier, pieces, registre, contenu, Some(motif), &[]).await?;
+    Ok((piece.id, trace))
 }
 
 /// Corps de la création d'une pièce interne.

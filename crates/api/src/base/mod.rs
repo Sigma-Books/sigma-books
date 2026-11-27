@@ -52,6 +52,7 @@ pub mod passkeys;
 pub mod referentiel;
 pub mod session;
 pub mod taches;
+pub mod tresorerie;
 pub mod validation;
 
 use std::time::Duration;

@@ -178,6 +178,15 @@ pub enum ErreurReferentiel {
          et un compte admis en journal de trésorerie"
     )]
     MarqueTypeTresorerie(NumeroCompte),
+    /// Marque `virement_interne` sans `page_virement_interne` dans la plage des fiches de
+    /// fonctionnement, ou inversement ; valeur autre que `true` ; compte non lettrable ou admis en
+    /// journal de trésorerie.
+    #[error(
+        "compte {0} : `virement_interne = true` exige `page_virement_interne` entre \
+         {PAGE_FONCTIONNEMENT_MIN} et {PAGE_FONCTIONNEMENT_MAX}, et inversement, sur un compte \
+         lettrable hors des journaux de trésorerie"
+    )]
+    MarqueVirementInterne(NumeroCompte),
     /// Rôles de comptes invalides (`data/roles-comptes.toml`).
     #[error("rôles de comptes : {0}")]
     RolesComptes(String),
@@ -233,6 +242,7 @@ pub struct CompteOfficiel {
     marque_tiers: Option<(Vec<String>, u16)>,
     marque_lettrable: Option<u16>,
     marque_type_tresorerie: Option<(TypeTresorerie, u16)>,
+    marque_virement_interne: Option<u16>,
 }
 
 /// Types de tiers que les données peuvent admettre sur un compte (spec §5.3).
@@ -316,6 +326,13 @@ impl CompteOfficiel {
         self.marque_lettrable
     }
 
+    /// Marque `virement_interne` portée par ce compte lui-même : page PDF de la fiche qui la
+    /// fonde. Héritée par les sous-comptes ([`Referentiel::est_virement_interne`]).
+    #[must_use]
+    pub fn marque_virement_interne(&self) -> Option<u16> {
+        self.marque_virement_interne
+    }
+
     /// Marque `type_tresorerie` portée par ce compte : il est le compte par défaut de ce type
     /// de compte de trésorerie ; page PDF de la fiche de fonctionnement qui la fonde.
     #[must_use]
@@ -377,6 +394,8 @@ struct CompteBrut {
     page_lettrable: Option<u16>,
     type_tresorerie: Option<String>,
     page_type_tresorerie: Option<u16>,
+    virement_interne: Option<bool>,
+    page_virement_interne: Option<u16>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -470,11 +489,17 @@ fn compte_officiel(
         },
         _ => return Err(ErreurReferentiel::MarqueTypeTresorerie(numero)),
     };
+    let marque_virement_interne = match (c.virement_interne, c.page_virement_interne) {
+        (None, None) => None,
+        (Some(true), Some(page)) if page_fiche(page) => Some(page),
+        _ => return Err(ErreurReferentiel::MarqueVirementInterne(numero)),
+    };
     Ok(CompteOfficiel {
         marque_journal_tresorerie,
         marque_tiers,
         marque_lettrable,
         marque_type_tresorerie,
+        marque_virement_interne,
         intitule: texte(&c.numero, &c.intitule)?,
         page: verifier_page(&c.numero, c.page)?,
         nature: c.nature,
@@ -558,6 +583,7 @@ impl Referentiel {
             }
         }
         referentiel.verifier_marque_lettrable()?;
+        referentiel.verifier_marque_virement_interne()?;
         referentiel.comptes_par_defaut = referentiel.verifier_types_de_tresorerie()?;
         Ok(referentiel)
     }
@@ -579,6 +605,22 @@ impl Referentiel {
             });
             if redondante || couvre_la_tresorerie {
                 return Err(ErreurReferentiel::MarqueLettrable(compte.numero.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Un compte de virements internes est lettrable (le retour à zéro passe par le lettrage,
+    /// ADR 0034 point 2) et n'est pas admis en journal de trésorerie.
+    fn verifier_marque_virement_interne(&self) -> Result<(), ErreurReferentiel> {
+        for compte in self.comptes.values() {
+            if compte.marque_virement_interne.is_some()
+                && (!self.est_lettrable(&compte.numero)
+                    || self.admis_en_journal_de_tresorerie(&compte.numero))
+            {
+                return Err(ErreurReferentiel::MarqueVirementInterne(
+                    compte.numero.clone(),
+                ));
             }
         }
         Ok(())
@@ -674,6 +716,19 @@ impl Referentiel {
             self.comptes
                 .get(&n)
                 .is_some_and(|c| c.marque_lettrable.is_some())
+        })
+    }
+
+    /// Vrai si le numéro (officiel ou à segments libres) est un compte de virements internes :
+    /// lui-même ou l'un de ses ascendants de la liste officielle porte la marque
+    /// `virement_interne`. Un tel compte doit revenir à zéro (spec §9.3 et §15.1) : son solde non
+    /// nul **avertit**, sans rien refuser (ADR 0034 point 2).
+    #[must_use]
+    pub fn est_virement_interne(&self, numero: &NumeroCompte) -> bool {
+        std::iter::successors(Some(numero.clone()), NumeroCompte::parent).any(|n| {
+            self.comptes
+                .get(&n)
+                .is_some_and(|c| c.marque_virement_interne.is_some())
         })
     }
 

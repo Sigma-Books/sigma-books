@@ -1015,7 +1015,8 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        assert_eq!(mutations.len(), 38);
+        // 38 en L2 et à la PR 6 de L3, plus les 3 de la trésorerie (PR 11).
+        assert_eq!(mutations.len(), 41);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

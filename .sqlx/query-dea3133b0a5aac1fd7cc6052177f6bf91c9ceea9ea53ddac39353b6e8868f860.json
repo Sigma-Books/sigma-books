@@ -1,0 +1,193 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT t.id, t.type AS type_tresorerie, t.nom, t.compte_id, c.numero AS compte,\n               t.journal_id, j.code AS journal, t.devise, t.plafond::text AS plafond,\n               t.compte_excedent_id, e.numero AS \"excedent?\", t.compte_manquant_id,\n               m.numero AS \"manquant?\", t.archive, t.cree_le\n        FROM compte_tresorerie t\n        JOIN compte c ON c.cabinet_id = t.cabinet_id AND c.dossier_id = t.dossier_id\n                     AND c.id = t.compte_id\n        JOIN journal j ON j.cabinet_id = t.cabinet_id AND j.dossier_id = t.dossier_id\n                      AND j.id = t.journal_id\n        LEFT JOIN compte e ON e.cabinet_id = t.cabinet_id AND e.dossier_id = t.dossier_id\n                         AND e.id = t.compte_excedent_id\n        LEFT JOIN compte m ON m.cabinet_id = t.cabinet_id AND m.dossier_id = t.dossier_id\n                         AND m.id = t.compte_manquant_id\n        WHERE t.cabinet_id = $1 AND t.dossier_id = $2 AND t.id = $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "type_tresorerie",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "compte_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "compte_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "compte",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "journal_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "journal_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "journal",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "devise",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "devise"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "plafond",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "compte_excedent_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "compte_excedent_id"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "excedent?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "compte_manquant_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "compte_manquant_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "manquant?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "archive",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "archive"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "compte_tresorerie",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dea3133b0a5aac1fd7cc6052177f6bf91c9ceea9ea53ddac39353b6e8868f860"
+}
