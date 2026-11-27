@@ -6,7 +6,7 @@ use compta_core::{CodeRegime, Exigibilite};
 use serde::Deserialize;
 
 use crate::erreur::ErreurFiscale;
-use crate::types::RoleTaux;
+use crate::types::{CodePrelevement, RoleTaux};
 
 const SOCLE_TOML: &str = include_str!("../data/socle/socle.toml");
 const REGIMES_TOML: &str = include_str!("../data/socle/regimes-tva.toml");
@@ -16,6 +16,15 @@ const REGIMES_TOML: &str = include_str!("../data/socle/regimes-tva.toml");
 struct FichierSocle {
     roles_taux: Vec<String>,
     retention: RetentionSocle,
+    #[serde(default)]
+    prelevement: Vec<PrelevementSocleBrut>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrelevementSocleBrut {
+    code: String,
+    nature: String,
 }
 
 #[derive(Deserialize)]
@@ -86,11 +95,34 @@ impl RegimeSocle {
     }
 }
 
-/// Socle : régimes génériques, rôles de taux, plancher de rétention.
+/// Prélèvement générique du socle (ADR 0034 point 10) : un paquet de pays en donne les valeurs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrelevementSocle {
+    code: CodePrelevement,
+    nature: String,
+}
+
+impl PrelevementSocle {
+    /// Code stable.
+    #[must_use]
+    pub fn code(&self) -> &CodePrelevement {
+        &self.code
+    }
+    /// Nature, en une phrase.
+    #[must_use]
+    pub fn nature(&self) -> &str {
+        &self.nature
+    }
+}
+
+/// Socle : régimes génériques, rôles de taux, plancher de rétention, prélèvements génériques.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Socle {
     roles: Vec<RoleTaux>,
-    regimes: Vec<RegimeSocle>,
+    // Tranches figées (et non `Vec`) : le socle est porté par le registre, que le serveur rend en
+    // erreur de démarrage ; sa taille reste sous le seuil de `clippy::result_large_err`.
+    regimes: Box<[RegimeSocle]>,
+    prelevements: Box<[PrelevementSocle]>,
     plancher_retention: u16,
     source_plancher: String,
 }
@@ -171,9 +203,24 @@ impl Socle {
                 exigibilites_etiquette,
             });
         }
+        let mut prelevements = Vec::new();
+        for p in socle.prelevement {
+            let code = CodePrelevement::parse(&p.code)?;
+            if !vus.insert(p.code.clone()) {
+                return Err(ErreurFiscale::CodeEnDouble(p.code));
+            }
+            if p.nature.trim().is_empty() {
+                return Err(ErreurFiscale::SansLibelle(p.code));
+            }
+            prelevements.push(PrelevementSocle {
+                code,
+                nature: p.nature,
+            });
+        }
         Ok(Self {
             roles,
-            regimes: liste,
+            regimes: liste.into_boxed_slice(),
+            prelevements: prelevements.into_boxed_slice(),
             plancher_retention: socle.retention.plancher_annees,
             source_plancher: socle.retention.source,
         })
@@ -189,6 +236,18 @@ impl Socle {
     #[must_use]
     pub fn regime(&self, code: &str) -> Option<&RegimeSocle> {
         self.regimes.iter().find(|r| r.code.as_str() == code)
+    }
+
+    /// Prélèvements génériques du socle, dans l'ordre du fichier.
+    #[must_use]
+    pub fn prelevements(&self) -> &[PrelevementSocle] {
+        &self.prelevements
+    }
+
+    /// Prélèvement du socle par code.
+    #[must_use]
+    pub fn prelevement(&self, code: &str) -> Option<&PrelevementSocle> {
+        self.prelevements.iter().find(|p| p.code.as_str() == code)
     }
 
     /// Rôle de taux du socle par nom.

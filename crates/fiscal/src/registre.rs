@@ -37,7 +37,12 @@ impl Registre {
         let mut versions = Vec::new();
         for (pays, liste) in paquets {
             for v in *liste {
-                let texte = v.fichiers.join("\n");
+                let texte = v
+                    .fichiers
+                    .iter()
+                    .map(|(_, t)| *t)
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 let p = ParametresFiscaux::depuis_texte(&socle, Portee::Pack, &texte)?;
                 if !p.pays().eq_ignore_ascii_case(pays) || p.version() != v.version {
                     return Err(ErreurFiscale::Version(format!("{pays}/{}", v.version)));

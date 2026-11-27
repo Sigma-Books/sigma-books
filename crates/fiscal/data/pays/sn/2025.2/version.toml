@@ -1,0 +1,46 @@
+# Paramètres fiscaux du Sénégal, version 2025.2 (ADR 0030 ; ADR 0034 point 10). Cette version est
+# IMMUABLE une fois publiée : une correction ou une loi nouvelle est une NOUVELLE version
+# (répertoire voisin), jamais une retouche (empreintes figées dans `../EMPREINTES`).
+#
+# Ce qui change par rapport à 2025.1 : la loi n° 2025-17 du 27/09/2025 (JO n° 7853 du 02/10/2025)
+# institue le prélèvement sur les paiements reçus par transfert d'argent (CGI art. 220 ter) et la
+# taxe sur les opérations de transfert d'argent (CGI art. 395 à 399 ter) : `prelevements.toml`.
+# La TVA, les taux, les motifs et la rétention sont repris SANS CHANGEMENT de 2025.1.
+
+pays = "SN"
+version = "2025.2"
+# À CONFIRMER PAR LE FISCALISTE (question B5 du plan L3). Date de PUBLICATION du Journal officiel
+# n° 7853 (02/10/2025, en-tête des pages JO 1272 à 1274), et non une date d'entrée en vigueur :
+# la loi n° 2025-17 n'en fixe aucune dans les pages lues (JO 1272 à 1274, p. PDF 14 à 16), qui
+# se terminent par la formule d'exécution. Hypothèse de travail, non lue dans un texte : la
+# version court à partir de la publication ; la date réelle et le sort des paiements antérieurs
+# restent ouverts.
+date_effet = "2025-10-02"
+source = "CGI du Sénégal consolidé, DGID, janvier 2025 (TVA, inchangée) ; loi n° 2025-17 du 27/09/2025 modifiant le CGI, JO n° 7853 du 02/10/2025, p. JO 1272 à 1274 (prélèvement de l'art. 220 ter, taxe des art. 395 à 399 ter)"
+
+# Deux documents : chaque entrée nomme le sien (`document`), sans quoi elle est refusée.
+[[document]]
+id = "cgi-sn-2025-01"
+titre = "Code général des impôts du Sénégal, version consolidée DGID, janvier 2025"
+# Plage de pages PDF du chapitre TVA (art. 351 à 390 et suivants) : toute page citée y figure.
+pages_min = 157
+pages_max = 210
+
+[[document]]
+id = "jo-sn-7853"
+titre = "Journal officiel de la République du Sénégal n° 7853 du 02/10/2025, loi n° 2025-17 du 27/09/2025 modifiant la loi n° 2012-31 portant CGI"
+# Pages PDF de la loi n° 2025-17 (JO 1272 à 1274 ; page PDF = page JO - 1258).
+pages_min = 14
+pages_max = 16
+
+[taux.normal]
+valeur = "18"
+source = "art. 369, p. 184"
+
+[taux.reduit]
+valeur = "10"
+source = "art. 369 al. 2, p. 184 (hébergement touristique agréé)"
+
+[retention]
+annees_min = 10
+source = "AUDCIF art. 24, p. PDF 24 ; CGI du Sénégal art. 637, p. PDF 306 (ADR 0015)"

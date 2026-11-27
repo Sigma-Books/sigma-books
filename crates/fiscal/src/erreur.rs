@@ -121,6 +121,13 @@ pub enum ErreurFiscale {
     /// Texte de surcharge (motif) invalide.
     #[error("motif de surcharge invalide")]
     MotifInvalide,
+    /// Code de prélèvement mal formé.
+    #[error("code de prélèvement invalide : {0}")]
+    CodePrelevement(String),
+    /// Montant (plafond, seuil) qui n'est pas un décimal exact strictement positif, ou devise
+    /// invalide.
+    #[error("montant invalide pour {0}")]
+    Montant(String),
     /// Plancher de rétention hors de 1 à 100 ans.
     #[error("plancher de rétention invalide : {0} ans")]
     PlancherInvalide(u16),

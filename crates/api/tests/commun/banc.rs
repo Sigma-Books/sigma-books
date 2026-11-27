@@ -35,18 +35,39 @@ pub struct Banc {
 }
 
 pub async fn banc_avec(horloge: Option<&HorlogeTest>) -> Banc {
-    banc_complet(horloge, None).await
+    banc_complet(horloge, None, None).await
 }
 
 /// Banc dont le registre des paramètres fiscaux est substitué (paquet d'un autre pays).
 pub async fn banc_avec_registre(registre: fiscal::Registre) -> Banc {
-    banc_complet(None, Some(registre)).await
+    banc_complet(None, Some(registre), None).await
 }
 
-async fn banc_complet(horloge: Option<&HorlogeTest>, registre: Option<fiscal::Registre>) -> Banc {
+/// Banc dont le dossier est repris sur l'année d'un jour de référence fixe (exercice passé).
+pub async fn banc_repris(reference: time::Date) -> Banc {
+    banc_complet(None, None, Some(reference)).await
+}
+
+async fn banc_complet(
+    horloge: Option<&HorlogeTest>,
+    registre: Option<fiscal::Registre>,
+    reference: Option<time::Date>,
+) -> Banc {
     let env = env().await;
     let c = creer_cabinet(&env.admin, "Cabinet").await;
-    let f = doter(&env.application, c.cabinet, c.dossier, c.administrateur).await;
+    let f = match reference {
+        None => doter(&env.application, c.cabinet, c.dossier, c.administrateur).await,
+        Some(jour) => {
+            super::referentiel::doter_repris(
+                &env.application,
+                c.cabinet,
+                c.dossier,
+                c.administrateur,
+                jour,
+            )
+            .await
+        }
+    };
     let valideur = ajouter_affecte(&env.admin, &c, "valideur").await;
     let auditeur = ajouter_affecte(&env.admin, &c, "auditeur").await;
     let etat = match horloge {

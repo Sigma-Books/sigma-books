@@ -21,19 +21,28 @@ fn sn() -> ParametresFiscaux {
 }
 
 fn factice(version: &str) -> ParametresFiscaux {
+    let chemin = |f: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/zz")
+            .join(version)
+            .join(f)
+    };
+    // Fichiers obligatoires : leur absence échoue explicitement.
     let lire = |f: &str| {
-        fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/zz")
-                .join(version)
-                .join(f),
-        )
-        .unwrap()
+        fs::read_to_string(chemin(f))
+            .unwrap_or_else(|e| panic!("fixture obligatoire {version}/{f} illisible : {e}"))
+    };
+    // Facultatif : prélèvements (ADR 0034 point 10) ; seule l'absence du fichier est admise.
+    let facultatif = |f: &str| match fs::read_to_string(chemin(f)) {
+        Ok(texte) => texte,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => panic!("fixture {version}/{f} illisible : {e}"),
     };
     let texte = [
         lire("version.toml"),
         lire("regimes-tva.toml"),
         lire("motifs-exoneration.toml"),
+        facultatif("prelevements.toml"),
     ]
     .join("\n");
     ParametresFiscaux::depuis_texte(&socle(), Portee::Pack, &texte).unwrap()
@@ -56,7 +65,11 @@ fn surcharge<'a>(
 
 #[test]
 fn le_contenu_se_relit_a_l_identique() {
-    for p in [sn(), factice("2024.1"), factice("2026.1")] {
+    let registre = Registre::officiel().unwrap();
+    let mut versions = registre.versions_du_pays("SN").to_vec();
+    versions.extend([factice("2024.1"), factice("2026.1")]);
+    assert!(versions.iter().any(|p| !p.prelevements().is_empty()));
+    for p in versions {
         let relu =
             ParametresFiscaux::depuis_texte(&socle(), Portee::Pack, &p.vers_texte()).unwrap();
         assert_eq!(relu, p, "{}", p.identifiant());

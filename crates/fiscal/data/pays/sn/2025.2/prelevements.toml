@@ -1,0 +1,133 @@
+# Prélèvements et taxes perçus à la source sur les paiements et transferts d'argent, Sénégal,
+# version 2025.2 des paramètres fiscaux (ADR 0030 ; ADR 0034 point 10 ; plan L3, A'8, A'9, B5).
+#
+# PARAMÈTRES FISCAUX À FAIRE VALIDER PAR LE FISCALISTE (`a_valider = true`). Ce fichier donne le
+# MÉCANISME et les valeurs lues dans la loi ; il ne fige AUCUNE thèse comptable (charge ou créance,
+# compte du marchand, compte de l'opérateur : rôles de comptes désignés par le dossier,
+# `crates/syscohada/data/roles-comptes.toml`). Une valeur que le texte ne donne pas est ABSENTE
+# (ou `non_trouve`), jamais devinée.
+#
+# Source qui fait foi : loi n° 2025-17 du 27/09/2025 modifiant le CGI, Journal officiel n° 7853 du
+# 02/10/2025 (references/officiel/JO-7853_2025-10-02_Loi-2025-17_modif_CGI.pdf), document
+# `jo-sn-7853` de `version.toml`. Page = page PDF (page JO - 1258). Seuls des faits sont repris
+# (articles, taux, montants, pages), jamais le texte ; les libellés sont rédigés pour Sigma Books.
+#
+# Champs de chaque prélèvement :
+# - code : code générique du socle (`data/socle/socle.toml`, `[[prelevement]]`) ;
+# - article, alinea, pages, document : référence de l'institution ;
+# - taux (pourcent, décimal exact) et source_taux ;
+# - plafond (montant maximal PAR TRANSACTION, facultatif) et source_plafond ; absent : le texte
+#   n'en fixe pas ;
+# - devise : monnaie des montants (plafond, seuils) ; le texte dit « francs » : le franc CFA de
+#   l'UEMOA (XOF), monnaie du Sénégal (à confirmer avec le reste) ;
+# - assiette : `paiement_recu` (chaque paiement enregistré au compte du bénéficiaire),
+#   `montant_transfere_hors_commission_et_taxes`, ou `non_trouve` ; source_assiette ;
+# - redevable et collecte_par : ce que le texte dit de la personne visée et de celle qui prélève
+#   ou collecte, avec leurs sources ;
+# - fait_generateur et exigibilite (`delai_apres_evenement` : le délai est dans la source) ;
+# - debut, fin : validité propre (absente : celle de la version) ;
+# - [[prelevement.exoneration]] : code `<code du prélèvement>-<suffixe>` (suffixe : numéro du
+#   point de l'article, clé opaque), article, alinea, pages, libelle ; facultatifs : seuil
+#   (montant au plus égal auquel l'exonération s'applique, inclus) et fenetre_heures (durée sur
+#   laquelle le seuil s'apprécie).
+#
+# Non lu dans le texte, donc ABSENT, et posé au fiscaliste (B5) : date d'entrée en vigueur (voir
+# `version.toml`) ; prélèvement libératoire ou imputable ; qui supporte la taxe de l'art. 395 ;
+# frais de l'opérateur dans l'assiette du prélèvement de l'art. 220 ter ; cumul des deux sur un
+# même paiement ; arrondi du montant calculé.
+
+[[prelevement]]
+code = "PRELEVEMENT_PAIEMENT_RECU"
+libelle = "Prélèvement sur les paiements reçus par transfert d'argent (titulaires d'un code marchand)"
+article = "220 ter"
+pages = [15]
+document = "jo-sn-7853"
+taux = "0.5"
+source_taux = "art. 220 ter 3), p. PDF 15 (loi 2025-17, art. 4)"
+devise = "XOF"
+assiette = "paiement_recu"
+source_assiette = "art. 220 ter 1) (sommes reçues auprès des opérateurs de transferts d'argent) et 2) (sur chaque paiement enregistré dans le compte du redevable), p. PDF 15 ; frais de l'opérateur : non dit"
+redevable = "Personne physique ou morale disposant d'un code de catégorie de commerçant ou code marchand"
+source_redevable = "art. 220 ter 1) et 2) (« compte du redevable »), p. PDF 15"
+collecte_par = "Opérateur de transfert d'argent, sous sa propre responsabilité"
+source_collecte = "art. 220 ter 2), p. PDF 15"
+fait_generateur = "Chaque paiement enregistré dans le compte du redevable"
+source_fait_generateur = "art. 220 ter 2), p. PDF 15"
+exigibilite = "delai_apres_evenement"
+source_exigibilite = "art. 220 ter 4), p. PDF 15 : versement par l'opérateur dans les 15 premiers jours du mois suivant celui des paiements, dans les conditions des art. 185 et 186 du CGI ; art. 220 ter 5) : art. 188 à 190 du CGI applicables"
+a_valider = true
+note = "Aucun plafond ni exonération dans l'art. 220 ter. Libératoire ou imputable, comptabilisation : non dit (B5)."
+
+[[prelevement]]
+code = "TAXE_TRANSFERT_ARGENT"
+libelle = "Taxe sur les opérations de transfert d'argent (TTA)"
+article = "395"
+pages = [15]
+document = "jo-sn-7853"
+taux = "0.5"
+source_taux = "art. 399 al. 1, p. PDF 15 (loi 2025-17, art. 5)"
+plafond = "2000"
+source_plafond = "art. 399 al. 2, p. PDF 15 : la taxe ne peut dépasser 2 000 francs par transaction"
+devise = "XOF"
+assiette = "montant_transfere_hors_commission_et_taxes"
+source_assiette = "art. 398, p. PDF 15 : sommes transférées, hors taxe sur les activités financières, hors la taxe elle-même ; commission d'envoi ou de retrait exclue"
+redevable = "Assujettis : personnes effectuant des opérations de transfert d'argent ; banques, établissements financiers et entreprises du système financier décentralisé"
+source_redevable = "art. 396 1) et 2), p. PDF 15 ; « redevable légal » : sous-section 4 de la section II, p. PDF 15. Qui supporte la taxe : non dit (B5)"
+collecte_par = "Les assujettis de l'art. 396 : collecte sur chaque opération et reversement sous leur propre responsabilité, sans aucune déduction"
+source_collecte = "sous-section 4 « obligations du redevable légal » (après l'art. 399 bis), p. PDF 15"
+fait_generateur = "Débit ou crédit du compte de l'expéditeur, du donneur d'ordre ou du bénéficiaire"
+source_fait_generateur = "art. 399 bis al. 1, p. PDF 15"
+exigibilite = "delai_apres_evenement"
+source_exigibilite = "art. 399 bis al. 2, p. PDF 15 : exigible dans le mois qui suit celui du fait générateur, aux mêmes conditions et garanties que la TVA ; art. 399 ter, p. PDF 16 : recouvrement et sanctions comme en matière de TVA"
+a_valider = true
+note = "Champ : opérations de transfert d'argent par tout moyen laissant trace, y compris paiements par carte bancaire (art. 395 al. 2, p. PDF 15). Qui supporte la taxe, cumul avec le prélèvement de l'art. 220 ter : non dit (B5)."
+
+[[prelevement.exoneration]]
+code = "TAXE_TRANSFERT_ARGENT-1"
+article = "397"
+alinea = "1"
+pages = [15]
+document = "jo-sn-7853"
+libelle = "Dépôts en numéraire"
+
+[[prelevement.exoneration]]
+code = "TAXE_TRANSFERT_ARGENT-2"
+article = "397"
+alinea = "2"
+pages = [15]
+document = "jo-sn-7853"
+libelle = "Retraits d'espèces n'excédant pas le seuil sur la fenêtre de temps"
+seuil = "20000"
+fenetre_heures = 24
+
+[[prelevement.exoneration]]
+code = "TAXE_TRANSFERT_ARGENT-3"
+article = "397"
+alinea = "3"
+pages = [15]
+document = "jo-sn-7853"
+libelle = "Virements bancaires"
+
+[[prelevement.exoneration]]
+code = "TAXE_TRANSFERT_ARGENT-4"
+article = "397"
+alinea = "4"
+pages = [15]
+document = "jo-sn-7853"
+libelle = "Transferts de fonds au sein du réseau de distribution et de ses partenaires, par les prestataires de services de paiement"
+
+[[prelevement.exoneration]]
+code = "TAXE_TRANSFERT_ARGENT-5"
+article = "397"
+alinea = "5"
+pages = [15]
+document = "jo-sn-7853"
+libelle = "Virements et transferts effectués par l'État ou les collectivités territoriales, ou pour leur compte"
+
+[[prelevement.exoneration]]
+code = "TAXE_TRANSFERT_ARGENT-6"
+article = "397"
+alinea = "6"
+pages = [15]
+document = "jo-sn-7853"
+libelle = "Transferts pour le paiement de salaires ou de bourses d'études"

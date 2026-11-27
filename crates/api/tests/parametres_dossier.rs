@@ -80,11 +80,14 @@ async fn la_lecture_rend_le_paquet_du_pays_et_la_version_applicable() {
     let b = banc().await;
     let l = liste(&b, b.c.dossier).await;
     assert_eq!(l["pays"], "SN");
-    assert_eq!(l["versions"].as_array().unwrap().len(), 1);
+    // Paquet du Sénégal : 2025.1, puis 2025.2 (loi n° 2025-17, prélèvements).
+    assert_eq!(l["versions"].as_array().unwrap().len(), 2);
     assert_eq!(l["versions"][0]["identifiant"], "sn-2025.1");
     assert_eq!(l["versions"][0]["portee"], "pays");
+    assert_eq!(l["versions"][1]["identifiant"], "sn-2025.2");
+    assert_eq!(l["versions"][1]["portee"], "pays");
     let a = applicable(&b, b.c.dossier, "2026-03-15").await;
-    assert_eq!(a["version"]["identifiant"], "sn-2025.1");
+    assert_eq!(a["version"]["identifiant"], "sn-2025.2");
     assert_eq!(taux_normal(&a).as_deref(), Some("18"));
     assert_eq!(a["regimes"].as_array().unwrap().len(), 13);
     assert_eq!(a["retention_annees"], 10);
@@ -129,7 +132,7 @@ async fn une_version_propre_se_cree_se_lit_et_s_audite_sans_le_motif() {
     .await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
     let v = r.json();
-    assert_eq!(v["identifiant"], "sn-2025.1+d1");
+    assert_eq!(v["identifiant"], "sn-2025.2+d1");
     assert_eq!(
         (v["portee"].as_str(), v["numero"].as_i64()),
         (Some("dossier"), Some(1))
@@ -137,20 +140,20 @@ async fn une_version_propre_se_cree_se_lit_et_s_audite_sans_le_motif() {
     assert_eq!(v["empreinte"].as_str().unwrap().len(), 64);
     assert_eq!(v["motif"], motif);
     assert_eq!(v["cree_par"], b.c.administrateur.to_string());
-    // Lecture : deux versions, la seconde est celle du dossier.
+    // Lecture : les deux versions du paquet, puis celle du dossier.
     let l = liste(&b, b.c.dossier).await;
-    assert_eq!(l["versions"].as_array().unwrap().len(), 2);
-    assert_eq!(l["versions"][1]["identifiant"], "sn-2025.1+d1");
+    assert_eq!(l["versions"].as_array().unwrap().len(), 3);
+    assert_eq!(l["versions"][2]["identifiant"], "sn-2025.2+d1");
     // Application par date : la version du dossier prend effet le 1er janvier 2027 et seulement
     // pour ce dossier ; le paquet du pays n'a pas bougé.
     let avant = applicable(&b, b.c.dossier, &t(99)).await;
-    assert_eq!(avant["version"]["identifiant"], "sn-2025.1");
+    assert_eq!(avant["version"]["identifiant"], "sn-2025.2");
     let apres = applicable(&b, b.c.dossier, &t(150)).await;
-    assert_eq!(apres["version"]["identifiant"], "sn-2025.1+d1");
+    assert_eq!(apres["version"]["identifiant"], "sn-2025.2+d1");
     assert_eq!(taux_normal(&apres).as_deref(), Some("19"));
     assert_eq!(apres["regimes"].as_array().unwrap().len(), 12);
     let autre = applicable(&b, b.c.autre_dossier, &t(150)).await;
-    assert_eq!(autre["version"]["identifiant"], "sn-2025.1");
+    assert_eq!(autre["version"]["identifiant"], "sn-2025.2");
     // Audit chaîné : identifiants, dates, codes et empreinte ; jamais le motif ni un nom.
     let audit: Vec<String> =
         sqlx::query_scalar("SELECT contenu FROM audit_dossier WHERE dossier_id = $1 ORDER BY rang")
@@ -163,7 +166,7 @@ async fn une_version_propre_se_cree_se_lit_et_s_audite_sans_le_motif() {
         .find(|c| c.contains("CreerVersionParametresFiscaux"))
         .expect("audit");
     assert!(
-        entree.contains("sn-2025.1+d1") && entree.contains(&t(100)),
+        entree.contains("sn-2025.2+d1") && entree.contains(&t(100)),
         "{entree}"
     );
     assert!(
@@ -334,7 +337,7 @@ async fn les_conflits_d_etat_sont_refuses() {
     )
     .await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
-    assert_eq!(r.json()["identifiant"], "sn-2025.1+d2");
+    assert_eq!(r.json()["identifiant"], "sn-2025.2+d2");
     let a = applicable(&b, b.c.dossier, &t(310)).await;
     assert_eq!(taux_normal(&a).as_deref(), Some("19"));
     assert_eq!(a["regimes"].as_array().unwrap().len(), 12);
@@ -457,7 +460,7 @@ async fn un_regime_utilise_seulement_avant_la_date_d_effet_peut_etre_retire() {
         Some(b.auditeur),
     )
     .await;
-    assert_eq!(lue.json()["version_parametres"], "sn-2025.1");
+    assert_eq!(lue.json()["version_parametres"], "sn-2025.2");
     let e = lire(
         &b.routeur,
         &format!(
@@ -508,7 +511,7 @@ async fn une_version_retroactive_avertit_et_ne_change_pas_les_ecritures_validees
         Some(b.auditeur),
     )
     .await;
-    assert_eq!(lue.json()["version_parametres"], "sn-2025.1");
+    assert_eq!(lue.json()["version_parametres"], "sn-2025.2");
     let apres_mars = texte_date(jour(annee, 3, 20));
     let r = saisir(
         &b,
@@ -518,7 +521,7 @@ async fn une_version_retroactive_avertit_et_ne_change_pas_les_ecritures_validees
         &corps_du(&apres_mars, "19"),
     )
     .await;
-    assert_eq!(r.json()["version_parametres"], "sn-2025.1+d1");
+    assert_eq!(r.json()["version_parametres"], "sn-2025.2+d1");
     let r = saisir(
         &b,
         b.c.cabinet,
@@ -557,7 +560,7 @@ async fn une_version_retroactive_avertit_et_ne_change_pas_les_ecritures_validees
     .unwrap();
     assert_eq!(
         versions,
-        [Some("sn-2025.1".to_owned()), Some("sn-2025.1".to_owned())]
+        [Some("sn-2025.2".to_owned()), Some("sn-2025.2".to_owned())]
     );
     assert!(b.chaine_valide().await);
 }
@@ -601,7 +604,7 @@ async fn un_lot_traverse_deux_versions_et_le_jour_d_effet_est_inclus() {
         .fetch_all(&b.env.admin)
         .await
         .unwrap();
-    let attendues: Vec<Option<String>> = ["sn-2025.1", "sn-2025.1+d1", "sn-2025.1+d1"]
+    let attendues: Vec<Option<String>> = ["sn-2025.2", "sn-2025.2+d1", "sn-2025.2+d1"]
         .iter()
         .map(|v| Some((*v).to_owned()))
         .collect();
@@ -808,7 +811,7 @@ async fn la_version_du_dossier_s_applique_de_la_saisie_a_la_contre_passation() {
         &corps_du(&mars, "18"),
     )
     .await;
-    assert_eq!(r.json()["version_parametres"], "sn-2025.1");
+    assert_eq!(r.json()["version_parametres"], "sn-2025.2");
     let r = saisir(
         &b,
         b.c.cabinet,
@@ -824,7 +827,7 @@ async fn la_version_du_dossier_s_applique_de_la_saisie_a_la_contre_passation() {
     assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
     let chaine = b.chaine().await;
     assert!(
-        chaine[0].2.contains("\nparametres=sn-2025.1+d1\n"),
+        chaine[0].2.contains("\nparametres=sn-2025.2+d1\n"),
         "{}",
         chaine[0].2
     );
@@ -834,7 +837,7 @@ async fn la_version_du_dossier_s_applique_de_la_saisie_a_la_contre_passation() {
         Some(b.auditeur),
     )
     .await;
-    assert_eq!(lue.json()["version_parametres"], "sn-2025.1+d1");
+    assert_eq!(lue.json()["version_parametres"], "sn-2025.2+d1");
     // Relecture : la liste, puis les éditions, rebâtissent l'écriture sous sa version enregistrée.
     let l = lire(&b.routeur, &b.ecritures(), Some(b.auditeur)).await;
     assert_eq!(l.statut, StatusCode::OK, "{}", l.texte());
@@ -865,7 +868,7 @@ async fn la_version_du_dossier_s_applique_de_la_saisie_a_la_contre_passation() {
     .fetch_one(&b.env.admin)
     .await
     .unwrap();
-    assert_eq!(rang2.as_deref(), Some("sn-2025.1+d1"));
+    assert_eq!(rang2.as_deref(), Some("sn-2025.2+d1"));
     assert!(b.chaine_valide().await);
     // Validation par lot : même sélection.
     let (id2, v2) = b.pret_avec(&corps_du(&aout, "19")).await;
@@ -885,7 +888,7 @@ async fn la_version_du_dossier_s_applique_de_la_saisie_a_la_contre_passation() {
     .fetch_one(&b.env.admin)
     .await
     .unwrap();
-    assert_eq!(rang3.as_deref(), Some("sn-2025.1+d1"));
+    assert_eq!(rang3.as_deref(), Some("sn-2025.2+d1"));
 }
 
 #[tokio::test]
@@ -941,7 +944,7 @@ async fn deux_dossiers_d_un_meme_cabinet_ont_leurs_propres_versions() {
     for (d, taux) in [(b.c.dossier, "19"), (b.c.autre_dossier, "17")] {
         let apres = applicable(&b, d, &aout).await;
         assert_eq!(taux_normal(&apres).as_deref(), Some(taux));
-        assert_eq!(liste(&b, d).await["versions"].as_array().unwrap().len(), 2);
+        assert_eq!(liste(&b, d).await["versions"].as_array().unwrap().len(), 3);
     }
 }
 
@@ -963,13 +966,13 @@ async fn un_cabinet_ne_voit_ni_ne_cree_les_versions_d_un_autre() {
         tiers.administrateur,
     )
     .await;
-    // Le cabinet tiers ne voit que les siennes (aucune).
+    // Le cabinet tiers ne voit que les siennes (aucune) : les deux versions du paquet.
     let chemin_tiers = format!(
         "/api/cabinets/{}/dossiers/{}/parametres-fiscaux",
         tiers.cabinet, tiers.dossier
     );
     let l = lire(&b.routeur, &chemin_tiers, Some(tiers.administrateur)).await;
-    assert_eq!(l.json()["versions"].as_array().unwrap().len(), 1);
+    assert_eq!(l.json()["versions"].as_array().unwrap().len(), 2);
     // L'administrateur du premier cabinet n'accède pas au dossier du tiers : ni lecture ni création.
     let r = lire(&b.routeur, &chemin_tiers, Some(b.c.administrateur)).await;
     assert!(
@@ -1295,7 +1298,7 @@ async fn une_creation_et_une_validation_simultanees_restent_coherentes() {
         .fetch_one(&b.env.admin)
         .await
         .unwrap();
-        assert_eq!(version.as_deref(), Some("sn-2025.1"));
+        assert_eq!(version.as_deref(), Some("sn-2025.2"));
         assert_eq!(c.json()["avertissements"][0]["nombre"], 1);
     }
     assert!(b.chaine_valide().await);

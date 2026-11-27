@@ -1,0 +1,57 @@
+# PAQUET FACTICE DE TEST (pays ZZ, inexistant) : valeurs INVENTÉES, aucune source réelle.
+# Paramètres de prélèvement différents de ceux du Sénégal (taux, plafond et seuil à deux
+# décimales, devise CDF, validité propre, assiette non trouvée) : ils se chargent sans toucher au
+# socle ni au code (plan L3, P1).
+
+[[prelevement]]
+code = "TAXE_TRANSFERT_ARGENT"
+libelle = "Taxe sur les transferts (factice)"
+article = "F40"
+alinea = "1"
+pages = [8]
+taux = "1.25"
+source_taux = "FACTICE art. 40"
+plafond = "1500.50"
+source_plafond = "FACTICE art. 41"
+devise = "CDF"
+assiette = "montant_transfere_hors_commission_et_taxes"
+source_assiette = "FACTICE art. 42"
+redevable = "Opérateur factice"
+source_redevable = "FACTICE art. 43"
+collecte_par = "Opérateur factice"
+source_collecte = "FACTICE art. 43"
+fait_generateur = "Transfert factice"
+source_fait_generateur = "FACTICE art. 44"
+exigibilite = "declaration_periodique"
+source_exigibilite = "FACTICE art. 44"
+a_valider = false
+fin = "2026-12-31"
+
+[[prelevement.exoneration]]
+code = "TAXE_TRANSFERT_ARGENT-a"
+article = "F45"
+alinea = "a"
+pages = [8]
+libelle = "Petits retraits (factice)"
+seuil = "99.99"
+fenetre_heures = 48
+
+[[prelevement]]
+code = "PRELEVEMENT_PAIEMENT_RECU"
+libelle = "Prélèvement sur paiements (factice)"
+article = "F50"
+pages = [9]
+taux = "2"
+source_taux = "FACTICE art. 50"
+devise = "CDF"
+assiette = "non_trouve"
+source_assiette = "FACTICE : non dit"
+redevable = "Marchand factice"
+source_redevable = "FACTICE art. 50"
+collecte_par = "Opérateur factice"
+source_collecte = "FACTICE art. 50"
+fait_generateur = "Paiement factice"
+source_fait_generateur = "FACTICE art. 50"
+exigibilite = "non_trouve"
+source_exigibilite = "FACTICE : non dit"
+a_valider = true

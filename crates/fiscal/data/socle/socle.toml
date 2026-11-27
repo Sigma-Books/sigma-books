@@ -8,3 +8,16 @@ roles_taux = ["normal", "reduit"]
 # Plancher de conservation des pièces, en années, qu'aucune version ne peut baisser.
 plancher_annees = 10
 source = "AUDCIF art. 24, p. PDF 24 (ADR 0015 : dix ans, point de départ à confirmer)"
+
+# Prélèvements et taxes perçus à la source par un intermédiaire sur des paiements ou des
+# transferts d'argent (ADR 0034 point 10) : codes GÉNÉRIQUES dont un paquet de pays donne les
+# valeurs sourcées (taux, plafond, assiette, redevable, exigibilité, exonérations), dans
+# `prelevements.toml`. Ajout seul ; aucun code ne porte un taux ni un article de loi, et un paquet
+# ne crée pas de code. La nature ne dit rien de la comptabilisation (thèse ouverte, B5).
+[[prelevement]]
+code = "PRELEVEMENT_PAIEMENT_RECU"
+nature = "Prélèvement opéré par un intermédiaire de paiement sur les sommes reçues par un bénéficiaire (commerçant)"
+
+[[prelevement]]
+code = "TAXE_TRANSFERT_ARGENT"
+nature = "Taxe sur les opérations de transfert d'argent, collectée par l'intermédiaire qui les effectue"

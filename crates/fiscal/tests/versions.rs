@@ -20,19 +20,28 @@ use time::macros::date;
 use time::{Date, Duration};
 
 fn fixture(version: &str) -> String {
+    let chemin = |f: &str| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/zz")
+            .join(version)
+            .join(f)
+    };
+    // Fichiers obligatoires : leur absence échoue explicitement.
     let lire = |f: &str| {
-        fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/zz")
-                .join(version)
-                .join(f),
-        )
-        .unwrap()
+        fs::read_to_string(chemin(f))
+            .unwrap_or_else(|e| panic!("fixture obligatoire {version}/{f} illisible : {e}"))
+    };
+    // Facultatif : prélèvements (ADR 0034 point 10) ; seule l'absence du fichier est admise.
+    let facultatif = |f: &str| match fs::read_to_string(chemin(f)) {
+        Ok(texte) => texte,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => panic!("fixture {version}/{f} illisible : {e}"),
     };
     [
         lire("version.toml"),
         lire("regimes-tva.toml"),
         lire("motifs-exoneration.toml"),
+        facultatif("prelevements.toml"),
     ]
     .join("\n")
 }

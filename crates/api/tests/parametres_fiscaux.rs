@@ -8,7 +8,7 @@
 mod commun;
 
 use axum::http::StatusCode;
-use commun::banc::{Banc, banc, banc_avec_registre, banque, caisse, code, contenu};
+use commun::banc::{Banc, banc, banc_avec_registre, banc_repris, banque, caisse, code, contenu};
 use commun::brouillard::{aujourd_hui, journal_de_saisie, ligne, texte_date};
 use commun::paquets_de_test::{registre_cm, registre_cm_evolutif};
 use commun::serveur::{Reponse, envoyer, lire};
@@ -81,6 +81,38 @@ async fn version_validee(b: &Banc, rang: i64) -> Option<String> {
     .get(0)
 }
 
+/// Bascule du paquet du Sénégal (loi n° 2025-17) : une écriture datée la veille de la date
+/// d'effet de 2025.2 (2025-10-02, à confirmer par le fiscaliste) se valide et enregistre
+/// `sn-2025.1` ; une écriture datée de ce jour enregistre `sn-2025.2` (colonne et contenu haché).
+#[tokio::test]
+async fn une_ecriture_suit_la_version_du_paquet_a_sa_date() {
+    let b = banc_repris(jour(2025, 12, 1)).await;
+    for (rang, (date, attendue)) in [("2025-10-01", "sn-2025.1"), ("2025-10-02", "sn-2025.2")]
+        .into_iter()
+        .enumerate()
+    {
+        let r = creer(&b, &corps(date, etiquetee("18", "TAXABLE_NORMAL"))).await;
+        assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+        assert_eq!(r.json()["version_parametres"], attendue);
+        let id: Uuid = r.json()["id"].as_str().unwrap().parse().unwrap();
+        let (_, version) = b.lier(id, 1).await;
+        let v = b.valider(id, version).await;
+        assert_eq!(v.statut, StatusCode::OK, "{date} : {}", v.texte());
+        let rang = i64::try_from(rang).unwrap() + 1;
+        assert_eq!(version_validee(&b, rang).await.as_deref(), Some(attendue));
+        let chaine = b.chaine().await;
+        let ligne = usize::try_from(rang - 1).unwrap();
+        assert!(
+            chaine[ligne]
+                .2
+                .contains(&format!("\nparametres={attendue}\n")),
+            "{}",
+            chaine[ligne].2
+        );
+    }
+    assert!(b.chaine_valide().await);
+}
+
 #[tokio::test]
 async fn la_version_est_enregistree_a_la_validation_et_relue() {
     let b = banc().await;
@@ -89,16 +121,16 @@ async fn la_version_est_enregistree_a_la_validation_et_relue() {
     let r = creer(&b, &corps(&date, etiquetee("18", "TAXABLE_NORMAL"))).await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
     // Le brouillon porte la version appliquée à sa saisie.
-    assert_eq!(r.json()["version_parametres"], "sn-2025.1");
+    assert_eq!(r.json()["version_parametres"], "sn-2025.2");
     let id: Uuid = r.json()["id"].as_str().unwrap().parse().unwrap();
     let (_, version) = b.lier(id, 1).await;
     let v = b.valider(id, version).await;
     assert_eq!(v.statut, StatusCode::OK, "{}", v.texte());
     // Colonne, contenu haché et lecture disent la même version.
-    assert_eq!(version_validee(&b, 1).await.as_deref(), Some("sn-2025.1"));
+    assert_eq!(version_validee(&b, 1).await.as_deref(), Some("sn-2025.2"));
     let chaine = b.chaine().await;
     assert!(
-        chaine[0].2.contains("\nparametres=sn-2025.1\n"),
+        chaine[0].2.contains("\nparametres=sn-2025.2\n"),
         "{}",
         chaine[0].2
     );
@@ -109,11 +141,11 @@ async fn la_version_est_enregistree_a_la_validation_et_relue() {
         Some(b.auditeur),
     )
     .await;
-    assert_eq!(lu.json()["version_parametres"], "sn-2025.1");
+    assert_eq!(lu.json()["version_parametres"], "sn-2025.2");
     // Une écriture sans étiquette enregistre aussi la version applicable (spec §5.4).
     let (id2, v2, _) = b.pret("Sans étiquette").await;
     assert_eq!(b.valider(id2, v2).await.statut, StatusCode::OK);
-    assert_eq!(version_validee(&b, 2).await.as_deref(), Some("sn-2025.1"));
+    assert_eq!(version_validee(&b, 2).await.as_deref(), Some("sn-2025.2"));
     // Contre-passation : la version de l'origine est reprise, l'étiquette copiée telle quelle.
     let cp = envoyer(
         &b.routeur,
@@ -124,7 +156,7 @@ async fn la_version_est_enregistree_a_la_validation_et_relue() {
     )
     .await;
     assert_eq!(cp.statut, StatusCode::CREATED, "{}", cp.texte());
-    assert_eq!(version_validee(&b, 3).await.as_deref(), Some("sn-2025.1"));
+    assert_eq!(version_validee(&b, 3).await.as_deref(), Some("sn-2025.2"));
     assert!(b.chaine_valide().await);
 }
 
@@ -283,7 +315,7 @@ async fn les_dossiers_de_pays_differents_et_les_cabinets_ne_se_melangent_pas() {
     // 1. Dossier du banc (Sénégal) : taux 18 admis, 15 refusé.
     let r = creer(&b, &corps(&date, etiquetee("18", "TAXABLE_NORMAL"))).await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
-    assert_eq!(r.json()["version_parametres"], "sn-2025.1");
+    assert_eq!(r.json()["version_parametres"], "sn-2025.2");
     let r = creer(&b, &corps(&date, etiquetee("15", "TAXABLE_NORMAL"))).await;
     assert_eq!(code(&r), "etiquette_taux_non_admis");
     // 2. Autre dossier du même cabinet, tenu au Cameroun (factice) : taux 15 admis, 18 refusé.
@@ -350,7 +382,7 @@ async fn les_dossiers_de_pays_differents_et_les_cabinets_ne_se_melangent_pas() {
     );
     // 4. Le dossier du banc n'a pas bougé : toujours le Sénégal.
     let r = creer(&b, &corps(&date, etiquetee("18", "TAXABLE_NORMAL"))).await;
-    assert_eq!(r.json()["version_parametres"], "sn-2025.1");
+    assert_eq!(r.json()["version_parametres"], "sn-2025.2");
 }
 
 // --- Validité dans le temps, recontrôle à la validation, contre-passation ----------------------

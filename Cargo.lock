@@ -1194,6 +1194,7 @@ version = "0.0.0"
 dependencies = [
  "compta-core",
  "proptest",
+ "rust_decimal",
  "serde",
  "sha2",
  "thiserror 2.0.21",

@@ -126,6 +126,12 @@ mod tests {
         assert_eq!(
             sn.applicable(date!(2026 - 03 - 15))
                 .map(ParametresFiscaux::identifiant),
+            Some("sn-2025.2")
+        );
+        // La veille de la date d'effet de 2025.2 (loi n° 2025-17) : 2025.1.
+        assert_eq!(
+            sn.applicable(date!(2025 - 10 - 01))
+                .map(ParametresFiscaux::identifiant),
             Some("sn-2025.1")
         );
         // Avant la première version, ou pour un pays sans paquet : aucune version.

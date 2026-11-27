@@ -30,6 +30,8 @@ struct FichierVersion {
     motif: Vec<MotifBrut>,
     #[serde(default)]
     chevauchement: Vec<ChevauchementBrut>,
+    #[serde(default)]
+    prelevement: Vec<prelevement::PrelevementBrut>,
 }
 
 #[derive(Deserialize)]
@@ -104,7 +106,9 @@ struct ChevauchementBrut {
     note: String,
 }
 
+mod prelevement;
 mod surcharge;
+pub use prelevement::{ExonerationPrelevement, Prelevement};
 pub use surcharge::{MOTIF_MAX_OCTETS, Surcharge, motif_sur};
 
 // --- Types validés ------------------------------------------------------------------------
@@ -170,6 +174,11 @@ impl RegimeTva {
     #[must_use]
     pub fn pages(&self) -> &[u16] {
         &self.pages
+    }
+    /// Document source, s'il est nommé.
+    #[must_use]
+    pub fn document(&self) -> Option<&str> {
+        self.document.as_deref()
     }
     /// Régime d'exonération.
     #[must_use]
@@ -289,6 +298,11 @@ impl MotifExoneration {
     pub fn pages(&self) -> &[u16] {
         &self.pages
     }
+    /// Document source, s'il est nommé.
+    #[must_use]
+    pub fn document(&self) -> Option<&str> {
+        self.document.as_deref()
+    }
     /// Intitulé court.
     #[must_use]
     pub fn libelle(&self) -> &str {
@@ -353,6 +367,7 @@ pub struct ParametresFiscaux {
     regimes: Vec<RegimeTva>,
     motifs: Vec<MotifExoneration>,
     chevauchements: Vec<Chevauchement>,
+    prelevements: Vec<Prelevement>,
     retention: Retention,
 }
 
@@ -383,7 +398,9 @@ impl Unicite {
     }
 }
 
-/// Résout le document d'une entrée et contrôle sa source : article, pages dans la plage.
+/// Résout le document d'une entrée et contrôle sa source : article, pages dans la plage. Une
+/// entrée qui ne nomme pas son document n'est admise que si la version n'en cite qu'un ; sinon la
+/// source est ambiguë et l'entrée refusée.
 fn controler_source(
     nom: &str,
     article: &str,
@@ -508,6 +525,7 @@ impl ParametresFiscaux {
             .into_iter()
             .map(|c| chevauchement_valide(c, &motifs, &documents))
             .collect::<Result<Vec<_>, _>>()?;
+        let prelevements = prelevement::prelevements_valides(f.prelevement, socle, &documents)?;
         Ok(Self {
             pays: f.pays,
             version: f.version,
@@ -521,6 +539,7 @@ impl ParametresFiscaux {
             regimes,
             motifs,
             chevauchements,
+            prelevements,
             retention: Retention {
                 annees_min: f.retention.annees_min,
                 source: f.retention.source,
@@ -595,6 +614,16 @@ impl ParametresFiscaux {
     #[must_use]
     pub fn chevauchements(&self) -> &[Chevauchement] {
         &self.chevauchements
+    }
+    /// Prélèvements et taxes perçus à la source (ADR 0034 point 10), dans l'ordre du fichier.
+    #[must_use]
+    pub fn prelevements(&self) -> &[Prelevement] {
+        &self.prelevements
+    }
+    /// Prélèvement par code générique, sans égard aux dates.
+    #[must_use]
+    pub fn prelevement(&self, code: &str) -> Option<&Prelevement> {
+        self.prelevements.iter().find(|p| p.code().as_str() == code)
     }
     /// Rétention des pièces.
     #[must_use]
@@ -898,6 +927,19 @@ impl<'a> VueAuJour<'a> {
     #[must_use]
     pub fn regime(&self, code: &str) -> Option<&'a RegimeTva> {
         self.regimes().find(|r| r.code.as_str() == code)
+    }
+    /// Prélèvements valides ce jour-là.
+    pub fn prelevements(&self) -> impl Iterator<Item = &'a Prelevement> + use<'a> {
+        let jour = self.jour;
+        self.parametres
+            .prelevements
+            .iter()
+            .filter(move |p| p.valide_le(jour))
+    }
+    /// Prélèvement valide ce jour-là, par code générique.
+    #[must_use]
+    pub fn prelevement(&self, code: &str) -> Option<&'a Prelevement> {
+        self.prelevements().find(|p| p.code().as_str() == code)
     }
 }
 
