@@ -53,7 +53,8 @@ async fn les_tables_du_referentiel_n_accordent_ni_delete_ni_update_de_table() {
         // Transitions de statut (PR 11b, `0201_periodes.sql`).
         ("exercice", &["statut"]),
         ("periode", &["motif", "statut", "statut_le", "statut_par"]),
-        // Fiche du tiers (lot L3, `0500_tiers_fiche.sql`) : type, compte collectif et code figés.
+        // Fiche du tiers (lot L3, `0500_tiers_fiche.sql`) : code immuable ; type et compte collectif
+        // modifiables avant le premier mouvement (contrôle de l'API).
         (
             "tiers",
             &[
@@ -61,10 +62,12 @@ async fn les_tables_du_referentiel_n_accordent_ni_delete_ni_update_de_table() {
                 "archive_le",
                 "archive_par",
                 "assujetti_tva",
+                "compte_collectif",
                 "devise",
                 "motif_archivage",
                 "nom",
                 "soumis_retenue",
+                "type",
             ],
         ),
     ];

@@ -5,7 +5,9 @@
 //! création, modification) sont reprises ici, aux mêmes chemins, sous les actions Cedar de L3.
 //!
 //! # Fiche
-//! - **En-tête** : nom, type et compte collectif **figes** (choix Sigma de L2, ADR 0031 point 1),
+//! - **En-tête** : nom ; type et compte collectif **modifiables tant qu'aucune ligne ne cite le
+//!   tiers**, figés ensuite (ADR 0031 point 1, amendement du 2026-11-27 : Tryton et Odoo laissent
+//!   changer le compte du tiers ; contrôle croisé du référentiel comme à la création) ;
 //!   code auxiliaire unique dans le dossier et immuable (tiré d'office s'il n'est pas fourni),
 //!   devise par défaut, indicateurs `assujetti_tva` et `soumis_retenue` sans effet comptable.
 //! - **Identifiants légaux** : types du pack du pays **du dossier** (ADR 0027 ; aucune règle de
@@ -57,7 +59,9 @@ use crate::base::tiers::{
     self, Adresse, CompteBancaire, Contact, EnteteTiers, ErreurTiers, FicheTiers, NouveauTiers,
     Operation,
 };
-use crate::contexte_dossier::{IDENTIFIANTS_MAX, VALEUR_IDENTIFIANT_MAX, texte_borne};
+use crate::contexte_dossier::{
+    IDENTIFIANTS_MAX, VALEUR_IDENTIFIANT_MAX, a_un_caractere_interdit, texte_borne,
+};
 use crate::serveur::audit::Trace;
 use crate::serveur::erreur::{CategorieErreur, ErreurApi, MotifConflit, MotifValidation};
 use crate::serveur::pipeline::{DossierAutorise, Garde, id_chemin};
@@ -459,6 +463,11 @@ struct CorpsContact {
 #[serde(deny_unknown_fields)]
 struct CorpsModification {
     nom: Option<String>,
+    /// Type et compte collectif : modifiables tant qu'aucune ligne ne cite le tiers (ADR 0031
+    /// point 1, amendement du 2026-11-27).
+    #[serde(rename = "type")]
+    genre: Option<String>,
+    compte_collectif: Option<String>,
     #[serde(default)]
     devise: ChampTexte,
     assujetti_tva: Option<bool>,
@@ -471,6 +480,8 @@ struct CorpsModification {
 impl CorpsModification {
     fn est_vide(&self) -> bool {
         self.nom.is_none()
+            && self.genre.is_none()
+            && self.compte_collectif.is_none()
             && self.devise == ChampTexte::Absent
             && self.assujetti_tva.is_none()
             && self.soumis_retenue.is_none()
@@ -522,8 +533,16 @@ fn invalide() -> ErreurApi {
     }
 }
 
-/// Texte borné, sans caractère de contrôle ni de format bidirectionnel (F11.8), non vide.
+fn limite(motif: MotifValidation) -> ErreurApi {
+    ErreurApi::Validation { motif, ligne: None }
+}
+
+/// Texte borné, non vide, sans caractère de contrôle ni de format Unicode (catégorie `Cf` : F11.8 ;
+/// 422 `tiers_caractere_invalide`, qui ne cite jamais le caractère).
 fn texte(valeur: &str, max: usize) -> Result<String, ErreurApi> {
+    if a_un_caractere_interdit(valeur) {
+        return Err(limite(MotifValidation::TiersCaractereInvalide));
+    }
     if texte_borne(valeur, max) {
         Ok(valeur.to_owned())
     } else {
@@ -596,7 +615,7 @@ fn identifiants(
         .pays_par_code(pays_du_dossier)
         .ok_or(ErreurApi::Interne(CategorieErreur::Donnee))?;
     if demandes.len() > IDENTIFIANTS_MAX {
-        return Err(invalide());
+        return Err(limite(MotifValidation::TiersTropDIdentifiants));
     }
     let mut lus = BTreeMap::new();
     for d in demandes {
@@ -968,6 +987,14 @@ fn erreur_tiers(e: ErreurTiers) -> ErreurApi {
             motif: MotifConflit::TiersCodeDejaUtilise,
             nombre: None,
         },
+        ErreurTiers::TirageImpossible => ErreurApi::Conflit {
+            motif: MotifConflit::TiersCodeTirageImpossible,
+            nombre: None,
+        },
+        ErreurTiers::DejaMouvemente => ErreurApi::Conflit {
+            motif: MotifConflit::TiersDejaMouvemente,
+            nombre: None,
+        },
         ErreurTiers::Base(e) => ErreurApi::from(e),
     }
 }
@@ -1061,7 +1088,7 @@ async fn modifier(
         .as_deref()
         .map(|l| {
             if l.len() > ADRESSES_MAX {
-                return Err(invalide());
+                return Err(limite(MotifValidation::TiersTropDAdresses));
             }
             l.iter().map(adresse).collect::<Result<Vec<_>, _>>()
         })
@@ -1071,15 +1098,54 @@ async fn modifier(
         .as_deref()
         .map(|l| {
             if l.len() > CONTACTS_MAX {
-                return Err(invalide());
+                return Err(limite(MotifValidation::TiersTropDeContacts));
             }
             l.iter().map(contact).collect::<Result<Vec<_>, _>>()
         })
         .transpose()?;
 
+    let genre_demande = c
+        .genre
+        .as_deref()
+        .map(|g| TypeTiers::parse(g).ok_or(ErreurApi::RequeteInvalide))
+        .transpose()?;
+    let compte_demande = c
+        .compte_collectif
+        .as_deref()
+        .map(|n| NumeroCompte::parse(n).map_err(|_| ErreurApi::RequeteInvalide))
+        .transpose()?;
+    // Ordre des verrous : référentiel, puis tiers (celui de `changer_classement`).
+    if (genre_demande.is_some() || compte_demande.is_some())
+        && !crate::base::referentiel::verrouiller(tx).await?
+    {
+        return Err(ErreurApi::Introuvable);
+    }
     let avant = fiche_verrouillee(tx, requete).await?;
     let id = avant.entete.id;
     let mut traces = Vec::new();
+
+    // Type et compte collectif : changés seulement avant le premier mouvement.
+    let genre = genre_demande.unwrap_or(avant.entete.genre);
+    let compte =
+        compte_demande.map_or_else(|| avant.entete.compte_collectif.clone(), |n| n.to_string());
+    let classement: Vec<&'static str> = [
+        ("type", genre != avant.entete.genre),
+        ("compte_collectif", compte != avant.entete.compte_collectif),
+    ]
+    .into_iter()
+    .filter_map(|(n, change)| change.then_some(n))
+    .collect();
+    if !classement.is_empty() {
+        let numero = NumeroCompte::parse(&compte)
+            .map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
+        tiers::changer_classement(tx, &avant.entete, genre, &numero)
+            .await
+            .map_err(erreur_tiers)?;
+        let mut t = trace(dossier.id(), "tiers", id);
+        t.donnees.push(("operation", "classement".to_owned()));
+        t.donnees.push(("champs", classement.join(",")));
+        traces.push(t);
+    }
 
     // En-tête.
     let mut entete = avant.entete.clone();
@@ -1280,7 +1346,7 @@ async fn modifier_comptes_bancaires(
 ) -> Result<Resultat, ErreurApi> {
     let c: CorpsComptesBancaires = corps(requete.corps)?;
     if c.comptes.len() > COMPTES_MAX {
-        return Err(invalide());
+        return Err(limite(MotifValidation::TiersTropDeComptesBancaires));
     }
     let pack = PackPays::officiel().map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
     let demandes = c
@@ -1396,20 +1462,46 @@ mod tests {
             ),
             Err(validation(MotifValidation::TiersIdentifiantTypeInconnu))
         );
-        // Valeur vide, trop longue, avec un caractère de contrôle ou de format : refusée.
-        for valeur in ["", " ", &"1".repeat(65), "12\n3", "12\u{202E}3"] {
+        // Valeur vide ou trop longue : refusée.
+        for valeur in ["", " ", &"1".repeat(65)] {
             assert_eq!(
                 identifiants(pack(), "SN", &[identifiant("NINEA", valeur)]),
                 Err(invalide()),
                 "{valeur:?}"
             );
         }
+        // Caractère de contrôle (C0, C1) ou de format Unicode (`Cf`) : code propre (F11.8).
+        for c in [
+            '\n',
+            '\u{7}',
+            '\u{85}',
+            '\u{202E}',
+            '\u{200B}',
+            '\u{200D}',
+            '\u{2060}',
+            '\u{FEFF}',
+            '\u{AD}',
+            '\u{61C}',
+            '\u{E0041}',
+        ] {
+            let valeur = format!("12{c}3");
+            assert_eq!(
+                identifiants(pack(), "SN", &[identifiant("NINEA", &valeur)]),
+                Err(validation(MotifValidation::TiersCaractereInvalide)),
+                "{valeur:?}"
+            );
+        }
+        // L'espace insécable n'est pas un caractère de format : admis.
+        assert!(identifiants(pack(), "SN", &[identifiant("NINEA", "12\u{A0}3")]).is_ok());
         // Aucun format imposé : une valeur quelconque, bornée, est admise (aucun n'est sourcé).
         assert!(identifiants(pack(), "SN", &[identifiant("NINEA", "n'importe quoi")]).is_ok());
         let trop: Vec<CorpsIdentifiant> = (0..=IDENTIFIANTS_MAX)
             .map(|i| identifiant("AUTRE", &i.to_string()))
             .collect();
-        assert_eq!(identifiants(pack(), "SN", &trop), Err(invalide()));
+        assert_eq!(
+            identifiants(pack(), "SN", &trop),
+            Err(validation(MotifValidation::TiersTropDIdentifiants))
+        );
     }
 
     #[test]
@@ -1580,17 +1672,12 @@ mod tests {
         assert!(c.est_vide());
         // L'archivage passe par sa route : `actif` n'est plus un champ de la modification.
         assert!(corps::<CorpsModification>(br#"{"actif":false}"#).is_err());
-        // Type et compte collectif figes, code immuable : refusés (champs inconnus).
-        for fige in [
-            r#"{"type":"fournisseur"}"#,
-            r#"{"compte_collectif":"401"}"#,
-            r#"{"code":"X"}"#,
-        ] {
-            assert!(
-                corps::<CorpsModification>(fige.as_bytes()).is_err(),
-                "{fige}"
-            );
-        }
+        // Code immuable : refusé (champ inconnu). Type et compte collectif : admis par le corps,
+        // contrôlés ensuite (premier mouvement, contrôle croisé du référentiel).
+        assert!(corps::<CorpsModification>(br#"{"code":"X"}"#).is_err());
+        let c: CorpsModification =
+            corps(br#"{"type":"fournisseur","compte_collectif":"401"}"#).unwrap();
+        assert!(!c.est_vide());
     }
 
     #[test]

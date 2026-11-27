@@ -222,11 +222,17 @@ pub enum MotifConflit {
     TresorerieTypeIncoherent,
     /// Code de tiers déjà pris par un autre tiers du dossier (unique, ADR 0031 point 1).
     TiersCodeDejaUtilise,
+    /// Aucun code ne peut être tiré d'office (suite épuisée par un code saisi) : le code est à
+    /// saisir.
+    TiersCodeTirageImpossible,
+    /// Type ou compte collectif d'un tiers déjà cité par une ligne (brouillon ou écriture
+    /// validée) : figés dès le premier mouvement (ADR 0031 point 1, amendement du 2026-11-27).
+    TiersDejaMouvemente,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 45] = [
+    pub const TOUS: [Self; 47] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -272,6 +278,8 @@ impl MotifConflit {
         Self::DossierArretesDeCaisse,
         Self::TresorerieTypeIncoherent,
         Self::TiersCodeDejaUtilise,
+        Self::TiersCodeTirageImpossible,
+        Self::TiersDejaMouvemente,
     ];
 
     /// Code du corps de la réponse.
@@ -323,6 +331,8 @@ impl MotifConflit {
             Self::DossierArretesDeCaisse => "dossier_arretes_de_caisse",
             Self::TresorerieTypeIncoherent => "tresorerie_type_incoherent",
             Self::TiersCodeDejaUtilise => "tiers_code_deja_utilise",
+            Self::TiersCodeTirageImpossible => "tiers_code_tirage_impossible",
+            Self::TiersDejaMouvemente => "tiers_deja_mouvemente",
         }
     }
 }
@@ -429,14 +439,25 @@ pub enum MotifValidation {
     TiersIdentifiantTypeInconnu,
     /// Type d'identifiant bancaire hors du pack.
     TiersCompteBancaireTypeInconnu,
-    /// Valeur de la fiche d'un tiers invalide (texte vide, trop long, caractère de contrôle ou de
-    /// format, code, devise ou pays mal formé, trop de lignes).
+    /// Valeur de la fiche d'un tiers invalide (texte vide ou trop long ; code, devise ou pays mal
+    /// formé ; type de contact inconnu).
     TiersValeurInvalide,
+    /// Caractère de contrôle ou de format Unicode (catégorie `Cf`) dans un texte de la fiche
+    /// (F11.8).
+    TiersCaractereInvalide,
+    /// Plus d'identifiants légaux que la limite (un par type, dix au plus).
+    TiersTropDIdentifiants,
+    /// Plus d'adresses que la limite (vingt).
+    TiersTropDAdresses,
+    /// Plus de moyens de contact que la limite (cinquante).
+    TiersTropDeContacts,
+    /// Plus de coordonnées bancaires que la limite (vingt).
+    TiersTropDeComptesBancaires,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 47] = [
+    pub const TOUS: [Self; 52] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -484,6 +505,11 @@ impl MotifValidation {
         Self::TiersIdentifiantTypeInconnu,
         Self::TiersCompteBancaireTypeInconnu,
         Self::TiersValeurInvalide,
+        Self::TiersCaractereInvalide,
+        Self::TiersTropDIdentifiants,
+        Self::TiersTropDAdresses,
+        Self::TiersTropDeContacts,
+        Self::TiersTropDeComptesBancaires,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -554,6 +580,11 @@ impl MotifValidation {
             Self::TiersIdentifiantTypeInconnu => "tiers_identifiant_type_inconnu",
             Self::TiersCompteBancaireTypeInconnu => "tiers_compte_bancaire_type_inconnu",
             Self::TiersValeurInvalide => "tiers_valeur_invalide",
+            Self::TiersCaractereInvalide => "tiers_caractere_invalide",
+            Self::TiersTropDIdentifiants => "tiers_trop_d_identifiants",
+            Self::TiersTropDAdresses => "tiers_trop_d_adresses",
+            Self::TiersTropDeContacts => "tiers_trop_de_contacts",
+            Self::TiersTropDeComptesBancaires => "tiers_trop_de_comptes_bancaires",
         }
     }
 }

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (EXISTS (SELECT 1 FROM brouillon_ligne\n                           WHERE cabinet_id = $1 AND dossier_id = $2 AND tiers_id = $3)\n                OR EXISTS (SELECT 1 FROM ecriture_validee_ligne\n                           WHERE cabinet_id = $1 AND dossier_id = $2 AND tiers_id = $3))\n           AS \"mouvemente!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mouvemente!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a2b4cd34040c3ec4c00a6ec5af916de334829ff3ab05bf9acf3a68edfeec8251"
+}

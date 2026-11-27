@@ -16,8 +16,10 @@
 --   L2 désactivé n'a pas de motif : la contrainte n'exige le motif qu'avec l'instant.
 -- `condition_reglement_id` (ADR 0033) est ajoutée par la PR 8 avec sa table (`0510`–`0519`).
 --
--- `type` et `compte_collectif` restent figés (choix Sigma de L2, ADR 0031 point 1) ; `code` est
--- immuable : aucun des trois n'entre dans le droit d'`UPDATE`.
+-- `type` et `compte_collectif` sont **modifiables tant qu'aucune ligne** (brouillon ou écriture
+-- validée) ne cite le tiers, figés ensuite (ADR 0031 point 1, amendement du 2026-11-27 : Tryton et
+-- Odoo laissent changer le compte du tiers) : le droit d'`UPDATE` les comprend, l'API contrôle
+-- l'absence de ligne sous le verrou du référentiel. `code` est immuable, hors du droit d'`UPDATE`.
 
 ALTER TABLE tiers
     ADD COLUMN code text,
@@ -53,5 +55,6 @@ ALTER TABLE tiers
         AND (archive_le IS NULL OR NOT actif)
     );
 
-GRANT UPDATE (devise, assujetti_tva, soumis_retenue, motif_archivage, archive_le, archive_par)
+GRANT UPDATE (type, compte_collectif, devise, assujetti_tva, soumis_retenue, motif_archivage,
+               archive_le, archive_par)
     ON tiers TO sigma_application;

@@ -4,8 +4,10 @@
 -- `crates/syscohada/data/pays.toml` : RIB, IBAN, portefeuille, autre), contrôlé par l'API.
 -- Aucune règle de forme (aucune n'est sourcée). Doublon de numéro chez un autre tiers :
 -- **signalé**, jamais refusé (Odoo `res_partner_bank.py:68-92` ; Tryton bloque, `bank.py:224-231` :
--- Sigma retient le plus souple). `numero_normalise` (majuscules, sans blanc, comme le
--- `sanitized_acc_number` d'Odoo) sert à cette recherche. `devise` : forme ISO 4217.
+-- Sigma retient le plus souple). Odoo compare `acc_number` **brut** ; Sigma compare
+-- `numero_normalise` (majuscules ; blancs, espaces insécables et caractères de format Unicode
+-- retirés), ce qui ne fait que signaler davantage : un numéro qui ne diffère que par un caractère
+-- invisible n'échappe pas au signalement (F1.26, F11.8). `devise` : forme ISO 4217.
 --
 -- Lecture réservée par Cedar (`ConsulterCoordonneesBancairesTiers` : auditeur exclu). Toute
 -- modification est journalisée et alerte les administrateurs du cabinet (sujet de notification
@@ -18,7 +20,10 @@ CREATE TABLE tiers_compte_bancaire (
     tiers_id uuid NOT NULL,
     type text NOT NULL CHECK (type ~ '^[A-Z][A-Z0-9_]{1,31}$'),
     numero text NOT NULL CHECK (length(numero) <= 64 AND length(btrim(numero)) >= 1),
-    numero_normalise text GENERATED ALWAYS AS (upper(regexp_replace(numero, '\s', '', 'g'))) STORED,
+    -- Majuscules ; blancs (espaces insécables compris) et caractères de format Unicode retirés.
+    numero_normalise text GENERATED ALWAYS AS (upper(regexp_replace(numero,
+        '[[:space:]\u00a0\u1680\u2000-\u200f\u2028-\u202f\u205f-\u2064\u2066-\u206f\u3000'
+        || '\ufeff\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890-\u0891\u08e2\u180e\ufff9-\ufffb\U000e0001\U000e0020-\U000e007f]', '', 'g'))) STORED,
     etablissement text CHECK (length(etablissement) <= 200 AND length(btrim(etablissement)) >= 1),
     devise text CHECK (devise ~ '^[A-Z]{3}$'),
     cree_le timestamptz NOT NULL DEFAULT now(),

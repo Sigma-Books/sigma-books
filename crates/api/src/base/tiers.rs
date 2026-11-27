@@ -5,7 +5,7 @@
 //! sont faits par la route (`serveur::routes::tiers`) ; ici : persistance, verrous, doublons.
 //!
 //! # Verrous
-//! - **Création et désarchivage** : verrou du référentiel (ligne `dossier` en `FOR NO KEY
+//! - **Création, désarchivage, changement de type ou de compte collectif** : verrou du référentiel (ligne `dossier` en `FOR NO KEY
 //!   UPDATE`, [`referentiel::verrouiller`]), puis contrôle croisé du référentiel
 //!   ([`referentiel::verifier`] : compte collectif existant, collectif, actif, qui admet le type du
 //!   tiers), comme toute mutation du référentiel de L2. Le code tiré d'office l'est sous ce verrou.
@@ -158,6 +158,12 @@ pub enum ErreurTiers {
     /// Code déjà pris par un autre tiers du dossier.
     #[error("code de tiers déjà utilisé")]
     CodeDejaUtilise,
+    /// Aucun code ne peut être tiré d'office : le code est à saisir.
+    #[error("aucun code de tiers ne peut être tiré d'office")]
+    TirageImpossible,
+    /// Type ou compte collectif demandé pour un tiers déjà cité par une ligne.
+    #[error("tiers déjà mouvementé")]
+    DejaMouvemente,
     /// Erreur d'accès à la base.
     #[error(transparent)]
     Base(#[from] ErreurBase),
@@ -538,10 +544,16 @@ pub async fn creer(tx: &mut TransactionTenant, n: &NouveauTiers) -> Result<Strin
     Ok(code)
 }
 
+/// Plus grand rang tiré d'office : `T` suivi de 18 chiffres au plus (le rang tient dans un `i64`
+/// et son code dans les 20 caractères admis).
+const RANG_MAX: i64 = 999_999_999_999_999_999;
+
 /// Prochain code tiré d'office : `T` suivi du plus grand rang déjà tiré plus un, sur six
 /// chiffres au moins (forme des codes donnés aux tiers de L2 par la migration `0500`). Sous le
-/// verrou du référentiel.
-async fn code_suivant(tx: &mut TransactionTenant) -> Result<String, ErreurBase> {
+/// verrou du référentiel. Si un code saisi a épuisé la suite (`T` et 18 neuf), ou si le code
+/// calculé est déjà pris, aucun code n'est tiré : [`ErreurTiers::TirageImpossible`] (le code est
+/// alors à saisir), jamais une violation d'unicité.
+async fn code_suivant(tx: &mut TransactionTenant) -> Result<String, ErreurTiers> {
     let (cabinet, dossier) = contexte(tx)?;
     let dernier: i64 = sqlx::query_scalar!(
         r#"SELECT coalesce(max(substring(code FROM 2)::bigint), 0) AS "dernier!"
@@ -552,10 +564,26 @@ async fn code_suivant(tx: &mut TransactionTenant) -> Result<String, ErreurBase> 
     )
     .fetch_one(tx.connexion())
     .await?;
-    let suivant = dernier
-        .checked_add(1)
-        .ok_or(ErreurBase::Donnee("codes de tiers épuisés"))?;
-    Ok(format!("T{suivant:06}"))
+    let suivant = tirage_suivant(dernier).ok_or(ErreurTiers::TirageImpossible)?;
+    let pris = sqlx::query!(
+        "SELECT id FROM tiers WHERE cabinet_id = $1 AND dossier_id = $2 AND code = $3",
+        cabinet,
+        dossier,
+        suivant,
+    )
+    .fetch_optional(tx.connexion())
+    .await?
+    .is_some();
+    if pris {
+        return Err(ErreurTiers::TirageImpossible);
+    }
+    Ok(suivant)
+}
+
+/// Code qui suit le rang `dernier`, s'il reste dans la suite ([`RANG_MAX`]).
+fn tirage_suivant(dernier: i64) -> Option<String> {
+    let suivant = dernier.checked_add(1).filter(|n| *n <= RANG_MAX)?;
+    Some(format!("T{suivant:06}"))
 }
 
 /// Enregistre l'en-tête modifiable du tiers (nom, devise, indicateurs fiscaux). Le tiers est
@@ -630,6 +658,85 @@ pub async fn desarchiver(tx: &mut TransactionTenant, e: &EnteteTiers) -> Result<
         cabinet,
         dossier,
         e.id,
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(())
+}
+
+/// Vrai si une ligne cite le tiers : ligne de brouillon ou ligne d'écriture validée (les seules
+/// tables qui le référencent, migrations `0202` et `0203`). **Seul contrôle** du figement du type
+/// et du compte collectif (ADR 0031 point 1, amendement du 2026-11-27) : une table de L3 qui
+/// citerait un tiers dans une ligne comptable s'ajoute ici, dans la même requête.
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn est_mouvemente(tx: &mut TransactionTenant, id: Uuid) -> Result<bool, ErreurBase> {
+    let (cabinet, dossier) = contexte(tx)?;
+    Ok(sqlx::query_scalar!(
+        r#"SELECT (EXISTS (SELECT 1 FROM brouillon_ligne
+                           WHERE cabinet_id = $1 AND dossier_id = $2 AND tiers_id = $3)
+                OR EXISTS (SELECT 1 FROM ecriture_validee_ligne
+                           WHERE cabinet_id = $1 AND dossier_id = $2 AND tiers_id = $3))
+           AS "mouvemente!""#,
+        cabinet,
+        dossier,
+        id,
+    )
+    .fetch_one(tx.connexion())
+    .await?)
+}
+
+/// Change le type ou le compte collectif du tiers `e` (Tryton et Odoo laissent changer le compte
+/// du tiers ; ADR 0031 point 1, amendement du 2026-11-27) : seulement tant qu'aucune ligne ne le
+/// cite ([`est_mouvemente`] ; sinon [`ErreurTiers::DejaMouvemente`]), et sous le contrôle croisé
+/// du référentiel (le nouveau compte admet le type). Verrous : référentiel (qui attend les saisies
+/// en cours, `FOR SHARE` sur le dossier), puis ligne du tiers en `FOR UPDATE` (qui attend toute
+/// insertion d'une ligne qui le cite, `FOR KEY SHARE`).
+///
+/// # Errors
+/// [`ErreurTiers`].
+pub async fn changer_classement(
+    tx: &mut TransactionTenant,
+    e: &EnteteTiers,
+    genre: TypeTiers,
+    compte_collectif: &compta_core::NumeroCompte,
+) -> Result<(), ErreurTiers> {
+    let (cabinet, dossier) = contexte(tx)?;
+    if !referentiel::verrouiller(tx).await? {
+        return Err(ErreurTiers::Absent);
+    }
+    let present = sqlx::query!(
+        "SELECT id FROM tiers WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3 FOR UPDATE",
+        cabinet,
+        dossier,
+        e.id,
+    )
+    .fetch_optional(tx.connexion())
+    .await?
+    .is_some();
+    if !present {
+        return Err(ErreurTiers::Absent);
+    }
+    if est_mouvemente(tx, e.id).await? {
+        return Err(ErreurTiers::DejaMouvemente);
+    }
+    let nom =
+        compta_core::TexteCourt::parse(&e.nom).map_err(|_| ErreurBase::Donnee("nom d'un tiers"))?;
+    controler_referentiel(
+        tx,
+        e.id,
+        Tiers::nouveau(nom, genre, compte_collectif.clone()),
+    )
+    .await?;
+    sqlx::query!(
+        "UPDATE tiers SET type = $4, compte_collectif = $5 \
+         WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+        cabinet,
+        dossier,
+        e.id,
+        genre.nom(),
+        compte_collectif.as_str(),
     )
     .execute(tx.connexion())
     .await?;
@@ -912,4 +1019,23 @@ pub async fn ecrire_compte_bancaire(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn le_tirage_reste_dans_la_suite() {
+        assert_eq!(tirage_suivant(0).as_deref(), Some("T000001"));
+        assert_eq!(tirage_suivant(999_999).as_deref(), Some("T1000000"));
+        assert_eq!(
+            tirage_suivant(RANG_MAX - 1).as_deref(),
+            Some("T999999999999999999")
+        );
+        // `T` et 18 neuf saisi à la main : plus aucun tirage, jamais un code hors de la suite
+        // (que le tirage suivant ignorerait, puis rendrait en double).
+        assert_eq!(tirage_suivant(RANG_MAX), None);
+        assert_eq!(tirage_suivant(i64::MAX), None);
+    }
 }

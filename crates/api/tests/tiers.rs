@@ -225,9 +225,8 @@ async fn contraintes_de_la_fiche_selon_le_pays_du_dossier() {
         assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{corps}");
         assert_eq!(code(&r), "tiers_identifiant_type_inconnu");
     }
-    // Valeurs mal formées : 422 ; champ figé ou inconnu : 400.
+    // Valeurs mal formées : 422 ; code (immuable), `actif` ou corps vide : 400.
     for corps in [
-        "{\"nom\":\"a\\u202Eb\"}",
         r#"{"devise":"euro"}"#,
         r#"{"adresses":[{"pays":"Sénégal"}]}"#,
         r#"{"contacts":[{"type":"pigeon","valeur":"x"}]}"#,
@@ -236,13 +235,7 @@ async fn contraintes_de_la_fiche_selon_le_pays_du_dossier() {
         assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{corps}");
         assert_eq!(code(&r), "tiers_valeur_invalide");
     }
-    for corps in [
-        r#"{"type":"fournisseur"}"#,
-        r#"{"compte_collectif":"401"}"#,
-        r#"{"code":"X"}"#,
-        r#"{"actif":false}"#,
-        "{}",
-    ] {
+    for corps in [r#"{"code":"X"}"#, r#"{"actif":false}"#, "{}"] {
         assert_eq!(
             modifier(corps).await.statut,
             StatusCode::BAD_REQUEST,
@@ -683,19 +676,37 @@ async fn rls_des_tables_de_la_fiche() {
             .rows_affected();
         assert_eq!(n, 0, "{requete}");
     }
-    // Insertion pour le dossier de B : refusée par `WITH CHECK`.
-    let erreur = sqlx::query(
+    drop(tx);
+    // Insertion pour le dossier de B, depuis le contexte de A : refusée par `WITH CHECK`, pour
+    // chaque table de la fiche (une transaction par essai : l'échec l'annule).
+    for requete in [
+        "INSERT INTO tiers (cabinet_id, dossier_id, id, code, nom, type, compte_collectif, actif) \
+         VALUES ($1, $2, gen_random_uuid(), 'CROISE', 'X', 'client', $4, true)",
         "INSERT INTO tiers_identifiant (cabinet_id, dossier_id, id, tiers_id, type, valeur) \
          VALUES ($1, $2, gen_random_uuid(), $3, 'AUTRE', 'X')",
-    )
-    .bind(b.cabinet.uuid())
-    .bind(b.dossier.uuid())
-    .bind(fb.tiers)
-    .execute(tx.connexion())
-    .await
-    .unwrap_err();
-    assert_eq!(code_sql(&erreur).as_deref(), Some("42501"));
-    drop(tx);
+        "INSERT INTO tiers_adresse (cabinet_id, dossier_id, id, tiers_id, ville) \
+         VALUES ($1, $2, gen_random_uuid(), $3, 'X')",
+        "INSERT INTO tiers_contact (cabinet_id, dossier_id, id, tiers_id, type, valeur) \
+         VALUES ($1, $2, gen_random_uuid(), $3, 'autre', 'X')",
+        "INSERT INTO tiers_compte_bancaire (cabinet_id, dossier_id, id, tiers_id, type, numero) \
+         VALUES ($1, $2, gen_random_uuid(), $3, 'RIB', 'X')",
+    ] {
+        let mut tx = ouvrir_transaction(
+            &env.application,
+            ContexteTenant::dossier(a.cabinet, a.dossier, a.administrateur),
+        )
+        .await
+        .unwrap();
+        let erreur = sqlx::query(requete)
+            .bind(b.cabinet.uuid())
+            .bind(b.dossier.uuid())
+            .bind(fb.tiers)
+            .bind(comptes().collectif.as_str())
+            .execute(tx.connexion())
+            .await
+            .unwrap_err();
+        assert_eq!(code_sql(&erreur).as_deref(), Some("42501"), "{requete}");
+    }
     // Clé composite : une ligne du dossier de A ne cite pas le tiers de B.
     let mut tx = ouvrir_transaction(
         &env.application,
@@ -731,14 +742,9 @@ async fn rls_des_tables_de_la_fiche() {
             .await
             .unwrap();
     assert_eq!(n, 0);
-    // Le rôle applicatif ne supprime jamais un tiers, ni ne change son type, son compte
-    // collectif ou son code.
-    for (droit, colonne) in [
-        ("DELETE", None),
-        ("UPDATE", Some("type")),
-        ("UPDATE", Some("compte_collectif")),
-        ("UPDATE", Some("code")),
-    ] {
+    // Le rôle applicatif ne supprime jamais un tiers ni ne change son code (le type et le compte
+    // collectif changent avant le premier mouvement : contrôle de l'API).
+    for (droit, colonne) in [("DELETE", None), ("UPDATE", Some("code"))] {
         let a_le_droit: bool = match colonne {
             None => {
                 sqlx::query_scalar("SELECT has_table_privilege('sigma_application', 'tiers', $1)")
@@ -785,4 +791,334 @@ async fn le_code_tire_d_office_suit_les_codes_existants() {
     .await;
     let r = poster(&b, &format!("/{id}/desarchivage"), b.valideur, "{}").await;
     assert_eq!(r.json()["code"], "T000001");
+}
+
+/// Type et compte collectif : modifiables tant qu'aucune ligne ne cite le tiers, sous le contrôle
+/// croisé du référentiel ; figés dès la première ligne (ADR 0031 point 1, amendement du
+/// 2026-11-27) ; changement journalisé par les noms de champs.
+#[tokio::test]
+async fn classement_modifiable_jusqu_au_premier_mouvement() {
+    let b = banc().await;
+    let id = b.f.tiers;
+    let k = comptes();
+    let rang = rang_audit(&b).await;
+    let modifier = |corps: String| {
+        let b = &b;
+        async move { poster(b, &format!("/{id}/modification"), b.c.collaborateur, &corps).await }
+    };
+    // Paire incohérente (un client sur un compte de la fiche 40) : refusée, rien ne change.
+    let r = modifier(format!(r#"{{"compte_collectif":"{}"}}"#, k.fournisseur)).await;
+    assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{}", r.texte());
+    // Correction d'un tiers créé avec le mauvais rôle : admise avant tout mouvement.
+    let r = modifier(format!(
+        r#"{{"type":"fournisseur","compte_collectif":"{}"}}"#,
+        k.fournisseur
+    ))
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    assert_eq!(r.json()["type"], "fournisseur");
+    assert_eq!(r.json()["compte_collectif"], k.fournisseur.to_string());
+    let tout = audit_depuis(&b, rang).await.join("\n");
+    assert!(
+        tout.contains("donnee=operation\nvaleur=classement\n")
+            && tout.contains("donnee=champs\nvaleur=type,compte_collectif\n"),
+        "{tout}"
+    );
+    // Une ligne de brouillon cite le tiers : le classement est figé (409), le nom reste libre.
+    b.creer(&contenu(
+        &journal_de_saisie(),
+        &texte_date(aujourd_hui()),
+        &[
+            ligne(commun::banc::caisse(), "debit", "1000"),
+            format!(
+                r#"{{"compte":"{}","sens":"credit","montant":"1000","tiers":"{id}"}}"#,
+                k.fournisseur
+            ),
+        ],
+        "",
+    ))
+    .await;
+    let r = modifier(format!(
+        r#"{{"type":"client","compte_collectif":"{}"}}"#,
+        k.collectif
+    ))
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "tiers_deja_mouvemente");
+    assert_eq!(
+        modifier(r#"{"nom":"Fournisseur renommé"}"#.to_owned())
+            .await
+            .statut,
+        StatusCode::OK
+    );
+    // Demande identique à l'état : aucun changement, même figé.
+    let r = modifier(format!(r#"{{"compte_collectif":"{}"}}"#, k.fournisseur)).await;
+    assert_eq!(code(&r), "aucun_changement");
+}
+
+/// Tout caractère de contrôle (C0, C1) ou de format Unicode (`Cf`) est refusé dans chaque texte de
+/// la fiche (F11.8), avec un code qui ne le cite pas ; la comparaison des doublons ignore les
+/// blancs, espaces insécables et caractères de format (un numéro qui n'en diffère que par eux
+/// est signalé).
+#[tokio::test]
+async fn caracteres_de_controle_et_de_format_refuses_doublons_normalises() {
+    let b = banc().await;
+    let id = b.f.tiers;
+    let interdits = [
+        "\\u200B", "\\u200D", "\\u2060", "\\uFEFF", "\\u00AD", "\\u061C", "\\u202E", "\\u0007",
+        "\\u0085",
+    ];
+    for c in interdits {
+        for corps in [
+            format!(r#"{{"nom":"A{c}B"}}"#),
+            format!(r#"{{"adresses":[{{"rue":"1{c} rue"}}]}}"#),
+            format!(r#"{{"contacts":[{{"type":"telephone","valeur":"33{c}1"}}]}}"#),
+            format!(r#"{{"identifiants":[{{"type":"RCCM","valeur":"SN{c}1"}}]}}"#),
+        ] {
+            let r = poster(
+                &b,
+                &format!("/{id}/modification"),
+                b.c.collaborateur,
+                &corps,
+            )
+            .await;
+            assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{corps}");
+            assert_eq!(code(&r), "tiers_caractere_invalide", "{corps}");
+            assert!(!r.texte().contains('\u{200B}'));
+        }
+        let r = poster(
+            &b,
+            &format!("/{id}/comptes-bancaires"),
+            b.c.collaborateur,
+            &format!(r#"{{"comptes":[{{"type":"RIB","numero":"SN01{c}2345"}}]}}"#),
+        )
+        .await;
+        assert_eq!(code(&r), "tiers_caractere_invalide", "{c}");
+    }
+    // L'espace insécable est admis à la saisie, ignoré à la comparaison.
+    let autre = creer_tiers(&b, "Autre", "").await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let r = poster(
+        &b,
+        &format!("/{id}/comptes-bancaires"),
+        b.c.collaborateur,
+        r#"{"comptes":[{"type":"RIB","numero":"SN01 2345"}]}"#,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let r = poster(
+        &b,
+        &format!("/{autre}/comptes-bancaires"),
+        b.c.collaborateur,
+        "{\"comptes\":[{\"type\":\"RIB\",\"numero\":\"sn01\\u00A02345\"}]}",
+    )
+    .await;
+    assert_eq!(
+        r.json()["avertissements"][0]["code"],
+        "compte_bancaire_doublon"
+    );
+    // Un numéro inscrit hors de l'API avec un caractère invisible reste signalé.
+    let troisieme = creer_tiers(&b, "Troisième", "").await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    sqlx::query(
+        "INSERT INTO tiers_compte_bancaire (cabinet_id, dossier_id, id, tiers_id, type, numero) \
+         VALUES ($1, $2, gen_random_uuid(), $3::uuid, 'RIB', $4)",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .bind(&troisieme)
+    .bind("SN01\u{200B}23\u{FEFF}45")
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    let r = lire(
+        &b.routeur,
+        &format!("{}/{troisieme}/comptes-bancaires", base_tiers(&b.c)),
+        Some(b.c.collaborateur),
+    )
+    .await;
+    let autres = &r.json()["avertissements"][0]["tiers"];
+    assert_eq!(autres.as_array().map(Vec::len), Some(2), "{}", r.texte());
+}
+
+/// Bornes de la fiche (limites de sécurité, F2.16) : un code par limite dépassée.
+#[tokio::test]
+async fn limites_de_la_fiche_nommees() {
+    let b = banc().await;
+    let id = b.f.tiers;
+    let liste = |n: usize, element: &str| vec![element; n].join(",");
+    let identifiants = (0..11)
+        .map(|i| format!(r#"{{"type":"T{i}","valeur":"1"}}"#))
+        .collect::<Vec<_>>()
+        .join(",");
+    for (corps, attendu) in [
+        (
+            format!(r#"{{"identifiants":[{identifiants}]}}"#),
+            "tiers_trop_d_identifiants",
+        ),
+        (
+            format!(r#"{{"adresses":[{}]}}"#, liste(21, r#"{"ville":"V"}"#)),
+            "tiers_trop_d_adresses",
+        ),
+        (
+            format!(
+                r#"{{"contacts":[{}]}}"#,
+                liste(51, r#"{"type":"autre","valeur":"x"}"#)
+            ),
+            "tiers_trop_de_contacts",
+        ),
+    ] {
+        let r = poster(
+            &b,
+            &format!("/{id}/modification"),
+            b.c.collaborateur,
+            &corps,
+        )
+        .await;
+        assert_eq!(code(&r), attendu);
+    }
+    let r = poster(
+        &b,
+        &format!("/{id}/comptes-bancaires"),
+        b.c.collaborateur,
+        &format!(
+            r#"{{"comptes":[{}]}}"#,
+            liste(21, r#"{"type":"RIB","numero":"1"}"#)
+        ),
+    )
+    .await;
+    assert_eq!(code(&r), "tiers_trop_de_comptes_bancaires");
+}
+
+/// Un code saisi qui épuise la suite (`T` et 18 neuf) ne fait jamais tirer un code hors de la
+/// suite ni un doublon (500) : 409 typé, et un code saisi reste possible.
+#[tokio::test]
+async fn tirage_du_code_borne() {
+    let b = banc().await;
+    creer_tiers(&b, "Dernier", r#","code":"T999999999999999999""#).await;
+    let corps = |extra: &str| {
+        format!(
+            r#"{{"nom":"X","type":"client","compte_collectif":"{}"{extra}}}"#,
+            comptes().collectif
+        )
+    };
+    for _ in 0..2 {
+        let r = poster(&b, "", b.c.administrateur, &corps("")).await;
+        assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+        assert_eq!(code(&r), "tiers_code_tirage_impossible");
+    }
+    let r = poster(&b, "", b.c.administrateur, &corps(r#","code":"SAISI-1""#)).await;
+    assert_eq!(r.statut, StatusCode::CREATED);
+}
+
+/// Appartenance suspendue : plus rien, ni lecture ni mutation (la requête relit le rôle actif).
+#[tokio::test]
+async fn appartenance_suspendue_refusee() {
+    let b = banc().await;
+    sqlx::query("UPDATE appartenance SET actif = false WHERE utilisateur_id = $1")
+        .bind(b.c.collaborateur.uuid())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    let id = b.f.tiers;
+    for r in [
+        lire(&b.routeur, &base_tiers(&b.c), Some(b.c.collaborateur)).await,
+        lire(
+            &b.routeur,
+            &format!("{}/{id}", base_tiers(&b.c)),
+            Some(b.c.collaborateur),
+        )
+        .await,
+        poster(
+            &b,
+            &format!("/{id}/modification"),
+            b.c.collaborateur,
+            r#"{"nom":"X"}"#,
+        )
+        .await,
+    ] {
+        assert!(
+            [StatusCode::FORBIDDEN, StatusCode::NOT_FOUND].contains(&r.statut),
+            "{}",
+            r.texte()
+        );
+    }
+    let nom: String = sqlx::query_scalar("SELECT nom FROM tiers WHERE id = $1")
+        .bind(id)
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+    assert_eq!(nom, "Tiers fixe");
+}
+
+/// Numérotation des tiers existants par la migration `0500` : rejouée telle quelle (texte de la
+/// migration) sur une table temporaire `tiers` qui masque la vraie dans la session : plusieurs
+/// tiers dans un dossier, deux dossiers, ordre de création puis identifiant.
+#[tokio::test]
+async fn numerotation_des_tiers_existants_par_la_migration() {
+    let env = env().await;
+    let migration = include_str!("../migrations/0500_tiers_fiche.sql");
+    let debut = migration.find("UPDATE tiers t SET code").unwrap();
+    let fin = debut + migration[debut..].find(';').unwrap() + 1;
+    let numerotation = &migration[debut..fin];
+    let mut cx = env.admin.acquire().await.unwrap();
+    sqlx::query(
+        "CREATE TEMP TABLE tiers (cabinet_id uuid, dossier_id uuid, id uuid, cree_le timestamptz, \
+         code text)",
+    )
+    .execute(&mut *cx)
+    .await
+    .unwrap();
+    let (cabinet, d1, d2) = (
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-0000000000d1",
+        "00000000-0000-4000-8000-0000000000d2",
+    );
+    // Dossier 1 : trois tiers (deux au même instant, départagés par l'identifiant) ; dossier 2 :
+    // deux tiers.
+    for (dossier, id, instant) in [
+        (d1, "00000000-0000-4000-8000-0000000000a2", "2026-01-02"),
+        (d1, "00000000-0000-4000-8000-0000000000a1", "2026-01-03"),
+        (d1, "00000000-0000-4000-8000-0000000000a0", "2026-01-03"),
+        (d2, "00000000-0000-4000-8000-0000000000b9", "2026-01-01"),
+        (d2, "00000000-0000-4000-8000-0000000000b1", "2026-02-01"),
+    ] {
+        sqlx::query(
+            "INSERT INTO tiers (cabinet_id, dossier_id, id, cree_le) \
+             VALUES ($1::uuid, $2::uuid, $3::uuid, $4::timestamptz)",
+        )
+        .bind(cabinet)
+        .bind(dossier)
+        .bind(id)
+        .bind(instant)
+        .execute(&mut *cx)
+        .await
+        .unwrap();
+    }
+    sqlx::query(sqlx::AssertSqlSafe(numerotation.to_owned()))
+        .execute(&mut *cx)
+        .await
+        .unwrap();
+    let codes: Vec<(String, String)> =
+        sqlx::query_as("SELECT id::text, code FROM tiers ORDER BY dossier_id, code")
+            .fetch_all(&mut *cx)
+            .await
+            .unwrap();
+    let attendu = [
+        ("00000000-0000-4000-8000-0000000000a2", "T000001"),
+        ("00000000-0000-4000-8000-0000000000a0", "T000002"),
+        ("00000000-0000-4000-8000-0000000000a1", "T000003"),
+        ("00000000-0000-4000-8000-0000000000b9", "T000001"),
+        ("00000000-0000-4000-8000-0000000000b1", "T000002"),
+    ]
+    .map(|(i, c)| (i.to_owned(), c.to_owned()));
+    assert_eq!(codes, attendu);
+    sqlx::query("DROP TABLE pg_temp.tiers")
+        .execute(&mut *cx)
+        .await
+        .unwrap();
 }

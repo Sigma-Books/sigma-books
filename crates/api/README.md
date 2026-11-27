@@ -768,14 +768,17 @@ profondeur).
   `avertissements`), **sans** coordonnées bancaires.
 - `POST …/tiers` (`CreerTiers` : administrateur, valideur) : `nom`, `type`, `compte_collectif`
   (contrôle croisé du référentiel, comme en L2 : 400), `code` facultatif (`A-Z 0-9 . _ -`, 1 à 20 ;
-  tiré d'office `T` et six chiffres ; unique : 409 `tiers_code_deja_utilise`), `devise`,
-  `assujetti_tva`, `soumis_retenue`. Type, compte collectif et code ne changent plus.
+  tiré d'office `T` et six chiffres ; unique : 409 `tiers_code_deja_utilise` ; suite épuisée par un
+  code saisi : 409 `tiers_code_tirage_impossible`), `devise`, `assujetti_tva`, `soumis_retenue`.
+  Le code ne change jamais ; `type` et `compte_collectif` se modifient tant qu'aucune ligne
+  (brouillon ou écriture validée) ne cite le tiers (409 `tiers_deja_mouvemente` ensuite ; ADR 0031
+  point 1, amendement du 2026-11-27).
 - `POST …/tiers/{tiers}/modification` (`ModifierTiers` : rôles de saisie) : `nom`, `devise` (`null`
   l'efface), indicateurs ; `identifiants`, `adresses`, `contacts` : une liste présente **remplace**
   la liste (ligne gardée par son `id`, ajoutée sans `id`, retirée si absente). Identifiants : types
   du pack du pays **du dossier**, un par type (422 `tiers_identifiant_type_inconnu`) ; valeurs
-  bornées sans caractère de contrôle ni de format (422 `tiers_valeur_invalide`) ; rien ne change :
-  409 `aucun_changement`.
+  bornées (422 `tiers_valeur_invalide`), sans caractère de contrôle ni de format Unicode `Cf` (422
+  `tiers_caractere_invalide`) ; rien ne change : 409 `aucun_changement`.
 - `POST …/tiers/{tiers}/archivage` `{motif}` et `…/desarchivage` (`ArchiverTiers`) : archivé, le tiers
   n'accepte plus de ligne au brouillard (`tiers_inactif`) ; désarchivage sous le contrôle croisé.
 - `GET` et `POST …/tiers/{tiers}/comptes-bancaires` : lecture `ConsulterCoordonneesBancairesTiers`
@@ -783,10 +786,13 @@ profondeur).
   `tiers_compte_bancaire_type_inconnu`), aucune règle de forme ; chaque modification crée la
   notification `coordonnees_bancaires_tiers` aux administrateurs (F1.26).
 - **Doublons signalés**, jamais refusés : même type et même valeur d'identifiant, même numéro
-  bancaire (majuscules, sans blanc) chez un autre tiers du dossier ; forme d'un courriel.
+  bancaire chez un autre tiers du dossier (comparaison en majuscules, blancs, espaces insécables
+  et caractères de format retirés) ; forme d'un courriel.
 - **Audit** : une trace par changement, au dossier ; opérations, noms de champs, types ; jamais un
   nom, une adresse, un numéro ni le motif d'archivage.
-- Bornes (sécurité) : 10 identifiants, 20 adresses, 50 contacts, 20 coordonnées bancaires.
+- Bornes (limites de sécurité, F2.16, ordres de grandeur) : 10 identifiants, 20 adresses,
+  50 contacts, 20 coordonnées bancaires ; dépassement : 422 `tiers_trop_d_identifiants`,
+  `tiers_trop_d_adresses`, `tiers_trop_de_contacts`, `tiers_trop_de_comptes_bancaires`.
 
 ## Paramètres fiscaux par pays (ADR 0030)
 
