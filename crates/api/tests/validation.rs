@@ -17,6 +17,7 @@
 
 mod commun;
 
+use commun::audit_valeurs::verifier_sans_valeur_metier;
 use commun::banc::{Banc, aujourd, banc, banc_avec, banque, caisse, code, contenu, equilibre};
 
 use api::base::referentiel::{EtatReferentiel, Modele, muter};
@@ -78,7 +79,7 @@ async fn validation_nominale() {
     assert!(derniere.contains(&numero), "{derniere}");
     assert!(derniere.contains(j["empreinte"].as_str().unwrap()));
     assert!(derniere.contains("validation"));
-    assert!(!derniere.contains("Première") && !derniere.contains("1000"));
+    verifier_sans_valeur_metier(derniere, &["Première"], &["1000"]);
     // Lecture.
     let r = lire(
         &b.routeur,

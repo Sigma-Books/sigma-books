@@ -17,6 +17,7 @@
 mod commun;
 
 use axum::http::StatusCode;
+use commun::audit_valeurs::verifier_sans_valeur_metier;
 use commun::banc::{Banc, aujourd, banc, banque, caisse, code, contenu};
 use commun::brouillard::{journal_de_saisie, ligne};
 use commun::serveur::{Reponse, envoyer, lire};
@@ -145,10 +146,9 @@ async fn lot_nominal_numerote_dans_l_ordre_d_attribution_et_exclut_les_a_revoir(
         .collect();
     assert_eq!(lot.len(), 2);
     assert!(lot.iter().all(|e| e.contains("validation_par_lot")));
-    assert!(
-        lot.iter()
-            .all(|e| !e.contains("Première") && !e.contains("1000"))
-    );
+    for e in &lot {
+        verifier_sans_valeur_metier(e, &["Première"], &["1000"]);
+    }
 }
 
 #[tokio::test]
@@ -417,7 +417,7 @@ async fn contre_passation_nominale() {
     assert!(derniere.contains("ContrePasser"));
     assert!(derniere.contains("contre_passation"));
     assert!(derniere.contains("Erreur de saisie"));
-    assert!(!derniere.contains("Contre-passation de test") && !derniere.contains("1000"));
+    verifier_sans_valeur_metier(derniere, &["Contre-passation de test"], &["1000"]);
     // Contre-passer une contre-passation est admis, comme contre-passer deux fois la même
     // origine (ADR 0021 point 4, révisé le 2026-11-25).
     let encore = b.contre_passer(nouveau).await;
