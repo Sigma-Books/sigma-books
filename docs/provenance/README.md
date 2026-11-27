@@ -56,5 +56,6 @@ Une PR qui porte du code coche « code porté » dans sa description, lie l'entr
 ## Registre
 | Projet | Fichier du registre | Reprises |
 |---|---|---|
-| Tryton | [`tryton.md`](tryton.md) | `move-cancel` (scénario de contre-passation, tests, PR des écritures) ; `syscohada-collectifs` (comptes collectifs et intitulés du plan SYSCOHADA, données, PR du référentiel) |
+| Tryton | [`tryton.md`](tryton.md) | `move-cancel` (scénario de contre-passation, tests, PR des écritures) ; `syscohada-collectifs` (comptes collectifs et intitulés du plan SYSCOHADA, données, PR du référentiel) ; `payment-term` (répartition selon une condition de règlement, algorithme et tests, PR 3b du lot L3) |
+| Odoo | [`odoo.md`](odoo.md) | `delais-de-reglement` (types de délai d'un terme de règlement, algorithme et tests, PR 3b du lot L3) |
 | SecLists | [`seclists.md`](seclists.md) | `mots-de-passe-compromis` (empreintes des mots de passe compromis de 12 caractères ou plus, données, PR 8b du lot L2) |

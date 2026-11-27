@@ -8,6 +8,7 @@
 pub mod alertes;
 pub mod centralisateur;
 pub mod compte;
+pub mod echeance;
 pub mod ecriture;
 pub mod editions;
 pub mod etiquette;
