@@ -1,4 +1,5 @@
-//! État de rapprochement à une date (spec §9.5 ; ADR 0034, point 9).
+//! État de rapprochement à une date (spec §9.5 ; ADR 0034, point 9 et amendement du
+//! 2026-11-27).
 //!
 //! **Formule de l'ADR**, les deux soldes à la date D :
 //! `écart = (solde comptable − écritures non pointées) − (solde du relevé − lignes non pointées)`.
@@ -7,22 +8,31 @@
 //!   registre de date comptable ≤ D (débit positif).
 //! - **Solde du relevé** : solde d'ouverture déclaré du premier relevé plus les lignes de
 //!   relevé de date ≤ D (ADR 0034 : « la PR 13b affine »).
-//! - **Pointée à D** : une ligne d'un pointage **en vigueur** à D (daté au plus tard D, non
-//!   rompu à D) dont **toutes** les lignes sont datées au plus tard D. Un pointage qui enjambe
-//!   la date (une ligne au-delà de D) ne pointe rien à D : ses lignes antérieures restent
-//!   listées, ce sont les « chevauchements de dates » de la fiche 52 (AUDCIF p. PDF 416).
-//! - **Non pointées** : les lignes de date ≤ D qui ne sont pas pointées à D, listées des deux
-//!   côtés, triées par date puis identifiant.
+//! - **Pointée à D** : une ligne d'un pointage **non rompu** dans le registre fourni dont
+//!   **toutes** les lignes sont datées au plus tard D. Les dates des opérations de pointage et
+//!   de rupture n'interviennent pas : l'état est établi sur le registre de l'instant où il est
+//!   calculé, puis figé (aucun moteur ne reconstitue un état passé) ; un état de fin de mois
+//!   établi après coup compte donc les pointages faits après la fin du mois. Un pointage qui
+//!   enjambe la date (une ligne au-delà de D) ne pointe rien à D : ses lignes antérieures
+//!   restent listées, ce sont les « chevauchements de dates » de la fiche 52 (AUDCIF
+//!   p. PDF 416).
+//! - **Non pointées** (suspens) : les lignes de date ≤ D qui ne sont pas pointées à D, listées
+//!   des deux côtés, triées par date puis identifiant.
 //!
 //! **Ouverture.** Les deux soldes d'ouverture sont des paramètres ([`Ouverture`]) : le solde
 //! d'ouverture comptable couvre les lignes que l'appelant ne confie pas au registre (par
-//! exemple l'écriture d'à-nouveaux, qui reprend un solde sans pouvoir se pointer). Comme
-//! chaque pointage en vigueur est équilibré et que ses lignes sont toutes comptées, l'écart
-//! égale la différence des soldes d'ouverture : « tout pointé, soldes d'ouverture concordants
-//! ⇒ écart nul » (ADR 0034, propriété de test).
+//! exemple l'écriture d'à-nouveaux, qui reprend un solde sans pouvoir se pointer).
 //!
-//! Le calcul ne dépend ni de l'ordre d'ajout des lignes ni de l'ordre des pointages, et pas
-//! des opérations postérieures à D.
+//! **Ce que dit l'écart.** Chaque pointage compté est équilibré et toutes ses lignes sont dans
+//! les soldes : l'écart égale donc toujours `ouverture comptable − ouverture du relevé`
+//! (identité du rapprochement bancaire : les suspens expliquent la différence des soldes).
+//! **Écart nul** signifie : les soldes d'ouverture concordent et chaque différence entre le
+//! solde comptable et le solde du relevé est un suspens listé. Il ne dit pas que les suspens
+//! sont légitimes : un contrôle (clôture, L6) lit aussi
+//! [`EtatRapprochement::releve_non_pointees`] et
+//! [`EtatRapprochement::comptables_non_pointees`], pas [`EtatRapprochement::ecart_nul`] seul.
+//!
+//! Le calcul ne dépend ni de l'ordre d'ajout des lignes ni de l'ordre des pointages.
 
 use std::collections::BTreeSet;
 
@@ -133,13 +143,15 @@ impl EtatRapprochement {
         &self.pointages
     }
 
-    /// Écart : `(solde comptable − non pointées) − (solde du relevé − non pointées)`.
+    /// Écart : `(solde comptable − non pointées) − (solde du relevé − non pointées)`, égal à
+    /// `ouverture comptable − ouverture du relevé` (voir la documentation du module).
     #[must_use]
     pub fn ecart(&self) -> Decimal {
         self.ecart
     }
 
-    /// Vrai si l'écart est nul (critère de la spec §9.5 et §15.1).
+    /// Vrai si l'écart est nul (critère de la spec §9.5 et §15.1) : les ouvertures concordent
+    /// et chaque différence de soldes est un suspens listé. À lire avec les listes de suspens.
     #[must_use]
     pub fn ecart_nul(&self) -> bool {
         self.ecart.is_zero()
@@ -213,9 +225,9 @@ impl RegistrePointage {
         })
     }
 
-    /// Pointage en vigueur à la date dont toutes les lignes sont datées au plus tard ce jour.
+    /// Pointage non rompu dont toutes les lignes sont datées au plus tard ce jour.
     fn pris_en_compte(&self, pointage: &Pointage, date: Date) -> bool {
-        self.en_vigueur(pointage, date)
+        !self.ruptures.contains_key(&pointage.rang)
             && pointage
                 .releve
                 .iter()

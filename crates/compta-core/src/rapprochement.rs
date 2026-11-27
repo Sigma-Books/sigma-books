@@ -8,12 +8,15 @@
 //!   tout son montant et appartient à **un seul pointage non rompu** : un pointage ne dépasse
 //!   jamais une ligne.
 //! - Les pointages s'**ajoutent** ; la correction est une **rupture** ajoutée, jamais une
-//!   suppression. Aucune ligne n'est modifiée : Dolibarr (`account.class.php:2719-2762`) et Odoo
-//!   (`account_bank_statement_line.py:796-835`) mutent la ligne rapprochée, écart nécessaire
-//!   (plan L3, P3) ; Sigma garde une table de liens, comme Bigcapital
+//!   suppression. Aucune ligne n'est modifiée : Dolibarr pose un drapeau sur la ligne
+//!   (`account.class.php:2719-2762`), Odoo réécrit les lignes de l'écriture de la ligne de
+//!   relevé (`account_bank_statement_line.py:459-476`, `action_undo_reconciliation`) et OCA les
+//!   supprime et recrée (`account_reconcile_oca`, `account_bank_statement_line.py:764-806`) :
+//!   écart nécessaire (plan L3, P3) ; Sigma garde une table de liens, comme Bigcapital
 //!   (`MatchedBankTransaction.ts:3-6`). Le pointage ne fait pas de lettrage (ADR 0032).
-//! - L'**état de rapprochement** à une date est **calculé par reconstitution** à partir des
-//!   dates des opérations de pointage et de rupture ([`RegistrePointage::etat`], module `etat`).
+//! - L'**état de rapprochement** à une date D est calculé sur le registre **tel qu'il est
+//!   fourni** : un pointage non rompu dont toutes les lignes sont datées au plus tard D compte
+//!   ([`RegistrePointage::etat`], module `etat` ; ADR 0034, amendement du 2026-11-27).
 //! - Les **avertissements de solde** d'un compte de trésorerie (caisse ou portefeuille
 //!   créditeur, plafond de caisse) ne refusent jamais rien (D2) : [`avertissements_solde`].
 //!
@@ -25,11 +28,11 @@
 //! croissant par compte de trésorerie, qui identifie aussi le pointage ; la relecture de la
 //! persistance ([`RegistrePointage::rejouer`]) suit ce rang. Les dates des opérations sont des
 //! paramètres (crate pure) : la couche de persistance (PR 13a) y met le jour de l'opération.
+//! Elles servent à l'audit seulement, **jamais au calcul de l'état** : un état de fin de mois
+//! établi après coup compte les pointages faits après la fin du mois.
 //!
-//! **Une ligne, un pointage à chaque date.** Un pointage est **en vigueur** de sa date jusqu'à
-//! la veille de sa rupture. Une ligne ne peut entrer dans un nouveau pointage que si aucun
-//! pointage qui la contient ne reste en vigueur à partir de la date du nouveau : la règle
-//! « un seul pointage non rompu » de l'ADR tient ainsi à toute date de la reconstitution.
+//! **Une ligne, un seul pointage non rompu** (ADR 0034, point 9) : une ligne pointée ne peut
+//! entrer dans un autre pointage qu'après la rupture du sien, quelles que soient les dates.
 //!
 //! Le registre ne vérifie pas que les lignes qu'on lui confie sont validées ni qu'elles sont du
 //! même dossier : comme pour [`EcritureValidee::reconstituer`], c'est le contrat de l'appelant.
@@ -81,7 +84,7 @@ pub enum ErreurRapprochement {
     /// Pointage sans ligne d'écriture.
     #[error("pointage sans ligne d'écriture")]
     SansLigneComptable,
-    /// Ligne de relevé déjà dans un pointage en vigueur à la date du nouveau pointage.
+    /// Ligne de relevé déjà dans un pointage non rompu.
     #[error("ligne de relevé {ligne} déjà pointée (pointage {pointage})")]
     ReleveDejaPointee {
         /// Ligne de relevé.
@@ -89,7 +92,7 @@ pub enum ErreurRapprochement {
         /// Rang du pointage qui la contient.
         pointage: u64,
     },
-    /// Ligne d'écriture déjà dans un pointage en vigueur à la date du nouveau pointage.
+    /// Ligne d'écriture déjà dans un pointage non rompu.
     #[error("ligne d'écriture {ligne} déjà pointée (pointage {pointage})")]
     ComptableDejaPointee {
         /// Ligne d'écriture.
@@ -353,7 +356,7 @@ impl Rupture {
         self.pointage
     }
 
-    /// Date de l'opération : le pointage n'est plus en vigueur à partir de ce jour.
+    /// Date de l'opération (audit) ; sans effet sur le calcul de l'état.
     #[must_use]
     pub fn date(&self) -> Date {
         self.date
@@ -496,7 +499,7 @@ impl RegistrePointage {
     /// signées des deux côtés doivent être égales. L'ordre des sélections est indifférent.
     ///
     /// # Errors
-    /// Sélection vide d'un côté, ligne inconnue ou en double, ligne déjà pointée à cette date,
+    /// Sélection vide d'un côté, ligne inconnue ou en double, ligne déjà dans un pointage non rompu,
     /// sommes différentes ([`ErreurRapprochement::Desequilibre`]), dépassement de capacité.
     pub fn pointer(
         &mut self,
@@ -509,9 +512,10 @@ impl RegistrePointage {
     }
 
     /// Rompt un pointage : ajoute une rupture datée du jour de l'opération. Ses lignes peuvent
-    /// être pointées à nouveau à partir de cette date. Rompre un pointage pris dans un état
-    /// figé n'est pas refusé (ADR 0034, B3) : l'appelant avertit, à l'aide de
-    /// [`Self::en_vigueur_a`] appliqué aux dates des états figés.
+    /// être pointées à nouveau, et il ne compte plus dans les états calculés ensuite ; un état
+    /// déjà figé reste tel quel. Rompre un pointage pris dans un état figé n'est pas refusé
+    /// (ADR 0034, B3) : l'appelant avertit s'il figure dans
+    /// [`EtatRapprochement::pointages`] d'un état figé.
     ///
     /// # Errors
     /// Pointage inconnu ou déjà rompu.
@@ -520,23 +524,10 @@ impl RegistrePointage {
         self.inscrire_rupture(rang, pointage, date)
     }
 
-    /// Vrai si le pointage est **en vigueur** à la date : daté au plus tard ce jour-là et non
-    /// rompu à cette date (rupture absente ou postérieure). C'est ce qui décide si un état
-    /// figé à cette date le prend en compte (avec la condition sur les dates des lignes, voir
-    /// [`Self::etat`]).
+    /// Vrai si le pointage existe et n'est pas rompu.
     #[must_use]
-    pub fn en_vigueur_a(&self, pointage: u64, date: Date) -> bool {
-        self.pointages
-            .get(&pointage)
-            .is_some_and(|p| self.en_vigueur(p, date))
-    }
-
-    fn en_vigueur(&self, pointage: &Pointage, date: Date) -> bool {
-        pointage.date <= date
-            && self
-                .ruptures
-                .get(&pointage.rang)
-                .is_none_or(|r| r.date > date)
+    pub fn est_actif(&self, pointage: u64) -> bool {
+        self.pointages.contains_key(&pointage) && !self.ruptures.contains_key(&pointage)
     }
 
     /// Rejoue des opérations relues de la persistance, **dans l'ordre de leur rang** (l'ordre
@@ -609,19 +600,6 @@ impl RegistrePointage {
             ))
     }
 
-    /// Premier pointage de `rangs` qui reste en vigueur à une date postérieure ou égale à
-    /// `date` : sa période de vigueur `[date du pointage, date de rupture)` rencontre
-    /// `[date, ∞)`.
-    fn conflit(&self, rangs: Option<&Vec<u64>>, date: Date) -> Option<u64> {
-        rangs?.iter().copied().find(|r| {
-            self.pointages.get(r).is_some_and(|p| {
-                self.ruptures
-                    .get(r)
-                    .is_none_or(|rupture| p.date.max(date) < rupture.date)
-            })
-        })
-    }
-
     fn inscrire(
         &mut self,
         rang: u64,
@@ -645,10 +623,10 @@ impl RegistrePointage {
                 .releve
                 .get(id)
                 .ok_or(ErreurRapprochement::LigneReleveInconnue(*id))?;
-            if let Some(pointage) = self.conflit(self.index_releve.get(id), date) {
+            if let Some(pointage) = self.pointage_releve(*id) {
                 return Err(ErreurRapprochement::ReleveDejaPointee {
                     ligne: *id,
-                    pointage,
+                    pointage: pointage.rang,
                 });
             }
             total_releve = ajouter(total_releve, ligne.montant)?;
@@ -663,10 +641,10 @@ impl RegistrePointage {
                 .comptables
                 .get(id)
                 .ok_or(ErreurRapprochement::LigneComptableInconnue(*id))?;
-            if let Some(pointage) = self.conflit(self.index_comptables.get(id), date) {
+            if let Some(pointage) = self.pointage_comptable(*id) {
                 return Err(ErreurRapprochement::ComptableDejaPointee {
                     ligne: *id,
-                    pointage,
+                    pointage: pointage.rang,
                 });
             }
             total_comptable = ajouter(total_comptable, ligne.montant)?;

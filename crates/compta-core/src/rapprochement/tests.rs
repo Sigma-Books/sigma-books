@@ -294,18 +294,11 @@ fn une_ligne_dans_un_seul_pointage_non_rompu() {
             pointage: 1,
         })
     );
-    // Après rupture, la ligne se pointe à nouveau à partir de la date de rupture.
+    // Après rupture, la ligne se pointe à nouveau, quelle que soit la date de l'opération
+    // (même antérieure à la rupture : les dates ne servent qu'à l'audit).
     r.rompre(1, jour(3)).unwrap();
     assert_eq!(r.pointage_releve(idr(1)), None);
-    // Un pointage daté avant la rupture chevaucherait le pointage rompu.
-    assert_eq!(
-        r.pointer(&[idr(1)], &[ide(2)], jour(2)),
-        Err(ErreurRapprochement::ReleveDejaPointee {
-            ligne: idr(1),
-            pointage: 1,
-        })
-    );
-    let p = r.pointer(&[idr(1)], &[ide(2)], jour(3)).unwrap();
+    let p = r.pointer(&[idr(1)], &[ide(2)], jour(2)).unwrap();
     assert_eq!(p.rang(), 3);
     assert_eq!(r.pointage_releve(idr(1)).map(Pointage::rang), Some(3));
 }
@@ -333,15 +326,13 @@ fn rupture_ajoutee_sans_rien_supprimer() {
 }
 
 #[test]
-fn en_vigueur_selon_les_dates() {
+fn pointage_actif_ou_rompu() {
     let mut r = registre(vec![lr(1, 100, jour(0))], vec![lc(1, 100, jour(0))]);
     r.pointer(&[idr(1)], &[ide(1)], jour(5)).unwrap();
+    assert!(r.est_actif(1));
     r.rompre(1, jour(9)).unwrap();
-    assert!(!r.en_vigueur_a(1, jour(4)));
-    assert!(r.en_vigueur_a(1, jour(5)));
-    assert!(r.en_vigueur_a(1, jour(8)));
-    assert!(!r.en_vigueur_a(1, jour(9)));
-    assert!(!r.en_vigueur_a(2, jour(9)));
+    assert!(!r.est_actif(1));
+    assert!(!r.est_actif(2));
 }
 
 #[test]
@@ -468,13 +459,16 @@ fn ouverture_concordante() -> Ouverture {
 fn reference_etat_au_31_janvier() {
     let mut r = cas_de_reference();
     let fin_janvier = date!(2026 - 01 - 31);
-    r.pointer(&[idr(1)], &[ide(1)], fin_janvier).unwrap();
-    r.pointer(&[idr(2)], &[ide(3)], fin_janvier).unwrap();
-    r.pointer(&[idr(3), idr(4)], &[ide(4), ide(5)], fin_janvier)
+    // État de fin de mois établi après coup : tout est pointé le 3 février, à réception du
+    // relevé ; la date de l'opération n'intervient pas dans l'état.
+    let pointe_le = date!(2026 - 02 - 03);
+    r.pointer(&[idr(1)], &[ide(1)], pointe_le).unwrap();
+    r.pointer(&[idr(2)], &[ide(3)], pointe_le).unwrap();
+    r.pointer(&[idr(3), idr(4)], &[ide(4), ide(5)], pointe_le)
         .unwrap();
-    // La remise est pointée en février, à réception du relevé.
-    r.pointer(&[idr(7)], &[ide(6)], date!(2026 - 02 - 03))
-        .unwrap();
+    // La remise du 31 janvier n'est au relevé que le 2 février : ce pointage enjambe la fin
+    // du mois et ne compte pas au 31 janvier.
+    r.pointer(&[idr(7)], &[ide(6)], pointe_le).unwrap();
 
     let etat = r.etat(fin_janvier, ouverture_concordante()).unwrap();
     assert_eq!(etat.date(), fin_janvier);
@@ -508,15 +502,14 @@ fn reference_etat_au_31_janvier() {
     assert_eq!(ids_releve(&fevrier).len(), 0);
     assert!(fevrier.ecart_nul());
 
-    // L'état du 31 janvier recalculé après coup est inchangé, à ceci près que les lignes C7 et
-    // C8, datées de janvier, y figurent désormais comme non pointées à cette date.
-    let rejoue = r.etat(fin_janvier, ouverture_concordante()).unwrap();
-    assert_eq!(ids_releve(&rejoue), vec![idr(5), idr(6)]);
-    assert_eq!(
-        ids_comptables(&rejoue),
-        vec![ide(2), ide(7), ide(8), ide(6)]
-    );
-    assert!(rejoue.ecart_nul());
+    // Le même état du 31 janvier, recalculé en février sur le registre de cet instant, compte
+    // les pointages de février : frais et encaissement, datés de janvier, ne sont plus en
+    // suspens. L'état déjà figé (`etat`) reste ce qu'il était.
+    let recalcule = r.etat(fin_janvier, ouverture_concordante()).unwrap();
+    assert_eq!(ids_releve(&recalcule).len(), 0);
+    assert_eq!(ids_comptables(&recalcule), vec![ide(2), ide(6)]);
+    assert!(recalcule.ecart_nul());
+    assert_eq!(ids_releve(&etat), vec![idr(5), idr(6)]);
 }
 
 #[test]
@@ -553,15 +546,30 @@ fn pointage_qui_enjambe_la_date() {
 }
 
 #[test]
-fn reconstitution_par_dates_d_operation() {
+fn dates_des_operations_sans_effet_sur_l_etat() {
+    // Pointage daté après la date de l'état : il compte (registre de l'instant).
     let mut r = registre(vec![lr(1, 100, jour(0))], vec![lc(1, 100, jour(0))]);
-    r.pointer(&[idr(1)], &[ide(1)], jour(5)).unwrap();
-    r.rompre(1, jour(9)).unwrap();
-    let liste = |n| ids_releve(&r.etat(jour(n), Ouverture::default()).unwrap());
-    assert_eq!(liste(4), vec![idr(1)]);
-    assert_eq!(liste(5).len(), 0);
-    assert_eq!(liste(8).len(), 0);
-    assert_eq!(liste(9), vec![idr(1)]);
+    r.pointer(&[idr(1)], &[ide(1)], jour(40)).unwrap();
+    let liste =
+        |r: &RegistrePointage, n| ids_releve(&r.etat(jour(n), Ouverture::default()).unwrap());
+    assert_eq!(liste(&r, 0).len(), 0);
+    let avant_rupture = r.etat(jour(10), Ouverture::default()).unwrap();
+    // Rupture antidatée (au jour 1, avant même le pointage) ou datée plus tard : même effet,
+    // non rétroactif. Le pointage rompu ne compte plus dans les états calculés ensuite, à
+    // toute date ; un état calculé (figé) avant la rupture n'est pas touché.
+    let mut antidatee = r.clone();
+    antidatee.rompre(1, jour(1)).unwrap();
+    let mut tardive = r.clone();
+    tardive.rompre(1, jour(90)).unwrap();
+    for n in [0, 10, 50, 100] {
+        assert_eq!(liste(&antidatee, n), vec![idr(1)]);
+        assert_eq!(
+            antidatee.etat(jour(n), Ouverture::default()),
+            tardive.etat(jour(n), Ouverture::default())
+        );
+    }
+    assert_eq!(ids_releve(&avant_rupture).len(), 0);
+    assert_eq!(avant_rupture.pointages(), &[1]);
     // Les lignes postérieures à la date n'entrent pas dans l'état.
     let r = registre(vec![lr(1, 100, jour(3))], vec![lc(1, 50, jour(3))]);
     let etat = r.etat(jour(2), Ouverture::default()).unwrap();
@@ -639,7 +647,8 @@ struct Groupe {
     comptables: Vec<(i64, i64)>,
     /// Jour du pointage.
     pointage: i64,
-    /// Jour de la rupture et, s'il y a lieu, délai du repointage après la rupture.
+    /// Jour de la rupture et, s'il y a lieu, décalage du repointage par rapport à la rupture
+    /// (de −5 à +4 jours : un repointage peut être daté avant la rupture).
     rupture: Option<(i64, Option<i64>)>,
 }
 
@@ -786,20 +795,17 @@ fn construire(s: &Scenario, m: &Materiel, ordre: &[usize], inverser: bool) -> Re
         if let Some((f, repointage)) = g.rupture {
             r.rompre(rang, jour(f)).unwrap();
             if let Some(delai) = repointage {
-                r.pointer(ids_r, ids_c, jour(f + delai)).unwrap();
+                r.pointer(ids_r, ids_c, jour(f + delai - 5)).unwrap();
             }
         }
     }
     r
 }
 
-/// Périodes de vigueur d'un groupe : `(début, fin exclue)`.
-fn vigueurs(g: &Groupe) -> Vec<(i64, Option<i64>)> {
-    match g.rupture {
-        None => vec![(g.pointage, None)],
-        Some((f, None)) => vec![(g.pointage, Some(f))],
-        Some((f, Some(delai))) => vec![(g.pointage, Some(f)), (f + delai, None)],
-    }
+/// Vrai si le groupe finit pointé (non rompu, ou rompu puis repointé). Les dates des
+/// opérations n'interviennent pas (ADR 0034, amendement du 2026-11-27).
+fn finit_pointe(g: &Groupe) -> bool {
+    !matches!(g.rupture, Some((_, None)))
 }
 
 /// Oracle : état recalculé naïvement à partir du scénario, sans le registre.
@@ -817,10 +823,7 @@ fn oracle(s: &Scenario, m: &Materiel, n: i64) -> EtatNaif {
     for (g, (ids_r, ids_c)) in s.groupes.iter().zip(&m.groupes) {
         let lignes_avant =
             g.releve.iter().all(|x| x.1 <= n) && g.comptables.iter().all(|x| x.1 <= n);
-        let actif = vigueurs(g)
-            .iter()
-            .any(|&(debut, fin)| debut <= n && fin.is_none_or(|f| f > n));
-        if lignes_avant && actif {
+        if lignes_avant && finit_pointe(g) {
             pointees_r.extend(ids_r.iter().copied());
             pointees_c.extend(ids_c.iter().copied());
         }
@@ -924,45 +927,47 @@ proptest! {
         }
     }
 
-    /// Un pointage ne dépasse jamais une ligne : à toute date, une ligne est dans au plus un
-    /// pointage en vigueur, et un repointage d'une ligne pointée est refusé.
+    /// Un pointage ne dépasse jamais une ligne : une ligne est dans au plus un pointage non
+    /// rompu ; repointer une ligne pointée est refusé, repointer une ligne dont le pointage est
+    /// rompu est admis, quelle que soit la date de l'opération.
     #[test]
-    fn une_ligne_au_plus_un_pointage_en_vigueur(s in scenario(), j in 0i64..90) {
+    fn une_ligne_au_plus_un_pointage_actif(s in scenario(), j in -10i64..90) {
         let m = materialiser(&s);
         let mut r = construire(&s, &m, &s.ordre, false);
-        for n in JOURS {
-            for l in &m.releve {
-                let nombre = r
-                    .pointages()
-                    .filter(|p| p.releve().contains(&l.id()) && r.en_vigueur_a(p.rang(), jour(n)))
-                    .count();
-                prop_assert!(nombre <= 1);
-            }
-            for l in &m.comptables {
-                let nombre = r
-                    .pointages()
-                    .filter(|p| p.comptables().contains(&l.id()) && r.en_vigueur_a(p.rang(), jour(n)))
-                    .count();
-                prop_assert!(nombre <= 1);
-            }
+        for l in &m.releve {
+            let nombre = r
+                .pointages()
+                .filter(|p| p.releve().contains(&l.id()) && r.est_actif(p.rang()))
+                .count();
+            prop_assert!(nombre <= 1);
+        }
+        for l in &m.comptables {
+            let nombre = r
+                .pointages()
+                .filter(|p| p.comptables().contains(&l.id()) && r.est_actif(p.rang()))
+                .count();
+            prop_assert!(nombre <= 1);
         }
         for (g, (ids_r, ids_c)) in s.groupes.iter().zip(&m.groupes) {
-            let encore_pointe = !matches!(g.rupture, Some((_, None)));
             let avant = r.historique().len();
             let resultat = r.pointer(ids_r, ids_c, jour(j));
-            if encore_pointe {
+            if finit_pointe(g) {
                 let refuse = matches!(
                     resultat,
                     Err(ErreurRapprochement::ReleveDejaPointee { .. })
                 );
                 prop_assert!(refuse);
                 prop_assert_eq!(r.historique().len(), avant);
+            } else {
+                prop_assert!(resultat.is_ok());
+                prop_assert_eq!(r.historique().len(), avant + 1);
             }
         }
     }
 
-    /// Déterminisme : l'ordre des pointages, l'ordre d'ajout des lignes et la relecture de
-    /// l'historique (dans n'importe quel ordre) ne changent pas l'état.
+    /// Déterminisme : l'ordre des pointages, l'ordre d'ajout des lignes, la relecture de
+    /// l'historique (dans n'importe quel ordre) et les dates des opérations de pointage et de
+    /// rupture ne changent pas l'état.
     #[test]
     fn determinisme_et_ordre_indifferent(s in scenario()) {
         let m = materialiser(&s);
@@ -970,6 +975,15 @@ proptest! {
         let mut inverse = s.ordre.clone();
         inverse.reverse();
         let autre = construire(&s, &m, &inverse, true);
+        // Mêmes lignes et mêmes opérations, autres dates d'opération.
+        let mut redate = s.clone();
+        for g in &mut redate.groupes {
+            g.pointage = 99 - g.pointage;
+            if let Some((f, _)) = &mut g.rupture {
+                *f = 70 - *f;
+            }
+        }
+        let redate = construire(&redate, &m, &s.ordre, false);
         let mut relu = construire(&s, &m, &[], true);
         let mut historique = r.historique();
         historique.reverse();
@@ -979,6 +993,7 @@ proptest! {
             let etat = r.etat(jour(n), ouverture(&s)).unwrap();
             prop_assert_eq!(&r.etat(jour(n), ouverture(&s)).unwrap(), &etat);
             prop_assert_eq!(vue(&autre.etat(jour(n), ouverture(&s)).unwrap()), vue(&etat));
+            prop_assert_eq!(&redate.etat(jour(n), ouverture(&s)).unwrap(), &etat);
         }
     }
 
