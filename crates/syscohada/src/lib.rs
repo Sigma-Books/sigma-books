@@ -16,6 +16,12 @@
 //! Le **pack pays** (`data/pays.toml`, [`PackPays`]) donne les valeurs par défaut d'un dossier
 //! selon son pays : devise de tenue et échelle, fuseau, langue, types d'identifiants légaux
 //! (ADR 0027). Le plan de comptes reste commun à tous les pays.
+//!
+//! Tiers et trésorerie (L3-12) : la marque `lettrable` dit où le lettrage est admis
+//! ([`Referentiel::est_lettrable`]) ; la marque `type_tresorerie` donne le compte par défaut de
+//! chaque type de compte de trésorerie ([`Referentiel::compte_par_defaut_tresorerie`]) ; les
+//! rôles de comptes désignés par le dossier (compte d'attente des relevés, prélèvement et taxe
+//! sur les transferts) sont lus de `data/roles-comptes.toml` ([`Referentiel::roles_de_comptes`]).
 
 #![forbid(unsafe_code)]
 
@@ -29,6 +35,8 @@ use serde::Deserialize;
 
 mod journaux;
 mod pays;
+mod roles;
+mod tresorerie;
 mod tva;
 
 pub use journaux::CompteDeJournal;
@@ -36,6 +44,8 @@ pub use pays::{
     ErreurPack, Fuseau, InfoDevise, LANGUE_LONGUEUR_MAX, PackPays, Pays, TypeIdentifiant,
     langue_valide,
 };
+pub use roles::{Confirmation, DefinitionRole, RoleCompte, RolesComptes, SuggestionCompte};
+pub use tresorerie::TypeTresorerie;
 pub use tva::{CompteTva, ComptesTva, RoleCompteTva};
 
 /// Données embarquées : liste officielle des comptes.
@@ -150,6 +160,27 @@ pub enum ErreurReferentiel {
          {PAGE_FONCTIONNEMENT_MAX}, et inversement, avec des types connus et distincts"
     )]
     MarqueTiers(NumeroCompte),
+    /// Marque `lettrable` sans `page_lettrable` dans la plage des fiches de fonctionnement, ou
+    /// inversement ; valeur autre que `true` ; marque sous un ascendant déjà lettrable ; compte
+    /// lettrable (ou l'un de ses sous-comptes) admis en journal de trésorerie.
+    #[error(
+        "compte {0} : `lettrable = true` exige `page_lettrable` entre {PAGE_FONCTIONNEMENT_MIN} \
+         et {PAGE_FONCTIONNEMENT_MAX}, et inversement, sans ascendant déjà lettrable ni compte \
+         admis en journal de trésorerie"
+    )]
+    MarqueLettrable(NumeroCompte),
+    /// Marque `type_tresorerie` sans `page_type_tresorerie` dans la plage des fiches de
+    /// fonctionnement, ou inversement ; type inconnu ou déjà attribué ; compte non admis en
+    /// journal de trésorerie.
+    #[error(
+        "compte {0} : `type_tresorerie` exige un type connu et non encore attribué, \
+         `page_type_tresorerie` entre {PAGE_FONCTIONNEMENT_MIN} et {PAGE_FONCTIONNEMENT_MAX}, \
+         et un compte admis en journal de trésorerie"
+    )]
+    MarqueTypeTresorerie(NumeroCompte),
+    /// Rôles de comptes invalides (`data/roles-comptes.toml`).
+    #[error("rôles de comptes : {0}")]
+    RolesComptes(String),
     /// Page hors de la plage de la liste officielle.
     #[error("page {page} hors de la source ({PAGE_MIN} à {PAGE_MAX}) pour {numero}")]
     Page {
@@ -200,6 +231,8 @@ pub struct CompteOfficiel {
     note: Option<String>,
     marque_journal_tresorerie: Option<(bool, u16)>,
     marque_tiers: Option<(Vec<String>, u16)>,
+    marque_lettrable: Option<u16>,
+    marque_type_tresorerie: Option<(TypeTresorerie, u16)>,
 }
 
 /// Types de tiers que les données peuvent admettre sur un compte (spec §5.3).
@@ -274,6 +307,21 @@ impl CompteOfficiel {
             .as_ref()
             .map(|(types, page)| (types.as_slice(), *page))
     }
+
+    /// Marque `lettrable` portée par ce compte lui-même : page PDF de la fiche de
+    /// fonctionnement qui la fonde. Les sous-comptes en héritent
+    /// ([`Referentiel::est_lettrable`]).
+    #[must_use]
+    pub fn marque_lettrable(&self) -> Option<u16> {
+        self.marque_lettrable
+    }
+
+    /// Marque `type_tresorerie` portée par ce compte : il est le compte par défaut de ce type
+    /// de compte de trésorerie ; page PDF de la fiche de fonctionnement qui la fonde.
+    #[must_use]
+    pub fn marque_type_tresorerie(&self) -> Option<(TypeTresorerie, u16)> {
+        self.marque_type_tresorerie
+    }
 }
 
 /// Liste officielle des comptes, validée.
@@ -283,6 +331,7 @@ pub struct Referentiel {
     version: String,
     classes: BTreeMap<u8, Classe>,
     comptes: BTreeMap<NumeroCompte, CompteOfficiel>,
+    comptes_par_defaut: BTreeMap<TypeTresorerie, NumeroCompte>,
 }
 
 /// Forme brute du fichier de données.
@@ -324,6 +373,10 @@ struct CompteBrut {
     page_fonctionnement: Option<u16>,
     tiers: Option<Vec<String>>,
     page_tiers: Option<u16>,
+    lettrable: Option<bool>,
+    page_lettrable: Option<u16>,
+    type_tresorerie: Option<String>,
+    page_type_tresorerie: Option<u16>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -362,6 +415,76 @@ fn texte(numero: &str, intitule: &str) -> Result<TexteCourt, ErreurReferentiel> 
     })
 }
 
+/// Compte officiel validé à partir de sa forme brute : numéro officiel d'une classe connue,
+/// marques complètes (chacune avec la page de sa fiche de fonctionnement), intitulé et page.
+fn compte_officiel(
+    c: CompteBrut,
+    classes: &BTreeMap<u8, Classe>,
+) -> Result<CompteOfficiel, ErreurReferentiel> {
+    let numero = NumeroCompte::parse(&c.numero).map_err(|erreur| ErreurReferentiel::Numero {
+        numero: c.numero.clone(),
+        erreur,
+    })?;
+    if !numero.est_officiel() {
+        return Err(ErreurReferentiel::NonOfficiel(numero));
+    }
+    if !classes.contains_key(&numero.classe()) {
+        return Err(ErreurReferentiel::Classe(numero.classe()));
+    }
+    let marque_journal_tresorerie = match (c.journal_tresorerie, c.page_fonctionnement) {
+        (None, None) => None,
+        (Some(admis), Some(page))
+            if (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page) =>
+        {
+            Some((admis, page))
+        }
+        _ => return Err(ErreurReferentiel::MarqueJournalTresorerie(numero)),
+    };
+    let marque_tiers = match (c.tiers, c.page_tiers) {
+        (None, None) => None,
+        (Some(types), Some(page))
+            if (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page)
+                && !types.is_empty()
+                && types.iter().all(|t| TYPES_TIERS.contains(&t.as_str()))
+                && types
+                    .iter()
+                    .enumerate()
+                    .all(|(i, t)| !types[..i].contains(t)) =>
+        {
+            Some((types, page))
+        }
+        _ => return Err(ErreurReferentiel::MarqueTiers(numero)),
+    };
+    let page_fiche =
+        |page: u16| (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page);
+    let marque_lettrable = match (c.lettrable, c.page_lettrable) {
+        (None, None) => None,
+        (Some(true), Some(page)) if page_fiche(page) => Some(page),
+        _ => return Err(ErreurReferentiel::MarqueLettrable(numero)),
+    };
+    let marque_type_tresorerie = match (c.type_tresorerie, c.page_type_tresorerie) {
+        (None, None) => None,
+        (Some(code), Some(page)) if page_fiche(page) => match TypeTresorerie::depuis_code(&code) {
+            Some(type_tresorerie) => Some((type_tresorerie, page)),
+            None => return Err(ErreurReferentiel::MarqueTypeTresorerie(numero)),
+        },
+        _ => return Err(ErreurReferentiel::MarqueTypeTresorerie(numero)),
+    };
+    Ok(CompteOfficiel {
+        marque_journal_tresorerie,
+        marque_tiers,
+        marque_lettrable,
+        marque_type_tresorerie,
+        intitule: texte(&c.numero, &c.intitule)?,
+        page: verifier_page(&c.numero, c.page)?,
+        nature: c.nature,
+        sens: c.sens.into(),
+        collectif: c.collectif,
+        note: c.note,
+        numero,
+    })
+}
+
 impl Referentiel {
     /// Charge et valide la liste officielle embarquée.
     ///
@@ -397,52 +520,8 @@ impl Referentiel {
 
         let mut comptes = BTreeMap::new();
         for c in brut.compte {
-            let numero =
-                NumeroCompte::parse(&c.numero).map_err(|erreur| ErreurReferentiel::Numero {
-                    numero: c.numero.clone(),
-                    erreur,
-                })?;
-            if !numero.est_officiel() {
-                return Err(ErreurReferentiel::NonOfficiel(numero));
-            }
-            if !classes.contains_key(&numero.classe()) {
-                return Err(ErreurReferentiel::Classe(numero.classe()));
-            }
-            let marque_journal_tresorerie = match (c.journal_tresorerie, c.page_fonctionnement) {
-                (None, None) => None,
-                (Some(admis), Some(page))
-                    if (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page) =>
-                {
-                    Some((admis, page))
-                }
-                _ => return Err(ErreurReferentiel::MarqueJournalTresorerie(numero)),
-            };
-            let marque_tiers = match (c.tiers, c.page_tiers) {
-                (None, None) => None,
-                (Some(types), Some(page))
-                    if (PAGE_FONCTIONNEMENT_MIN..=PAGE_FONCTIONNEMENT_MAX).contains(&page)
-                        && !types.is_empty()
-                        && types.iter().all(|t| TYPES_TIERS.contains(&t.as_str()))
-                        && types
-                            .iter()
-                            .enumerate()
-                            .all(|(i, t)| !types[..i].contains(t)) =>
-                {
-                    Some((types, page))
-                }
-                _ => return Err(ErreurReferentiel::MarqueTiers(numero)),
-            };
-            let compte = CompteOfficiel {
-                marque_journal_tresorerie,
-                marque_tiers,
-                intitule: texte(&c.numero, &c.intitule)?,
-                page: verifier_page(&c.numero, c.page)?,
-                nature: c.nature,
-                sens: c.sens.into(),
-                collectif: c.collectif,
-                note: c.note,
-                numero: numero.clone(),
-            };
+            let compte = compte_officiel(c, &classes)?;
+            let numero = compte.numero.clone();
             if comptes.insert(numero.clone(), compte).is_some() {
                 return Err(ErreurReferentiel::Doublon(numero));
             }
@@ -456,11 +535,12 @@ impl Referentiel {
             }
         }
 
-        let referentiel = Self {
+        let mut referentiel = Self {
             document: brut.source.document,
             version: brut.source.version,
             classes,
             comptes,
+            comptes_par_defaut: BTreeMap::new(),
         };
         // Une exclusion explicite n'a de sens que sous un compte admis.
         for compte in referentiel.comptes.values() {
@@ -477,7 +557,53 @@ impl Referentiel {
                 ));
             }
         }
+        referentiel.verifier_marque_lettrable()?;
+        referentiel.comptes_par_defaut = referentiel.verifier_types_de_tresorerie()?;
         Ok(referentiel)
+    }
+
+    /// Une marque `lettrable` n'est pas redondante (aucun ascendant strict déjà lettrable) et ne
+    /// couvre aucun compte admis en journal de trésorerie : le relevé se pointe, il ne se lettre
+    /// pas (ADR 0034).
+    fn verifier_marque_lettrable(&self) -> Result<(), ErreurReferentiel> {
+        for compte in self.comptes.values() {
+            if compte.marque_lettrable.is_none() {
+                continue;
+            }
+            let redondante = compte
+                .numero
+                .parent()
+                .is_some_and(|parent| self.est_lettrable(&parent));
+            let couvre_la_tresorerie = self.comptes.keys().any(|n| {
+                compte.numero.est_ascendant_ou_egal(n) && self.admis_en_journal_de_tresorerie(n)
+            });
+            if redondante || couvre_la_tresorerie {
+                return Err(ErreurReferentiel::MarqueLettrable(compte.numero.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Un type de trésorerie n'a qu'un compte par défaut, admis en journal de trésorerie.
+    fn verifier_types_de_tresorerie(
+        &self,
+    ) -> Result<BTreeMap<TypeTresorerie, NumeroCompte>, ErreurReferentiel> {
+        let mut par_type = BTreeMap::new();
+        for compte in self.comptes.values() {
+            let Some((type_tresorerie, _)) = compte.marque_type_tresorerie else {
+                continue;
+            };
+            if !self.admis_en_journal_de_tresorerie(&compte.numero)
+                || par_type
+                    .insert(type_tresorerie, compte.numero.clone())
+                    .is_some()
+            {
+                return Err(ErreurReferentiel::MarqueTypeTresorerie(
+                    compte.numero.clone(),
+                ));
+            }
+        }
+        Ok(par_type)
     }
 
     /// Document source (texte officiel).
@@ -538,6 +664,31 @@ impl Referentiel {
             .map_or(&[], |(types, _)| types.as_slice())
     }
 
+    /// Vrai si le lettrage est admis sur le numéro (officiel ou à segments libres) : lui-même
+    /// ou l'un de ses ascendants de la liste officielle porte la marque `lettrable`. Le compte
+    /// d'attente désigné par le dossier est lettrable par sa désignation
+    /// ([`DefinitionRole::lettrable`]), non par cette marque.
+    #[must_use]
+    pub fn est_lettrable(&self, numero: &NumeroCompte) -> bool {
+        std::iter::successors(Some(numero.clone()), NumeroCompte::parent).any(|n| {
+            self.comptes
+                .get(&n)
+                .is_some_and(|c| c.marque_lettrable.is_some())
+        })
+    }
+
+    /// Compte par défaut d'un type de compte de trésorerie (marque `type_tresorerie`) : la
+    /// création assistée d'un compte de trésorerie ouvre un sous-compte de ce compte. `None` si
+    /// les données n'en désignent pas (le référentiel officiel les désigne tous, garanti par les
+    /// tests).
+    #[must_use]
+    pub fn compte_par_defaut_tresorerie(
+        &self,
+        type_tresorerie: TypeTresorerie,
+    ) -> Option<&NumeroCompte> {
+        self.comptes_par_defaut.get(&type_tresorerie)
+    }
+
     /// Nombre de comptes.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -585,3 +736,5 @@ impl Referentiel {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_tiers_tresorerie;

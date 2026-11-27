@@ -1,0 +1,66 @@
+# Rôles de comptes désignés par le dossier (L3-12, ADR 0034 points 8 et 10).
+#
+# `compta-core` et l'API ne connaissent aucun numéro de compte (règle absolue 9). Un rôle est un
+# emplacement que **chaque dossier** remplit en désignant un compte de son plan ; ce fichier dit
+# quels rôles existent, comment ils se comportent, et, quand une source le permet, quels comptes
+# de la liste officielle sont **suggérés**. Une suggestion n'est jamais appliquée d'office : le
+# dossier choisit, et la suggestion reste « à confirmer » par la personne indiquée.
+#
+# Champs d'un rôle :
+# - code : `attente_releve`, `charge_prelevement` ou `dette_collectee` (liste fermée, connue du
+#   code ; chacun présent une fois) ;
+# - designation_obligatoire : la désignation est exigée avant le premier usage du rôle (sinon elle
+#   est facultative et ne bloque aucune validation, ADR 0026) ;
+# - lettrable : le compte désigné devient lettrable à sa désignation (ADR 0032 point 2) ;
+# - a_confirmer_par : `expert_comptable` ou `fiscaliste` ;
+# - source : documents et pages qui fondent le rôle.
+# Champs d'une suggestion (`[[role.suggestion]]`) : numero, intitule, page_liste (identiques à
+# `comptes.toml`, contrôlés au chargement) et source. Un compte suggéré n'est ni admis en journal
+# de trésorerie, ni, pour un rôle lettrable, collectif (les lignes d'attente n'ont pas de tiers :
+# ADR 0032 point 2).
+
+# B4 (décision du mainteneur du 2026-11-27) : compte d'attente des lignes de relevé sans
+# contrepartie connue. Odoo exige un compte d'attente par journal (account/models/
+# account_journal.py:508-518) ; Tryton exige une affectation (account_statement/statement.py:
+# 596-614) : la désignation est donc obligatoire avant la première proposition sans règle. Le plan
+# officiel n'a pas de compte « d'attente » dédié ; la spec §15.1 cite les « sous-comptes de 471 ».
+[[role]]
+code = "attente_releve"
+designation_obligatoire = true
+lettrable = true
+a_confirmer_par = "expert_comptable"
+source = "ADR 0034 point 8 (décision B4 du 2026-11-27) ; spécification §9.6 (ligne « à justifier ») et §15.1 (comptes d'attente désignés par le cabinet, sous-comptes de 471) ; AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, fiche du compte 47, p. PDF 402 à 405"
+
+[[role.suggestion]]
+numero = "4711"
+intitule = "Débiteurs divers"
+page_liste = 245
+source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 245 (471, 4711) ; fiche du compte 47, p. PDF 402 (subdivisions) et 405 (contrôle à partir des relevés de banque)"
+
+[[role.suggestion]]
+numero = "4712"
+intitule = "Créditeurs divers"
+page_liste = 245
+source = "AUDCIF + SYSCOHADA, JO OHADA 15/02/2017, Titre VII §3, p. PDF 245 (471, 4712) ; fiche du compte 47, p. PDF 402 (subdivisions) et 405 (contrôle à partir des relevés de banque)"
+
+# B5 (décision du mainteneur du 2026-11-27) : prélèvement de 0,5 % sur les paiements reçus par
+# transfert d'argent (art. 220 ter) et taxe sur les transferts d'argent (art. 395 s.). Les textes
+# ne disent rien de la comptabilisation : le mécanisme est livré sans thèse comptable, **aucune
+# suggestion de numéro** tant que le fiscaliste n'a pas tranché (ADR 0034 point 10). Les taux,
+# plafonds et assiettes sont des paramètres fiscaux du pack Sénégal (`crates/fiscal`, PR L3-13).
+
+# Charge supportée par le dossier (marchand qui reçoit net, ou entité qui supporte la taxe).
+[[role]]
+code = "charge_prelevement"
+designation_obligatoire = false
+lettrable = false
+a_confirmer_par = "fiscaliste"
+source = "JO n° 7853 du 02/10/2025, loi n° 2025-17, art. 220 ter (prélèvement de 0,5 % sur les paiements reçus par transfert d'argent), p. PDF 15, et art. 395 à 399 bis (taxe sur les transferts d'argent), p. PDF 15, art. 399 ter, p. PDF 16 ; comptabilisation non dite : ADR 0034 point 10 (décision B5 du 2026-11-27)"
+
+# Dette du dossier qui collecte et reverse (opérateur, banque, établissement financier ou SFD).
+[[role]]
+code = "dette_collectee"
+designation_obligatoire = false
+lettrable = false
+a_confirmer_par = "fiscaliste"
+source = "JO n° 7853 du 02/10/2025, loi n° 2025-17, art. 220 ter 2) (l'opérateur prélève et verse), p. PDF 15, et art. 396 (assujettis à la taxe sur les transferts) avec la sous-section 4 « obligations du redevable légal » (collecte sur chaque opération et reversement), p. PDF 15 ; comptabilisation non dite : ADR 0034 point 10 (décision B5 du 2026-11-27)"

@@ -53,6 +53,43 @@
 #   « Personnel » (p. 389) : salarie ; 461, 462, 463, 465 et 467, apporteurs et associés de la
 #   fiche 46 (p. 399) : associe. 466 « Groupe, comptes courants » et les autres collectifs (103,
 #   109, 18x, 45x, 48x) n'admettent aucun tiers en L2.
+#
+# - lettrable, page_lettrable (L3-12, ADR 0032 point 2) : compte sur lequel le lettrage est admis,
+#   marque héritée par ses sous-comptes (officiels et libres) ; `page_lettrable` est la page PDF
+#   de la fiche « Contenu et fonctionnement des comptes » qui fonde la marque. Seule la valeur
+#   `true` existe ; une marque sous un ascendant déjà lettrable est refusée (doublon), comme un
+#   compte lettrable admis en journal de trésorerie (le pointage du relevé n'est pas un lettrage).
+#   Règle : un compte collectif est marqué quand au moins un des deux moteurs de référence le rend
+#   lettrable (aucun contrôle plus strict que l'un d'eux), et la page est celle de la fiche qui
+#   le liste ; Tryton `account_syscohada` (`f5354cc`, account_syscohada_2016_fr.xml, champ
+#   `reconcile`) ; Odoo 19.0 `l10n_syscohada` (`fa175fb`,
+#   data/template/account.account-syscohada.csv, colonne `reconcile`).
+#   - 40 (p. 381 : un sous-compte individuel par fournisseur) et 41 (p. 386 : par client) :
+#     les deux moteurs ; 404 et 413, absents de Tryton, sont lettrables chez Odoo ;
+#   - 421 « Personnel, avances et acomptes » (p. 389) : les deux moteurs (Odoo : 4211 à 4213) ;
+#   - 451, 452 (fiche 45, p. 397) ; 461, 462, 463, 465, 466 (fiche 46, p. 399) : Tryton ;
+#   - 485, 488 (fiche 48, p. 406) : Odoo (4851 à 4858, 488) ;
+#   - 585, 588 (fiche 58, p. 430) : comptes de passage des virements internes, « soldés au terme
+#     de leur utilisation » (p. 430) et à la fin de l'exercice (p. 431) ; le compte de virement
+#     interne d'Odoo est lettrable (account/models/company.py:113-115,
+#     chart_template.py:906-912 ; préfixe 585 : l10n_syscohada/models/template_syscohada.py:23).
+#   Collectifs NON marqués, faute de source : 103, 109, 181 à 185, 467, 481, 482 (aucun des deux
+#   moteurs ne les rend lettrables, les fiches ne parlent pas de lettrage) : question ouverte au
+#   mainteneur (PR L3-12). Le compte d'attente des relevés n'est pas marqué ici : il est désigné
+#   par le dossier et déclaré lettrable à sa désignation (`roles-comptes.toml`, ADR 0034 point 8).
+#
+# - type_tresorerie, page_type_tresorerie (L3-12, ADR 0034 point 1) : compte par défaut d'un type
+#   de compte de trésorerie (`banque`, `caisse`, `portefeuille`), sous lequel la création assistée
+#   ouvre le sous-compte du dossier ; un compte par type au plus, admis en journal de trésorerie.
+#   `page_type_tresorerie` est la page PDF de la fiche qui liste le compte. Spec §9.1 : « sous-
+#   compte de 521 pour une banque, de 571 pour une caisse, de 552 [...] pour un portefeuille ».
+#   - 521 « BANQUES LOCALES » (fiche 52, p. 416) : `banque` ;
+#   - 571 « CAISSE SIÈGE SOCIAL » (fiche 57, p. 428) : `caisse` ; le journal CA par défaut reste sur
+#     5711, sous-compte de 571 (`journaux.toml`) ;
+#   - 552 « MONNAIE ÉLECTRONIQUE - TÉLÉPHONE PORTABLE » (fiche 55, p. 423) : `portefeuille` ;
+#     Guide d'application du SYSCOHADA révisé (1er mai 2017), ch. 4, section 4, p. 52.
+#   Odoo `l10n_syscohada` retient les mêmes préfixes pour la banque et la caisse (521, 571 :
+#   models/template_syscohada.py:21-22) ; Tryton n'a pas de compte par défaut.
 
 [source]
 document = "AUDCIF + SYSCOHADA, JO OHADA n° spécial du 15/02/2017, Titre VII, section 3 « Liste des comptes »"
@@ -3891,6 +3928,8 @@ nature = "bilan"
 sens = "crediteur"
 tiers = ["fournisseur"]
 page_tiers = 380
+lettrable = true
+page_lettrable = 381
 
 [[compte]]
 numero = "401"
@@ -4087,6 +4126,8 @@ nature = "bilan"
 sens = "debiteur"
 tiers = ["client"]
 page_tiers = 384
+lettrable = true
+page_lettrable = 386
 
 [[compte]]
 numero = "411"
@@ -4358,6 +4399,8 @@ page = 242
 nature = "bilan"
 sens = "debiteur"
 collectif = true
+lettrable = true
+page_lettrable = 389
 
 [[compte]]
 numero = "4211"
@@ -4975,6 +5018,8 @@ page = 244
 nature = "bilan"
 sens = "variable"
 collectif = true
+lettrable = true
+page_lettrable = 397
 
 [[compte]]
 numero = "452"
@@ -4983,6 +5028,8 @@ page = 244
 nature = "bilan"
 sens = "variable"
 collectif = true
+lettrable = true
+page_lettrable = 397
 
 [[compte]]
 numero = "458"
@@ -5021,6 +5068,8 @@ sens = "variable"
 collectif = true
 tiers = ["associe"]
 page_tiers = 399
+lettrable = true
+page_lettrable = 399
 
 [[compte]]
 numero = "4611"
@@ -5094,6 +5143,8 @@ sens = "crediteur"
 collectif = true
 tiers = ["associe"]
 page_tiers = 399
+lettrable = true
+page_lettrable = 399
 
 [[compte]]
 numero = "4621"
@@ -5118,6 +5169,8 @@ sens = "variable"
 collectif = true
 tiers = ["associe"]
 page_tiers = 399
+lettrable = true
+page_lettrable = 399
 
 [[compte]]
 numero = "4631"
@@ -5142,6 +5195,8 @@ sens = "crediteur"
 collectif = true
 tiers = ["associe"]
 page_tiers = 399
+lettrable = true
+page_lettrable = 399
 
 [[compte]]
 numero = "466"
@@ -5150,6 +5205,8 @@ page = 245
 nature = "bilan"
 sens = "variable"
 collectif = true
+lettrable = true
+page_lettrable = 399
 
 [[compte]]
 numero = "467"
@@ -5542,6 +5599,8 @@ page = 247
 nature = "bilan"
 sens = "debiteur"
 collectif = true
+lettrable = true
+page_lettrable = 406
 
 [[compte]]
 numero = "4851"
@@ -5599,6 +5658,8 @@ page = 247
 nature = "bilan"
 sens = "debiteur"
 collectif = true
+lettrable = true
+page_lettrable = 406
 
 [[compte]]
 numero = "49"
@@ -6049,6 +6110,8 @@ intitule = "BANQUES LOCALES"
 page = 250
 nature = "bilan"
 sens = "debiteur"
+type_tresorerie = "banque"
+page_type_tresorerie = 416
 
 [[compte]]
 numero = "5211"
@@ -6227,6 +6290,8 @@ intitule = "MONNAIE ÉLECTRONIQUE - TÉLÉPHONE PORTABLE"
 page = 251
 nature = "bilan"
 sens = "debiteur"
+type_tresorerie = "portefeuille"
+page_type_tresorerie = 423
 
 [[compte]]
 numero = "553"
@@ -6299,6 +6364,8 @@ intitule = "CAISSE SIÈGE SOCIAL"
 page = 252
 nature = "bilan"
 sens = "debiteur"
+type_tresorerie = "caisse"
+page_type_tresorerie = 428
 
 [[compte]]
 numero = "5711"
@@ -6383,6 +6450,8 @@ intitule = "VIREMENTS DE FONDS"
 page = 252
 nature = "bilan"
 sens = "variable"
+lettrable = true
+page_lettrable = 430
 
 [[compte]]
 numero = "588"
@@ -6390,6 +6459,8 @@ intitule = "AUTRES VIREMENTS INTERNES"
 page = 252
 nature = "bilan"
 sens = "variable"
+lettrable = true
+page_lettrable = 430
 
 [[compte]]
 numero = "59"
