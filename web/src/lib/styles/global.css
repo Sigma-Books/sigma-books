@@ -194,6 +194,11 @@ input {
 	font-size: var(--taille-petite);
 }
 
+.mono {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	overflow-wrap: anywhere;
+}
+
 /* Messages */
 
 .message {

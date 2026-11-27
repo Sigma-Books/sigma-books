@@ -165,6 +165,12 @@ export const fr = {
 	'contexte.creation_incertaine':
 		'Le serveur a répondu, mais sa réponse est illisible : le dossier a peut-être été créé. La liste est rechargée, vérifiez-la avant de recommencer.',
 
+	// Paramètres fiscaux du dossier.
+	'parametres.sans_fin':
+		'Sans date de fin, cette version reste applicable et masque les versions suivantes du pays tant qu’elle s’applique.',
+	'parametres.immuable':
+		'Une version créée ne se modifie ni ne se supprime : une correction est une nouvelle version.',
+
 	// Avertissements d'une validation réussie (l'écriture est validée malgré tout).
 	'avertissement.echeance_de_cloture_depassee':
 		'L’échéance de clôture de la période commençant le {periode} était le {echeance} : pensez à clôturer cette période.',

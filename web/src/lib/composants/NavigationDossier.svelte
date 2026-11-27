@@ -7,7 +7,8 @@
 	interface Props {
 		cabinet: Uuid;
 		dossier: Uuid;
-		actif: 'saisie' | 'brouillard' | 'ecritures' | 'editions' | 'integrite' | 'alertes';
+		actif:
+			'saisie' | 'brouillard' | 'ecritures' | 'editions' | 'integrite' | 'alertes' | 'parametres';
 		/** Rôle du membre : l'onglet Intégrité est masqué sans accès (le serveur décide, §20). */
 		role?: string;
 	}
@@ -66,6 +67,14 @@
 				aria-current={actif === 'alertes' ? 'page' : undefined}
 			>
 				Alertes
+			</a>
+		</li>
+		<li>
+			<a
+				href={resolve(`parametres-fiscaux/?cabinet=${cabinet}&dossier=${dossier}`)}
+				aria-current={actif === 'parametres' ? 'page' : undefined}
+			>
+				Paramètres fiscaux
 			</a>
 		</li>
 		<li>

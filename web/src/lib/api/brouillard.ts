@@ -40,6 +40,8 @@ export interface Brouillon {
 	date: string;
 	date_valeur_comptable?: string;
 	libelle: string;
+	/** Version de paramètres fiscaux appliquée à la dernière saisie (ADR 0030) ; absente si aucune. */
+	version_parametres?: string;
 	a_revoir: boolean;
 	a_revoir_par?: string;
 	version: number;
@@ -105,6 +107,8 @@ export interface Ecriture {
 	date: string;
 	date_valeur_comptable?: string;
 	libelle: string;
+	/** Version de paramètres fiscaux enregistrée par l'écriture (ADR 0030) ; absente si aucune. */
+	version_parametres?: string;
 	rang: number;
 	empreinte: string;
 	empreinte_precedente: string;
@@ -175,6 +179,7 @@ export const estBrouillon: Garde<Brouillon> = (v): v is Brouillon =>
 	estId(v.id) &&
 	chaines(v, ['journal', 'date', 'libelle', 'cree_par', 'cree_le', 'modifie_par', 'modifie_le']) &&
 	chaineFacultative(v, 'date_valeur_comptable') &&
+	chaineFacultative(v, 'version_parametres') &&
 	chaineFacultative(v, 'a_revoir_par') &&
 	typeof v.a_revoir === 'boolean' &&
 	entier(v.version) &&
@@ -233,6 +238,7 @@ export const estEcriture: Garde<Ecriture> = (v): v is Ecriture =>
 		'valide_le'
 	]) &&
 	chaineFacultative(v, 'date_valeur_comptable') &&
+	chaineFacultative(v, 'version_parametres') &&
 	chaineFacultative(v, 'origine') &&
 	entier(v.rang) &&
 	entier(v.format) &&

@@ -72,6 +72,11 @@
 		<li>
 			<a href={resolve(`alertes/?cabinet=${membre.id}&dossier=${dossier.id}`)}>Alertes</a>
 		</li>
+		<li>
+			<a href={resolve(`parametres-fiscaux/?cabinet=${membre.id}&dossier=${dossier.id}`)}>
+				Paramètres fiscaux
+			</a>
+		</li>
 	</ul>
 {/if}
 

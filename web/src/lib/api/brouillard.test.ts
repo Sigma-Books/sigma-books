@@ -44,6 +44,9 @@ test('garde du brouillon : montant en chaîne, sens fermé', () => {
 	);
 	assert.equal(estBrouillon({ ...brouillon, id: 'pas-un-uuid' }), false);
 	assert.equal(estBrouillon({ ...brouillon, version: 1.5 }), false);
+	assert.equal(estBrouillon({ ...brouillon, version_parametres: 'xx-2026.1' }), true);
+	assert.equal(estBrouillon({ ...brouillon, version_parametres: ['x'] }), false);
+	assert.equal(estBrouillon({ ...brouillon, champ_futur: 1 }), true);
 });
 
 test('garde de la page : curseur de forme sûre, absent en fin de liste', () => {
@@ -89,6 +92,11 @@ test('garde de l’écriture validée : contre-passations en liste de numéros',
 	};
 	assert.equal(estEcriture(e), true);
 	assert.equal(estEcriture({ ...e, contre_passations: 'OD-2026-0002' }), false);
+	// Version de paramètres fiscaux : facultative (absente sans version applicable), toujours du texte.
+	assert.equal(estEcriture({ ...e, version_parametres: 'xx-2026.1+d1' }), true);
+	assert.equal(estEcriture({ ...e, version_parametres: 7 }), false);
+	assert.equal(estEcriture({ ...e, version_parametres: null }), false);
+	assert.equal(estEcriture({ ...e, champ_futur: true }), true);
 	assert.equal(estLotValide({ ecritures: [], exclues_a_revoir: 2 }), true);
 	assert.equal(estLotValide({ ecritures: [], exclues_a_revoir: '2' }), false);
 });
