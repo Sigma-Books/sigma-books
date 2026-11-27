@@ -71,6 +71,43 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
   - **Repris des comptes `party_required` du module Tryton `account_syscohada`** : 103, 109, 181 à 185, 401, 402, 408, 409, 411, 412, 414 à 416, 418, 419, 421, 451, 452, 461 à 463, 465, 466, 481, 482, 485.
   - **Ajouts de Sigma Books**, comptes de tiers de la liste officielle absents de Tryton : 404, 413, 467 et 488 « Autres créances H.A.O. » (créances sur cessions d'immobilisations notamment ; décision du mainteneur du 2026-11-18, en accord avec Odoo `l10n_syscohada`, qui rend 488 lettrable).
   - Voir `docs/provenance/tryton.md`.
+- **`lettrable`** et **`page_lettrable`** (L3-12, ADR 0032) : compte sur lequel le lettrage est admis, marque héritée par ses sous-comptes, y compris à segments libres (`411-SENELEC`) ; `Referentiel::est_lettrable`. Un collectif est marqué quand au moins un des deux moteurs le rend lettrable (aucun contrôle plus strict que l'un d'eux) ; la page est celle de la fiche qui le liste.
+
+  | Compte | Fiche (p. PDF) | Tryton `reconcile` | Odoo `reconcile` |
+  |---|---|---|---|
+  | 40 (401, 402, 404, 408, 409) | 381 (un sous-compte individuel par fournisseur) | 401, 402, 408, 409 | 401x, 402x, 404x, 408x |
+  | 41 (411 à 416, 418, 419) | 386 (par client) | 411, 412, 414 à 416, 418, 419 | 411x à 416x, 418x |
+  | 421 | 389 | oui | 4211 à 4213 |
+  | 451, 452 | 397 | oui | non |
+  | 461, 462, 463, 465, 466 | 399 | oui | non |
+  | 485, 488 | 406 | non | 4851 à 4858, 488 |
+  | 585, 588 | 430 (comptes de passage soldés au terme de leur utilisation ; p. 431 : à la fin de l'exercice) | non | non (585 à `False`, 588 absent du CSV) |
+
+  Pour 585 et 588, le **fondement est la fiche 58** (p. 430), non les moteurs ; Odoo n'est cité que pour son compte de virements internes « Liquidity Transfer », créé sous le préfixe 585 et lettrable (`chart_template.py:906-912`, `company.py:113-115`, `template_syscohada.py:23`).
+
+  **Lettrables chez Odoo, non marqués** : 4287, 4387, 4441 et 4445, hors des collectifs, aucune source dans les textes OHADA (l'ADR 0032 limite la marque aux collectifs, 585 et 588).
+
+  **Non marqués, faute de source** : 103, 109, 181 à 185, 467, 481, 482 (collectifs qu'aucun des deux moteurs ne rend lettrables ; les fiches ne parlent pas de lettrage). Le chargement refuse une marque sans page de fiche (ou l'inverse), une valeur autre que `true`, une marque sous un ascendant déjà lettrable et une marque qui couvrirait un compte admis en journal de trésorerie.
+- **`type_tresorerie`** et **`page_type_tresorerie`** (L3-12, ADR 0034) : compte par défaut d'un type de compte de trésorerie, sous lequel la création assistée ouvre le sous-compte ; `Referentiel::compte_par_defaut_tresorerie`. Spec §9.1.
+
+  | Type | Compte | Fiche (p. PDF) |
+  |---|---|---|
+  | `banque` | 521 « BANQUES LOCALES » | 52, p. 416 |
+  | `caisse` | 571 « CAISSE SIÈGE SOCIAL » (le journal CA reste sur 5711) | 57, p. 428 |
+  | `portefeuille` | 552 « MONNAIE ÉLECTRONIQUE - TÉLÉPHONE PORTABLE » | 55, p. 423 ; Guide, ch. 4, section 4, p. 52 |
+
+  Odoo `l10n_syscohada` retient 521 et 571 comme préfixes (`template_syscohada.py:21-22`). Le chargement refuse un type inconnu, un type attribué deux fois, une page hors des fiches et un compte non admis en journal de trésorerie.
+
+## Rôles de comptes (`data/roles-comptes.toml`, L3-12, ADR 0034)
+Un rôle est un emplacement que **chaque dossier** remplit en désignant un compte ; `Referentiel::roles_de_comptes()`. Une suggestion n'est jamais appliquée d'office.
+
+| Rôle | Désignation | Lettrable | À confirmer par | Suggestions |
+|---|---|---|---|---|
+| `attente_releve` (B4) | obligatoire avant la première proposition sans règle | oui | expert-comptable | 4711 « Débiteurs divers », 4712 « Créditeurs divers » (liste p. PDF 245 ; fiche 47, p. 402 et 405) |
+| `charge_prelevement` (B5) | facultative, non bloquante | non | fiscaliste | aucune (ADR 0034 point 10) |
+| `dette_collectee` (B5) | facultative, non bloquante | non | fiscaliste | aucune (ADR 0034 point 10) |
+
+Sources du prélèvement et de la taxe : JO n° 7853 du 02/10/2025, loi n° 2025-17, art. 220 ter et 395 à 399 bis (p. PDF 15), 399 ter (p. 16) ; les textes ne disent rien de la comptabilisation. Le chargement refuse un rôle inconnu, en double ou absent, une confirmation inconnue, une source vide, et une suggestion absente de la liste, d'intitulé ou de page différents, non sourcée, répétée, admise en journal de trésorerie ou, pour un rôle lettrable, collective.
 
 ## Compte des journaux par défaut (`data/journaux.toml`)
 Les journaux par défaut d'un dossier (spec §5.2) sont décrits sans compte dans `crates/compta-core/data/journaux-par-defaut.txt`. Le compte de chaque journal de **trésorerie** par défaut est une donnée de ce crate, avec sa source :

@@ -32,6 +32,21 @@ Tryton est publié sous GPL-3.0-or-later (fichiers `LICENSE` et `COPYRIGHT` à l
 | Modifications | Comptes absents de la liste officielle écartés (4126…). Ajout de 404, 413 et 467 comme collectifs. Intitulés alignés sur le texte officiel du JO OHADA du 15/02/2017. Détail dans `crates/syscohada/README.md`. |
 | PR | voir la PR de l'issue #53 |
 
+## syscohada-lettrables — comptes lettrables du plan SYSCOHADA
+
+| Champ | Valeur |
+|---|---|
+| Projet | Tryton (module `account_syscohada`) |
+| Dépôt | https://github.com/tryton/tryton |
+| Fichier(s) d'origine | `modules/account_syscohada/account_syscohada_2016_fr.xml` (enregistrements `account.account.template` : champs `code`, `reconcile`) |
+| Commit ou version | `f5354ccd9231703470611d7ebf1c9cdc65e952bc` |
+| Licence | GPL-3.0-or-later (en-tête du fichier : « This file is part of Tryton », renvoi au fichier COPYRIGHT du module, vérifié) |
+| Auteurs / titulaires | © 2022-2026 B2CK SRL ; © 2022-2026 Cédric Krier (fichier `modules/account_syscohada/COPYRIGHT`) |
+| Nature de la reprise | Jeu de données : liste des comptes marqués `reconcile`, l'une des deux sources (avec Odoo, `odoo.md`, `syscohada-lettrables`) de la marque `lettrable` des comptes collectifs. |
+| Destination | `crates/syscohada/data/comptes.toml` (champs `lettrable`, `page_lettrable`) |
+| Modifications | Marque posée sur le compte de la liste officielle le plus court qui couvre les comptes de Tryton (40, 41, 421, 451, 452, 461 à 463, 465, 466), avec la page de la fiche de fonctionnement relue sur le PDF officiel. Détail dans `crates/syscohada/README.md`. |
+| PR | PR 5a du lot L3 (L3-12) |
+
 ## payment-term — répartition d'un total selon une condition de règlement
 
 | Champ | Valeur |
