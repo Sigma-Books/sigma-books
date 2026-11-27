@@ -1,0 +1,10 @@
+BANQUE FICTIVE DE DÉMONSTRATION;Compte n° 000-FICTIF-01;;;
+;;;;
+Date;Libellé;Débit;Crédit;Solde
+01/02/2026;Report à nouveau;;;2 000 000,00
+03/02/2026;Remise chèques élève Désiré;;150 000,00;2 150 000,00
+04/02/2026;Frais de tenue de compte;2 500,00;;2 147 500,00
+04/02/2026;Frais de tenue de compte;2 500,00;;2 145 000,00
+10/02/2026;"Virement émis; loyer €";500 000;;1 645 000,00
+Solde au 28/02/2026;;;;1 645 000,00
+

@@ -1,0 +1,15 @@
+# Profil synthétique de portefeuille mobile money : date et heure, identifiant de transaction,
+# solde, type d'opération en référence. Aucun format d'opérateur réel n'est reproduit.
+encodage = "utf-8"
+delimiteur = ","
+lignes_entete = 1
+format_date = "%Y-%m-%d %H:%M:%S"
+separateur_decimal = "."
+
+[colonnes]
+identifiant_transaction = "Identifiant"
+date = "Date"
+reference = "Type"
+libelle = "Libellé"
+montant = "Montant"
+solde = "Solde"

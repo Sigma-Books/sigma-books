@@ -1,0 +1,14 @@
+# Profil synthétique : ISO-8859-15, tabulation, aucun guillemet, aucune ligne d'en-tête,
+# année sur deux chiffres, signe inversé (relevé de carte), milliers en apostrophe.
+encodage = "iso-8859-15"
+delimiteur = "\t"
+guillemet = ""
+format_date = "%d.%m.%y"
+separateur_decimal = "."
+separateur_milliers = "'"
+signe_inverse = true
+
+[colonnes]
+date = 0
+libelle = 1
+montant = 2

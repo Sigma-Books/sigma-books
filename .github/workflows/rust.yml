@@ -246,3 +246,61 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
           install -m 755 "$RUNNER_TEMP/cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny" "$HOME/.cargo/bin/"
       - run: cargo deny --all-features --locked check
+
+  # Fuzzing « smoke » des analyseurs de `formats` (plan L3, décision D5 ; autorisation du
+  # mainteneur du 2026-11-27, issue #255) : 60 secondes par cible, sur une pull request qui
+  # modifie `crates/formats/` (analyseur, profils, corpus). Job NON requis (absent des checks
+  # requis de docs/github.md) ; les campagnes longues restent hors CI (crates/formats/fuzz/README.md).
+  fuzz-smoke:
+    name: rust-fuzz-smoke
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # cargo-fuzz exige la chaîne nightly : date et version épinglées.
+      NIGHTLY: nightly-2026-11-18
+      CARGO_FUZZ_VERSION: "0.13.2"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Le commit de fusion et son premier parent (la base) suffisent à lister les changements.
+          fetch-depth: 2
+      - name: Repérer un changement de crates/formats
+        id: chemins
+        run: |
+          if git diff --quiet HEAD^1 HEAD -- crates/formats; then
+            echo "modifie=false" >> "$GITHUB_OUTPUT"
+            echo "crates/formats inchangé : fuzzing non lancé."
+          else
+            echo "modifie=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Installer nightly et cargo-fuzz (versions épinglées, dépendances verrouillées)
+        if: steps.chemins.outputs.modifie == 'true'
+        run: |
+          rustup toolchain install "$NIGHTLY" --profile minimal
+          cargo +"$NIGHTLY" install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
+      # Le paquet de fuzzing est hors du workspace : son Cargo.lock est versionné
+      # (crates/formats/fuzz/Cargo.lock) et doit être complet et à jour (`--locked`) ; la
+      # compilation ne le modifie pas (vérifié après l'exécution).
+      - name: Fuzzing smoke, 60 secondes par cible
+        if: steps.chemins.outputs.modifie == 'true'
+        working-directory: crates/formats
+        run: |
+          cargo +"$NIGHTLY" metadata --locked --format-version 1 \
+            --manifest-path fuzz/Cargo.toml > /dev/null
+          for cible in $(cargo +"$NIGHTLY" fuzz list); do
+            mkdir -p "fuzz/corpus/$cible" "fuzz/seeds/$cible"
+            cargo +"$NIGHTLY" fuzz run "$cible" "fuzz/corpus/$cible" "fuzz/seeds/$cible" \
+              -- -max_total_time=60
+          done
+          git diff --exit-code -- fuzz/Cargo.lock
+      # Entrée fautive conservée pour la reproduire (`cargo fuzz run <cible> <fichier>`).
+      - name: Conserver les plantages
+        if: failure() && steps.chemins.outputs.modifie == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-plantages
+          path: crates/formats/fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 14

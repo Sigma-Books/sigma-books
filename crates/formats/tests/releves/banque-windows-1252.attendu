@@ -1,0 +1,56 @@
+fichier 10d0f76eae0e9270100ccc84ee41e30f6eb56d55e4e150eb84bdfeedd17bbbdb
+ligne 4
+  brut "01/02/2026;Report à nouveau;;;2\u{a0}000\u{a0}000,00"
+  date 2026-02-01
+  date_valeur -
+  libelle "Report à nouveau"
+  reference -
+  montant 0
+  solde 2000000.00
+  devise -
+  identifiant -
+  empreinte 9c5eb28ca33e9b56faeb1113b54d1074d8e8af231e775a78211fd5cb9a6c62c6 rang 1
+ligne 5
+  brut "03/02/2026;Remise chèques élève Désiré;;150\u{a0}000,00;2\u{a0}150\u{a0}000,00"
+  date 2026-02-03
+  date_valeur -
+  libelle "Remise chèques élève Désiré"
+  reference -
+  montant 150000.00
+  solde 2150000.00
+  devise -
+  identifiant -
+  empreinte 24986aea1f1a44525f766526d8ce200de74ae5c581b45324113303435abc77b7 rang 1
+ligne 6
+  brut "04/02/2026;Frais de tenue de compte;2\u{a0}500,00;;2\u{a0}147\u{a0}500,00"
+  date 2026-02-04
+  date_valeur -
+  libelle "Frais de tenue de compte"
+  reference -
+  montant -2500.00
+  solde 2147500.00
+  devise -
+  identifiant -
+  empreinte 0633d35633f96701bc431bf932934cf52af5b781efaded3663d4fc74c305eb70 rang 1
+ligne 7
+  brut "04/02/2026;Frais de tenue de compte;2\u{a0}500,00;;2\u{a0}145\u{a0}000,00"
+  date 2026-02-04
+  date_valeur -
+  libelle "Frais de tenue de compte"
+  reference -
+  montant -2500.00
+  solde 2145000.00
+  devise -
+  identifiant -
+  empreinte 0633d35633f96701bc431bf932934cf52af5b781efaded3663d4fc74c305eb70 rang 2
+ligne 8
+  brut "10/02/2026;\"Virement émis; loyer €\";500\u{a0}000;;1\u{a0}645\u{a0}000,00"
+  date 2026-02-10
+  date_valeur -
+  libelle "Virement émis; loyer €"
+  reference -
+  montant -500000
+  solde 1645000.00
+  devise -
+  identifiant -
+  empreinte 2ce9d29e6236363a1cce5ddee200ac1eaee623cb0465ff7bc02a7185a8e62892 rang 1
