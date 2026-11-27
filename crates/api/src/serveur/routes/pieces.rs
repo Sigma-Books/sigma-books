@@ -24,6 +24,7 @@ use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, R
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier_visible};
+use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::pieces::base::{
     IssueEcart, NouvellePiece, Piece, ecarter_piece, inserer_piece, lire_piece, lister_pieces,
     pieces_de_meme_empreinte, verrouiller_dossier,
@@ -371,21 +372,28 @@ async fn deposer(
         nom_origine: nom,
     };
     let confirmes: Vec<String> = doublons.iter().map(|p| p.id.to_string()).collect();
-    stocker(tx, dossier, pieces, contenu, None, &confirmes).await
+    let registre = requete.registre_fiscal()?;
+    stocker(tx, dossier, pieces, registre, contenu, None, &confirmes).await
 }
 
 /// Écrit l'objet, **puis** la ligne (ADR 0015), et rend la trace de l'action.
+#[allow(clippy::too_many_arguments)]
 async fn stocker(
     tx: &mut TransactionTenant,
     dossier: &DossierAutorise,
     pieces: &Pieces,
+    registre: &fiscal::Registre,
     contenu: Contenu<'_>,
     motif_trace: Option<String>,
     doublon_de: &[String],
 ) -> Result<Resultat, ErreurApi> {
     let cabinet = tx.contexte().id_cabinet();
     let instant = maintenant();
-    let retenir = pieces.fin_de_retention(instant);
+    // Rétention : paramètre du paquet du pays du dossier à la date du dépôt, **dans le fuseau du
+    // dossier** (ADR 0027 et 0030), relevée par le réglage d'instance.
+    let fiscal = ParametresDuDossier::nouveau(registre, &dossier.contexte().pays, &[]);
+    let annees = fiscal.retention_des_pieces(dossier.contexte().date_du_jour(instant)?);
+    let retenir = pieces.fin_de_retention(instant, annees);
     let cle = CleObjet::nouvelle(cabinet, dossier.id());
     let depot = pieces
         .stockage()
@@ -486,7 +494,8 @@ async fn creer_interne(
         nom_origine: Some(format!("note-od-{}.txt", interne::date(note.date()))),
     };
     let motif = note.motif().to_owned();
-    stocker(tx, dossier, pieces, contenu, Some(motif), &[]).await
+    let registre = requete.registre_fiscal()?;
+    stocker(tx, dossier, pieces, registre, contenu, Some(motif), &[]).await
 }
 
 // --- Consultation -----------------------------------------------------------------------------

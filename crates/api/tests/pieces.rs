@@ -1013,3 +1013,83 @@ async fn le_nom_servi_porte_l_extension_du_type_reconnu() {
         assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{nom}");
     }
 }
+
+/// Années entre le dépôt et la fin de rétention de la dernière pièce d'un dossier.
+async fn annees_de_retention(env: &commun::Env, dossier: IdDossier) -> i32 {
+    let (deposee, retenue): (time::OffsetDateTime, time::OffsetDateTime) = sqlx::query_as(
+        "SELECT deposee_le, retenue_jusqu_au FROM piece WHERE dossier_id = $1 \
+         ORDER BY deposee_le DESC LIMIT 1",
+    )
+    .bind(dossier.uuid())
+    .fetch_one(&env.admin)
+    .await
+    .unwrap();
+    retenue.year() - deposee.year()
+}
+
+#[tokio::test]
+async fn la_retention_vient_du_paquet_du_pays_du_dossier() {
+    use commun::paquets_de_test::registre_cm;
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    let annee = time::OffsetDateTime::now_utc().year();
+    // Le paquet factice du Cameroun retient douze ans ; celui du Sénégal, dix.
+    let registre = registre_cm(&[(
+        "2024.1",
+        time::Date::from_calendar_date(annee - 1, time::Month::January, 1).unwrap(),
+        "15",
+    )]);
+    let (routeur, _stockage, etat) = application(
+        &env,
+        Arc::new(Autorisation::charger().unwrap()),
+        ReglagesPieces::default(),
+    );
+    assert!(etat.remplacer_registre_fiscal(registre).is_ok());
+    // Dossier du Sénégal : dix ans.
+    let r = deposer(&routeur, &c, c.dossier, c.collaborateur, "", PDF).await;
+    cree(&r);
+    assert_eq!(annees_de_retention(&env, c.dossier).await, 10);
+    // Autre dossier du cabinet, tenu au Cameroun (factice) : douze ans.
+    let mut tx = env.admin.begin().await.unwrap();
+    sqlx::query(
+        "SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)",
+    )
+    .bind(c.cabinet.to_string())
+    .bind(c.autre_dossier.to_string())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE dossier SET pays = 'CM' WHERE cabinet_id = $1 AND id = $2")
+        .bind(c.cabinet.uuid())
+        .bind(c.autre_dossier.uuid())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let r = deposer(&routeur, &c, c.autre_dossier, c.administrateur, "", PDF).await;
+    cree(&r);
+    assert_eq!(annees_de_retention(&env, c.autre_dossier).await, 12);
+}
+
+#[tokio::test]
+async fn le_reglage_d_instance_releve_la_retention_sans_la_baisser() {
+    let env = env().await;
+    let c = creer_cabinet(&env.admin, "Cabinet").await;
+    for (instance, attendu) in [(Some(15), 15), (Some(3), 10), (None, 10)] {
+        let reglages = ReglagesPieces {
+            retention_ans: instance,
+            ..ReglagesPieces::default()
+        };
+        let (routeur, _s, _e) =
+            application(&env, Arc::new(Autorisation::charger().unwrap()), reglages);
+        // Contenu distinct à chaque tour (un doublon identique serait signalé, non stocké).
+        let mut pdf = PDF.to_vec();
+        pdf.extend_from_slice(format!("{instance:?}").as_bytes());
+        cree(&deposer(&routeur, &c, c.dossier, c.collaborateur, "", &pdf).await);
+        assert_eq!(
+            annees_de_retention(&env, c.dossier).await,
+            attendu,
+            "{instance:?}"
+        );
+    }
+}

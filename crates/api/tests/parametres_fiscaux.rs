@@ -528,3 +528,49 @@ async fn le_pays_ne_change_plus_des_qu_une_version_propre_existe() {
         .await;
     assert!(direct.is_err());
 }
+
+#[tokio::test]
+async fn le_pays_ne_change_plus_des_qu_une_piece_existe() {
+    let b = banc().await;
+    let corps = r#"{"pays":"CM","devise":"XAF","fuseau":"Africa/Douala"}"#;
+    let chemin =
+        |d: api::base::IdDossier| format!("/api/cabinets/{}/dossiers/{d}/contexte", b.c.cabinet);
+    // Une pièce déposée dans le dossier : sa rétention est celle du pays au dépôt.
+    commun::pieces::doter(&b.env.admin, b.c.cabinet, b.c.dossier, b.c.administrateur).await;
+    let r = envoyer(
+        &b.routeur,
+        &chemin(b.c.dossier),
+        Some(b.c.administrateur),
+        corps,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT, "{}", r.texte());
+    assert_eq!(code(&r), "dossier_pieces_presentes");
+    // Seconde barrière : le déclencheur refuse aussi un UPDATE direct.
+    let mut tx = b.env.admin.begin().await.unwrap();
+    sqlx::query(
+        "SELECT set_config('sigma.cabinet', $1, true), set_config('sigma.dossier', $2, true)",
+    )
+    .bind(b.c.cabinet.to_string())
+    .bind(b.c.dossier.to_string())
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let direct = sqlx::query("UPDATE dossier SET pays = 'CM' WHERE cabinet_id = $1 AND id = $2")
+        .bind(b.c.cabinet.uuid())
+        .bind(b.c.dossier.uuid())
+        .execute(&mut *tx)
+        .await;
+    assert!(direct.is_err());
+    // Un dossier sans pièce peut encore changer de pays.
+    let r = envoyer(
+        &b.routeur,
+        &chemin(b.c.autre_dossier),
+        Some(b.c.administrateur),
+        corps,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+}

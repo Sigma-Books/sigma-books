@@ -31,9 +31,6 @@ pub use stockage::{CleObjet, Depot, ErreurStockage, ObjetADeposer, Stockage};
 /// Taille maximale d'une pièce déposée, par défaut : 20 Mio (ADR 0015).
 pub const TAILLE_MAX_PAR_DEFAUT: usize = 20 * 1024 * 1024;
 
-/// Rétention minimale des pièces, en années (AUDCIF art. 24 ; CGI Sénégal art. 637 ; ADR 0015).
-pub const RETENTION_MIN_ANS: u16 = 10;
-
 /// Délai de traitement d'un dépôt, par défaut : la réception de 20 Mio sur un lien lent.
 pub const DELAI_DEPOT_PAR_DEFAUT: Duration = Duration::from_secs(120);
 
@@ -42,8 +39,10 @@ pub const DELAI_DEPOT_PAR_DEFAUT: Duration = Duration::from_secs(120);
 pub struct ReglagesPieces {
     /// Taille maximale d'une pièce déposée, en octets : appliquée pendant la réception du flux.
     pub taille_max: usize,
-    /// Rétention posée sur chaque objet, en années (au moins [`RETENTION_MIN_ANS`]).
-    pub retention_ans: u16,
+    /// Réglage d'instance : rétention minimale **voulue** par l'exploitant, en années. Elle ne
+    /// fait que **relever** celle du paquet du pays du dossier (paramètre fiscal, ADR 0030, dont
+    /// le plancher OHADA est de dix ans, AUDCIF art. 24) ; elle ne la baisse jamais.
+    pub retention_ans: Option<u16>,
     /// Délai de traitement d'une requête de dépôt (réception du corps comprise).
     pub delai_depot: Duration,
 }
@@ -52,7 +51,7 @@ impl Default for ReglagesPieces {
     fn default() -> Self {
         Self {
             taille_max: TAILLE_MAX_PAR_DEFAUT,
-            retention_ans: RETENTION_MIN_ANS,
+            retention_ans: None,
             delai_depot: DELAI_DEPOT_PAR_DEFAUT,
         }
     }
@@ -91,12 +90,19 @@ impl Pieces {
         &self.reglages
     }
 
+    /// Années de rétention d'un objet : celles du paquet du pays du dossier (`annees_du_pays`),
+    /// relevées par le réglage d'instance s'il est plus long.
+    #[must_use]
+    pub fn annees_de_retention(&self, annees_du_pays: u16) -> u16 {
+        annees_du_pays.max(self.reglages.retention_ans.unwrap_or(0))
+    }
+
     /// Fin de la rétention d'un objet écrit à `instant` : `instant` plus
-    /// [`ReglagesPieces::retention_ans`] années civiles (un 29 février devient le 1er mars),
+    /// [`Pieces::annees_de_retention`] années civiles (un 29 février devient le 1er mars),
     /// arrondi à la seconde **supérieure** (précision des dates de rétention S3).
     #[must_use]
-    pub fn fin_de_retention(&self, instant: OffsetDateTime) -> OffsetDateTime {
-        let fin = ajouter_annees(instant, self.reglages.retention_ans);
+    pub fn fin_de_retention(&self, instant: OffsetDateTime, annees_du_pays: u16) -> OffsetDateTime {
+        let fin = ajouter_annees(instant, self.annees_de_retention(annees_du_pays));
         let entiere = fin.replace_nanosecond(0).unwrap_or(fin);
         if entiere == fin {
             fin

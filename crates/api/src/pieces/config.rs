@@ -15,7 +15,7 @@
 //! | `SIGMA_PIECES_S3_REGION` | non | Région de la signature ; `us-east-1` par défaut |
 //! | `SIGMA_PIECES_S3_STYLE` | non | `chemin` (défaut, compartiment dans le chemin) ou `hote` (dans le nom d'hôte) |
 //! | `SIGMA_PIECES_TAILLE_MAX` | non | Taille maximale d'une pièce, en octets : 20 Mio par défaut, de 1 Kio à 100 Mio |
-//! | `SIGMA_PIECES_RETENTION_ANS` | non | Rétention posée sur chaque objet, en années : 10 par défaut, de 10 à 100 |
+//! | `SIGMA_PIECES_RETENTION_ANS` | non | Rétention minimale voulue par l'exploitant, en années, de 1 à 100 : elle **relève** celle du paquet du pays du dossier (dix ans au plancher OHADA, ADR 0030), jamais ne la baisse |
 //! | `SIGMA_PIECES_DELAI_DEPOT` | non | Délai de traitement d'un dépôt, en secondes : 120 par défaut, de 30 à 900 |
 
 use std::time::Duration;
@@ -23,8 +23,8 @@ use std::time::Duration;
 use rusty_s3::Credentials;
 use url::Url;
 
+use super::ReglagesPieces;
 use super::s3::ConfigurationS3;
-use super::{RETENTION_MIN_ANS, ReglagesPieces};
 use crate::serveur::config::{Environnement, ErreurConfiguration};
 
 /// Configuration des pièces : accès au compartiment et réglages.
@@ -46,14 +46,11 @@ pub fn configuration(env: &Environnement<'_>) -> Result<ConfigurationPieces, Err
         reglages.taille_max = usize::try_from(taille)
             .map_err(|_| ErreurConfiguration::Invalide("SIGMA_PIECES_TAILLE_MAX"))?;
     }
-    if let Some(ans) = entier(
-        env,
-        "SIGMA_PIECES_RETENTION_ANS",
-        u64::from(RETENTION_MIN_ANS),
-        100,
-    )? {
-        reglages.retention_ans = u16::try_from(ans)
-            .map_err(|_| ErreurConfiguration::Invalide("SIGMA_PIECES_RETENTION_ANS"))?;
+    if let Some(ans) = entier(env, "SIGMA_PIECES_RETENTION_ANS", 1, 100)? {
+        reglages.retention_ans = Some(
+            u16::try_from(ans)
+                .map_err(|_| ErreurConfiguration::Invalide("SIGMA_PIECES_RETENTION_ANS"))?,
+        );
     }
     if let Some(secondes) = entier(env, "SIGMA_PIECES_DELAI_DEPOT", 30, 900)? {
         reglages.delai_depot = Duration::from_secs(secondes);
@@ -178,7 +175,7 @@ mod tests {
         let c = lire(&S3).unwrap();
         assert_eq!(c.reglages, ReglagesPieces::default());
         assert_eq!(c.reglages.taille_max, 20 * 1024 * 1024);
-        assert_eq!(c.reglages.retention_ans, 10);
+        assert_eq!(c.reglages.retention_ans, None);
     }
 
     #[test]
@@ -196,7 +193,7 @@ mod tests {
         assert_eq!(s3.region, "us-east-1");
         assert!(!s3.style_chemin);
         assert_eq!(c.reglages.taille_max, 1_048_576);
-        assert_eq!(c.reglages.retention_ans, 12);
+        assert_eq!(c.reglages.retention_ans, Some(12));
         assert_eq!(c.reglages.delai_depot, Duration::from_secs(300));
         assert!(!format!("{c:?}").contains("valeur-confidentielle"));
     }
@@ -224,7 +221,8 @@ mod tests {
             ("SIGMA_PIECES_S3_HTTP_ASSUME", "0"),
             ("SIGMA_PIECES_TAILLE_MAX", "0"),
             ("SIGMA_PIECES_TAILLE_MAX", "104857601"),
-            ("SIGMA_PIECES_RETENTION_ANS", "9"),
+            ("SIGMA_PIECES_RETENTION_ANS", "0"),
+            ("SIGMA_PIECES_RETENTION_ANS", "101"),
             ("SIGMA_PIECES_DELAI_DEPOT", "dix"),
         ] {
             let mut paires = S3.to_vec();
