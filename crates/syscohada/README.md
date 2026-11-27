@@ -81,7 +81,11 @@ Le crate les charge par `include_str!`, puis les valide à chaque chargement : `
   | 451, 452 | 397 | oui | non |
   | 461, 462, 463, 465, 466 | 399 | oui | non |
   | 485, 488 | 406 | non | 4851 à 4858, 488 |
-  | 585, 588 | 430 (comptes de passage soldés au terme de leur utilisation ; p. 431 : à la fin de l'exercice) | non | compte de virement interne lettrable (`company.py:113-115`) |
+  | 585, 588 | 430 (comptes de passage soldés au terme de leur utilisation ; p. 431 : à la fin de l'exercice) | non | non (585 à `False`, 588 absent du CSV) |
+
+  Pour 585 et 588, le **fondement est la fiche 58** (p. 430), non les moteurs ; Odoo n'est cité que pour son compte de virements internes « Liquidity Transfer », créé sous le préfixe 585 et lettrable (`chart_template.py:906-912`, `company.py:113-115`, `template_syscohada.py:23`).
+
+  **Lettrables chez Odoo, non marqués** : 4287, 4387, 4441 et 4445, hors des collectifs, aucune source dans les textes OHADA (l'ADR 0032 limite la marque aux collectifs, 585 et 588).
 
   **Non marqués, faute de source** : 103, 109, 181 à 185, 467, 481, 482 (collectifs qu'aucun des deux moteurs ne rend lettrables ; les fiches ne parlent pas de lettrage). Le chargement refuse une marque sans page de fiche (ou l'inverse), une valeur autre que `true`, une marque sous un ascendant déjà lettrable et une marque qui couvrirait un compte admis en journal de trésorerie.
 - **`type_tresorerie`** et **`page_type_tresorerie`** (L3-12, ADR 0034) : compte par défaut d'un type de compte de trésorerie, sous lequel la création assistée ouvre le sous-compte ; `Referentiel::compte_par_defaut_tresorerie`. Spec §9.1.

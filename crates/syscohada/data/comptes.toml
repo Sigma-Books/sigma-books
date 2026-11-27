@@ -69,10 +69,15 @@
 #   - 421 « Personnel, avances et acomptes » (p. 389) : les deux moteurs (Odoo : 4211 à 4213) ;
 #   - 451, 452 (fiche 45, p. 397) ; 461, 462, 463, 465, 466 (fiche 46, p. 399) : Tryton ;
 #   - 485, 488 (fiche 48, p. 406) : Odoo (4851 à 4858, 488) ;
-#   - 585, 588 (fiche 58, p. 430) : comptes de passage des virements internes, « soldés au terme
-#     de leur utilisation » (p. 430) et à la fin de l'exercice (p. 431) ; le compte de virement
-#     interne d'Odoo est lettrable (account/models/company.py:113-115,
-#     chart_template.py:906-912 ; préfixe 585 : l10n_syscohada/models/template_syscohada.py:23).
+#   - 585, 588 (fiche 58, p. 430) : fondement **textuel**, hors de la règle des moteurs : comptes
+#     de passage des virements internes, « soldés au terme de leur utilisation » (p. 430) et à la
+#     fin de l'exercice (p. 431). Ni Tryton ni le CSV d'Odoo ne les rendent lettrables (585 y a
+#     `reconcile` à False, 588 n'y figure pas) ; Odoo est cité seulement pour son compte de
+#     virements internes « Liquidity Transfer », créé sous le préfixe 585 et lettrable
+#     (account/models/chart_template.py:906-912, company.py:113-115 ;
+#     l10n_syscohada/models/template_syscohada.py:23).
+#   Comptes rendus lettrables par Odoo et non marqués ici : 4287, 4387, 4441, 4445, hors des
+#   collectifs, sans source dans les textes OHADA.
 #   Collectifs NON marqués, faute de source : 103, 109, 181 à 185, 467, 481, 482 (aucun des deux
 #   moteurs ne les rend lettrables, les fiches ne parlent pas de lettrage) : question ouverte au
 #   mainteneur (PR L3-12). Le compte d'attente des relevés n'est pas marqué ici : il est désigné
