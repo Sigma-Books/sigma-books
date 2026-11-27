@@ -249,7 +249,14 @@ fn bornes_parametrables_validees() {
     assert_eq!(quatre.colonnes().len(), 6);
     assert_eq!(quatre.indice(120), 4);
     assert_eq!(quatre.indice(121), 5);
-    for invalides in [&[1, 2, 3, 4, 5][..], &[0, 30], &[30, 30], &[60, 30]] {
+    // Borne nulle ou répétée : tranche vide, admise (Tryton et OCA ne contrôlent pas).
+    let vides = Tranches::nouvelles(&[0, 30, 30]).unwrap();
+    assert_eq!(vides.colonnes().len(), 5);
+    assert_eq!(vides.colonnes()[1], Tranche::Retard { de: 1, a: Some(0) });
+    for (retard, indice) in [(0, 0), (1, 2), (30, 2), (31, 4)] {
+        assert_eq!(vides.indice(retard), indice, "retard {retard}");
+    }
+    for invalides in [&[1, 2, 3, 4, 5][..], &[60, 30]] {
         assert_eq!(
             Tranches::nouvelles(invalides),
             Err(ErreurEditionTiers::BornesInvalides),
@@ -460,42 +467,97 @@ fn balance_agee_cas_de_reference() {
 }
 
 #[test]
-fn lettrage_posterieur_ignore_et_rupture_datee() {
-    let (ops, mut r) = jeu_de_reference();
-    // Le 5 avril (j94), la facture 3 est lettrée avec l'avoir : sans effet au 31 mars.
-    r.lettrer(&[id(3), id(4)], jour(94), Origine::Manuelle)
+fn reglement_lettre_apres_la_date_solde_a_la_date() {
+    // Facture du 2 janvier (j1), règlement du 30 janvier (j29) lettré le 3 février (j33).
+    let facture = Operation::nouvelle(1, 1, CLIENTS, Sens::Debit, 1_000, "C1");
+    let reglement = Operation::nouvelle(2, 29, CLIENTS, Sens::Credit, 1_000, "C1");
+    let mut r = registre(CLIENTS, [&facture, &reglement]);
+    r.lettrer(&[id(1), id(2)], jour(33), Origine::Manuelle)
         .unwrap();
-    let lignes = lignes_de_reference(&ops);
-    let au = |r: &RegistreLettrage, j: i64| {
+    let lignes = [facture.ligne(None), reglement.ligne(None)];
+    let lettrages = Lettrages::depuis_registres([&r]).unwrap();
+    let au = |j| {
         balance_agee(
             &lignes,
-            &Lettrages::depuis_registres([r]).unwrap(),
+            &lettrages,
             Mode::Definitif,
             jour(j),
             &Tranches::default(),
         )
         .unwrap()
     };
-    let mars = au(&r, 89);
-    assert_eq!(tiers_agee(&mars, CLIENTS, "C1").unwrap().lignes().len(), 3);
-    let avril = au(&r, 94);
-    let c1 = tiers_agee(&avril, CLIENTS, "C1").unwrap();
-    assert_eq!(c1.lignes().len(), 2);
-    assert_eq!(c1.solde(), d(1_150_000));
-    // Rupture du lettrage A le 10 avril (j99) : il compte encore au 5 avril, plus au 10.
-    let lettre_a = r.lettrages().next().unwrap().lettre();
+    // Au 31 janvier (j30) : le paiement a eu lieu, la facture est soldée (Tryton, Odoo, OCA :
+    // lettrage daté par la plus haute date des lignes).
+    assert_eq!(au(30).comptes(), &[]);
+    // Au 28 janvier (j27) : le règlement n'est pas encore dans les livres, facture ouverte et
+    // lettre marquée postérieure.
+    let au_27 = au(27);
+    let ouverte = &au_27.comptes()[0].tiers()[0].lignes()[0];
+    assert_eq!((ouverte.residuel(), ouverte.retard_jours()), (d(1_000), 26));
+    let lettres = lettrages.lettres_a(&lignes[0], jour(27)).unwrap();
+    assert!(lettres[0].est_posterieure());
+    assert!(!lettrages.lettres_a(&lignes[0], jour(30)).unwrap()[0].est_posterieure());
+}
+
+#[test]
+fn rupture_retire_le_lettrage_sans_double_imputation() {
+    // Facture a (j0), règlements b (j5) et c (j3). A = {a, b} le j10, rompu le j20 ; B = {a, c}
+    // le j21. Dater la rupture compterait A et B au j15 : la facture serait imputée deux fois.
+    let a = Operation::nouvelle(1, 0, CLIENTS, Sens::Debit, 100, "C1");
+    let b = Operation::nouvelle(2, 5, CLIENTS, Sens::Credit, 100, "C1");
+    let c = Operation::nouvelle(3, 3, CLIENTS, Sens::Credit, 100, "C1");
+    let mut r = registre(CLIENTS, [&a, &b, &c]);
+    let lettre_a = r
+        .lettrer(&[id(1), id(2)], jour(10), Origine::Manuelle)
+        .unwrap()
+        .lettre();
+    let lignes = [a.ligne(None), b.ligne(None), c.ligne(None)];
+    let avant = Lettrages::depuis_registres([&r]).unwrap();
+    assert!(
+        avant
+            .residuel_a(&lignes[0], jour(15))
+            .unwrap()
+            .residuel()
+            .is_zero()
+    );
     r.rompre(
         lettre_a,
-        jour(99),
-        MotifRupture::parse("erreur").unwrap(),
+        jour(20),
+        MotifRupture::parse("erreur de règlement").unwrap(),
         &exercices(),
     )
     .unwrap();
-    assert_eq!(au(&r, 94), avril);
-    assert_eq!(au(&r, 89), mars);
-    let rompue = au(&r, 99);
-    let facture = &tiers_agee(&rompue, CLIENTS, "C1").unwrap().lignes()[0];
-    assert_eq!(facture.residuel(), d(1_000_000));
+    // La rupture vaut à toute date, même antérieure à son jour (comme chez les moteurs, qui
+    // suppriment le lettrage défait) : la lettre A n'apparaît plus.
+    let rompu = Lettrages::depuis_registres([&r]).unwrap();
+    assert_eq!(
+        rompu.residuel_a(&lignes[0], jour(15)).unwrap().residuel(),
+        d(100)
+    );
+    assert_eq!(rompu.lettres_a(&lignes[0], jour(15)).unwrap(), vec![]);
+    r.lettrer(&[id(1), id(3)], jour(21), Origine::Manuelle)
+        .unwrap();
+    let relettre = Lettrages::depuis_registres([&r]).unwrap();
+    for j in [3, 4, 5, 15, 30] {
+        let balance = balance_agee(
+            &lignes,
+            &relettre,
+            Mode::Definitif,
+            jour(j),
+            &Tranches::default(),
+        )
+        .unwrap();
+        // Seul le règlement b reste ouvert, dès sa date.
+        let ouvertes: Vec<Decimal> = balance
+            .comptes()
+            .iter()
+            .flat_map(CompteAgee::tiers)
+            .flat_map(TiersAgee::lignes)
+            .map(LigneAgee::residuel)
+            .collect();
+        let attendu = if j < 5 { vec![] } else { vec![d(100)] };
+        assert_eq!(ouvertes, attendu, "jour {j}");
+    }
 }
 
 #[test]
@@ -614,11 +676,15 @@ fn grand_livre_auxiliaire_ouverture_solde_cumule_et_lettres() {
         tiers: "C2".to_owned(),
     };
     r.ajouter_ligne(an.lettrable()).unwrap();
-    // Lettrage postérieur au 31 mars : marqué.
-    r.lettrer(&[id(3), id(4)], jour(94), Origine::Manuelle)
+    // Facture 3 lettrée (le 25 mars, j83) avec un règlement du 5 avril (j94) : lettrage
+    // postérieur au 31 mars au sens de Tryton et d'Odoo, marqué, sans effet sur le résiduel.
+    let reglement = Operation::nouvelle(10, 94, CLIENTS, Sens::Credit, 500_000, "C1");
+    r.ajouter_ligne(reglement.lettrable()).unwrap();
+    r.lettrer(&[id(3), id(10)], jour(83), Origine::Manuelle)
         .unwrap();
     let mut lignes = lignes_de_reference(&ops);
     lignes.push(an.ligne(None));
+    lignes.push(reglement.ligne(None));
     let brouillard = equilibree("VE", jour(70), CLIENTS, Sens::Debit, 1, "C1");
     lignes.push(LigneTiers::provisoire(&brouillard, 1, t("C1"), None).unwrap());
     let lettrages = Lettrages::depuis_registres([&r]).unwrap();
@@ -826,6 +892,15 @@ fn registres(
     ops: &[(Operation, Option<i64>)],
     operations: &[OperationGeneree],
 ) -> Vec<RegistreLettrage> {
+    registres_dates(ops, operations, None)
+}
+
+/// Comme [`registres`], toutes les opérations datées du jour `fixe` s'il est donné.
+fn registres_dates(
+    ops: &[(Operation, Option<i64>)],
+    operations: &[OperationGeneree],
+    fixe: Option<i64>,
+) -> Vec<RegistreLettrage> {
     let ex = exercices();
     let mut registres: Vec<RegistreLettrage> = [CLIENTS, FOURNISSEURS]
         .iter()
@@ -839,6 +914,7 @@ fn registres(
         })
         .collect();
     for (masque, rupture, j) in operations {
+        let j = &fixe.unwrap_or(*j);
         // Bit 0 : compte ; bit 1 : tiers ; bit 2 : toutes les lignes du tiers ; bits
         // suivants : lignes du tiers retenues.
         let indice = usize::from(masque & 1);
@@ -869,7 +945,9 @@ fn registres(
     registres
 }
 
-/// Oracle naïf du résiduel à `date`, lu directement dans l'historique des registres.
+/// Oracle naïf du résiduel à `date`, lu directement dans les registres (sans l'index
+/// [`Lettrages`]) : liens des lettrages non rompus dont les deux lignes sont datées au plus tard
+/// `date` ; les dates d'opération sont ignorées.
 fn residuel_naif(
     ligne: &LigneTiers,
     ops: &[(Operation, Option<i64>)],
@@ -888,10 +966,7 @@ fn residuel_naif(
     let mut reste = ligne.montant();
     for r in registres {
         for lettrage in r.lettrages() {
-            let rompu = r
-                .rupture(lettrage.lettre())
-                .is_some_and(|x| x.date() <= date);
-            if lettrage.date() > date || rompu {
+            if r.rupture(lettrage.lettre()).is_some() {
                 continue;
             }
             for lien in lettrage.liens() {
@@ -906,21 +981,25 @@ fn residuel_naif(
     reste
 }
 
-/// Ligne du grand livre réduite à son solde, son résiduel et ses lettres non postérieures.
-type LigneSansMarque = (Decimal, Decimal, Vec<Lettre>);
-
-fn tranche_naive(retard: i64) -> usize {
+/// Colonne naïve : non échu, puis la première borne atteinte, sinon la dernière colonne.
+fn tranche_naive(retard: i64, bornes: &[u32]) -> usize {
     if retard <= 0 {
-        0
-    } else if retard <= 30 {
-        1
-    } else if retard <= 60 {
-        2
-    } else if retard <= 90 {
-        3
-    } else {
-        4
+        return 0;
     }
+    for (k, borne) in bornes.iter().enumerate() {
+        if retard <= i64::from(*borne) {
+            return k + 1;
+        }
+    }
+    bornes.len() + 1
+}
+
+/// Bornes engendrées : zéro à quatre, croissantes, nulles ou répétées admises.
+fn bornes_generees() -> impl Strategy<Value = Vec<u32>> {
+    prop::collection::vec(0u32..120, 0..=4).prop_map(|mut b| {
+        b.sort_unstable();
+        b
+    })
 }
 
 /// Balance âgée naïve : (compte, tiers) → colonnes (débit, crédit).
@@ -929,6 +1008,7 @@ fn balance_naive(
     ops: &[(Operation, Option<i64>)],
     registres: &[RegistreLettrage],
     date: Date,
+    bornes: &[u32],
 ) -> BTreeMap<(String, String), Vec<(Decimal, Decimal)>> {
     let mut resultat: BTreeMap<(String, String), Vec<(Decimal, Decimal)>> = BTreeMap::new();
     for ligne in lignes.iter().filter(|l| l.date() <= date) {
@@ -942,8 +1022,8 @@ fn balance_naive(
                 ligne.compte().to_string(),
                 ligne.tiers().as_str().to_owned(),
             ))
-            .or_insert_with(|| vec![(Decimal::ZERO, Decimal::ZERO); 5]);
-        let colonne = &mut colonnes[tranche_naive(retard)];
+            .or_insert_with(|| vec![(Decimal::ZERO, Decimal::ZERO); bornes.len() + 2]);
+        let colonne = &mut colonnes[tranche_naive(retard, bornes)];
         match ligne.sens() {
             Sens::Debit => colonne.0 += reste,
             Sens::Credit => colonne.1 += reste,
@@ -973,18 +1053,19 @@ proptest! {
         generees in lignes_generees(),
         operations in operations_generees(),
         j in 0i64..150,
+        bornes in bornes_generees(),
     ) {
         let ops = construire(&generees);
         let registres = registres(&ops, &operations);
         let lignes: Vec<LigneTiers> = ops.iter().map(|(op, e)| op.ligne(*e)).collect();
         let lettrages = Lettrages::depuis_registres(&registres).unwrap();
         let date = jour(j);
+        let tranches = Tranches::nouvelles(&bornes).unwrap();
         let balance =
-            balance_agee(&lignes, &lettrages, Mode::Definitif, date, &Tranches::default())
-                .unwrap();
+            balance_agee(&lignes, &lettrages, Mode::Definitif, date, &tranches).unwrap();
         prop_assert_eq!(
             balance_calculee(&balance),
-            balance_naive(&lignes, &ops, &registres, date)
+            balance_naive(&lignes, &ops, &registres, date, &bornes)
         );
         // Somme des tranches = solde ouvert = solde du compte auxiliaire (balance auxiliaire
         // de l'exercice jusqu'à la date) = solde du relevé des lignes ouvertes.
@@ -1034,7 +1115,7 @@ proptest! {
     }
 
     #[test]
-    fn independance_de_l_ordre_et_des_operations_posterieures(
+    fn independance_de_l_ordre_et_des_dates_d_operation(
         generees in lignes_generees(),
         operations in operations_generees(),
         j in 0i64..150,
@@ -1075,38 +1156,10 @@ proptest! {
             })
             .collect();
         prop_assert_eq!(&calculer(&lignes, &rejoues.iter().collect::<Vec<_>>()), &reference);
-        // Sans les opérations postérieures à la date : même balance âgée ; les lettres
-        // postérieures du grand livre mises à part, mêmes lignes et soldes.
-        let anterieures: Vec<OperationGeneree> =
-            operations.iter().copied().filter(|(_, _, x)| *x <= j).collect();
-        let registres_anterieurs = registres(&ops, &anterieures);
-        let sans_posterieures =
-            calculer(&lignes, &registres_anterieurs.iter().collect::<Vec<_>>());
-        prop_assert_eq!(&sans_posterieures.0, &reference.0);
-        let sans_lettres = |gl: &[CompteTiers]| -> Vec<(Decimal, Vec<LigneSansMarque>)> {
-            gl.iter()
-                .map(|b| {
-                    (
-                        b.solde_final(),
-                        b.lignes()
-                            .iter()
-                            .map(|l| {
-                                (
-                                    l.solde(),
-                                    l.residuel().residuel(),
-                                    l.lettres()
-                                        .iter()
-                                        .filter(|x| !x.est_posterieure())
-                                        .map(LettreEdition::lettre)
-                                        .collect(),
-                                )
-                            })
-                            .collect(),
-                    )
-                })
-                .collect()
-        };
-        prop_assert_eq!(sans_lettres(&sans_posterieures.1), sans_lettres(&reference.1));
+        // Dates des opérations de lettrage et de rupture sans effet : toutes au même jour,
+        // mêmes éditions (lettres postérieures comprises).
+        let meme_jour = registres_dates(&ops, &operations, Some(149));
+        prop_assert_eq!(&calculer(&lignes, &meme_jour.iter().collect::<Vec<_>>()), &reference);
         // Lignes postérieures à la date ignorées par la balance âgée.
         let anciennes: Vec<LigneTiers> =
             lignes.iter().filter(|l| l.date() <= date).cloned().collect();
@@ -1119,7 +1172,11 @@ proptest! {
     }
 
     #[test]
-    fn tranche_conforme_a_l_oracle(retard in -400i64..400) {
-        prop_assert_eq!(Tranches::default().indice(retard), tranche_naive(retard));
+    fn tranche_conforme_a_l_oracle(retard in -400i64..400, bornes in bornes_generees()) {
+        prop_assert_eq!(
+            Tranches::nouvelles(&bornes).unwrap().indice(retard),
+            tranche_naive(retard, &bornes)
+        );
+        prop_assert_eq!(Tranches::default().indice(retard), tranche_naive(retard, &[30, 60, 90]));
     }
 }

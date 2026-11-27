@@ -3,15 +3,18 @@
 //! - **Lignes prises en compte** : lignes de tiers de date comptable au plus tard `D`, selon le
 //!   mode (définitif ou provisoire) ; Tryton ignore son option `posted` (`account.py:2900`),
 //!   Sigma applique le mode.
-//! - **Solde ouvert** d'une ligne : son résiduel à `D`, reconstitué par les lettrages datés
-//!   ([`Lettrages::residuel_a`]) ; une ligne soldée à `D` n'apparaît pas (Tryton
-//!   `account.py:3045-3047` : lignes non lettrées ou lettrées après la date).
+//! - **Solde ouvert** d'une ligne : son résiduel à `D` ([`Lettrages::residuel_a`] : liens non
+//!   rompus dont les deux lignes sont datées au plus tard `D`) ; une ligne soldée à `D`
+//!   n'apparaît pas (Tryton `account.py:3045-3047` : lignes non lettrées ou dont le lettrage,
+//!   daté par la plus haute date des lignes, est postérieur à la date).
 //! - **Retard** = `D` moins l'échéance effective à `D`, en jours (Tryton
 //!   `Coalesce(maturity_date, move.date)`, `account.py:3020`). Non échu : retard nul ou
 //!   négatif ; puis une tranche par borne, `1 à b1`, `b1+1 à b2`… et « plus de » la dernière
 //!   borne (OCA `aged_partner_balance.py:55-74` : `today <= due_date + 30 jours`).
-//! - **Bornes** paramétrables, strictement croissantes, au plus [`BORNES_MAX`] ; par défaut
-//!   [`BORNES_PAR_DEFAUT`] (Tryton `account.py:2937-2938`).
+//! - **Bornes** paramétrables, dans l'ordre croissant (égalités admises), au plus
+//!   [`BORNES_MAX`] ; par défaut [`BORNES_PAR_DEFAUT`] (Tryton `account.py:2937-2938`). Une
+//!   borne nulle ou répétée donne une tranche vide, comme chez Tryton et OCA, qui ne contrôlent
+//!   pas les bornes ; sans borne, deux colonnes : non échu et échu.
 //! - **Aucune compensation** (A'1) : dans chaque tranche, débits (créances) et crédits (avoirs,
 //!   acomptes) restent séparés ; le solde d'un tiers est net, mais les totaux séparent les
 //!   soldes débiteurs et créditeurs des tiers.
@@ -39,7 +42,7 @@ pub const BORNES_PAR_DEFAUT: [u32; 3] = [30, 60, 90];
 pub enum Tranche {
     /// Retard nul ou négatif : échéance non atteinte, ou atteinte le jour même.
     NonEchu,
-    /// Retard de `de` à `a` jours inclus ; sans `a`, plus de `de - 1` jours.
+    /// Retard de `de` à `a` jours inclus (vide si `a < de`) ; sans `a`, plus de `de - 1` jours.
     Retard {
         /// Premier jour de retard de la tranche (au moins 1).
         de: u32,
@@ -48,9 +51,9 @@ pub enum Tranche {
     },
 }
 
-/// Bornes des tranches de retard, en jours : strictement croissantes, chacune au moins 1, au
-/// plus [`BORNES_MAX`]. `n` bornes donnent `n + 2` colonnes (non échu, `n` tranches bornées,
-/// plus de la dernière borne).
+/// Bornes des tranches de retard, en jours : dans l'ordre croissant (égalités admises), au plus
+/// [`BORNES_MAX`]. `n` bornes donnent `n + 2` colonnes (non échu, `n` tranches bornées, plus
+/// de la dernière borne) ; aucune borne : non échu et échu.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Tranches {
     bornes: Vec<u32>,
@@ -65,15 +68,15 @@ impl Default for Tranches {
 }
 
 impl Tranches {
-    /// Valide des bornes. Une borne nulle donnerait une tranche « 1 à 0 » vide (C8 : la
-    /// première tranche commence au premier jour de retard).
+    /// Valide des bornes (ADR 0033, point 4 : croissantes, au plus quatre). Une borne nulle ou
+    /// répétée est admise et donne une tranche vide.
     ///
     /// # Errors
-    /// [`ErreurEditionTiers::BornesInvalides`] : plus de [`BORNES_MAX`] bornes, borne nulle,
-    /// bornes non strictement croissantes.
+    /// [`ErreurEditionTiers::BornesInvalides`] : plus de [`BORNES_MAX`] bornes, ou bornes
+    /// décroissantes.
     pub fn nouvelles(bornes: &[u32]) -> Result<Self, ErreurEditionTiers> {
-        let croissantes = bornes.windows(2).all(|p| matches!(p, [a, b] if a < b));
-        if bornes.len() > BORNES_MAX || bornes.contains(&0) || !croissantes {
+        let croissantes = bornes.windows(2).all(|p| matches!(p, [a, b] if a <= b));
+        if bornes.len() > BORNES_MAX || !croissantes {
             return Err(ErreurEditionTiers::BornesInvalides);
         }
         Ok(Self {
@@ -386,6 +389,13 @@ type Ouverte<'a> = (&'a LigneTiers, LigneAgee);
 ///
 /// `lignes` : lignes de tiers d'**un seul dossier**, chacune une fois, dans un ordre
 /// quelconque ; celles de date postérieure sont ignorées.
+///
+/// **Contrat de l'appelant (PR 10)** : toutes les lignes fournies sont additionnées, quel que
+/// soit leur exercice. Fournir à la fois les lignes de l'exercice N et les **à-nouveaux de
+/// N+1** qui les reprennent (détaillés par tiers, spec §15.3) compte deux fois les mêmes
+/// soldes : pour une date de N+1, l'appelant passe les à-nouveaux de N+1 et les lignes de N+1
+/// (pas celles de N) ; pour une date de N, les lignes de N et de ses exercices antérieurs
+/// selon la même règle.
 ///
 /// # Errors
 /// Ligne en double, lettrage incohérent, dépassement de capacité.

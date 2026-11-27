@@ -8,25 +8,31 @@
 //!   par tiers résolu** au sens de la fusion (ADR 0031 : la résolution est faite par l'appelant,
 //!   en un seul endroit). Une ligne du brouillard compte pour son montant entier : elle n'a pas
 //!   d'identité stable et ne peut être lettrée (ADR 0032, point 2).
-//! - **Lettrages datés** ([`Lettrages`]) : relus des registres de lettrage
-//!   ([`RegistreLettrage`]) des comptes lettrables. Un lien compte à une date `D` si son
-//!   lettrage est daté au plus tard de `D` (date de l'**opération**, ADR 0032, point 3), s'il
-//!   n'était pas rompu à `D` (rupture datée au plus tard de `D`) et si ses deux lignes étaient
-//!   comptabilisées à `D` (date comptable au plus tard `D`). Un lettrage postérieur à `D` ne
-//!   solde donc pas la ligne à `D` : le résultat à une date ne dépend d'aucune opération
-//!   postérieure (ADR 0033, point 4).
+//! - **Lettrages à une date** ([`Lettrages`]) : relus des registres de lettrage
+//!   ([`RegistreLettrage`]) des comptes lettrables. Un lien compte à une date `D` si **ses deux
+//!   lignes** ont une date comptable au plus tard `D` et si son lettrage n'est **pas rompu**
+//!   dans le registre fourni. Les dates des **opérations** (lettrage, rupture) n'interviennent
+//!   pas : elles servent à l'audit, à l'ordre du rejeu et au refus d'une rupture après clôture
+//!   (amendement du 2026-11-27 des ADR 0032, point 3, et 0033, point 4 ; même règle que l'état
+//!   de rapprochement, ADR 0034, amendement du point 9).
 //! - **Échéance** : échéance effective à la date de l'édition ([`EcheanceLigne::effective`],
 //!   ADR 0033, point 2), à défaut la date comptable.
 //! - **Aucune compensation** entre tiers (AUDCIF fiches 40, 41, 42, 47 ; ADR 0033, point 4) :
 //!   débits et crédits restent séparés dans les totaux.
 //!
-//! La troisième condition d'un lien (ses deux lignes comptabilisées à `D`) n'est pas écrite
-//! dans l'ADR 0033 ; elle découle de la propriété qu'il exige (somme des tranches = solde du
-//! compte auxiliaire) : sans elle, un lettrage daté avant la date comptable de sa contrepartie
-//! solderait à `D` une ligne dont la contrepartie n'est pas encore dans les livres. OCA
-//! `partner_statement` (`report_statement_common.py:84-95`) écarte de même les liens dont la
-//! contrepartie est postérieure à la date. Tryton et Odoo y arrivent par la date du lettrage
-//! (plus haute date des lignes).
+//! C'est la règle convergente des moteurs : Tryton (`move.py:555-557`, `account.py:3045-3047`)
+//! et Odoo (`account_partial_reconcile.py:64-67`, `max_date`) datent le lettrage par la **plus
+//! haute date des lignes liées**, et OCA (`aged_partner_balance.py:99-141`,
+//! `partner_statement/report/report_statement_common.py:84-95`) écarte à une date les liens
+//! dont une ligne est postérieure. Un règlement du 30 janvier lettré le 3 février est donc
+//! soldé dans la balance âgée au 31 janvier. Elle assure aussi la propriété exigée par
+//! l'ADR 0033 : somme des tranches = solde du compte auxiliaire.
+//!
+//! Une rupture n'est **pas datée** dans ce calcul, comme chez les moteurs, qui suppriment le
+//! lettrage défait (Tryton `move.py:2171-2181`, Odoo `account_partial_reconcile.py:105-173`) :
+//! tenir pour actif à `D` un lettrage rompu après `D` le compterait en même temps que le
+//! lettrage qui l'a remplacé (lettrer A, le rompre, relettrer la facture avec un autre
+//! règlement : à une date entre les deux, la facture serait imputée deux fois).
 //!
 //! Tous les calculs sont exacts ; un dépassement de capacité est une erreur, jamais une
 //! panique. Les sorties sont triées (compte, tiers, puis date et numéro) : même entrée, même
@@ -86,8 +92,7 @@ pub enum ErreurEditionTiers {
     /// Lien de lettrage qui cite la ligne sur un autre compte ou dans l'autre sens.
     #[error("lettrage incohérent avec la ligne {0}")]
     LettrageIncoherent(IdLigne),
-    /// Liens actifs dont le total dépasse le montant de la ligne (dates d'opérations
-    /// incohérentes).
+    /// Liens actifs dont le total dépasse le montant de la ligne (registre incohérent).
     #[error("résiduel hors bornes pour la ligne {0}")]
     ResiduelHorsBornes(IdLigne),
     /// Bornes de tranches non strictement croissantes, nulles ou trop nombreuses.
@@ -346,18 +351,17 @@ struct Imputation {
     /// Sens de la ligne dans le lien.
     sens: Sens,
     montant: Decimal,
-    /// Date de l'opération de lettrage.
-    date: Date,
-    /// Date de la rupture du lettrage, s'il est rompu.
-    rupture: Option<Date>,
+    /// Lettrage rompu dans le registre.
+    rompue: bool,
     /// Date comptable de l'autre ligne du lien.
     date_contrepartie: Date,
 }
 
 impl Imputation {
-    /// Le lien compte à `date` : lettré et non rompu à cette date, contrepartie comptabilisée.
-    fn active_a(&self, date: Date) -> bool {
-        self.date <= date && self.date_contrepartie <= date && self.rupture.is_none_or(|r| r > date)
+    /// Le lien compte à `date` : ses deux lignes (celle de date `date_ligne` et sa contrepartie)
+    /// sont datées au plus tard `date` et son lettrage n'est pas rompu.
+    fn active_a(&self, date_ligne: Date, date: Date) -> bool {
+        !self.rompue && date_ligne <= date && self.date_contrepartie <= date
     }
 }
 
@@ -375,15 +379,16 @@ impl LettreEdition {
         self.lettre
     }
 
-    /// Vrai pour un lettrage **postérieur** à la date de l'édition (non rompu à ce jour), marqué
-    /// comme tel (ADR 0033, point 5) ; il ne solde pas la ligne à cette date.
+    /// Vrai pour un lettrage **postérieur** à la date de l'édition, au sens de Tryton et d'Odoo :
+    /// une de ses lignes (la contrepartie, dans une édition) est datée après cette date. Il est
+    /// marqué comme tel (ADR 0033, point 5) et ne solde pas la ligne à cette date.
     #[must_use]
     pub fn est_posterieure(&self) -> bool {
         self.posterieure
     }
 }
 
-/// Lettrages datés d'un dossier, indexés par ligne, relus des registres de ses comptes
+/// Lettrages d'un dossier, indexés par ligne, relus des registres de ses comptes
 /// lettrables. Construire l'index ne modifie aucun registre.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Lettrages {
@@ -416,9 +421,7 @@ impl Lettrages {
             let dates: BTreeMap<IdLigne, Date> =
                 registre.lignes().map(|l| (l.id(), l.date())).collect();
             for lettrage in registre.lettrages() {
-                let rupture = registre
-                    .rupture(lettrage.lettre())
-                    .map(crate::lettrage::Rupture::date);
+                let rompue = registre.rupture(lettrage.lettre()).is_some();
                 for lien in lettrage.liens() {
                     for (id, sens, autre) in [
                         (lien.debit(), Sens::Debit, lien.credit()),
@@ -433,8 +436,7 @@ impl Lettrages {
                             lettre: lettrage.lettre(),
                             sens,
                             montant: lien.montant(),
-                            date: lettrage.date(),
-                            rupture,
+                            rompue,
                             date_contrepartie,
                         });
                     }
@@ -473,7 +475,7 @@ impl Lettrages {
     ) -> Result<Residuel, ErreurEditionTiers> {
         let (id, imputations) = self.imputations(ligne)?;
         let mut impute = Decimal::ZERO;
-        for imputation in imputations.iter().filter(|i| i.active_a(date)) {
+        for imputation in imputations.iter().filter(|i| i.active_a(ligne.date, date)) {
             impute = somme(impute, imputation.montant)?;
         }
         let reste = difference(ligne.montant, impute)?;
@@ -483,9 +485,8 @@ impl Lettrages {
         })
     }
 
-    /// Lettres de la ligne à `date`, dans l'ordre des lettres : lettrages qui comptent à cette
-    /// date, puis lettrages postérieurs jamais rompus, marqués. Un lettrage rompu au plus tard
-    /// à `date`, ou postérieur puis rompu, n'apparaît pas.
+    /// Lettres de la ligne à `date`, dans l'ordre des lettres : lettrages non rompus, ceux dont
+    /// une ligne est postérieure à `date` étant marqués. Un lettrage rompu n'apparaît pas.
     ///
     /// # Errors
     /// Lettrage incohérent avec la ligne.
@@ -497,9 +498,9 @@ impl Lettrages {
         let (_, imputations) = self.imputations(ligne)?;
         let mut lettres: BTreeMap<Lettre, bool> = BTreeMap::new();
         for imputation in imputations {
-            if imputation.active_a(date) {
+            if imputation.active_a(ligne.date, date) {
                 lettres.insert(imputation.lettre, false);
-            } else if imputation.rupture.is_none() {
+            } else if !imputation.rompue {
                 lettres.entry(imputation.lettre).or_insert(true);
             }
         }

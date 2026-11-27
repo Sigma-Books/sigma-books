@@ -85,6 +85,11 @@ Un cas d'usage qui prend les rangs 7 et 8 les prend dans cet ordre. Aucune trans
 - Cedar : l'action `Lettrer` existe (« L3, aucune politique ») ; spec §20 : administrateur, valideur, collaborateur ; refus par défaut. Détail : PR 6.
 - Tables `lettrage`, `lettrage_lien`, `lettrage_rupture` : ajout seul (catalogue, `GRANT` sans `UPDATE` ni `DELETE`) ; `compteur_lettrage` : `D` ; `regle_lettrage` : configuration. Migrations **`0520` à `0539`**.
 
+### Amendement du 2026-11-27 (point 3, états à une date ; décision du mainteneur, PR 3c)
+- **Un lettrage compte à une date D** si **toutes ses lignes** ont une date comptable au plus tard D et s'il **n'est pas rompu** dans le registre lu. C'est la règle convergente de Tryton et d'Odoo (date du lettrage = plus haute date des lignes, `move.py:555-557`, `account_partial_reconcile.py:64-67`) et d'OCA (`aged_partner_balance.py:99-141`) : principe « si Odoo et Tryton convergent, Sigma fait pareil ». Un règlement du 30 janvier lettré le 3 février est **soldé** dans une balance âgée au 31 janvier ; la date de l'opération y montrait un faux retard.
+- **Les dates des opérations** (lettrage et rupture) **n'interviennent pas dans les états à une date** : elles servent à l'audit, à l'ordre du rejeu et au refus d'une rupture après clôture (point 5). Une rupture vaut à toute date, comme la suppression chez les moteurs : tenir pour actif à D un lettrage rompu après D le compterait en même temps que le lettrage qui l'a remplacé (une facture relettrée avec un autre règlement serait imputée deux fois). Même règle que l'état de rapprochement (ADR 0034, amendement du point 9).
+- La « conséquence assumée » du point 3 et l'alternative écartée « date du lettrage = plus haute date des lignes » sont remplacées par ce qui précède. Une édition à une date passée change donc si un lettrage est fait ou rompu ensuite, comme chez les moteurs.
+
 ## Conséquences
 - `compta-core` porte le lettrage pur (PR 3a) : invariants, résiduels, imputation, propositions ; propriétés `proptest` : un lettrage ne change aucun solde, débits imputés = crédits imputés, le dé-lettrage rétablit les résiduels, lettrer puis rompre puis relettrer redonne les mêmes résiduels, les propositions sont déterministes.
 - Le tiers « résolu » est lu en un seul endroit (ADR 0031) ; la balance âgée et le lettrage s'accordent (ADR 0033).
