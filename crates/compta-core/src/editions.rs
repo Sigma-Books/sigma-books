@@ -166,16 +166,27 @@ impl Filtre {
         self.journaux.is_empty() || self.journaux.contains(journal)
     }
 
-    fn retient_compte(&self, compte: &NumeroCompte) -> bool {
+    pub(crate) fn retient_compte(&self, compte: &NumeroCompte) -> bool {
         self.comptes.is_empty() || self.comptes.iter().any(|c| c.est_ascendant_ou_egal(compte))
     }
 
     fn dans_ouverture(&self, source: &Source<'_>) -> bool {
-        if self.a_nouveaux.contains(source.journal) {
-            self.debut_exercice <= source.date && source.date <= self.au
+        self.en_ouverture(source.journal, source.date)
+    }
+
+    /// Vrai si une écriture de ce journal à cette date alimente l'ouverture : à-nouveaux de
+    /// l'exercice jusqu'à la fin de la période, autres journaux avant son début.
+    pub(crate) fn en_ouverture(&self, journal: &CodeJournal, date: Date) -> bool {
+        if self.a_nouveaux.contains(journal) {
+            self.debut_exercice <= date && date <= self.au
         } else {
-            self.debut_exercice <= source.date && source.date < self.du
+            self.debut_exercice <= date && date < self.du
         }
+    }
+
+    /// Vrai si une écriture de ce journal à cette date est un mouvement de la période.
+    pub(crate) fn en_periode(&self, journal: &CodeJournal, date: Date) -> bool {
+        !self.a_nouveaux.contains(journal) && self.dans_bornes(date)
     }
 
     pub(crate) fn dans_bornes(&self, date: Date) -> bool {
@@ -193,7 +204,7 @@ impl Filtre {
     }
 
     fn dans_periode(&self, source: &Source<'_>) -> bool {
-        !self.a_nouveaux.contains(source.journal) && self.dans_bornes(source.date)
+        self.en_periode(source.journal, source.date)
     }
 }
 
@@ -263,6 +274,21 @@ pub struct LigneBalance {
 }
 
 impl LigneBalance {
+    /// Ligne de clé `cle` à partir des totaux bruts (débit, crédit) d'ouverture et de période.
+    pub(crate) fn nouvelle(
+        cle: String,
+        (ouverture_debit, ouverture_credit): (Decimal, Decimal),
+        (debit, credit): (Decimal, Decimal),
+    ) -> Self {
+        Self {
+            cle,
+            ouverture_debit,
+            ouverture_credit,
+            debit,
+            credit,
+        }
+    }
+
     /// Numéro du compte, ou tronc officiel en regroupement par tronc.
     #[must_use]
     pub fn cle(&self) -> &str {
@@ -393,20 +419,28 @@ impl Balance {
     /// # Errors
     /// Dépassement de capacité.
     pub fn totaux(&self, format: FormatBalance) -> Result<Vec<Decimal>, ErreurEdition> {
-        let largeur = match format {
-            FormatBalance::Deux => 2,
-            FormatBalance::Quatre => 4,
-            FormatBalance::Six => 6,
-            FormatBalance::Huit => 8,
-        };
-        let mut totaux = vec![Decimal::ZERO; largeur];
-        for ligne in &self.lignes {
-            for (total, valeur) in totaux.iter_mut().zip(ligne.colonnes(format)?) {
-                *total = somme(*total, valeur)?;
-            }
-        }
-        Ok(totaux)
+        totaliser(&self.lignes, format)
     }
+}
+
+/// Totaux de chaque colonne d'un ensemble de lignes de balance.
+pub(crate) fn totaliser<'a>(
+    lignes: impl IntoIterator<Item = &'a LigneBalance>,
+    format: FormatBalance,
+) -> Result<Vec<Decimal>, ErreurEdition> {
+    let largeur = match format {
+        FormatBalance::Deux => 2,
+        FormatBalance::Quatre => 4,
+        FormatBalance::Six => 6,
+        FormatBalance::Huit => 8,
+    };
+    let mut totaux = vec![Decimal::ZERO; largeur];
+    for ligne in lignes {
+        for (total, valeur) in totaux.iter_mut().zip(ligne.colonnes(format)?) {
+            *total = somme(*total, valeur)?;
+        }
+    }
+    Ok(totaux)
 }
 
 /// Ligne du grand livre.

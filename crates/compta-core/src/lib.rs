@@ -11,6 +11,7 @@ pub mod compte;
 pub mod echeance;
 pub mod ecriture;
 pub mod editions;
+pub mod editions_tiers;
 pub mod etiquette;
 pub mod exercice;
 pub mod journal;
@@ -35,6 +36,11 @@ pub use ecriture::{
 pub use editions::{
     Balance, CompteGrandLivre, EcritureJournal, EditionJournal, ErreurEdition, Filtre,
     FormatBalance, LigneBalance, LigneGrandLivre, Mode, Regroupement, grand_livre, journaux,
+};
+pub use editions_tiers::{
+    BalanceAgee, BalanceAuxiliaire, CompteTiers, ErreurEditionTiers, Lettrages, LettreEdition,
+    LigneAuxiliaire, LigneTiers, Releve, SourceLigne, Tranches, balance_agee, balance_auxiliaire,
+    grand_livre_auxiliaire, releve_tiers,
 };
 pub use etiquette::{
     CodeMotif, CodeRegime, EcartTaxe, ErreurEtiquette, EtiquetteFiscale, EtiquetteRelue,

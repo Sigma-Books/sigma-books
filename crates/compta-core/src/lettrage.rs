@@ -288,6 +288,12 @@ impl LigneLettrable {
         self.devise
     }
 
+    /// Date comptable de l'écriture.
+    #[must_use]
+    pub fn date(&self) -> Date {
+        self.date
+    }
+
     /// Référence normalisée.
     #[must_use]
     pub fn reference(&self) -> Option<&str> {
