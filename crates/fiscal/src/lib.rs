@@ -28,5 +28,5 @@ pub use socle::{RegimeSocle, Socle};
 pub use types::{Deduction, ExigibiliteLegale, Portee, Retention, RoleTaux, TauxNomme};
 pub use version::{
     Chevauchement, Document, MOTIF_MAX_OCTETS, MotifExoneration, ParametresFiscaux, RegimeTva,
-    Surcharge, VueAuJour,
+    Surcharge, VueAuJour, motif_sur,
 };

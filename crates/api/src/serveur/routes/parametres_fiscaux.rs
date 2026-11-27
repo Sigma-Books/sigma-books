@@ -22,7 +22,6 @@ use authz::Action;
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use compta_core::{StatutExercice, StatutPeriode};
 use fiscal::{ErreurFiscale, ParametresFiscaux, Portee as PorteeVersion, Surcharge};
 use integrite::Empreinte;
 use serde::{Deserialize, Serialize};
@@ -32,11 +31,11 @@ use super::brouillard::date_lue;
 use super::{ActionRoute, CasUsage, Methode, Module, Portee, Requete, Resultat, Route};
 use crate::base::TransactionTenant;
 use crate::base::audit::PorteeAudit;
+use crate::base::brouillard::{StatutVise, verrouiller_date};
 use crate::base::organisation::{
     lire_appartenance, lire_contexte_du_dossier, verrouiller_dossier_pour_modification,
 };
 use crate::base::parametres_fiscaux::{self as base, VERSIONS_MAX, VersionPropre};
-use crate::base::referentiel::charger;
 use crate::base::validation::verrouiller_tete;
 use crate::parametres_fiscaux::ParametresDuDossier;
 use crate::serveur::audit::Trace;
@@ -86,6 +85,8 @@ pub const ROUTES: &[Route] = &[
     },
 ];
 
+/// Borne haute de `date_effet` : un an (366 jours) après le jour du dossier.
+const DATE_EFFET_MAX_JOURS: i64 = 366;
 /// Au plus ce nombre de rôles de taux dans une demande.
 const TAUX_MAX: usize = 8;
 /// Au plus ce nombre de régimes retirés dans une demande.
@@ -192,6 +193,21 @@ fn vue_propre(p: &ParametresFiscaux, l: &VersionPropre) -> VueVersion {
         cree_le: Some(crate::pieces::interne::instant(l.cree_le)),
         empreinte: Some(hex(&l.empreinte)),
     }
+}
+
+/// Avertissement renvoyé avec une création réussie.
+#[derive(Debug, Serialize)]
+struct VueAvertissement {
+    code: &'static str,
+    nombre: i64,
+}
+
+/// Réponse de la création : la version, et les avertissements éventuels.
+#[derive(Debug, Serialize)]
+struct VueCreation {
+    #[serde(flatten)]
+    version: VueVersion,
+    avertissements: Vec<VueAvertissement>,
 }
 
 #[derive(Debug, Serialize)]
@@ -379,15 +395,6 @@ fn erreur_de_derivation(e: &ErreurFiscale) -> ErreurApi {
     }
 }
 
-/// Vrai si la date tombe dans un exercice clos ou une période clôturée du dossier.
-fn date_cloturee(exercices: &compta_core::Exercices, jour: Date) -> bool {
-    exercices.exercice_contenant(jour).is_some_and(|e| {
-        e.statut() == StatutExercice::Cloture
-            || e.periode_contenant(jour)
-                .is_some_and(|p| p.statut() == StatutPeriode::Cloturee)
-    })
-}
-
 #[allow(clippy::too_many_lines)]
 async fn creer(
     tx: &mut TransactionTenant,
@@ -426,7 +433,14 @@ async fn creer(
     }
     let registre = requete.registre_fiscal()?;
 
-    // Verrous : tête de chaîne (sérialise les validations), puis ligne du dossier (pays).
+    // Verrous, dans l'ordre de la validation (ADR 0020 : exercice et période, puis tête de
+    // chaîne) : l'exercice et la période de `date_effet` en `FOR SHARE` AVANT d'en lire le statut
+    // (une clôture en cours attend la fin de la création, ou est vue), puis la tête de chaîne
+    // (sérialise les validations et les autres créations), puis la ligne du dossier (pays).
+    let visee = verrouiller_date(tx, date_effet).await?;
+    if visee.is_some_and(|v| v.periode == StatutVise::Clos || v.exercice == StatutVise::Clos) {
+        return Err(conflit(MotifConflit::ParametresDateEffetCloturee));
+    }
     let genese = integrite::genese(
         &integrite::IdDossier::parse(&id_dossier.uuid().to_string()).map_err(|_| donnee())?,
     );
@@ -439,16 +453,18 @@ async fn creer(
     if lignes.len() >= VERSIONS_MAX {
         return Err(conflit(MotifConflit::ParametresTropDeVersions));
     }
+    // Borne haute : un an après le jour du dossier (dans son fuseau). Les dates d'effet croissent
+    // strictement et la table est en ajout seul : une date lointaine fermerait toute surcharge.
+    let aujourd_hui = contexte.date_du_jour(requete.horloge.maintenant())?;
+    if date_effet > aujourd_hui + time::Duration::days(DATE_EFFET_MAX_JOURS) {
+        return Err(refus(MotifValidation::ParametresDateEffetLointaine));
+    }
     let propres = lignes
         .iter()
         .map(|l| crate::parametres_fiscaux::version_depuis_ligne(registre, l))
         .collect::<Result<Vec<_>, _>>()?;
     if propres.iter().any(|p| p.date_effet() >= date_effet) {
         return Err(conflit(MotifConflit::ParametresDateEffetAnterieure));
-    }
-    let referentiel = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
-    if date_cloturee(referentiel.exercices(), date_effet) {
-        return Err(conflit(MotifConflit::ParametresDateEffetCloturee));
     }
     let versions = ParametresDuDossier::nouveau(registre, &contexte.pays, &propres);
     let base_applicable = versions
@@ -472,13 +488,18 @@ async fn creer(
     registre
         .verifier_version_de_dossier(&propres, &nouvelle)
         .map_err(|_| donnee())?;
-    // Jamais un régime utilisé par une écriture validée du dossier.
-    if !base::regimes_utilises(tx, &c.regimes_retires)
+    // Jamais un régime utilisé par une écriture validée du dossier **dans la période
+    // d'application** : une écriture antérieure garde sa version enregistrée.
+    if !base::regimes_utilises(tx, &c.regimes_retires, date_effet, date_fin)
         .await?
         .is_empty()
     {
         return Err(conflit(MotifConflit::ParametresRegimeUtilise));
     }
+    // Avertissement (rétroactivité) : les écritures validées déjà datées dans la période
+    // d'application gardent leur version enregistrée ; une même période peut donc porter deux
+    // taux (ADR 0030).
+    let deja_validees = base::ecritures_validees_dans(tx, date_effet, date_fin).await?;
 
     let contenu = nouvelle.vers_texte();
     let empreinte = Empreinte::calculer(contenu.as_bytes());
@@ -523,7 +544,23 @@ async fn creer(
             .push(("regimes_retires", c.regimes_retires.join(",")));
     }
     trace.donnees.push(("empreinte", hex(empreinte.octets())));
-    let vue = vue_propre(&nouvelle, &ligne);
+    if deja_validees > 0 {
+        trace
+            .donnees
+            .push(("ecritures_deja_validees", deja_validees.to_string()));
+    }
+    let avertissements = if deja_validees > 0 {
+        vec![VueAvertissement {
+            code: "ecritures_deja_validees",
+            nombre: deja_validees,
+        }]
+    } else {
+        Vec::new()
+    };
+    let vue = VueCreation {
+        version: vue_propre(&nouvelle, &ligne),
+        avertissements,
+    };
     Ok(Resultat {
         reponse: (StatusCode::CREATED, Json(vue)).into_response(),
         traces: vec![trace],

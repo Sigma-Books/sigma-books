@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT l.fiscal_regime AS \"regime!\"\n           FROM ecriture_validee_ligne l\n           JOIN ecriture_validee e ON e.cabinet_id = l.cabinet_id\n                                  AND e.dossier_id = l.dossier_id AND e.id = l.ecriture_id\n           WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.fiscal_regime = ANY($3)\n             AND e.date_comptable >= $4 AND ($5::date IS NULL OR e.date_comptable <= $5)\n           ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "regime!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "fiscal_regime"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "TextArray",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d1fcd77b12e032538d18dd666394caccf333a17098e06d107a9edf2c810100f0"
+}

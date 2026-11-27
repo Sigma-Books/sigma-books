@@ -100,26 +100,63 @@ pub async fn numero_maximal(tx: &mut TransactionTenant) -> Result<i32, ErreurBas
     Ok(n)
 }
 
-/// Parmi `codes`, ceux qu'au moins une écriture **validée** du dossier utilise comme régime.
+/// Parmi `codes`, ceux qu'au moins une écriture **validée** du dossier, datée dans la période
+/// d'application `[date_effet ; date_fin]` de la version (bornes incluses ; `date_fin` absente :
+/// sans limite haute), utilise comme régime. Une écriture antérieure garde sa version enregistrée
+/// et n'est pas concernée.
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
 pub async fn regimes_utilises(
     tx: &mut TransactionTenant,
     codes: &[String],
+    date_effet: Date,
+    date_fin: Option<Date>,
 ) -> Result<Vec<String>, ErreurBase> {
     let (cabinet, dossier) = tenant(tx)?;
     let utilises = sqlx::query_scalar!(
-        r#"SELECT DISTINCT fiscal_regime AS "regime!" FROM ecriture_validee_ligne
-           WHERE cabinet_id = $1 AND dossier_id = $2 AND fiscal_regime = ANY($3)
+        r#"SELECT DISTINCT l.fiscal_regime AS "regime!"
+           FROM ecriture_validee_ligne l
+           JOIN ecriture_validee e ON e.cabinet_id = l.cabinet_id
+                                  AND e.dossier_id = l.dossier_id AND e.id = l.ecriture_id
+           WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.fiscal_regime = ANY($3)
+             AND e.date_comptable >= $4 AND ($5::date IS NULL OR e.date_comptable <= $5)
            ORDER BY 1"#,
         cabinet,
         dossier,
         codes,
+        date_effet,
+        date_fin,
     )
     .fetch_all(tx.connexion())
     .await?;
     Ok(utilises)
+}
+
+/// Nombre d'écritures **validées** du dossier datées dans `[date_effet ; date_fin]` : celles qu'une
+/// version rétroactive ne touche pas (elles gardent leur version enregistrée) mais qui, dans une
+/// même période, sont donc sous une version différente de celle des écritures suivantes.
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn ecritures_validees_dans(
+    tx: &mut TransactionTenant,
+    date_effet: Date,
+    date_fin: Option<Date>,
+) -> Result<i64, ErreurBase> {
+    let (cabinet, dossier) = tenant(tx)?;
+    let n = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "n!" FROM ecriture_validee
+           WHERE cabinet_id = $1 AND dossier_id = $2
+             AND date_comptable >= $3 AND ($4::date IS NULL OR date_comptable <= $4)"#,
+        cabinet,
+        dossier,
+        date_effet,
+        date_fin,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    Ok(n)
 }
 
 /// Enregistre une version propre (ajout seul).

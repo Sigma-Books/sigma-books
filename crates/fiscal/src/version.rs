@@ -105,7 +105,7 @@ struct ChevauchementBrut {
 }
 
 mod surcharge;
-pub use surcharge::{MOTIF_MAX_OCTETS, Surcharge};
+pub use surcharge::{MOTIF_MAX_OCTETS, Surcharge, motif_sur};
 
 // --- Types validés ------------------------------------------------------------------------
 

@@ -9,7 +9,7 @@ ALTER TABLE parametres_fiscaux_dossier
         CHECK (
             octet_length(motif) BETWEEN 1 AND 400
             AND length(btrim(motif)) >= 1
-            AND motif !~ '[[:cntrl:]]'
+            AND motif !~ '[[:cntrl:]\u0080-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]'
         ),
     ADD CONSTRAINT parametres_fiscaux_dossier_id_cle UNIQUE (id),
     ADD CONSTRAINT parametres_fiscaux_dossier_numero_max CHECK (numero <= 50);

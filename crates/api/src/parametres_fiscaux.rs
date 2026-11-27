@@ -76,7 +76,7 @@ pub fn version_depuis_ligne(
     registre: &Registre,
     ligne: &VersionPropre,
 ) -> Result<ParametresFiscaux, ErreurBase> {
-    let incoherent = || ErreurBase::Donnee("version de paramètres fiscaux du dossier incohérente");
+    let incoherent = || ErreurBase::VersionParametresIllisible;
     let numero = u32::try_from(ligne.numero).map_err(|_| incoherent())?;
     let p =
         ParametresFiscaux::depuis_texte(registre.socle(), Portee::Dossier(numero), &ligne.contenu)

@@ -999,7 +999,10 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 &routeur,
                 &chemin,
                 Some(c.administrateur),
-                r#"{"date_effet":"2099-01-01","motif":"Test d'audit","taux":{"normal":"19"}}"#,
+                &format!(
+                    r#"{{"date_effet":"{}","motif":"Test d'audit","taux":{{"normal":"19"}}}}"#,
+                    (time::OffsetDateTime::now_utc().date() + time::Duration::days(30))
+                ),
                 None,
             )
             .await

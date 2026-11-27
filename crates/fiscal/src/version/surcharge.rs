@@ -15,6 +15,20 @@ use compta_core::TauxTva;
 /// Longueur maximale du motif d'une surcharge, en octets UTF-8.
 pub const MOTIF_MAX_OCTETS: usize = 400;
 
+/// Vrai si le motif est un texte sûr : non blanc, au plus [`MOTIF_MAX_OCTETS`] octets, sans
+/// caractère de contrôle (C0 et C1, au sens de `char::is_control`, indépendant de la locale) ni
+/// caractère de contrôle bidirectionnel (U+200E, U+200F, U+202A à U+202E, U+2066 à U+2069), qui
+/// permettraient de falsifier l'affichage du motif.
+#[must_use]
+pub fn motif_sur(motif: &str) -> bool {
+    !motif.trim().is_empty()
+        && motif.len() <= MOTIF_MAX_OCTETS
+        && !motif.chars().any(|c| {
+            c.is_control()
+                || matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+        })
+}
+
 /// Ce qu'un dossier change dans la version de base.
 #[derive(Debug, Clone, Copy)]
 pub struct Surcharge<'a> {
@@ -155,10 +169,7 @@ impl ParametresFiscaux {
     /// [`ErreurFiscale::RegimeNonOffert`], [`ErreurFiscale::RegimeNonRetirable`], [`ErreurFiscale::Periode`]
     /// (fin avant le début) et toute erreur de validation du contenu dérivé.
     pub fn deriver(&self, socle: &Socle, s: &Surcharge<'_>) -> Result<Self, ErreurFiscale> {
-        if s.motif.trim().is_empty()
-            || s.motif.len() > MOTIF_MAX_OCTETS
-            || s.motif.chars().any(char::is_control)
-        {
+        if !motif_sur(s.motif) {
             return Err(ErreurFiscale::MotifInvalide);
         }
         if s.taux.is_empty() && s.regimes_retires.is_empty() {

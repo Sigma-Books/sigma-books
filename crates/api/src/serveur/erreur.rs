@@ -388,11 +388,14 @@ pub enum MotifValidation {
     ParametresMotifInvalide,
     /// Date de fin antérieure à la date d'effet.
     ParametresPeriodeInvalide,
+    /// Date d'effet au-delà d'un an après le jour du dossier : la croissance stricte des dates et
+    /// l'ajout seul rendraient toute surcharge ultérieure impossible.
+    ParametresDateEffetLointaine,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 40] = [
+    pub const TOUS: [Self; 41] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -433,6 +436,7 @@ impl MotifValidation {
         Self::ParametresRegimeNonRetirable,
         Self::ParametresMotifInvalide,
         Self::ParametresPeriodeInvalide,
+        Self::ParametresDateEffetLointaine,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -496,6 +500,7 @@ impl MotifValidation {
             Self::ParametresRegimeNonRetirable => "parametres_regime_non_retirable",
             Self::ParametresMotifInvalide => "parametres_motif_invalide",
             Self::ParametresPeriodeInvalide => "parametres_periode_invalide",
+            Self::ParametresDateEffetLointaine => "parametres_date_effet_lointaine",
         }
     }
 }
@@ -518,6 +523,9 @@ pub enum CategorieErreur {
     Audit,
     /// Stockage objet des pièces indisponible, non configuré, ou objet altéré (ADR 0015).
     Stockage,
+    /// Version de paramètres fiscaux d'un dossier illisible ou altérée (ADR 0030) : la lecture
+    /// échoue (fermeture sûre) et le journal technique porte ce code, sans aucune donnée.
+    ParametresFiscauxIllisibles,
 }
 
 impl CategorieErreur {
@@ -532,6 +540,7 @@ impl CategorieErreur {
             Self::Couche => "couche",
             Self::Audit => "audit",
             Self::Stockage => "stockage",
+            Self::ParametresFiscauxIllisibles => "parametres_fiscaux_illisibles",
         }
     }
 }
@@ -585,6 +594,9 @@ impl From<crate::base::ErreurBase> for ErreurApi {
         // valeurs (F2.11). La catégorie suffit au diagnostic, avec l'identifiant de requête.
         match erreur {
             crate::base::ErreurBase::Audit(_) => Self::Interne(CategorieErreur::Audit),
+            crate::base::ErreurBase::VersionParametresIllisible => {
+                Self::Interne(CategorieErreur::ParametresFiscauxIllisibles)
+            }
             crate::base::ErreurBase::Donnee(_) => Self::Interne(CategorieErreur::Donnee),
             _ => Self::Interne(CategorieErreur::Base),
         }
@@ -745,6 +757,21 @@ mod tests {
                 .iter()
                 .all(|c| c.bytes().all(|o| o.is_ascii_lowercase() || o == b'_'))
         );
+    }
+
+    #[test]
+    fn une_version_de_parametres_illisible_a_sa_categorie_sans_detail() {
+        let erreur = ErreurApi::from(crate::base::ErreurBase::VersionParametresIllisible);
+        assert_eq!(
+            erreur,
+            ErreurApi::Interne(CategorieErreur::ParametresFiscauxIllisibles)
+        );
+        assert_eq!(
+            CategorieErreur::ParametresFiscauxIllisibles.nom(),
+            "parametres_fiscaux_illisibles"
+        );
+        // Le client ne voit que le corps uniforme.
+        assert_eq!(erreur.code(), "erreur_interne");
     }
 
     #[tokio::test]

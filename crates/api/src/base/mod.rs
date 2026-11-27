@@ -76,6 +76,9 @@ pub enum ErreurBase {
     /// son contexte.
     #[error("donnée incohérente : {0}")]
     Donnee(&'static str),
+    /// Version de paramètres fiscaux d'un dossier illisible ou altérée (ADR 0030).
+    #[error("version de paramètres fiscaux du dossier illisible")]
+    VersionParametresIllisible,
     /// Le journal d'audit refuse l'entrée (portée hors du contexte, tête incohérente, entrée
     /// invalide) : l'action est annulée.
     #[error("inscription au journal d'audit impossible : {0}")]

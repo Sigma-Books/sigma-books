@@ -207,3 +207,53 @@ proptest! {
         prop_assert!(est_taux);
     }
 }
+
+#[test]
+fn le_motif_refuse_controles_et_caracteres_bidirectionnels() {
+    let base = sn();
+    let taux = [("normal".to_owned(), "19".to_owned())];
+    for motif in [
+        "a\u{0085}b", // C1 (NEL)
+        "a\u{009F}b", // C1
+        "a\u{200E}b", // marque gauche-droite
+        "a\u{200F}b", // marque droite-gauche
+        "a\u{202A}b", // LRE
+        "a\u{202E}b", // RLO
+        "a\u{2066}b", // LRI
+        "a\u{2069}b", // PDI
+        "a\tb",
+    ] {
+        assert!(!fiscal::motif_sur(motif), "{motif:?}");
+        let s = Surcharge {
+            motif,
+            ..surcharge(date!(2027 - 01 - 01), &taux, &[])
+        };
+        assert_eq!(
+            base.deriver(&socle(), &s).unwrap_err(),
+            ErreurFiscale::MotifInvalide
+        );
+    }
+    // Les accents, guillemets et espaces ordinaires restent admis.
+    assert!(fiscal::motif_sur("Décision « du client » : taux à 19 %"));
+}
+
+proptest! {
+    /// Un taux nul ou négatif, écrit de toutes les façons canoniques ou non, est refusé.
+    #[test]
+    fn un_taux_nul_ou_negatif_est_refuse(entier in 0u32..1000, centiemes in 0u32..100) {
+        let candidats = [
+            "0".to_owned(),
+            "0.0".to_owned(),
+            "0.00".to_owned(),
+            format!("-{}", entier + 1),
+            format!("-{entier}.{centiemes:02}"),
+            format!("-0.{:02}", centiemes + 1),
+        ];
+        for valeur in candidats {
+            let taux = [("normal".to_owned(), valeur.clone())];
+            let erreur = sn().deriver(&socle(), &surcharge(date!(2027 - 01 - 01), &taux, &[])).unwrap_err();
+            let est_taux = matches!(erreur, ErreurFiscale::Taux { .. });
+            prop_assert!(est_taux, "{valeur}");
+        }
+    }
+}
