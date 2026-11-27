@@ -5,9 +5,12 @@
 //! de ressource, empêche le démarrage.
 //!
 //! Les actions sont classées par domaine, comme les fragments du schéma :
-//! cabinet, dossier, écritures ([`Action`], principal `Appartenance`), puis
-//! utilisateur ([`ActionUtilisateur`], principal `Utilisateur`). Une nouvelle
-//! action s'ajoute en une ligne, dans la section de son domaine.
+//! cabinet, dossier, écritures, puis les domaines du lot L3 (tiers, lettrage,
+//! trésorerie) ([`Action`], principal `Appartenance`), puis utilisateur
+//! ([`ActionUtilisateur`], principal `Utilisateur`). Une nouvelle action
+//! s'ajoute en une ligne, dans la section de son domaine : chaque voie de
+//! travail n'édite que la sienne (`crates/api/README.md`, « Travailler en voies
+//! parallèles »).
 
 /// Type de ressource sur lequel porte une action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -146,8 +149,6 @@ actions! {
     ExporterIntegrite => Dossier,
     /// Reprise de données (§20) : L8, aucune politique.
     ReprendreDonnees => Dossier,
-    /// Lettrer, délettrer (§20) : L3, aucune politique.
-    Lettrer => Dossier,
     /// Activer une règle apprise (§20) : L4, aucune politique.
     ActiverRegleApprise => Dossier,
     /// Liquider la TVA (§20) : L5, aucune politique.
@@ -166,6 +167,70 @@ actions! {
     ValiderEcriture => EcritureBrouillon,
     /// Contre-passer une écriture validée (§20).
     ContrePasser => EcritureValidee,
+
+    // ---------------------------------------------------------------------
+    // Domaine « tiers » (`schema/tiers.cedarschema`, lot L3 ; ADR 0031, 0033 ;
+    // rôles : `docs/lots/L3.md`, point C6). Toutes portent sur le dossier.
+    // ---------------------------------------------------------------------
+    /// Liste et fiche des tiers, sans les coordonnées bancaires (les quatre rôles).
+    ConsulterTiers => Dossier,
+    /// Coordonnées bancaires des tiers (lecture) : auditeur exclu (VP17).
+    ConsulterCoordonneesBancairesTiers => Dossier,
+    /// Créer un tiers (comme le paramétrage : administrateur, valideur).
+    CreerTiers => Dossier,
+    /// Tenir la fiche courante d'un tiers, coordonnées bancaires comprises (comme la saisie).
+    ModifierTiers => Dossier,
+    /// Archiver ou désarchiver un tiers (comme la saisie : archivage libre, ADR 0031 point 5).
+    ArchiverTiers => Dossier,
+    /// Fusionner deux tiers par lien (administrateur ; ré-authentification).
+    FusionnerTiers => Dossier,
+    /// Rompre une fusion de tiers (administrateur ; ré-authentification, comme la fusion :
+    /// interprétation à confirmer).
+    RompreFusionTiers => Dossier,
+    /// Anonymiser un tiers sous délai de rétention (administrateur ; ré-authentification).
+    AnonymiserTiers => Dossier,
+    /// Conditions de règlement du dossier (comme le paramétrage).
+    ParametrerConditionsReglement => Dossier,
+    /// Réviser l'échéance d'une ligne de tiers validée, en ajout seul (comme la saisie).
+    ReviserEcheance => Dossier,
+    /// Éditions de tiers : grand livre et balance auxiliaires, balance âgée, relevé de compte,
+    /// échéancier, lettrages (comme « Consulter éditions et états »).
+    ConsulterEditionsTiers => Dossier,
+
+    // ---------------------------------------------------------------------
+    // Domaine « lettrage » (`schema/lettrage.cedarschema`, lot L3 ; ADR 0032).
+    // ---------------------------------------------------------------------
+    /// Lettrer (§20 « Lettrer / délettrer ») : lettrage manuel, propositions.
+    Lettrer => Dossier,
+    /// Délettrer (§20 « Lettrer / délettrer ») : ligne de rupture, jamais une suppression.
+    Delettrer => Dossier,
+    /// Règles de lettrage automatique et paramètre d'application (comme le paramétrage).
+    ParametrerLettrage => Dossier,
+
+    // ---------------------------------------------------------------------
+    // Domaine « trésorerie » (`schema/tresorerie.cedarschema`, lot L3 ; ADR 0034 ;
+    // rôles : `docs/lots/L3.md`, point C6).
+    // ---------------------------------------------------------------------
+    /// Comptes de trésorerie, relevés, lignes, pointages, états figés (les quatre rôles).
+    ConsulterTresorerie => Dossier,
+    /// Comptes de trésorerie et comptes désignés du dossier (comme le paramétrage).
+    ParametrerTresorerie => Dossier,
+    /// Profils d'import et règles de suggestion des relevés (comme le paramétrage).
+    ParametrerReleves => Dossier,
+    /// Déposer un relevé CSV et l'analyser, sans écriture (comme la saisie).
+    DeposerReleve => Dossier,
+    /// Importer un relevé déposé, propositions de brouillon (comme la saisie).
+    ImporterReleve => Dossier,
+    /// Arrêté de caisse : comptage figé, écart proposé en brouillon (comme la saisie).
+    ArreterCaisse => Dossier,
+    /// Pointer des lignes de relevé avec des lignes d'écriture (comme la saisie).
+    PointerReleve => Dossier,
+    /// Rompre un pointage (comme la saisie).
+    RomprePointage => Dossier,
+    /// Figer un état de rapprochement (valideur, et administrateur).
+    FigerRapprochement => Dossier,
+    /// Reconnaître un prélèvement ou une taxe et en proposer le brouillon (comme la saisie).
+    ProposerPrelevement => Dossier,
 }
 
 /// Type de ressource d'une action de l'utilisateur sur lui-même.

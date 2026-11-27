@@ -45,6 +45,16 @@ mod pieces;
 mod referentiel;
 mod session;
 
+// Lot L3 (squelettes de la PR 6, L3-14) : un fichier par module, déjà branché.
+mod echeancier;
+mod editions_tiers;
+mod lettrage;
+mod prelevements;
+mod rapprochement;
+mod releves;
+mod tiers;
+mod tresorerie;
+
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -304,6 +314,14 @@ fn cas_du_module(nom: &str) -> Option<&'static CasModule> {
         "pieces" => &pieces::CAS,
         "integrite" => &integrite::CAS,
         "parametres_fiscaux" => &parametres_fiscaux::CAS,
+        "tiers" => &tiers::CAS,
+        "echeancier" => &echeancier::CAS,
+        "lettrage" => &lettrage::CAS,
+        "editions_tiers" => &editions_tiers::CAS,
+        "tresorerie" => &tresorerie::CAS,
+        "releves" => &releves::CAS,
+        "rapprochement" => &rapprochement::CAS,
+        "prelevements" => &prelevements::CAS,
         _ => return None,
     })
 }

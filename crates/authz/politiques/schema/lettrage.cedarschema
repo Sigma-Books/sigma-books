@@ -1,0 +1,19 @@
+// Schéma Cedar de Sigma Books, domaine « lettrage » (lot L3, voie « lettrage ») : lettrage en
+// ajout seul, rupture, règles automatiques (ADR 0032). Politiques : `roles/lettrage.cedar`.
+//
+// Fragment du schéma (`crates/authz/politiques/schema/`) : les fragments forment un seul schéma,
+// composé au chargement (`authz::SCHEMA`) ; un type peut citer ceux d'un autre fragment.
+//
+// Les actions portent sur le **dossier** : les lignes lettrées sont lues par la requête, sous RLS,
+// dans ce dossier. Un lettrage ne modifie aucune écriture validée (ADR 0032 : liens en ajout seul).
+
+namespace Sigma {
+  // §20 « Lettrer / délettrer » (lettrage) : lettrage manuel, application d'une proposition,
+  // demande de propositions.
+  action Lettrer appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Lettrer / délettrer » (dé-lettrage) : ligne de rupture, jamais une suppression.
+  action Delettrer appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Règles de lettrage automatique du dossier et paramètre d'application automatique (ADR 0032
+  // point 7 ; comme le paramétrage).
+  action ParametrerLettrage appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+}

@@ -101,7 +101,16 @@ pub(crate) async fn executer(
         | CasUsage::Editions(_)
         | CasUsage::Integrite(_)
         | CasUsage::ParametresFiscaux(_)
-        | CasUsage::Administration(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
+        | CasUsage::Administration(_)
+        // Lot L3 : modules d'un dossier, jamais hors cabinet.
+        | CasUsage::Tiers(_)
+        | CasUsage::Echeancier(_)
+        | CasUsage::Lettrage(_)
+        | CasUsage::EditionsTiers(_)
+        | CasUsage::Tresorerie(_)
+        | CasUsage::Releves(_)
+        | CasUsage::Rapprochement(_)
+        | CasUsage::Prelevements(_) => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }?;
     tx.confirmer().await?;
     Ok(reponse)

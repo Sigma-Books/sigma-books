@@ -1,7 +1,8 @@
 //! Autorisation par politiques Cedar, refus par défaut (ADR 0005, spec §20).
 //!
 //! Le schéma, en fragments par domaine (`politiques/schema/*.cedarschema` :
-//! cabinet, dossier, écritures, utilisateur), et les politiques
+//! cabinet, dossier, écritures, utilisateur, facteurs, puis tiers, lettrage et
+//! trésorerie pour le lot L3), et les politiques
 //! (`politiques/invariants.cedar`, `politiques/roles/*.cedar` par domaine,
 //! `politiques/utilisateur.cedar`) sont embarqués dans le binaire.
 //! [`Autorisation::charger`] compose le schéma, valide les politiques contre
@@ -96,7 +97,7 @@ const ESPACE: &str = "Sigma";
 /// Fragments du schéma Cedar, par domaine, embarqués : (nom, contenu). Ils sont composés en un
 /// seul schéma au chargement (`Schema::from_schema_fragments`) ; un fragment peut citer les
 /// types d'un autre.
-pub const SCHEMA: [(&str, &str); 5] = [
+pub const SCHEMA: [(&str, &str); 8] = [
     (
         "schema/cabinet.cedarschema",
         include_str!("../politiques/schema/cabinet.cedarschema"),
@@ -117,11 +118,24 @@ pub const SCHEMA: [(&str, &str); 5] = [
         "schema/facteurs.cedarschema",
         include_str!("../politiques/schema/facteurs.cedarschema"),
     ),
+    // Lot L3 : un fragment par voie de travail.
+    (
+        "schema/tiers.cedarschema",
+        include_str!("../politiques/schema/tiers.cedarschema"),
+    ),
+    (
+        "schema/lettrage.cedarschema",
+        include_str!("../politiques/schema/lettrage.cedarschema"),
+    ),
+    (
+        "schema/tresorerie.cedarschema",
+        include_str!("../politiques/schema/tresorerie.cedarschema"),
+    ),
 ];
 
 /// Fichiers de politiques, embarqués : (nom, contenu). Les invariants restent d'un seul
 /// tenant ; les autorisations des rôles sont découpées par domaine.
-pub const POLITIQUES: [(&str, &str); 6] = [
+pub const POLITIQUES: [(&str, &str); 9] = [
     (
         "invariants.cedar",
         include_str!("../politiques/invariants.cedar"),
@@ -145,6 +159,19 @@ pub const POLITIQUES: [(&str, &str); 6] = [
     (
         "facteurs.cedar",
         include_str!("../politiques/facteurs.cedar"),
+    ),
+    // Lot L3 : un fichier de rôles par voie de travail.
+    (
+        "roles/tiers.cedar",
+        include_str!("../politiques/roles/tiers.cedar"),
+    ),
+    (
+        "roles/lettrage.cedar",
+        include_str!("../politiques/roles/lettrage.cedar"),
+    ),
+    (
+        "roles/tresorerie.cedar",
+        include_str!("../politiques/roles/tresorerie.cedar"),
     ),
 ];
 

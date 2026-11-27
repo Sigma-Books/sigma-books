@@ -66,8 +66,7 @@ namespace Sigma {
   // refusées à tous jusqu'à leur lot.
   // §20 « Créer un dossier, reprise de données » (reprise) : L8.
   action ReprendreDonnees appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
-  // §20 « Lettrer / délettrer » : L3.
-  action Lettrer appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // §20 « Lettrer / délettrer » : L3, déclarée dans `lettrage.cedarschema` avec sa politique.
   // §20 « Activer une règle apprise » : L4.
   action ActiverRegleApprise appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
   // §20 « Liquider la TVA, verrouiller une période » (liquidation) : L5.

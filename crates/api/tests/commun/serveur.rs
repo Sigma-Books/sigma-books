@@ -502,6 +502,15 @@ pub fn corps_de(route: &Route) -> &'static str {
         // Voie comptabilité (PR 11, 13, 14).
         CasUsage::Referentiel(cas) => super::referentiel::corps(cas),
         CasUsage::Brouillard(cas) => super::brouillard::corps(cas),
+        // Lot L3 : chaque module donne ses corps dans `commun/<module>.rs` (branché par la PR 6).
+        CasUsage::Tiers(cas) => super::tiers::corps(cas),
+        CasUsage::Echeancier(cas) => super::echeancier::corps(cas),
+        CasUsage::Lettrage(cas) => super::lettrage::corps(cas),
+        CasUsage::EditionsTiers(cas) => super::editions_tiers::corps(cas),
+        CasUsage::Tresorerie(cas) => super::tresorerie::corps(cas),
+        CasUsage::Releves(cas) => super::releves::corps(cas),
+        CasUsage::Rapprochement(cas) => super::rapprochement::corps(cas),
+        CasUsage::Prelevements(cas) => super::prelevements::corps(cas),
         _ => "",
     }
 }
