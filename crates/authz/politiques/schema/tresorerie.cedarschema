@@ -1,0 +1,36 @@
+// Schéma Cedar de Sigma Books, domaine « trésorerie » (lot L3, voie « trésorerie et relevés ») :
+// comptes de trésorerie, relevés importés, rapprochement bancaire, prélèvements (ADR 0034).
+// Rôles proposés : `docs/lots/L3.md`, point C6 ; politiques : `roles/tresorerie.cedar`.
+//
+// Fragment du schéma (`crates/authz/politiques/schema/`) : les fragments forment un seul schéma,
+// composé au chargement (`authz::SCHEMA`) ; un type peut citer ceux d'un autre fragment.
+//
+// Les actions portent sur le **dossier** : compte de trésorerie, relevé ou ligne visés sont lus par
+// la requête, sous RLS, dans ce dossier. Un import, une proposition ou un pointage n'écrivent
+// jamais une écriture validée : au plus des brouillons (règle absolue 6, spec §2 principe 2).
+
+namespace Sigma {
+  // Comptes de trésorerie, relevés importés et leurs lignes, propositions, pointages, états de
+  // rapprochement figés, contrôle des prélèvements (comme « Consulter éditions et états »).
+  action ConsulterTresorerie appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Créer, modifier un compte de trésorerie (plafond) ; désigner les comptes du dossier (attente
+  // des relevés, prélèvements) : comme « Paramétrer plan, journaux, fiscalité ».
+  action ParametrerTresorerie appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Profils d'import et règles de suggestion des relevés (comme le paramétrage).
+  action ParametrerReleves appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Déposer un relevé CSV comme pièce et en obtenir l'analyse, sans écriture (ADR 0034 point 4).
+  action DeposerReleve appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Importer les lignes d'un relevé déposé, confirmer une ligne distincte, créer des propositions
+  // de brouillon (comme « Saisir, corriger dans le brouillard »).
+  action ImporterReleve appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Arrêté de caisse (ADR 0034 point 3) : comptage figé en pièce interne, écart proposé en brouillon.
+  action ArreterCaisse appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Pointer des lignes de relevé avec des lignes d'écriture (liens en ajout seul).
+  action PointerReleve appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Rompre un pointage (ligne de rupture, jamais une suppression).
+  action RomprePointage appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Figer un état de rapprochement à une date (instantané haché, pièce interne ; plan C6 : valideur).
+  action FigerRapprochement appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Reconnaître un prélèvement ou une taxe sur une ligne de relevé et en proposer le brouillon.
+  action ProposerPrelevement appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+}

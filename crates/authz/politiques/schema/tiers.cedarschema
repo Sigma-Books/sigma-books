@@ -1,0 +1,37 @@
+// Schéma Cedar de Sigma Books, domaine « tiers » (lot L3, voie « tiers et échéances ») : fiche
+// du tiers, fusion, anonymisation (ADR 0031), conditions de règlement et échéances (ADR 0033),
+// éditions de tiers. Rôles proposés : `docs/lots/L3.md`, point C6 ; politiques : `roles/tiers.cedar`.
+//
+// Fragment du schéma (`crates/authz/politiques/schema/`) : les fragments forment un seul schéma,
+// composé au chargement (`authz::SCHEMA`) ; un type peut citer ceux d'un autre fragment.
+//
+// Toutes ces actions portent sur le **dossier** : le tiers, la condition ou la ligne visés sont lus
+// par la requête, sous RLS, dans ce dossier (absent : 404, ADR 0011). Aucune ne s'applique à une
+// écriture validée (règle absolue 5) : elles n'écrivent que dans leurs propres tables.
+
+namespace Sigma {
+  // Liste et fiche des tiers, **sans** les coordonnées bancaires (minimisation, VP17).
+  action ConsulterTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Coordonnées bancaires des tiers (lecture) : refusées à l'auditeur (plan C6, VP17).
+  action ConsulterCoordonneesBancairesTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Créer un tiers (comme « Paramétrer plan, journaux, fiscalité »).
+  action CreerTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Tenir la fiche courante : champs descriptifs, identifiants, adresses, contacts, coordonnées
+  // bancaires (comme « Saisir, corriger dans le brouillard »). Type et compte collectif restent figés.
+  action ModifierTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Archiver ou désarchiver un tiers (ADR 0031 point 5).
+  action ArchiverTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Fusionner deux tiers par lien (ADR 0031 point 6) ; ré-authentification.
+  action FusionnerTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Rompre une fusion (ligne de rupture, ADR 0031 point 6) ; ré-authentification.
+  action RompreFusionTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Anonymiser un tiers, sous délai de rétention (ADR 0031 point 7) ; ré-authentification.
+  action AnonymiserTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Créer, modifier les conditions de règlement du dossier (ADR 0033 ; comme le paramétrage).
+  action ParametrerConditionsReglement appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Réviser l'échéance d'une ligne de tiers validée (révision en ajout seul, ADR 0033 point 2).
+  action ReviserEcheance appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+  // Éditions de tiers : grand livre et balance auxiliaires, balance âgée, relevé de compte,
+  // échéancier, lettrages (comme « Consulter éditions et états »).
+  action ConsulterEditionsTiers appliesTo { principal: Appartenance, resource: Dossier, context: Contexte };
+}

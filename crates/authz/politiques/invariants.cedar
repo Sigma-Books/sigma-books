@@ -78,7 +78,11 @@ forbid (
     Sigma::Action::"ModifierDroits",
     Sigma::Action::"ReinitialiserAcces",
     Sigma::Action::"DesactiverSeparationDesTaches",
-    Sigma::Action::"CreerVersionParametresFiscaux"
+    Sigma::Action::"CreerVersionParametresFiscaux",
+    // L3 (ADR 0031, plan C6) : fusion, rupture de fusion, anonymisation d'un tiers.
+    Sigma::Action::"FusionnerTiers",
+    Sigma::Action::"RompreFusionTiers",
+    Sigma::Action::"AnonymiserTiers"
   ],
   resource
 )

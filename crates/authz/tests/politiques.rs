@@ -24,12 +24,12 @@ static AUTORISATION: LazyLock<Autorisation> =
 const OUI: bool = true;
 const NON: bool = false;
 
-/// Tableau attendu, recopié de la spec §20 (colonnes : administrateur,
+/// Tableau attendu du lot L2, recopié de la spec §20 (colonnes : administrateur,
 /// valideur, collaborateur, auditeur, client). Conditions : appartenance
 /// active au cabinet de la ressource, dossier affecté, **sans** délégation
 /// de validation, session fraîche, écriture saisie par un autre
 /// utilisateur, séparation des tâches active.
-const MATRICE: &[(Action, [bool; 5])] = &[
+const MATRICE_L2: &[(Action, [bool; 5])] = &[
     // Voir le cabinet (choix du cabinet actif, ADR 0012) : tout rôle du cabinet.
     (Action::AccederCabinet, [OUI, OUI, OUI, OUI, NON]),
     // « Gérer cabinet, utilisateurs, facturation »
@@ -99,17 +99,95 @@ const MATRICE: &[(Action, [bool; 5])] = &[
     (Action::ExporterIntegrite, [OUI, OUI, NON, OUI, NON]),
     // Lignes des lots ultérieurs : aucune politique avant leur lot.
     // Cible du §20 : facturation = administrateur ; reprise = admin, valideur (L8) ;
-    // lettrer = admin, valideur, collaborateur (L3) ; règle apprise = admin,
-    // valideur (L4) ; TVA = admin, valideur (L5) ; fin d'exercice = admin,
-    // valideur, collaborateur au brouillard (L6) ; demandes = client (L4).
+    // règle apprise = admin, valideur (L4) ; TVA = admin, valideur (L5) ; fin
+    // d'exercice = admin, valideur, collaborateur au brouillard (L6) ; demandes =
+    // client (L4). Lettrer : lot L3, voir `MATRICE_LETTRAGE`.
     (Action::GererFacturation, [NON, NON, NON, NON, NON]),
     (Action::ReprendreDonnees, [NON, NON, NON, NON, NON]),
-    (Action::Lettrer, [NON, NON, NON, NON, NON]),
     (Action::ActiverRegleApprise, [NON, NON, NON, NON, NON]),
     (Action::LiquiderTva, [NON, NON, NON, NON, NON]),
     (Action::TravauxFinExercice, [NON, NON, NON, NON, NON]),
     (Action::RepondreDemande, [NON, NON, NON, NON, NON]),
 ];
+
+// Lot L3 : une matrice par domaine (voie de travail), pour que deux voies n'éditent pas les
+// mêmes lignes. La spec §20 n'a pas de ligne pour ces actions : rôles proposés par le plan
+// (`docs/lots/L3.md`, point C6 ; ADR 0031 à 0034), rattachés à la ligne du §20 la plus proche.
+
+/// Domaine « tiers » (ADR 0031, 0033).
+const MATRICE_TIERS: &[(Action, [bool; 5])] = &[
+    // Lecture : comme « Consulter éditions et états » ; coordonnées bancaires sans l'auditeur
+    // (minimisation, VP17).
+    (Action::ConsulterTiers, [OUI, OUI, OUI, OUI, NON]),
+    (
+        Action::ConsulterCoordonneesBancairesTiers,
+        [OUI, OUI, OUI, NON, NON],
+    ),
+    // Création, archivage, conditions de règlement : comme « Paramétrer ».
+    (Action::CreerTiers, [OUI, OUI, NON, NON, NON]),
+    (Action::ArchiverTiers, [OUI, OUI, NON, NON, NON]),
+    (
+        Action::ParametrerConditionsReglement,
+        [OUI, OUI, NON, NON, NON],
+    ),
+    // Fiche courante et révision d'échéance : comme « Saisir, corriger dans le brouillard ».
+    (Action::ModifierTiers, [OUI, OUI, OUI, NON, NON]),
+    (Action::ReviserEcheance, [OUI, OUI, OUI, NON, NON]),
+    // Fusion, rupture de fusion, anonymisation : administrateur, session fraîche.
+    (Action::FusionnerTiers, [OUI, NON, NON, NON, NON]),
+    (Action::RompreFusionTiers, [OUI, NON, NON, NON, NON]),
+    (Action::AnonymiserTiers, [OUI, NON, NON, NON, NON]),
+    // Éditions de tiers : comme « Consulter éditions et états ».
+    (Action::ConsulterEditionsTiers, [OUI, OUI, OUI, OUI, NON]),
+];
+
+/// Domaine « lettrage » (ADR 0032).
+const MATRICE_LETTRAGE: &[(Action, [bool; 5])] = &[
+    // « Lettrer / délettrer »
+    (Action::Lettrer, [OUI, OUI, OUI, NON, NON]),
+    (Action::Delettrer, [OUI, OUI, OUI, NON, NON]),
+    // Règles automatiques : comme « Paramétrer ».
+    (Action::ParametrerLettrage, [OUI, OUI, NON, NON, NON]),
+];
+
+/// Domaine « trésorerie » (ADR 0034).
+const MATRICE_TRESORERIE: &[(Action, [bool; 5])] = &[
+    // Lecture, auditeur compris : comme « Consulter éditions et états ».
+    (Action::ConsulterTresorerie, [OUI, OUI, OUI, OUI, NON]),
+    // Comptes de trésorerie, profils et règles de relevé : comme « Paramétrer ».
+    (Action::ParametrerTresorerie, [OUI, OUI, NON, NON, NON]),
+    (Action::ParametrerReleves, [OUI, OUI, NON, NON, NON]),
+    // Import et pointage : comme « Saisir, corriger dans le brouillard ».
+    (Action::DeposerReleve, [OUI, OUI, OUI, NON, NON]),
+    (Action::ImporterReleve, [OUI, OUI, OUI, NON, NON]),
+    (Action::ArreterCaisse, [OUI, OUI, OUI, NON, NON]),
+    (Action::PointerReleve, [OUI, OUI, OUI, NON, NON]),
+    (Action::RomprePointage, [OUI, OUI, OUI, NON, NON]),
+    (Action::ProposerPrelevement, [OUI, OUI, OUI, NON, NON]),
+    // Figement : valideur (et administrateur).
+    (Action::FigerRapprochement, [OUI, OUI, NON, NON, NON]),
+];
+
+/// Les matrices de tous les domaines.
+const MATRICES: &[&[(Action, [bool; 5])]] = &[
+    MATRICE_L2,
+    MATRICE_TIERS,
+    MATRICE_LETTRAGE,
+    MATRICE_TRESORERIE,
+];
+
+/// Actions du lot L3 : celles des matrices de ses domaines.
+const MATRICES_L3: &[&[(Action, [bool; 5])]] =
+    &[MATRICE_TIERS, MATRICE_LETTRAGE, MATRICE_TRESORERIE];
+
+/// Toutes les lignes attendues, domaine après domaine.
+fn matrice() -> impl Iterator<Item = &'static (Action, [bool; 5])> {
+    MATRICES.iter().flat_map(|m| m.iter())
+}
+
+fn actions_l3() -> impl Iterator<Item = Action> {
+    MATRICES_L3.iter().flat_map(|m| m.iter()).map(|(a, _)| *a)
+}
 
 /// Actions qui exigent une session fraîche (spec §21 ; ADR 0012).
 const SENSIBLES: &[Action] = &[
@@ -125,6 +203,10 @@ const SENSIBLES: &[Action] = &[
     Action::ReinitialiserAcces,
     Action::DesactiverSeparationDesTaches,
     Action::CreerVersionParametresFiscaux,
+    // Lot L3 (ADR 0031, plan C6).
+    Action::FusionnerTiers,
+    Action::RompreFusionTiers,
+    Action::AnonymiserTiers,
 ];
 
 // ---------------------------------------------------------------------------
@@ -353,8 +435,7 @@ fn colonne(role: Role) -> usize {
 }
 
 fn attendu(action: Action, role: Role) -> bool {
-    MATRICE
-        .iter()
+    matrice()
         .find(|(a, _)| *a == action)
         .map(|(_, ligne)| ligne[colonne(role)])
         .expect("action présente dans la matrice")
@@ -374,10 +455,10 @@ const fn decision(autorise: bool) -> Decision {
 
 #[test]
 fn la_matrice_couvre_chaque_action_une_fois() {
-    assert_eq!(MATRICE.len(), Action::TOUTES.len());
+    assert_eq!(matrice().count(), Action::TOUTES.len());
     for action in Action::TOUTES {
         assert_eq!(
-            MATRICE.iter().filter(|(a, _)| a == action).count(),
+            matrice().filter(|(a, _)| a == action).count(),
             1,
             "{action:?}"
         );
@@ -387,7 +468,7 @@ fn la_matrice_couvre_chaque_action_une_fois() {
 #[test]
 fn la_matrice_generee_est_celle_du_s20() {
     let mut ecarts = Vec::new();
-    for (action, ligne) in MATRICE {
+    for (action, ligne) in matrice() {
         for role in Role::TOUS {
             let obtenue = Cas::nominal(role).decider(*action);
             if obtenue != decision(ligne[colonne(role)]) {
@@ -396,6 +477,152 @@ fn la_matrice_generee_est_celle_du_s20() {
         }
     }
     assert!(ecarts.is_empty(), "écarts au §20 : {ecarts:#?}");
+}
+
+// ---------------------------------------------------------------------------
+// Lot L3 : tiers, lettrage, trésorerie (plan C6 ; ADR 0031 à 0034)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn chaque_action_de_l3_est_autorisee_a_un_role_et_refusee_aux_autres() {
+    // Aucune action de L3 sans politique (sinon elle serait refusée à tous, en silence) ; aucune
+    // ouverte au client (portail : L4) ; aucune écriture ouverte à l'auditeur.
+    for (action, ligne) in MATRICES_L3.iter().flat_map(|m| m.iter()) {
+        assert!(ligne.contains(&OUI), "{action:?} : aucun rôle autorisé");
+        assert!(ligne.contains(&NON), "{action:?} : aucun rôle refusé");
+        assert!(
+            !ligne[colonne(Role::Client)],
+            "{action:?} : client autorisé"
+        );
+        for role in Role::TOUS {
+            assert_eq!(
+                Cas::nominal(role).decider(*action),
+                decision(ligne[colonne(role)]),
+                "{role:?} {action:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn les_actions_de_l3_portent_sur_le_dossier_jamais_sur_une_ecriture() {
+    // Lettrage, échéance, pointage et fusion n'écrivent que dans leurs tables (règle absolue 5,
+    // plan P3) : aucune action de L3 ne s'applique à une écriture, validée ou non.
+    for action in actions_l3() {
+        assert_eq!(
+            action.type_ressource(),
+            TypeRessource::Dossier,
+            "{action:?}"
+        );
+    }
+}
+
+#[test]
+fn les_actions_de_l3_sont_refusees_dans_un_dossier_etranger() {
+    for action in actions_l3() {
+        for role in Role::TOUS {
+            // Dossier d'un autre cabinet, avec une affectation forgée vers lui : refusé, par le
+            // cloisonnement.
+            let entites =
+                monde(false, false, "autre", &[]).avec(acces("acces-forge", "moi@A", "B1", true));
+            let verdict = AUTORISATION.verdict(
+                &appartenance("moi@A", "moi", "A", role),
+                action,
+                Ressource::Dossier(dos("B1")),
+                &entites,
+                &Contexte::new(fraiche()).avec_acces(acc("acces-forge")),
+            );
+            assert_eq!(verdict.decision, Decision::Refuse, "{role:?} {action:?}");
+            assert!(
+                verdict
+                    .politiques
+                    .contains(&"invariant-cloisonnement-cabinet".to_string()),
+                "{role:?} {action:?} : {verdict:?}"
+            );
+            // Dossier du même cabinet, non affecté : refusé, sauf à l'administrateur.
+            let non_affecte = Cas {
+                affecte: false,
+                ..Cas::nominal(role)
+            };
+            let attendue = role == Role::Administrateur && attendu(action, role);
+            assert_eq!(
+                non_affecte.decider(action),
+                decision(attendue),
+                "{role:?} {action:?} non affecté"
+            );
+        }
+        // Affecté à un autre dossier du cabinet : rien dans celui-ci.
+        if attendu(action, Role::Valideur) {
+            let a2 = acces("acces-moi-A2", "moi@A", "A2", true);
+            assert_eq!(
+                valideur_avec_acces(action, a2, monde(true, true, "autre", &[])),
+                Decision::Refuse,
+                "{action:?} affecté à A2"
+            );
+        }
+    }
+}
+
+#[test]
+fn l_auditeur_lit_les_tiers_sans_leurs_coordonnees_bancaires() {
+    let auditeur = Cas::nominal(Role::Auditeur);
+    for action in [
+        Action::ConsulterTiers,
+        Action::ConsulterEditionsTiers,
+        Action::ConsulterTresorerie,
+    ] {
+        assert_eq!(auditeur.decider(action), Decision::Autorise, "{action:?}");
+    }
+    assert_eq!(
+        auditeur.decider(Action::ConsulterCoordonneesBancairesTiers),
+        Decision::Refuse
+    );
+    // Le collaborateur, qui tient la fiche, les lit.
+    assert_eq!(
+        Cas::nominal(Role::Collaborateur).decider(Action::ConsulterCoordonneesBancairesTiers),
+        Decision::Autorise
+    );
+}
+
+#[test]
+fn fusion_et_anonymisation_d_un_tiers_exigent_l_administrateur_en_session_fraiche() {
+    for action in [
+        Action::FusionnerTiers,
+        Action::RompreFusionTiers,
+        Action::AnonymiserTiers,
+    ] {
+        assert!(SENSIBLES.contains(&action), "{action:?}");
+        let admin = Cas::nominal(Role::Administrateur);
+        assert_eq!(admin.decider(action), Decision::Autorise, "{action:?}");
+        let verdict = {
+            let cas = Cas {
+                session: ordinaire(),
+                ..admin
+            };
+            let (entites, contexte) = cas.entites_et_contexte();
+            AUTORISATION.verdict(
+                &cas.principal(),
+                action,
+                ressource(action, "A"),
+                &entites,
+                &contexte,
+            )
+        };
+        assert_eq!(verdict.decision, Decision::Refuse, "{action:?}");
+        assert!(
+            verdict
+                .politiques
+                .contains(&"invariant-reauthentification".to_string()),
+            "{action:?} : {verdict:?}"
+        );
+        for role in [Role::Valideur, Role::Collaborateur, Role::Auditeur] {
+            assert_eq!(
+                Cas::nominal(role).decider(action),
+                Decision::Refuse,
+                "{role:?} {action:?}"
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
