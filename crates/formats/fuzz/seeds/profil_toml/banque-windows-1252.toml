@@ -1,0 +1,16 @@
+# Profil synthétique : windows-1252, point-virgule, virgule décimale, milliers en espace
+# insécable, débit et crédit séparés, en-tête de 3 lignes, pied d'une ligne.
+encodage = "windows-1252"
+delimiteur = ";"
+lignes_entete = 3
+lignes_pied = 1
+format_date = "%d/%m/%Y"
+separateur_decimal = ","
+separateur_milliers = "\u00a0"
+
+[colonnes]
+date = "Date"
+libelle = "Libellé"
+debit = "Débit"
+credit = "Crédit"
+solde = "Solde"

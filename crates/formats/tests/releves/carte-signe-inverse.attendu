@@ -1,0 +1,34 @@
+fichier b98b07c29762e08f0c5d54b3d4cedfd45e77ebf364e5c17b29fefed8ab927c34
+ligne 1
+  brut "15.01.26\tACHAT LIBRAIRIE FICTIVE €\t1'250.00"
+  date 2026-01-15
+  date_valeur -
+  libelle "ACHAT LIBRAIRIE FICTIVE €"
+  reference -
+  montant -1250.00
+  solde -
+  devise -
+  identifiant -
+  empreinte 90304b09e61e5272d25e99b2dfbb5b33e7516bae4d329413ecb8858c6de18d85 rang 1
+ligne 2
+  brut "16.01.26\tREMBOURSEMENT MAGASIN FICTIF\t-49.90"
+  date 2026-01-16
+  date_valeur -
+  libelle "REMBOURSEMENT MAGASIN FICTIF"
+  reference -
+  montant 49.90
+  solde -
+  devise -
+  identifiant -
+  empreinte 40d4fef1d63f7623e6212c6f2f645de7e55b9740ec57767bbab370b76db3a0bd rang 1
+ligne 3
+  brut "31.12.25\tCOTISATION CARTE\t30"
+  date 2025-12-31
+  date_valeur -
+  libelle "COTISATION CARTE"
+  reference -
+  montant -30
+  solde -
+  devise -
+  identifiant -
+  empreinte e8e88c8a3cc0487714c39847691c43c5998c8c8daeaecf1a6823b2e5d86f7b81 rang 1

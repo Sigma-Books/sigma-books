@@ -1,0 +1,40 @@
+# Cibles de fuzzing de `formats` (cargo-fuzz, chaîne nightly). Hors du workspace :
+# `cargo +nightly fuzz run releve_csv` depuis `crates/formats/`. Voir `fuzz/README.md`.
+[package]
+name = "formats-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+formats = { path = ".." }
+libfuzzer-sys = "0.4.13"
+toml = { version = "1.2.1", default-features = false, features = ["std", "parse", "display", "serde"] }
+
+[[bin]]
+name = "releve_csv"
+path = "fuzz_targets/releve_csv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "profil_toml"
+path = "fuzz_targets/profil_toml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "motif"
+path = "fuzz_targets/motif.rs"
+test = false
+doc = false
+bench = false
+
+# Paquet autonome : n'appartient pas au workspace racine.
+[workspace]

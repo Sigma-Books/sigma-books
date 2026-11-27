@@ -10,3 +10,19 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+encoding_rs.workspace = true
+regex.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+time.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+time = { workspace = true, features = ["macros"] }
+# Écriture TOML des profils dans les tests (aller-retour).
+toml = { workspace = true, features = ["display"] }

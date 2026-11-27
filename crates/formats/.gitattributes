@@ -1,0 +1,3 @@
+# Fichiers de référence et semences de fuzzing : octets exacts (encodages, CRLF, BOM).
+tests/releves/*.csv -text
+fuzz/seeds/** -text

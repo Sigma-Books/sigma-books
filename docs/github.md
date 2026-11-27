@@ -74,7 +74,7 @@ Noms exacts, relevés sur les PR du lot L0 (pile #40 → #50). Tous sont produit
 | `sbom` | `sbom.yml` | GitHub Actions |
 | `pr-titre` | `pr-titre.yml` | GitHub Actions |
 
-Non requis : `scorecard` (hebdomadaire et sur `main`, pas sur les PR) et `publication.yml` (tags `v*`).
+Non requis : `rust-fuzz-smoke` (`rust.yml`, sur les PR qui modifient `crates/formats/` ; décision D5 du plan L3, #255), `scorecard` (hebdomadaire et sur `main`, pas sur les PR) et `publication.yml` (tags `v*`).
 
 Le résultat de l'analyse CodeQL (check `CodeQL`, publié par GitHub Advanced Security) n'est plus un check requis : GitHub ne le publie pas pour les groupes de la file de fusion, qui resteraient bloqués. Il est remplacé par la règle **`code_scanning`** du ruleset, aux mêmes seuils que le check par défaut : la PR est bloquée par toute nouvelle alerte de sécurité élevée ou critique, ou toute erreur. Les trois analyses `codeql (…)` restent requises et tournent aussi dans la file.
 

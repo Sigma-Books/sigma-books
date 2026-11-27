@@ -1,0 +1,78 @@
+fichier 4c786f1b14f8273e5513b0717bec858052faba3fdf2be7f5391c4740c20a63bf
+ligne 2
+  brut "MM-FICTIF-0001,2026-03-01 08:15:02,PAIEMENT,Paiement marchand reçu de CLIENT FICTIF C,10000,10000"
+  date 2026-03-01
+  date_valeur -
+  libelle "Paiement marchand reçu de CLIENT FICTIF C"
+  reference PAIEMENT
+  montant 10000
+  solde 10000
+  devise -
+  identifiant MM-FICTIF-0001
+  empreinte a6ba0e4cf1aeb66014f8abf4f47d8b4168b51e3490fd090201f304ce9100c76b rang 1
+ligne 3
+  brut "MM-FICTIF-0002,2026-03-01 08:15:02,PRELEVEMENT,Prélèvement 0.5 % paiement marchand,-50,9950"
+  date 2026-03-01
+  date_valeur -
+  libelle "Prélèvement 0.5 % paiement marchand"
+  reference PRELEVEMENT
+  montant -50
+  solde 9950
+  devise -
+  identifiant MM-FICTIF-0002
+  empreinte 5db8db34a9272be123f986b97a2a841e6563e41911745922f3fb21768cff9e12 rang 1
+ligne 4
+  brut "MM-FICTIF-0003,2026-03-02 12:00:00,PAIEMENT,Paiement marchand reçu de CLIENT FICTIF D,2500,12450"
+  date 2026-03-02
+  date_valeur -
+  libelle "Paiement marchand reçu de CLIENT FICTIF D"
+  reference PAIEMENT
+  montant 2500
+  solde 12450
+  devise -
+  identifiant MM-FICTIF-0003
+  empreinte ea548981fa633279a47fe0f97649f424714066e5be33bb00efb89e434278df33 rang 1
+ligne 5
+  brut "MM-FICTIF-0004,2026-03-02 12:00:00,PAIEMENT,Paiement marchand reçu de CLIENT FICTIF D,2500,14950"
+  date 2026-03-02
+  date_valeur -
+  libelle "Paiement marchand reçu de CLIENT FICTIF D"
+  reference PAIEMENT
+  montant 2500
+  solde 14950
+  devise -
+  identifiant MM-FICTIF-0004
+  empreinte 7e7a66493e7c28f522748ea5ee5f855652f82ed37115fd27ed140a92b6a66786 rang 1
+ligne 6
+  brut "MM-FICTIF-0005,2026-03-03 18:30:45,TRANSFERT,Transfert envoyé à FOURNISSEUR FICTIF E,-5000,9950"
+  date 2026-03-03
+  date_valeur -
+  libelle "Transfert envoyé à FOURNISSEUR FICTIF E"
+  reference TRANSFERT
+  montant -5000
+  solde 9950
+  devise -
+  identifiant MM-FICTIF-0005
+  empreinte a2838ed815efbd21e98b5dfc979b62290df0cf6344605ddbca2787f265ddbfeb rang 1
+ligne 7
+  brut "MM-FICTIF-0006,2026-03-03 18:30:45,FRAIS,Frais de transfert,-50,9900"
+  date 2026-03-03
+  date_valeur -
+  libelle "Frais de transfert"
+  reference FRAIS
+  montant -50
+  solde 9900
+  devise -
+  identifiant MM-FICTIF-0006
+  empreinte f3f082eb0007c47180dd37b6d52dd4cc82313700effb3f249fde38288957cf63 rang 1
+ligne 8
+  brut "MM-FICTIF-0007,2026-03-03 18:30:45,TAXE,Taxe sur transfert d'argent,-25,9875"
+  date 2026-03-03
+  date_valeur -
+  libelle "Taxe sur transfert d'argent"
+  reference TAXE
+  montant -25
+  solde 9875
+  devise -
+  identifiant MM-FICTIF-0007
+  empreinte c2dbc50330aa9dd159491085f51fbfd78c8df9110d9ff5fe62ac6ac6c5f3d3eb rang 1

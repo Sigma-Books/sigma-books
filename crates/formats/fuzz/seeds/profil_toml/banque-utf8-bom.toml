@@ -1,0 +1,15 @@
+# Profil synthétique : UTF-8 avec BOM, virgule, montant signé, colonnes par titre.
+encodage = "utf-8"
+delimiteur = ","
+lignes_entete = 1
+format_date = "%Y-%m-%d"
+separateur_decimal = "."
+
+[colonnes]
+date = "Date opération"
+date_valeur = "Date valeur"
+libelle = "Libellé"
+reference = "Référence"
+montant = "Montant"
+devise = "Devise"
+identifiant_transaction = "Identifiant"
