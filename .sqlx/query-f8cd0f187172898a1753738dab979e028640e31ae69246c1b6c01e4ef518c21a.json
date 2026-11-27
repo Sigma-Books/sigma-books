@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO compte_tresorerie (cabinet_id, dossier_id, id, type, nom, compte_id, journal_id, devise, plafond, cree_par, cree_le) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::numeric, $10, $11)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8cd0f187172898a1753738dab979e028640e31ae69246c1b6c01e4ef518c21a"
+}
