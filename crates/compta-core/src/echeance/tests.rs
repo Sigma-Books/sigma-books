@@ -352,11 +352,61 @@ fn reference_odoo_jour_du_mois_suivant() {
     );
 }
 
+/// Jours négatifs admis comme chez Tryton et Odoo (aucune contrainte de signe).
+#[test]
+fn delais_negatifs_admis() {
+    assert_eq!(
+        Delai::Jours(-10).echeance(date!(2026 - 03 - 05)),
+        Ok(date!(2026 - 02 - 23))
+    );
+    assert_eq!(
+        Delai::JoursApresFinDeMois(-1).echeance(date!(2026 - 03 - 10)),
+        Ok(date!(2026 - 03 - 30))
+    );
+    assert_eq!(
+        Delai::JoursApresFinDuMoisSuivant(-28).echeance(date!(2026 - 01 - 10)),
+        Ok(date!(2026 - 01 - 31))
+    );
+    assert_eq!(
+        Delai::JoursPuisJourDuMoisSuivant {
+            jours: -40,
+            jour: jour_du_mois(10)
+        }
+        .echeance(date!(2026 - 03 - 15)),
+        Ok(date!(2026 - 03 - 10))
+    );
+    // Une échéance antérieure à la pièce reste répartie sans perte.
+    let c = condition(vec![pct("50", Delai::Jours(-5)), solde(Delai::Jours(0))]);
+    assert_eq!(
+        repartir(&c, "100", xof(), date!(2026 - 01 - 10)),
+        [
+            (date!(2026 - 01 - 05), "50".to_owned()),
+            (date!(2026 - 01 - 10), "50".to_owned())
+        ]
+    );
+}
+
 #[test]
 fn date_hors_limites_sans_panique() {
+    assert_eq!(
+        Delai::Jours(-1).echeance(Date::MIN),
+        Err(ErreurEcheance::DateHorsLimites)
+    );
+    assert_eq!(
+        Delai::Jours(i32::MIN).echeance(date!(2026 - 01 - 01)),
+        Err(ErreurEcheance::DateHorsLimites)
+    );
+    assert_eq!(
+        Delai::JoursPuisJourDuMoisSuivant {
+            jours: i32::MAX,
+            jour: jour_du_mois(0)
+        }
+        .echeance(date!(2026 - 01 - 01)),
+        Err(ErreurEcheance::DateHorsLimites)
+    );
     let fin_9999 = Date::from_calendar_date(9999, Month::December, 15).unwrap();
     assert_eq!(
-        Delai::Jours(u16::MAX).echeance(Date::MAX),
+        Delai::Jours(i32::MAX).echeance(Date::MAX),
         Err(ErreurEcheance::DateHorsLimites)
     );
     assert_eq!(
@@ -586,10 +636,10 @@ fn date_quelconque() -> impl Strategy<Value = Date> {
 
 fn delai_quelconque() -> impl Strategy<Value = Delai> {
     prop_oneof![
-        (0u16..400).prop_map(Delai::Jours),
-        (0u16..400).prop_map(Delai::JoursApresFinDeMois),
-        (0u16..400).prop_map(Delai::JoursApresFinDuMoisSuivant),
-        (0u16..400, 0u8..=31).prop_map(|(jours, jour)| Delai::JoursPuisJourDuMoisSuivant {
+        (-400i32..400).prop_map(Delai::Jours),
+        (-400i32..400).prop_map(Delai::JoursApresFinDeMois),
+        (-400i32..400).prop_map(Delai::JoursApresFinDuMoisSuivant),
+        (-400i32..400, 0u8..=31).prop_map(|(jours, jour)| Delai::JoursPuisJourDuMoisSuivant {
             jours,
             jour: JourDuMois::nouveau(jour).unwrap(),
         }),
@@ -647,7 +697,6 @@ proptest! {
             let v = terme.montant().valeur();
             prop_assert_eq!(t.arrondir(v), v);
             prop_assert_eq!(terme.montant().devise(), t.devise());
-            prop_assert!(terme.date() >= reference);
             if total.est_nul() {
                 prop_assert!(v.is_zero());
             } else {
@@ -667,7 +716,7 @@ proptest! {
 
     /// Fin de mois : dernier jour du mois de la date, 29 février les seules années bissextiles.
     #[test]
-    fn fin_de_mois_correcte(date in date_quelconque(), jours in 0u16..400) {
+    fn fin_de_mois_correcte(date in date_quelconque(), jours in -400i32..400) {
         let fin = Delai::JoursApresFinDeMois(0).echeance(date).unwrap();
         prop_assert_eq!((fin.year(), fin.month()), (date.year(), date.month()));
         prop_assert_eq!(fin.next_day().unwrap().day(), 1);
@@ -686,7 +735,7 @@ proptest! {
 
     /// « Jours, puis le X du mois suivant » : jour borné au dernier jour de ce mois.
     #[test]
-    fn jour_du_mois_suivant_borne(date in date_quelconque(), jours in 0u16..400, x in 1u8..=31) {
+    fn jour_du_mois_suivant_borne(date in date_quelconque(), jours in -400i32..400, x in 1u8..=31) {
         let delai = Delai::JoursPuisJourDuMoisSuivant { jours, jour: JourDuMois::nouveau(x).unwrap() };
         let obtenu = delai.echeance(date).unwrap();
         let apres = date + Duration::days(i64::from(jours));

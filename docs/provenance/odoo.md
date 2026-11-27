@@ -14,5 +14,5 @@ Odoo (édition communautaire) est publié sous LGPL-3.0 (fichier `LICENSE` à la
 | Auteurs / titulaires | © Odoo S.A. |
 | Nature de la reprise | Algorithme traduit (quatre types de délai, jour du mois borné, jour 0 = fin du mois) et cas de test repris (dates attendues), réécrits en Rust |
 | Destination | `crates/compta-core/src/echeance/delai.rs`, `crates/compta-core/src/echeance/tests.rs` |
-| Modifications | Nombres de jours positifs ou nuls (type `u16`) ; jour du mois typé (0 à 31) au lieu d'un texte ; aucune date du jour par défaut (la date de référence est un paramètre) ; tout dépassement du calendrier renvoie une erreur |
+| Modifications | jour du mois typé (0 à 31) au lieu d'un texte ; aucune date du jour par défaut (la date de référence est un paramètre) ; tout dépassement du calendrier renvoie une erreur |
 | PR | PR 3b du lot L3 (L3-08) |

@@ -42,24 +42,26 @@ impl JourDuMois {
     }
 }
 
-/// Délai d'un terme. Les nombres de jours sont positifs ou nuls (« jours **après** »).
+/// Délai d'un terme. Les nombres de jours sont des entiers signés, comme chez Tryton (`days`,
+/// `Integer`) et Odoo (`nb_days`, `Integer`), qui n'interdisent pas un nombre négatif ; une date
+/// calculée hors des bornes du calendrier renvoie [`ErreurEcheance::DateHorsLimites`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Delai {
     /// Jours après la date de référence (Odoo `days_after`).
-    Jours(u16),
+    Jours(i32),
     /// Jours après la fin du mois de la date de référence (Odoo `days_after_end_of_month`) :
     /// `JoursApresFinDeMois(0)` est la fin du mois, `JoursApresFinDeMois(10)` le 10 du mois
     /// suivant.
-    JoursApresFinDeMois(u16),
+    JoursApresFinDeMois(i32),
     /// Jours après la fin du mois qui suit la date de référence (Odoo
     /// `days_after_end_of_next_month`).
-    JoursApresFinDuMoisSuivant(u16),
+    JoursApresFinDuMoisSuivant(i32),
     /// Jours après la date de référence, puis le jour X du mois suivant ; X nul : la fin du
     /// mois atteint après les jours, **sans** passer au mois suivant (Odoo
     /// `days_end_of_month_on_the`, `:318-326`).
     JoursPuisJourDuMoisSuivant {
         /// Jours ajoutés d'abord.
-        jours: u16,
+        jours: i32,
         /// Jour du mois suivant (0 : fin du mois atteint).
         jour: JourDuMois,
     },
@@ -111,7 +113,7 @@ fn premier_du_mois_suivant(date: Date) -> Result<Date, ErreurEcheance> {
         .ok_or(ErreurEcheance::DateHorsLimites)
 }
 
-fn ajouter_jours(date: Date, jours: u16) -> Result<Date, ErreurEcheance> {
+fn ajouter_jours(date: Date, jours: i32) -> Result<Date, ErreurEcheance> {
     date.checked_add(Duration::days(i64::from(jours)))
         .ok_or(ErreurEcheance::DateHorsLimites)
 }
