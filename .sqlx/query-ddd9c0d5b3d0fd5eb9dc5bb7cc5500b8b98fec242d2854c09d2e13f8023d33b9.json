@@ -1,0 +1,152 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, code, nom, type, compte_collectif, actif, devise, assujetti_tva, soumis_retenue, motif_archivage, archive_le FROM tiers WHERE cabinet_id = $1 AND dossier_id = $2 AND ($3::text IS NULL OR (nom, id) > ($3, $4::uuid)) ORDER BY nom, id LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "compte_collectif",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "compte_collectif"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "actif",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "actif"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "devise",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "devise"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "assujetti_tva",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "assujetti_tva"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "soumis_retenue",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "soumis_retenue"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "motif_archivage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "motif_archivage"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "archive_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "archive_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "ddd9c0d5b3d0fd5eb9dc5bb7cc5500b8b98fec242d2854c09d2e13f8023d33b9"
+}

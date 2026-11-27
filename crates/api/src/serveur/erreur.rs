@@ -220,11 +220,13 @@ pub enum MotifConflit {
     DossierArretesDeCaisse,
     /// Type demandé autre que celui du compte du journal repris (L3-21).
     TresorerieTypeIncoherent,
+    /// Code de tiers déjà pris par un autre tiers du dossier (unique, ADR 0031 point 1).
+    TiersCodeDejaUtilise,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 44] = [
+    pub const TOUS: [Self; 45] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -269,6 +271,7 @@ impl MotifConflit {
         Self::NumerotationTresorerieEpuisee,
         Self::DossierArretesDeCaisse,
         Self::TresorerieTypeIncoherent,
+        Self::TiersCodeDejaUtilise,
     ];
 
     /// Code du corps de la réponse.
@@ -319,6 +322,7 @@ impl MotifConflit {
             Self::NumerotationTresorerieEpuisee => "numerotation_tresorerie_epuisee",
             Self::DossierArretesDeCaisse => "dossier_arretes_de_caisse",
             Self::TresorerieTypeIncoherent => "tresorerie_type_incoherent",
+            Self::TiersCodeDejaUtilise => "tiers_code_deja_utilise",
         }
     }
 }
@@ -421,11 +425,18 @@ pub enum MotifValidation {
     /// Plafond ou compte d'écart sur un compte de trésorerie qui n'est pas une caisse, ou
     /// plafond non strictement positif.
     TresorerieParametreInvalide,
+    /// Type d'identifiant légal d'un tiers hors du pack du pays du dossier, ou en double.
+    TiersIdentifiantTypeInconnu,
+    /// Type d'identifiant bancaire hors du pack.
+    TiersCompteBancaireTypeInconnu,
+    /// Valeur de la fiche d'un tiers invalide (texte vide, trop long, caractère de contrôle ou de
+    /// format, code, devise ou pays mal formé, trop de lignes).
+    TiersValeurInvalide,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 44] = [
+    pub const TOUS: [Self; 47] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -470,6 +481,9 @@ impl MotifValidation {
         Self::TresorerieDeviseEtrangere,
         Self::TresoreriePasUneCaisse,
         Self::TresorerieParametreInvalide,
+        Self::TiersIdentifiantTypeInconnu,
+        Self::TiersCompteBancaireTypeInconnu,
+        Self::TiersValeurInvalide,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -537,6 +551,9 @@ impl MotifValidation {
             Self::TresorerieDeviseEtrangere => "tresorerie_devise_etrangere",
             Self::TresoreriePasUneCaisse => "tresorerie_pas_une_caisse",
             Self::TresorerieParametreInvalide => "tresorerie_parametre_invalide",
+            Self::TiersIdentifiantTypeInconnu => "tiers_identifiant_type_inconnu",
+            Self::TiersCompteBancaireTypeInconnu => "tiers_compte_bancaire_type_inconnu",
+            Self::TiersValeurInvalide => "tiers_valeur_invalide",
         }
     }
 }

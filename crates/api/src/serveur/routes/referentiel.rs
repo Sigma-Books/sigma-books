@@ -1,7 +1,8 @@
 //! Routes du dossier et du référentiel (PR 11a de `docs/lots/L2.md`, L2-22) : plan de comptes,
-//! journaux, tiers minimal, exercices ; transitions des périodes et exercice suivant (PR 11b,
-//! L2-23, sous-module `periodes`) ; et le référentiel d'un nouveau dossier, inscrit par la
-//! création du dossier ([`lire_creation`], [`instancier`], appelés par `organisation`).
+//! journaux, exercices (les tiers ont leur module, [`super::tiers`], depuis le lot L3) ;
+//! transitions des périodes et exercice suivant (PR 11b, L2-23, sous-module `periodes`) ; et le
+//! référentiel d'un nouveau dossier, inscrit par la création du dossier ([`lire_creation`],
+//! [`instancier`], appelés par `organisation`).
 //!
 //! Persistance et règles : [`crate::base::referentiel`]. Toute mutation passe par
 //! [`muter`] (verrou du référentiel, copie, mutation pure, contrôle croisé, enregistrement des
@@ -10,7 +11,7 @@
 //! Défense en profondeur (ADR 0011) : même si Cedar se trompait, chaque cas d'usage relit le
 //! dossier du chemin **visible** par l'utilisateur (affecté, sauf administrateur), et une
 //! mutation (`ParametrerDossier`) exige en plus une appartenance active de rôle
-//! `administrateur` ou `valideur`, lue en base. Une sous-ressource (`{compte}`, `{tiers}`) est
+//! `administrateur` ou `valideur`, lue en base. Une sous-ressource (`{compte}`, `{periode}`) est
 //! cherchée dans le seul dossier du contexte : celle d'un autre dossier est absente (404).
 
 use authz::Action;
@@ -31,8 +32,8 @@ use crate::base::audit::PorteeAudit;
 use crate::base::organisation::{lire_appartenance, lire_dossier_visible};
 use crate::base::referentiel::{
     Changement, ErreurMutation, Instanciation, Modele, Mutation, Ouverture, RefusReferentiel,
-    Tiers, TypeTiers, charger, muter, nom_genre_compte, nom_sens, nom_statut_exercice,
-    nom_statut_periode, nom_type_journal,
+    charger, muter, nom_genre_compte, nom_sens, nom_statut_exercice, nom_statut_periode,
+    nom_type_journal,
 };
 use crate::base::{IdDossier, TransactionTenant};
 use crate::contexte_dossier::{
@@ -62,12 +63,6 @@ pub enum Cas {
     ListerJournaux,
     /// Créer un journal (`BQx`, `MMx`…).
     CreerJournal,
-    /// Tiers du dossier, paginés.
-    ListerTiers,
-    /// Créer un tiers.
-    CreerTiers,
-    /// Renommer, désactiver ou réactiver un tiers.
-    ModifierTiers,
     /// Exercices, périodes et échéances de clôture.
     ListerExercices,
     /// Verrouiller une période (PR 11b).
@@ -141,24 +136,6 @@ pub const ROUTES: &[Route] = &[
         "/api/cabinets/{cabinet}/dossiers/{dossier}/journaux",
         Action::ParametrerDossier,
         Cas::CreerJournal,
-    ),
-    route(
-        Methode::Get,
-        "/api/cabinets/{cabinet}/dossiers/{dossier}/tiers",
-        Action::AccederDossier,
-        Cas::ListerTiers,
-    ),
-    route(
-        Methode::Post,
-        "/api/cabinets/{cabinet}/dossiers/{dossier}/tiers",
-        Action::ParametrerDossier,
-        Cas::CreerTiers,
-    ),
-    route(
-        Methode::Post,
-        "/api/cabinets/{cabinet}/dossiers/{dossier}/tiers/{tiers}/modification",
-        Action::ParametrerDossier,
-        Cas::ModifierTiers,
     ),
     route(
         Methode::Get,
@@ -431,16 +408,6 @@ struct VueJournal {
 }
 
 #[derive(Debug, Serialize)]
-struct VueTiers {
-    id: String,
-    nom: String,
-    #[serde(rename = "type")]
-    genre: &'static str,
-    compte_collectif: String,
-    actif: bool,
-}
-
-#[derive(Debug, Serialize)]
 struct VuePeriode {
     id: String,
     debut: String,
@@ -472,13 +439,6 @@ struct ListeJournaux {
 }
 
 #[derive(Debug, Serialize)]
-struct ListeTiers {
-    tiers: Vec<VueTiers>,
-    /// Identifiant du dernier tiers de la page, à passer en `apres` ; absent en fin de liste.
-    suite: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
 struct ListeExercices {
     exercices: Vec<VueExercice>,
 }
@@ -505,16 +465,6 @@ fn vue_journal(id: Uuid, journal: &Journal) -> VueJournal {
         genre: nom_type_journal(journal.genre()),
         admis_en_cloture: journal.admis_en_cloture(),
         compte_tresorerie: journal.compte_tresorerie().map(ToString::to_string),
-    }
-}
-
-fn vue_tiers(id: Uuid, tiers: &Tiers) -> VueTiers {
-    VueTiers {
-        id: id.to_string(),
-        nom: tiers.nom().to_string(),
-        genre: tiers.genre().nom(),
-        compte_collectif: tiers.compte_collectif().to_string(),
-        actif: tiers.est_actif(),
     }
 }
 
@@ -563,11 +513,6 @@ fn vue_exercice(
 
 // --- Exécution ----------------------------------------------------------------------------
 
-/// Taille d'une page de tiers par défaut.
-const PAGE_TIERS_PAR_DEFAUT: usize = 50;
-/// Taille maximale d'une page de tiers.
-const PAGE_TIERS_MAX: usize = 200;
-
 /// Exécute un cas d'usage du module dans la transaction du pipeline.
 pub(crate) async fn executer(
     cas: Cas,
@@ -577,16 +522,12 @@ pub(crate) async fn executer(
 ) -> Result<Resultat, ErreurApi> {
     let dossier = dossier_visible(tx, garde).await?;
     match cas {
-        Cas::ListerComptes | Cas::ListerJournaux | Cas::ListerTiers | Cas::ListerExercices => {
-            lire(cas, tx, requete).await
-        }
+        Cas::ListerComptes | Cas::ListerJournaux | Cas::ListerExercices => lire(cas, tx).await,
         Cas::CreerCompte
         | Cas::RenommerCompte
         | Cas::DesactiverCompte
         | Cas::ReactiverCompte
-        | Cas::CreerJournal
-        | Cas::CreerTiers
-        | Cas::ModifierTiers => {
+        | Cas::CreerJournal => {
             exiger_parametreur(tx).await?;
             parametrer(cas, tx, dossier.id(), requete).await
         }
@@ -600,11 +541,7 @@ pub(crate) async fn executer(
 }
 
 /// Lectures du référentiel du dossier du chemin.
-async fn lire(
-    cas: Cas,
-    tx: &mut TransactionTenant,
-    requete: &Requete<'_>,
-) -> Result<Resultat, ErreurApi> {
+async fn lire(cas: Cas, tx: &mut TransactionTenant) -> Result<Resultat, ErreurApi> {
     match cas {
         Cas::ListerComptes => {
             let r = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
@@ -639,33 +576,6 @@ async fn lire(
                 Json(ListeJournaux { journaux }).into_response(),
             ))
         }
-        Cas::ListerTiers => {
-            let (apres, limite) = pagination(requete.parametres)?;
-            let r = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
-            let mut tous: Vec<(&Uuid, &Tiers)> = r.etat().tiers.iter().collect();
-            tous.sort_by(|a, b| (a.1.nom(), a.0).cmp(&(b.1.nom(), b.0)));
-            let debut = match apres {
-                None => 0,
-                Some(id) => {
-                    tous.iter()
-                        .position(|(i, _)| **i == id)
-                        .ok_or(ErreurApi::RequeteInvalide)?
-                        + 1
-                }
-            };
-            let page: Vec<VueTiers> = tous
-                .iter()
-                .skip(debut)
-                .take(limite)
-                .map(|(id, t)| vue_tiers(**id, t))
-                .collect();
-            let suite = (debut + page.len() < tous.len())
-                .then(|| page.last().map(|t| t.id.clone()))
-                .flatten();
-            Ok(Resultat::lecture(
-                Json(ListeTiers { tiers: page, suite }).into_response(),
-            ))
-        }
         Cas::ListerExercices => {
             let r = charger(tx).await?.ok_or(ErreurApi::Introuvable)?;
             let exercices = r
@@ -685,37 +595,6 @@ async fn lire(
         }
         _ => Err(ErreurApi::Interne(CategorieErreur::Donnee)),
     }
-}
-
-/// Pagination des tiers : `apres` (UUID du dernier tiers reçu) et `limite` (1 à
-/// [`PAGE_TIERS_MAX`]). Tout autre paramètre, doublon ou valeur invalide : 400.
-fn pagination(parametres: Option<&str>) -> Result<(Option<Uuid>, usize), ErreurApi> {
-    let (mut apres, mut limite) = (None, None);
-    for paire in parametres
-        .unwrap_or("")
-        .split('&')
-        .filter(|p| !p.is_empty())
-    {
-        let (cle, valeur) = paire.split_once('=').ok_or(ErreurApi::RequeteInvalide)?;
-        let deja = match cle {
-            "apres" => apres
-                .replace(Uuid::try_parse(valeur).map_err(|_| ErreurApi::RequeteInvalide)?)
-                .is_some(),
-            "limite" => {
-                let n = (!valeur.is_empty() && valeur.bytes().all(|b| b.is_ascii_digit()))
-                    .then(|| valeur.parse::<usize>().ok())
-                    .flatten()
-                    .filter(|n| (1..=PAGE_TIERS_MAX).contains(n))
-                    .ok_or(ErreurApi::RequeteInvalide)?;
-                limite.replace(n).is_some()
-            }
-            _ => true,
-        };
-        if deja {
-            return Err(ErreurApi::RequeteInvalide);
-        }
-    }
-    Ok((apres, limite.unwrap_or(PAGE_TIERS_PAR_DEFAUT)))
 }
 
 /// Le dossier du chemin, **visible** par l'utilisateur (relu en base : affecté, sauf
@@ -790,27 +669,10 @@ struct CorpsJournal {
     admis_en_cloture: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CorpsTiers {
-    nom: String,
-    #[serde(rename = "type")]
-    genre: String,
-    compte_collectif: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CorpsModificationTiers {
-    nom: Option<String>,
-    actif: Option<bool>,
-}
-
 /// Ressource à rendre après une mutation.
 enum Rendu {
     Compte(NumeroCompte),
     Journal(CodeJournal),
-    Tiers(Uuid),
 }
 
 /// Mutation pure d'une route de paramétrage, appliquée par [`muter`] à une copie de l'état.
@@ -821,7 +683,7 @@ async fn parametrer(
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
     let statut = match cas {
-        Cas::CreerCompte | Cas::CreerJournal | Cas::CreerTiers => StatusCode::CREATED,
+        Cas::CreerCompte | Cas::CreerJournal => StatusCode::CREATED,
         _ => StatusCode::OK,
     };
     let resultat = match cas {
@@ -866,38 +728,8 @@ async fn parametrer(
             let c: CorpsJournal = corps(requete.corps)?;
             muter(tx, move |_, etat| ajouter_journal(&c, etat)).await
         }
-        Cas::CreerTiers => {
-            let c: CorpsTiers = corps(requete.corps)?;
-            let id = Uuid::new_v4();
-            muter(tx, move |_, etat| {
-                let genre = TypeTiers::parse(&c.genre).ok_or(RefusReferentiel::Valeur)?;
-                let tiers = Tiers::nouveau(texte(&c.nom)?, genre, numero(&c.compte_collectif)?);
-                etat.tiers.insert(id, tiers);
-                Ok(Rendu::Tiers(id))
-            })
-            .await
-        }
-        Cas::ModifierTiers => {
-            let id = id_chemin(requete.chemin, "tiers")?;
-            let c: CorpsModificationTiers = corps(requete.corps)?;
-            if c.nom.is_none() && c.actif.is_none() {
-                return Err(ErreurApi::RequeteInvalide);
-            }
-            muter(tx, move |_, etat| {
-                let tiers = etat.tiers.get_mut(&id).ok_or(RefusReferentiel::Inconnu)?;
-                if let Some(nom) = &c.nom {
-                    tiers.renommer(texte(nom)?);
-                }
-                if let Some(actif) = c.actif {
-                    tiers.definir_actif(actif);
-                }
-                Ok(Rendu::Tiers(id))
-            })
-            .await
-        }
         Cas::ListerComptes
         | Cas::ListerJournaux
-        | Cas::ListerTiers
         | Cas::ListerExercices
         | Cas::VerrouillerPeriode
         | Cas::DeverrouillerPeriode
@@ -977,10 +809,6 @@ fn rendre(
         Rendu::Journal(code) => {
             let journal = etat.journaux.journal(code).ok_or(interne)?;
             (statut, Json(vue_journal(id_de("journal")?, journal))).into_response()
-        }
-        Rendu::Tiers(id) => {
-            let tiers = etat.tiers.get(id).ok_or(interne)?;
-            (statut, Json(vue_tiers(*id, tiers))).into_response()
         }
     };
     Ok(Resultat { reponse, traces })
@@ -1111,29 +939,5 @@ mod tests {
             lire_creation(corps("SN").as_bytes(), instant),
             Err(ErreurApi::RequeteInvalide)
         );
-    }
-
-    #[test]
-    fn pagination_des_tiers() {
-        let id = Uuid::new_v4();
-        assert_eq!(pagination(None), Ok((None, PAGE_TIERS_PAR_DEFAUT)));
-        assert_eq!(
-            pagination(Some(&format!("apres={id}&limite=3"))),
-            Ok((Some(id), 3))
-        );
-        for invalide in [
-            "limite=0",
-            "limite=201",
-            "apres=x",
-            "limite=1&limite=2",
-            "autre=1",
-            "limite",
-        ] {
-            assert_eq!(
-                pagination(Some(invalide)),
-                Err(ErreurApi::RequeteInvalide),
-                "{invalide}"
-            );
-        }
     }
 }

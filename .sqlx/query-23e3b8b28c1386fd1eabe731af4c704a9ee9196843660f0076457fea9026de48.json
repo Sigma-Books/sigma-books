@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT coalesce(max(substring(code FROM 2)::bigint), 0) AS \"dernier!\"\n           FROM tiers\n           WHERE cabinet_id = $1 AND dossier_id = $2 AND code ~ '^T[0-9]{6,18}$'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "dernier!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "23e3b8b28c1386fd1eabe731af4c704a9ee9196843660f0076457fea9026de48"
+}

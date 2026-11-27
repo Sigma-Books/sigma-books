@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tiers_compte_bancaire SET type = $5, numero = $6, etablissement = $7, devise = $8 WHERE cabinet_id = $1 AND dossier_id = $2 AND tiers_id = $3 AND id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "82d91e799ffa77ebe3a8ebaae7b6efcd83c57a67d2390f4b2b970fa050c62f97"
+}

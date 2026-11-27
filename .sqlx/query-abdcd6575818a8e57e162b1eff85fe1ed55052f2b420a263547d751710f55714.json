@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM tiers_identifiant WHERE cabinet_id = $1 AND dossier_id = $2 AND tiers_id = $3 AND id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "abdcd6575818a8e57e162b1eff85fe1ed55052f2b420a263547d751710f55714"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tiers_adresse SET libelle = $5, rue = $6, code_postal = $7, ville = $8, region = $9, pays = $10 WHERE cabinet_id = $1 AND dossier_id = $2 AND tiers_id = $3 AND id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f26db0729386ffbcb0fa731d1600c51f968f92d25ec2ce8b2e954053dd49ed2"
+}
