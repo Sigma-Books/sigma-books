@@ -53,6 +53,11 @@ Table de conditions **par dossier** (configuration modifiable et journalisée) :
 ### 6. Migrations, droits, autorisation
 Migrations **`0510` à `0519`** : conditions de règlement, `brouillon_ligne.date_echeance`, `echeance_ligne`, `echeance_report` (PR 8). Tables `echeance_ligne` et `echeance_report` en ajout seul (catalogue). Cedar : saisie et révision comme « Saisir, corriger dans le brouillard » pour la saisie, conditions de règlement comme paramétrage (spec §20, plan C6 : à amender dans la spec par le mainteneur) ; détail en PR 6.
 
+### Amendement du 2026-11-27 (point 4, balance âgée ; décision du mainteneur, PR 3c)
+- **Reconstitution** : le résiduel d'une ligne à D est son montant moins les liens des lettrages **non rompus** dont **toutes les lignes** sont datées au plus tard D (ADR 0032, amendement du point 3). Les dates des opérations de lettrage et de rupture n'interviennent pas. Un lettrage dont une ligne est postérieure à D est **marqué** dans les éditions (point 5) et ne solde pas la ligne. La phrase « le résultat à une date ne dépend d'aucune opération postérieure » et la conséquence « une édition à date passée est reproductible » sont remplacées : le résultat dépend du registre lu, comme chez les moteurs ; la balance âgée et l'état de rapprochement (ADR 0034, amendement du point 9) suivent la même règle.
+- **Bornes** : croissantes (égalités admises), au plus quatre. Une borne nulle ou répétée donne une tranche vide (Tryton et OCA ne contrôlent pas les bornes). **Liste vide** : deux colonnes, non échu (retard ≤ 0) et échu.
+- **Contrat de l'appelant** : les à-nouveaux de N+1 détaillés par tiers reprennent les soldes de N ; fournir à la fois les lignes de N et ces à-nouveaux compte deux fois (à respecter par la PR 10).
+
 ## Conséquences
 - Formats canoniques v1 à v5 **inchangés** ; vecteurs et empreintes existants intacts ; aucun nouveau document dans `docs/integrite/` pour cet ADR.
 - Une édition à date passée est **reproductible** ; en contrepartie, un règlement lettré après D reste visible comme crédit non lettré à D.
