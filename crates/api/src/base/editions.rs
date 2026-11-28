@@ -127,6 +127,7 @@ fn ligne_lue(c: Colonnes) -> Result<LigneStockee, ErreurBase> {
         devise,
         tiers: c.tiers,
         etiquette,
+        date_echeance: None,
     })
 }
 

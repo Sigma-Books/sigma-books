@@ -31,3 +31,18 @@ Odoo (édition communautaire) est publié sous LGPL-3.0 (fichier `LICENSE` à la
 | Destination | `crates/syscohada/data/comptes.toml` (champs `lettrable`, `page_lettrable`, `type_tresorerie`, `page_type_tresorerie`) |
 | Modifications | Marque posée sur le compte de la liste officielle le plus court qui couvre les comptes d'Odoo (40, 41, 421, 485, 488), avec la page de la fiche de fonctionnement relue sur le PDF officiel ; 585 et 588 ne viennent pas d'Odoo (585 à `reconcile` False, 588 absent du CSV) mais de la fiche 58 (p. PDF 430), Odoo n'étant cité que pour son compte de virements internes lettrable créé sous le préfixe 585 ; comptes d'Odoo hors des collectifs de Sigma Books non repris (4287, 4387, 4441, 4445 : aucune source dans les textes OHADA). Détail dans `crates/syscohada/README.md`. |
 | PR | PR 5a du lot L3 (L3-12) |
+
+## modeles-conditions-reglement — modèles d'usage des conditions de règlement d'un dossier
+
+| Champ | Valeur |
+|---|---|
+| Projet | Odoo 19.0 (module `account`) |
+| Dépôt | https://github.com/odoo/odoo |
+| Fichier(s) d'origine | `addons/account/data/account_data.xml:34-100` (enregistrements `account.payment.term` : paiement immédiat, 15, 21, 30 et 45 jours, fin du mois suivant, « 30 % Now, Balance 60 Days ») |
+| Commit ou version | `fa175fb2b1dd69883188ddbd07d0d0b7a6cf9118` |
+| Licence | LGPL-3.0 (fichier `LICENSE` et manifeste `addons/account/__manifest__.py`, vérifiés) |
+| Auteurs / titulaires | © Odoo S.A. |
+| Nature de la reprise | Jeu de données : délais et répartition de six conditions livrées par défaut (faits : nombre de jours, type de délai, pourcentage), aucun code ni texte repris |
+| Destination | `crates/api/src/serveur/routes/echeancier.rs` (`MODELES_D_USAGE`), créés avec chaque dossier, éditables |
+| Modifications | Libellés en français et codes propres à Sigma Books ; 21 jours non repris ; ajout de « 30 jours fin de mois » (critère de fin du lot L3), qui n'est pas une donnée d'Odoo ; le dernier terme est le solde (au lieu de « 100 % » ou « 70 % ») ; aucune valeur légale de délai (ADR 0033 point 3) |
+| PR | PR 8 du lot L3 (L3-17) |

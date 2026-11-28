@@ -38,6 +38,9 @@
 //!   table de brouillard ne s'ajoute pas sans être lue à la clôture d'une période. Une table
 //!   **exemptée** (tables dépendantes de `brouillon`, PR 13a) existe, n'a aucune colonne
 //!   temporelle (`date`, `timestamp*`, intervalle, ou nom contenant `date`, `jour`, `annee`) et dépend par clé étrangère d'une table déclarée.
+//!   Seule exception, colonne par colonne : une date **non comptable** déclarée dans
+//!   `brouillard_colonne_non_comptable` (table exemptée, colonne existante de type `date` exactement,
+//!   justifiée ; échéance d'une ligne de tiers, L3-17), que la clôture n'a pas à lire.
 //!
 //! Le second test introduit des écarts dans une base jetable et vérifie que chacun est détecté.
 #![cfg(feature = "tests-postgres")]
@@ -73,6 +76,7 @@ struct FichierCatalogue {
     irreversible: Vec<Irreversible>,
     brouillard: Vec<Entree>,
     brouillard_exempte: Vec<Entree>,
+    brouillard_colonne_non_comptable: Vec<ColonneNonComptable>,
 }
 
 impl FichierCatalogue {
@@ -103,6 +107,8 @@ impl FichierCatalogue {
         self.irreversible.extend(autre.irreversible);
         self.brouillard.extend(autre.brouillard);
         self.brouillard_exempte.extend(autre.brouillard_exempte);
+        self.brouillard_colonne_non_comptable
+            .extend(autre.brouillard_colonne_non_comptable);
     }
 }
 
@@ -146,6 +152,17 @@ struct Entree {
     justification: String,
 }
 
+/// Colonne de date **non comptable** d'une table exemptée du fil-piège du brouillard (L3-17 :
+/// `brouillon_ligne.date_echeance`) : la clôture d'une période ne la lit pas, car ce n'est pas la
+/// date de l'écriture. Déclarée colonne par colonne, de type `date` exactement.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ColonneNonComptable {
+    table: String,
+    colonne: String,
+    justification: String,
+}
+
 /// Déclencheur d'irréversibilité : table, fonction (et déclencheur) du même nom, statut clos.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -180,6 +197,8 @@ struct Regles {
     brouillard: Vec<String>,
     /// Tables dont le nom contient `brouill` sans être du brouillard.
     brouillard_exempte: Vec<String>,
+    /// Colonnes de date non comptables des tables exemptées : (table, colonne).
+    brouillard_colonnes_non_comptables: Vec<(String, String)>,
 }
 
 fn regles() -> Regles {
@@ -224,6 +243,16 @@ fn regles() -> Regles {
                 .iter()
                 .map(|e| ("brouillard_exempte", &e.nom, &e.justification)),
         );
+    let colonnes: Vec<(String, &String)> = f
+        .brouillard_colonne_non_comptable
+        .iter()
+        .map(|c| (format!("{}.{}", c.table, c.colonne), &c.justification))
+        .collect();
+    let declarees = declarees.chain(
+        colonnes
+            .iter()
+            .map(|(nom, justification)| ("brouillard_colonne_non_comptable", nom, *justification)),
+    );
     for (liste, nom, justification) in declarees {
         assert!(!justification.trim().is_empty(), "{nom} sans justification");
         assert!(
@@ -257,6 +286,11 @@ fn regles() -> Regles {
             .collect(),
         brouillard: noms_de(&f.brouillard),
         brouillard_exempte: noms_de(&f.brouillard_exempte),
+        brouillard_colonnes_non_comptables: f
+            .brouillard_colonne_non_comptable
+            .iter()
+            .map(|c| (c.table.clone(), c.colonne.clone()))
+            .collect(),
     }
 }
 
@@ -811,7 +845,11 @@ async fn ecarts_exemptions_brouillard(
         .fetch_all(&mut *connexion)
         .await
         .unwrap();
-        for colonne in dates {
+        for colonne in dates.into_iter().filter(|colonne| {
+            !regles
+                .brouillard_colonnes_non_comptables
+                .contains(&(table.clone(), colonne.clone()))
+        }) {
             ecarts.push(format!(
                 "table de brouillard exemptée {table} : colonne temporelle {colonne}"
             ));
@@ -867,6 +905,44 @@ async fn ecarts(connexion: &mut PgConnection, regles: &Regles) -> Vec<String> {
         .await,
     );
     ecarts.extend(ecarts_exemptions_brouillard(connexion, regles).await);
+    ecarts.extend(ecarts_colonnes_non_comptables(connexion, regles).await);
+    ecarts
+}
+
+/// Colonnes de date non comptables déclarées (`brouillard_colonne_non_comptable`) : chacune
+/// appartient à une table exemptée du fil-piège et existe, de type `date` exactement (ni
+/// instant, ni intervalle, ni entier) ; sinon l'exemption couvrirait autre chose que ce qu'elle
+/// justifie.
+async fn ecarts_colonnes_non_comptables(
+    connexion: &mut PgConnection,
+    regles: &Regles,
+) -> Vec<String> {
+    let mut ecarts = Vec::new();
+    for (table, colonne) in &regles.brouillard_colonnes_non_comptables {
+        if !regles.brouillard_exempte.contains(table) {
+            ecarts.push(format!(
+                "colonne non comptable {table}.{colonne} : table hors de brouillard_exempte"
+            ));
+        }
+        let genre: Option<String> = sqlx::query_scalar(
+            "SELECT udt_name::text FROM information_schema.columns \
+             WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2",
+        )
+        .bind(table)
+        .bind(colonne)
+        .fetch_optional(&mut *connexion)
+        .await
+        .unwrap();
+        match genre.as_deref() {
+            Some("date") => {}
+            Some(autre) => ecarts.push(format!(
+                "colonne non comptable {table}.{colonne} : type {autre}, date attendu"
+            )),
+            None => ecarts.push(format!(
+                "colonne non comptable {table}.{colonne} : absente de la base"
+            )),
+        }
+    }
     ecarts
 }
 
@@ -919,6 +995,8 @@ const ECARTS_PROPRIETAIRE: &str = "CREATE TABLE table_oubliee (id uuid PRIMARY K
              ALTER TABLE brouillon_contributeur ADD COLUMN plage daterange; \
              ALTER TABLE brouillon_ligne ADD COLUMN jour_valeur integer; \
              ALTER TABLE brouillon_ligne ADD COLUMN exercice_annee integer; \
+             ALTER TABLE brouillon_ligne ALTER COLUMN date_echeance TYPE timestamptz; \
+             ALTER TABLE brouillon_piece ADD COLUMN date_echeance date; \
              CREATE TABLE brouillon_oublie (cabinet_id uuid NOT NULL); \
              CREATE TABLE ecriture_brouillard (cabinet_id uuid NOT NULL); \
              CREATE TABLE ligne_brouillon (cabinet_id uuid NOT NULL); \
@@ -983,6 +1061,8 @@ const ECARTS_ATTENDUS: &[&str] = &[
     "table de brouillard exemptée brouillon_contributeur : colonne temporelle plage",
     "table de brouillard exemptée brouillon_ligne : colonne temporelle jour_valeur",
     "table de brouillard exemptée brouillon_ligne : colonne temporelle exercice_annee",
+    "colonne non comptable brouillon_ligne.date_echeance : type timestamptz, date attendu",
+    "table de brouillard exemptée brouillon_piece : colonne temporelle date_echeance",
     "table de brouillard brouillon_oublie : en base true, au catalogue false",
     "table de brouillard ecriture_brouillard : en base true, au catalogue false",
     "table de brouillard ligne_brouillon : en base true, au catalogue false",

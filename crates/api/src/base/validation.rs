@@ -416,6 +416,11 @@ pub async fn inserer(tx: &mut TransactionTenant, i: &Inscription) -> Result<(), 
         .execute(tx.connexion())
         .await?;
     }
+    // Échéances des lignes de tiers, hors du contenu haché (ADR 0033 point 1 ; L3-17) : un
+    // `INSERT … SELECT` du brouillon validé ; une contre-passation n'en recopie aucune.
+    if i.origine.is_none() {
+        super::echeancier::copier_echeances(tx, i.id).await?;
+    }
     for (indice, (piece, role)) in i.pieces.iter().enumerate() {
         let position = i16::try_from(indice + 1).map_err(|_| ErreurBase::Donnee("position"))?;
         sqlx::query!(
@@ -674,6 +679,7 @@ pub async fn lire(
             devise,
             tiers: l.tiers_id,
             etiquette,
+            date_echeance: None,
         });
     }
     let liens = sqlx::query!(

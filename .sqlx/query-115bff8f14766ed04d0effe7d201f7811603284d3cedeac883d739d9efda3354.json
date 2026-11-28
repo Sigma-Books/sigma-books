@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO condition_reglement_terme (cabinet_id, dossier_id, condition_id, rang, valeur, montant, delai, jours, jour_du_mois) VALUES ($1, $2, $3, $4, $5, $6::text::numeric, $7, $8, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int2",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Int2"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "115bff8f14766ed04d0effe7d201f7811603284d3cedeac883d739d9efda3354"
+}

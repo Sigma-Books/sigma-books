@@ -54,7 +54,8 @@ async fn les_tables_du_referentiel_n_accordent_ni_delete_ni_update_de_table() {
         ("exercice", &["statut"]),
         ("periode", &["motif", "statut", "statut_le", "statut_par"]),
         // Fiche du tiers (lot L3, `0500_tiers_fiche.sql`) : code immuable ; type et compte collectif
-        // modifiables avant le premier mouvement (contrôle de l'API).
+        // modifiables avant le premier mouvement (contrôle de l'API) ; condition de règlement par
+        // défaut (L3, PR 8, `0511_tiers_condition_reglement.sql`).
         (
             "tiers",
             &[
@@ -63,6 +64,7 @@ async fn les_tables_du_referentiel_n_accordent_ni_delete_ni_update_de_table() {
                 "archive_par",
                 "assujetti_tva",
                 "compte_collectif",
+                "condition_reglement_id",
                 "devise",
                 "motif_archivage",
                 "nom",

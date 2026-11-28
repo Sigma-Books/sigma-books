@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tiers SET condition_reglement_id = $4 WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4071a435714fea2d89af1b183df3da13cecc84e941fe717c9d283aa345f39e9"
+}

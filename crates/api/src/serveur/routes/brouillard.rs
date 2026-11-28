@@ -331,6 +331,9 @@ struct VueLigne {
     tiers: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     etiquette: Option<VueEtiquette>,
+    /// Échéance d'une ligne de tiers (ADR 0033 point 1), `AAAA-MM-JJ`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    date_echeance: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -431,6 +434,7 @@ fn vue_ligne(position: usize, l: &LigneStockee) -> VueLigne {
             exigibilite: e.exigibilite.clone(),
             motif: e.motif.clone(),
         }),
+        date_echeance: l.date_echeance.map(interne::date),
     }
 }
 

@@ -82,6 +82,7 @@ pub async fn doter(
         devise: None,
         tiers: None,
         etiquette: None,
+        date_echeance: None,
     };
     let contenu = ContenuStocke {
         journal_id,

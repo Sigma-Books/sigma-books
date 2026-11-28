@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO echeance_ligne (cabinet_id, dossier_id, ecriture_id, position, date_echeance) SELECT b.cabinet_id, b.dossier_id, b.brouillon_id, b.position, b.date_echeance FROM brouillon_ligne b JOIN ecriture_validee_ligne v ON v.cabinet_id = b.cabinet_id AND v.dossier_id = b.dossier_id AND v.ecriture_id = b.brouillon_id AND v.position = b.position AND v.compte_numero = b.compte_numero AND v.sens = b.sens AND v.montant = b.montant AND v.tiers_id = b.tiers_id WHERE b.cabinet_id = $1 AND b.dossier_id = $2 AND b.brouillon_id = $3 AND b.date_echeance IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f42192cc4215309e7b2c629980533102baebcfc0cef4cab2fd9c403460c84a1"
+}

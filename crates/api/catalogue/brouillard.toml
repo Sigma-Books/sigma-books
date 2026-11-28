@@ -28,8 +28,10 @@ période `FOR SHARE`."""
 [[brouillard_exempte]]
 nom = "brouillon_ligne"
 justification = """
-Ligne d'un brouillon : aucune date propre, elle suit l'en-tête (`brouillon`), lu à la clôture. \
-Un brouillon daté dans la période empêche la clôture avec ou sans ses lignes."""
+Ligne d'un brouillon : aucune date comptable propre, elle suit l'en-tête (`brouillon`), lu à la \
+clôture. Un brouillon daté dans la période empêche la clôture avec ou sans ses lignes. Sa seule \
+date, `date_echeance` (L3-17, migration 0512), est une échéance de règlement, pas une date \
+comptable : déclarée dans `brouillard_colonne_non_comptable` (`echeancier.toml`)."""
 
 [[brouillard_exempte]]
 nom = "brouillon_contributeur"

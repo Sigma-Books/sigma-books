@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.position AS \"position!\", l.compte_numero AS \"compte_numero!\",\n                  l.sens AS \"sens!\", l.montant::text AS \"montant!\",\n                  l.tiers_id AS \"tiers_id!\", e.date_echeance AS \"initiale?\"\n           FROM ecriture_validee_ligne l\n           LEFT JOIN echeance_ligne e\n             ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id\n            AND e.ecriture_id = l.ecriture_id AND e.position = l.position\n           WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.ecriture_id = $3\n             AND l.tiers_id IS NOT NULL\n           ORDER BY l.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "position!",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "compte_numero!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "compte_numero"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sens!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "sens"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "montant!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "tiers_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "tiers_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "initiale?",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "echeance_ligne",
+            "name": "date_echeance"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "21e4d61d20a428db4acd79deb9d7c6a4a1278db7eb8d3e81dfcbc327019f80e7"
+}

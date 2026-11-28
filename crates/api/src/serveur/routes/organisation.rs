@@ -362,6 +362,9 @@ async fn creer(
     // La transaction est restreinte au dossier créé (référentiel) : ses identifiants légaux
     // s'inscrivent sous la RLS de dossier.
     inserer_identifiants_legaux(tx, demande.identifiants()).await?;
+    // Modèles d'usage des conditions de règlement, éditables (L3-17 ; ADR 0033 point 3).
+    let conditions = super::echeancier::creer_modeles_d_usage(tx, requete.maintenant).await?;
+    donnees.push(("conditions_reglement", conditions.to_string()));
     let c = demande.contexte();
     donnees.extend([
         ("pays", c.pays.clone()),

@@ -815,7 +815,8 @@ profondeur).
   (brouillon ou écriture validée) ne cite le tiers (409 `tiers_deja_mouvemente` ensuite ; ADR 0031
   point 1, amendement du 2026-11-27).
 - `POST …/tiers/{tiers}/modification` (`ModifierTiers` : rôles de saisie) : `nom`, `devise` (`null`
-  l'efface), indicateurs ; `identifiants`, `adresses`, `contacts` : une liste présente **remplace**
+  l'efface), indicateurs, `condition_reglement` (condition du dossier, sinon 404 ; `null` l'efface ;
+  PR 8) ; `identifiants`, `adresses`, `contacts` : une liste présente **remplace**
   la liste (ligne gardée par son `id`, ajoutée sans `id`, retirée si absente). Identifiants : types
   du pack du pays **du dossier**, un par type (422 `tiers_identifiant_type_inconnu`) ; valeurs
   bornées (422 `tiers_valeur_invalide`), sans caractère de contrôle ni de format Unicode `Cf` (422
@@ -834,6 +835,57 @@ profondeur).
 - Bornes (limites de sécurité, F2.16, ordres de grandeur) : 10 identifiants, 20 adresses,
   50 contacts, 20 coordonnées bancaires ; dépassement : 422 `tiers_trop_d_identifiants`,
   `tiers_trop_d_adresses`, `tiers_trop_de_contacts`, `tiers_trop_de_comptes_bancaires`.
+
+## Échéancier (lot L3, PR 8 ; ADR 0033)
+
+Code : `src/serveur/routes/echeancier.rs` (routes, modèles d'usage, conversions vers `compta_core::echeance`),
+`src/base/echeancier.rs` (tables), migrations `0510` à `0514`, catalogue `echeancier.toml`.
+
+- **Conditions de règlement** (`condition_reglement`, `condition_reglement_terme`, configuration) :
+  code (texte de 1 à 20 caractères sans caractère de contrôle ni de format, unique dans le dossier :
+  409 `condition_reglement_code_deja_utilise` ; immuable, choix de Sigma Books non exigé par
+  l'ADR 0033),
+  libellé, activité, 1 à 50 termes (`valeur` : `pourcentage` du total, `fixe` ou `solde` ;
+  `delai` : `jours`, `fin_de_mois`, `fin_du_mois_suivant`, `jour_du_mois_suivant` avec `jour` 0 à
+  31 ; `jours` signé). Dernier terme = solde, pourcentages sous 100 : contrôles de `compta-core`
+  (422 `condition_reglement_invalide`). Termes remplacés en bloc ; aucune suppression d'une
+  condition (archivage par `actif`). **Modèles d'usage** (`MODELES_D_USAGE`, repris d'Odoo, plus
+  « 30 jours fin de mois ») créés avec chaque **nouveau** dossier ; les dossiers antérieurs n'en ont
+  pas (création par la route).
+- **Assistant** `GET …/conditions-reglement/{condition}/echeances?date=AAAA-MM-JJ&montant=1000` :
+  termes datés (une ligne de tiers par terme), somme exacte, signe reporté (avoir), montant à
+  l'échelle de la devise de tenue (422 `montant_echelle_devise_tenue`) ; aucune écriture.
+- **Saisie** : `date_echeance` facultative sur une ligne de brouillon, **ligne de tiers seulement**
+  (422 `echeance_sans_tiers`, contrainte en seconde barrière) ; aucune autre règle (Tryton et Odoo
+  admettent toute date). **Validation** (unitaire, lot) : `base::validation::inserer` appelle
+  `base::echeancier::copier_echeances` (un `INSERT … SELECT`), hors du contenu haché ; chaque
+  échéance va sur la ligne validée de même position, compte, sens, montant et tiers, sinon la
+  validation échoue entière (500, tout ou rien) ; la contre-passation n'en copie aucune. Colonne exemptée du fil-piège du brouillard (`brouillard_colonne_non_comptable` du
+  catalogue : date non comptable, type `date` contrôlé).
+- **Échéances** `GET …/echeances/{ecriture}[?au=AAAA-MM-JJ]` : lignes de tiers, échéance
+  initiale, révisions, échéance effective à `au` (défaut : jour du dossier ; repli sur la date
+  comptable), résiduel, `statut` (`ouverte`, `partiellement_reglee`, `soldee`) et `situation`
+  (`a_echoir`, `echue` avec `retard_jours`, `soldee`), calculés.
+- **Révision** `POST …/echeances/{ecriture}/revisions` `{position, nouvelle_echeance, motif}` :
+  ajout seul (`echeance_report`, rang suivant), motif obligatoire de 400 octets au plus sans
+  caractère de contrôle ni de format (422 `echeance_motif_invalide`), ligne sans tiers : 422
+  `echeance_sans_tiers` ; résiduel nul : 409 `echeance_soldee` ; rang pris par une révision
+  concurrente : 409 `echeance_revision_concurrente`. **Résiduel** : interface
+  `base::echeancier::residuel` (montant entier tant que le lettrage n'est pas livré) ; la PR 9a y
+  prend le `compteur_lettrage` du compte `FOR UPDATE` (ADR 0032 point 8) et retire les liens.
+- **Audit** : condition (opération, code, champs, nombre de termes), révision (position, rang, dates) ;
+  jamais le motif ni le libellé.
+- **Rôles relus en base** (défense en profondeur) : constantes du module, recopiées des politiques
+  Cedar ; `tests/echeancier.rs` (`les_roles_relus_en_base_suivent_cedar`) vérifie, Cedar forcé,
+  qu'ils refusent exactement les rôles que Cedar refuse.
+
+| Route | Cedar |
+|---|---|
+| `GET …/conditions-reglement`, `GET …/conditions-reglement/{condition}` | `ConsulterTiers` |
+| `POST …/conditions-reglement`, `POST …/conditions-reglement/{condition}/modification` | `ParametrerConditionsReglement` |
+| `GET …/conditions-reglement/{condition}/echeances` (assistant) | `SaisirBrouillard` |
+| `GET …/echeances/{ecriture}` | `ConsulterEditionsTiers` |
+| `POST …/echeances/{ecriture}/revisions` | `ReviserEcheance` |
 
 ## Paramètres fiscaux par pays (ADR 0030)
 

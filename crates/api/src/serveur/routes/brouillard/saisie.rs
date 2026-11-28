@@ -49,6 +49,8 @@ struct CorpsLigne {
     devise: Option<CorpsDevise>,
     tiers: Option<String>,
     etiquette: Option<CorpsEtiquette>,
+    /// Échéance d'une ligne de tiers, `AAAA-MM-JJ` (ADR 0033 point 1) : hors du contenu haché.
+    date_echeance: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,6 +249,21 @@ fn ligne(
     Ok(ligne)
 }
 
+/// Échéance d'une ligne (ADR 0033 point 1) : date stricte, sur une ligne de tiers seulement
+/// (422 `echeance_sans_tiers`). Aucun autre contrôle : Tryton et Odoo admettent toute date
+/// d'échéance, antérieure à la date comptable comprise. Elle n'entre pas dans l'écriture de
+/// `compta-core` (hors du contenu haché).
+fn echeance(c: &CorpsLigne, position: usize) -> Result<Option<Date>, ErreurApi> {
+    let Some(texte) = &c.date_echeance else {
+        return Ok(None);
+    };
+    let date = date_lue(texte).ok_or(ErreurApi::RequeteInvalide)?;
+    if c.tiers.is_none() {
+        return Err(refus(RefusSaisie::EcheanceSansTiers, Some(position)));
+    }
+    Ok(Some(date))
+}
+
 /// Contrôle une saisie contre le référentiel du dossier relu et les paramètres fiscaux de la
 /// date comptable.
 ///
@@ -298,7 +315,9 @@ pub(super) fn controler(
             vue.as_ref().map(|v| v as &dyn ReferentielFiscal),
             tenue,
         )?;
-        lignes.push(LigneStockee::depuis(&l)?);
+        let mut stockee = LigneStockee::depuis(&l)?;
+        stockee.date_echeance = echeance(c, i + 1)?;
+        lignes.push(stockee);
         ecriture.ajouter_ligne(l);
     }
     Ok(Controle {

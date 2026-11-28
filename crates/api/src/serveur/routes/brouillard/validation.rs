@@ -1178,6 +1178,7 @@ mod tests {
             devise: None,
             tiers: None,
             etiquette: None,
+            date_echeance: None,
         }
     }
 
@@ -1313,6 +1314,17 @@ mod tests {
         debit: &str,
         credit: &str,
     ) -> Result<Decision, ErreurApi> {
+        appliquer_deux_lignes_echeance(tenue, debit, credit, None)
+    }
+
+    /// Comme [`appliquer_deux_lignes`], l'échéance `echeance` portée par les deux lignes
+    /// (ADR 0033 : hors du contenu haché, elle ne doit rien changer à la décision).
+    fn appliquer_deux_lignes_echeance(
+        tenue: DeviseTenue,
+        debit: &str,
+        credit: &str,
+        echeance: Option<Date>,
+    ) -> Result<Decision, ErreurApi> {
         let d = decor();
         let etat = d.inst.etat();
         let contexte = Contexte {
@@ -1342,8 +1354,14 @@ mod tests {
                 decimales_tenue: 0,
                 version_parametres: None,
                 lignes: vec![
-                    stockee("debit", &d.caisse, debit),
-                    stockee("credit", &d.banque, credit),
+                    LigneStockee {
+                        date_echeance: echeance,
+                        ..stockee("debit", &d.caisse, debit)
+                    },
+                    LigneStockee {
+                        date_echeance: echeance,
+                        ..stockee("credit", &d.banque, credit)
+                    },
                 ],
             },
             a_revoir: false,
@@ -1405,6 +1423,27 @@ mod tests {
         assert_eq!(r.format, 1);
         assert!(r.canonique.starts_with("ecriture v1\n"));
         assert!(!r.canonique.contains("devise-tenue"));
+    }
+
+    #[test]
+    fn l_echeance_n_entre_pas_dans_le_contenu_hache() {
+        // ADR 0033 point 1 : même contenu canonique, même empreinte, avec ou sans échéance ;
+        // formats v1 (XOF) et v4 (autre devise de tenue) inchangés.
+        let cdf = DeviseTenue::nouvelle(Devise::parse("CDF").unwrap(), 2).unwrap();
+        for (tenue, montant) in [(tenue_xof(), "1000"), (cdf, "1000.55")] {
+            let sans = appliquer_deux_lignes_echeance(tenue, montant, montant, None).unwrap();
+            let avec = appliquer_deux_lignes_echeance(
+                tenue,
+                montant,
+                montant,
+                Some(date!(2099 - 06 - 30)),
+            )
+            .unwrap();
+            assert_eq!(avec.canonique, sans.canonique);
+            assert_eq!(avec.empreinte, sans.empreinte);
+            assert_eq!(avec.format, sans.format);
+            assert!(!avec.canonique.contains("2099"));
+        }
     }
 
     #[test]

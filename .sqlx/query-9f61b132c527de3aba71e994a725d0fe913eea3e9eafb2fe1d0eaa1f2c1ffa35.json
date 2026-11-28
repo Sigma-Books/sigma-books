@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM condition_reglement_terme WHERE cabinet_id = $1 AND dossier_id = $2 AND condition_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9f61b132c527de3aba71e994a725d0fe913eea3e9eafb2fe1d0eaa1f2c1ffa35"
+}

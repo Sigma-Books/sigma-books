@@ -57,6 +57,9 @@ pub struct EnteteTiers {
     pub motif_archivage: Option<String>,
     /// Instant de l'archivage en cours.
     pub archive_le: Option<OffsetDateTime>,
+    /// Condition de règlement par défaut de saisie (ADR 0031 point 4, ADR 0033 ; migration
+    /// `0511`), modifiée par [`changer_condition_reglement`].
+    pub condition_reglement: Option<Uuid>,
 }
 
 /// Identifiant légal d'un tiers.
@@ -212,7 +215,7 @@ pub async fn lister(
     let (nom, id) = curseur.unzip();
     let lignes = sqlx::query!(
         "SELECT id, code, nom, type, compte_collectif, actif, devise, assujetti_tva, \
-                soumis_retenue, motif_archivage, archive_le \
+                soumis_retenue, motif_archivage, archive_le, condition_reglement_id \
          FROM tiers \
          WHERE cabinet_id = $1 AND dossier_id = $2 \
            AND ($3::text IS NULL OR (nom, id) > ($3, $4::uuid)) \
@@ -241,6 +244,7 @@ pub async fn lister(
                 soumis_retenue: l.soumis_retenue,
                 motif_archivage: l.motif_archivage,
                 archive_le: l.archive_le,
+                condition_reglement: l.condition_reglement_id,
             })
         })
         .collect::<Result<Vec<_>, ErreurBase>>()
@@ -258,7 +262,7 @@ pub async fn lire_entete(
     let (cabinet, dossier) = contexte(tx)?;
     let ligne = sqlx::query!(
         "SELECT id, code, nom, type, compte_collectif, actif, devise, assujetti_tva, \
-                soumis_retenue, motif_archivage, archive_le \
+                soumis_retenue, motif_archivage, archive_le, condition_reglement_id \
          FROM tiers WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
         cabinet,
         dossier,
@@ -280,6 +284,7 @@ pub async fn lire_entete(
                 soumis_retenue: l.soumis_retenue,
                 motif_archivage: l.motif_archivage,
                 archive_le: l.archive_le,
+                condition_reglement: l.condition_reglement_id,
             })
         })
         .transpose()
@@ -606,6 +611,31 @@ pub async fn modifier_entete(
         e.devise,
         e.assujetti_tva,
         e.soumis_retenue,
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(())
+}
+
+/// Change la condition de règlement par défaut du tiers `id` (déjà verrouillé, ou créé dans
+/// cette transaction). La condition appartient au dossier : clé étrangère composite (`0511`) ;
+/// l'appelant l'a lue dans le dossier du contexte.
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn changer_condition_reglement(
+    tx: &mut TransactionTenant,
+    id: Uuid,
+    condition: Option<Uuid>,
+) -> Result<(), ErreurBase> {
+    let (cabinet, dossier) = contexte(tx)?;
+    sqlx::query!(
+        "UPDATE tiers SET condition_reglement_id = $4 \
+         WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+        cabinet,
+        dossier,
+        id,
+        condition,
     )
     .execute(tx.connexion())
     .await?;

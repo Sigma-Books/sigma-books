@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT condition_id, valeur, montant::text AS montant, delai, jours, jour_du_mois\n           FROM condition_reglement_terme\n           WHERE cabinet_id = $1 AND dossier_id = $2 AND condition_id = ANY($3)\n           ORDER BY condition_id, rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "condition_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement_terme",
+            "name": "condition_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "valeur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement_terme",
+            "name": "valeur"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "montant",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "delai",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement_terme",
+            "name": "delai"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "jours",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement_terme",
+            "name": "jours"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "jour_du_mois",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement_terme",
+            "name": "jour_du_mois"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "22ca1c8fdfad14a72558555ab396a87b0c4610e2c6ada29d150b6360afdf0bce"
+}
