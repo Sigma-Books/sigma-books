@@ -88,6 +88,34 @@ pub async fn doter(
     .await
     .expect("profil de test");
 
+    let piece = piece_texte(admin, cabinet, dossier, auteur).await;
+    let maintenant = time::OffsetDateTime::now_utc();
+    let depot = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO depot_releve (cabinet_id, dossier_id, id, compte_tresorerie_id, piece_id, \
+         depose_par, depose_le) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    )
+    .bind(cabinet.uuid())
+    .bind(dossier.uuid())
+    .bind(depot)
+    .bind(compte)
+    .bind(piece)
+    .bind(auteur.uuid())
+    .bind(maintenant)
+    .execute(admin)
+    .await
+    .expect("dépôt de test");
+    (profil, depot)
+}
+
+/// Pièce externe `text/csv` réelle (relevé propre à la pièce), sans dépôt : objet dans le
+/// stockage partagé, ligne insérée par le super-utilisateur. Rend son identifiant.
+pub async fn piece_texte(
+    admin: &PgPool,
+    cabinet: IdCabinet,
+    dossier: IdDossier,
+    auteur: IdUtilisateur,
+) -> Uuid {
     let piece = Uuid::new_v4();
     let contenu = releve(&piece.to_string()).into_bytes();
     let cle = CleObjet::nouvelle(cabinet, dossier);
@@ -116,20 +144,5 @@ pub async fn doter(
     .execute(admin)
     .await
     .expect("pièce de relevé de test");
-    let depot = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO depot_releve (cabinet_id, dossier_id, id, compte_tresorerie_id, piece_id, \
-         depose_par, depose_le) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-    )
-    .bind(cabinet.uuid())
-    .bind(dossier.uuid())
-    .bind(depot)
-    .bind(compte)
-    .bind(piece)
-    .bind(auteur.uuid())
-    .bind(maintenant)
-    .execute(admin)
-    .await
-    .expect("dépôt de test");
-    (profil, depot)
+    piece
 }

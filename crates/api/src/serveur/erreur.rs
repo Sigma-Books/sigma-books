@@ -240,11 +240,14 @@ pub enum MotifConflit {
     /// Nombre maximal de profils d'import de relevé du dossier atteint (ADR 0034 point 6 : 20,
     /// réglage d'instance).
     ProfilsReleveMax,
+    /// Nombre maximal de versions d'un profil d'import atteint (50, comme les versions de
+    /// paramètres fiscaux, ADR 0030).
+    ProfilVersionsMax,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 48] = [
+    pub const TOUS: [Self; 49] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -293,6 +296,7 @@ impl MotifConflit {
         Self::TiersCodeTirageImpossible,
         Self::TiersDejaMouvemente,
         Self::ProfilsReleveMax,
+        Self::ProfilVersionsMax,
     ];
 
     /// Code du corps de la réponse.
@@ -347,6 +351,7 @@ impl MotifConflit {
             Self::TiersCodeTirageImpossible => "tiers_code_tirage_impossible",
             Self::TiersDejaMouvemente => "tiers_deja_mouvemente",
             Self::ProfilsReleveMax => "releve_profils_max",
+            Self::ProfilVersionsMax => "releve_profil_versions_max",
         }
     }
 }

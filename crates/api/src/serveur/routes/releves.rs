@@ -1,6 +1,6 @@
 //! Relevés importés, partie 1/2 (L3-22, PR 12a de `docs/lots/L3.md` ; ADR 0034 points 4 à 6 ;
 //! spec §9.2) : profils d'import du dossier, versionnés ; dépôt du fichier CSV comme pièce ;
-//! analyse (aperçu, **sans aucune écriture**). L'import des lignes, les doublons de lignes, le
+//! analyse (aperçu, **sans écriture de lignes**). L'import des lignes, les doublons de lignes, le
 //! contrôle des soldes, les règles et les propositions de brouillon sont de la PR 12b.
 //!
 //! # Profils (ADR 0034 point 6)
@@ -22,9 +22,12 @@
 //! ligne). Le fichier devient une **pièce externe** (WORM, empreinte SHA-256 du serveur, rétention
 //! du paquet du pays), de statut probant « importé, non certifié ». Un fichier identique à l'octet
 //! déjà déposé dans le dossier (pièce non écartée) n'est pas stocké une seconde fois : 200
-//! `{"doublon":true,"depots":[…]}` avec renvoi aux dépôts précédents (ADR 0034 point 7, couche 1 :
-//! un fichier identique ne contient aucune ligne nouvelle ; aucun objet WORM inutile, gardé dix
-//! ans). Le corps n'est jamais journalisé ; le journal d'audit ne reçoit que des identifiants, des
+//! `{"doublon":true,"depots":[…]}` avec renvoi aux dépôts précédents (comme les pièces de L2 et la
+//! spec §9.3 ; aucun objet WORM inutile, gardé dix ans) ; le 409 `releve_deja_importe` de l'ADR
+//! 0034 point 7 est réservé à l'**import** des lignes (PR 12b ; précision du 2026-11-27 de l'ADR).
+//! La reconnaissance du texte et l'empreinte (jusqu'à 16 décodages de 5 Mio et un SHA-256) se
+//! calculent hors de la boucle asynchrone (`spawn_blocking`) ; le premier refus indépendant de
+//! l'encodage (octet nul, ligne trop longue) arrête la reconnaissance. Le corps n'est jamais journalisé ; le journal d'audit ne reçoit que des identifiants, des
 //! noms de champs, l'empreinte et la taille (jamais le nom du fichier, un libellé ni un
 //! identifiant bancaire : ADR 0034 point 11, F2.11).
 //!
@@ -35,7 +38,9 @@
 //! boucle asynchrone, et rend : colonnes du profil, premières lignes lues (20 par défaut, 100 au
 //! plus), alertes (`libelle_formule`, `caractere_bidirectionnel` : un texte du fichier n'est
 //! jamais rendu sans l'alerte que `formats` lui attache), totaux calculés en décimal exact,
-//! premier et dernier soldes lus. **Rien n'est écrit**, pas même au journal d'audit (lecture).
+//! premier et dernier soldes lus. Dépôt dont la pièce est écartée (dépôt erroné, ADR 0015) : 409
+//! `piece_ecartee`. **Aucune ligne n'est écrite** ; seule exception, voulue (F3.1) : une pièce
+//! relue altérée ou absente donne 500 avec une entrée d'audit d'alerte, comme le téléchargement.
 //!
 //! # Défense en profondeur (ADR 0011)
 //! Même si Cedar se trompait : chaque cas relit le dossier **visible** et, pour une mutation ou
@@ -174,6 +179,9 @@ pub struct ReglagesReleves {
     pub limites: Limites,
     /// Profils d'import par dossier, au plus.
     pub profils_max: i64,
+    /// Versions d'un profil, au plus (comme les versions de paramètres fiscaux d'un dossier,
+    /// ADR 0030 : 50).
+    pub versions_max: i32,
     /// Délai de traitement d'un dépôt (réception du corps comprise).
     pub delai_depot: Duration,
 }
@@ -191,6 +199,7 @@ impl Default for ReglagesReleves {
                 longueur_cellule: 1000,
             },
             profils_max: 20,
+            versions_max: 50,
             delai_depot: crate::pieces::DELAI_DEPOT_PAR_DEFAUT,
         }
     }
@@ -211,6 +220,9 @@ pub(crate) fn limites(cas: Cas, reglages: &ReglagesReleves) -> Option<(usize, Du
 const APERCU_PAR_DEFAUT: usize = 20;
 const APERCU_MAX: usize = 100;
 const ALERTES_MAX: usize = 200;
+/// Page de la liste des profils, par défaut et au plus.
+const PAGE_PAR_DEFAUT: u64 = 50;
+const PAGE_MAX: u64 = 100;
 /// Dépôts rendus par la liste (les plus récents).
 const DEPOTS_MAX: i64 = 100;
 /// Longueur maximale d'un nom de profil, en caractères (colonne `nom`).
@@ -471,17 +483,40 @@ fn vue_profil(lu: &ProfilLu, versions: Option<&[ProfilLu]>) -> Result<VueProfil,
     })
 }
 
+/// Page de la liste des profils.
+#[derive(Debug, Serialize)]
+struct VuePageProfils {
+    profils: Vec<VueProfil>,
+    /// Curseur de la page suivante (`apres=`), absent à la dernière page.
+    suivant: Option<String>,
+}
+
+/// Dernière version de chaque profil, par nom puis identifiant, paginée : `apres=<profil>`
+/// (curseur), `limite=` (1 à 100, 50 par défaut).
 async fn lister_profils(
     tx: &mut TransactionTenant,
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
-    sans_parametres(requete)?;
-    let profils = base::lister_profils(tx).await?;
-    let vues = profils
-        .iter()
-        .map(|p| vue_profil(p, None))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(Resultat::lecture(Json(vues).into_response()))
+    let lus = parametres(requete.parametres, &["apres", "limite"])?;
+    let apres = valeur(&lus, "apres")
+        .map(|v| Uuid::try_parse(v).map_err(|_| ErreurApi::RequeteInvalide))
+        .transpose()?;
+    let limite = valeur(&lus, "limite")
+        .map(|v| entier::<i64>(v, 1..=PAGE_MAX))
+        .transpose()?
+        .unwrap_or(PAGE_PAR_DEFAUT.cast_signed());
+    let profils = base::lister_profils(tx, apres, limite).await?;
+    let suivant = (profils.len() == usize::try_from(limite).unwrap_or(usize::MAX))
+        .then(|| profils.last().map(|p| p.id.to_string()))
+        .flatten();
+    let vue = VuePageProfils {
+        profils: profils
+            .iter()
+            .map(|p| vue_profil(p, None))
+            .collect::<Result<Vec<_>, _>>()?,
+        suivant,
+    };
+    Ok(Resultat::lecture(Json(vue).into_response()))
 }
 
 /// `?version=N` (facultatif) : cette version ; sinon la dernière. Avec la liste des versions.
@@ -570,7 +605,8 @@ async fn creer_profil(
 }
 
 /// Version suivante d'un profil, sous le verrou du dossier (deux publications concurrentes
-/// prennent deux numéros successifs). La version précédente reste telle quelle.
+/// prennent deux numéros successifs). La version précédente reste telle quelle. Au plus
+/// `versions_max` versions (409 `releve_profil_versions_max`).
 async fn versionner_profil(
     tx: &mut TransactionTenant,
     dossier: &DossierAutorise,
@@ -585,6 +621,13 @@ async fn versionner_profil(
     let derniere = base::lire_profil(tx, id, None)
         .await?
         .ok_or(ErreurApi::Introuvable)?;
+    let max = requete.releves.versions_max;
+    if derniere.version >= max {
+        return Err(ErreurApi::Conflit {
+            motif: MotifConflit::ProfilVersionsMax,
+            nombre: u32::try_from(max).ok(),
+        });
+    }
     publier(tx, dossier, requete, id, Some(&derniere), &profil).await
 }
 
@@ -628,7 +671,9 @@ struct VueDoublon {
 /// Reconnaît le type « texte » d'un relevé par son **contenu** (ADR 0034 point 4) : les types à
 /// signature priment (un PDF n'est jamais un relevé) ; puis le fichier doit se décoder, sans
 /// octet nul ni caractère de contrôle et lignes bornées, dans **un** encodage de la liste fermée
-/// de `formats` (le profil, qui fixe l'encodage, n'est choisi qu'à l'analyse).
+/// de `formats` (le profil, qui fixe l'encodage, n'est choisi qu'à l'analyse). Un refus
+/// **indépendant de l'encodage** (octet nul, ligne trop longue, fichier trop grand) arrête la
+/// recherche : tout autre encodage échouerait au plus tard à la même ligne.
 fn reconnaitre_texte(octets: &[u8], limites: &Limites) -> Result<(), ErreurApi> {
     if TypePiece::reconnaitre(octets).is_some() {
         return Err(ErreurApi::TypeNonAdmis);
@@ -640,6 +685,14 @@ fn reconnaitre_texte(octets: &[u8], limites: &Limites) -> Result<(), ErreurApi> 
     {
         match formats::releve::decoder(octets, encodage, limites) {
             Ok(_) => return Ok(()),
+            Err(
+                e @ (ErreurReleve::OctetNul { .. }
+                | ErreurReleve::LigneTropLongue { .. }
+                | ErreurReleve::FichierTropGrand { .. }),
+            ) => {
+                premiere = Some(e);
+                break;
+            }
             Err(e) => {
                 premiere.get_or_insert(e);
             }
@@ -679,8 +732,14 @@ async fn deposer(
     if octets.len() > limites.taille_fichier {
         return Err(ErreurApi::CorpsTropGrand);
     }
-    reconnaitre_texte(octets, limites)?;
-    let empreinte = Empreinte::calculer(octets);
+    // Reconnaissance et empreinte hors de la boucle asynchrone (calcul borné par la taille).
+    let copie = octets.to_vec();
+    let limites_copie = *limites;
+    let empreinte = tokio::task::spawn_blocking(move || {
+        reconnaitre_texte(&copie, &limites_copie).map(|()| Empreinte::calculer(&copie))
+    })
+    .await
+    .map_err(|_| ErreurApi::Interne(CategorieErreur::Panique))??;
     if let Some(annoncee) = valeur(&lus, "empreinte") {
         let annoncee = Empreinte::parse(&annoncee.to_ascii_lowercase())
             .map_err(|_| ErreurApi::RequeteInvalide)?;
@@ -963,7 +1022,8 @@ fn vue_analyse(
 }
 
 /// Analyse d'un dépôt avec une version de profil (la dernière par défaut) : aperçu, **aucune
-/// écriture** (ni lignes, ni audit). Paramètres : `version`, `lignes` (0 à 100, 20 par défaut).
+/// écriture** de lignes ni d'audit, sauf l'alerte d'une pièce relue altérée (F3.1).
+/// Paramètres : `version`, `lignes` (0 à 100, 20 par défaut).
 async fn analyser(
     tx: &mut TransactionTenant,
     dossier: &DossierAutorise,
@@ -980,6 +1040,13 @@ async fn analyser(
     let depot = base::lire_depot(tx, id_chemin(requete.chemin, "depot")?)
         .await?
         .ok_or(ErreurApi::Introuvable)?;
+    // Pièce écartée (dépôt erroné, ADR 0015) : elle ne justifie plus rien, elle ne s'analyse pas.
+    if depot.ecartee {
+        return Err(ErreurApi::Conflit {
+            motif: MotifConflit::PieceEcartee,
+            nombre: None,
+        });
+    }
     let profil_lu = base::lire_profil(tx, id_chemin(requete.chemin, "profil")?, version)
         .await?
         .ok_or(ErreurApi::Introuvable)?;

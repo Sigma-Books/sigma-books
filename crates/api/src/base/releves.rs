@@ -154,26 +154,39 @@ pub async fn versions(tx: &mut TransactionTenant, id: Uuid) -> Result<Vec<Profil
     .await?)
 }
 
-/// Dernière version de chaque profil du dossier du contexte, par nom puis identifiant.
+/// Dernière version de chaque profil du dossier du contexte, par nom puis identifiant, `limite`
+/// au plus, après le profil `apres` (curseur : son nom et son identifiant, dernière version).
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
-pub async fn lister_profils(tx: &mut TransactionTenant) -> Result<Vec<ProfilLu>, ErreurBase> {
+pub async fn lister_profils(
+    tx: &mut TransactionTenant,
+    apres: Option<Uuid>,
+    limite: i64,
+) -> Result<Vec<ProfilLu>, ErreurBase> {
     let (cabinet, dossier) = contexte(tx)?;
     Ok(sqlx::query_as!(
         ProfilLu,
         r#"
+        WITH derniere AS (
+            SELECT DISTINCT ON (id) id, version, nom, definition, empreinte, cree_par, cree_le
+            FROM profil_releve
+            WHERE cabinet_id = $1 AND dossier_id = $2
+            ORDER BY id, version DESC
+        )
         SELECT d.id AS "id!", d.version AS "version!", d.nom AS "nom!",
                d.definition AS "definition!", d.empreinte AS "empreinte!",
                d.cree_par AS "cree_par!", d.cree_le AS "cree_le!"
-        FROM (SELECT DISTINCT ON (id) id, version, nom, definition, empreinte, cree_par, cree_le
-              FROM profil_releve
-              WHERE cabinet_id = $1 AND dossier_id = $2
-              ORDER BY id, version DESC) d
+        FROM derniere d
+        WHERE $3::uuid IS NULL
+           OR (d.nom, d.id) > (SELECT c.nom, c.id FROM derniere c WHERE c.id = $3)
         ORDER BY d.nom, d.id
+        LIMIT $4
         "#,
         cabinet,
         dossier,
+        apres,
+        limite,
     )
     .fetch_all(tx.connexion())
     .await?)

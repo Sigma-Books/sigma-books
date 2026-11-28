@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT d.id AS \"id!\", d.version AS \"version!\", d.nom AS \"nom!\",\n               d.definition AS \"definition!\", d.empreinte AS \"empreinte!\",\n               d.cree_par AS \"cree_par!\", d.cree_le AS \"cree_le!\"\n        FROM (SELECT DISTINCT ON (id) id, version, nom, definition, empreinte, cree_par, cree_le\n              FROM profil_releve\n              WHERE cabinet_id = $1 AND dossier_id = $2\n              ORDER BY id, version DESC) d\n        ORDER BY d.nom, d.id\n        ",
+  "query": "\n        WITH derniere AS (\n            SELECT DISTINCT ON (id) id, version, nom, definition, empreinte, cree_par, cree_le\n            FROM profil_releve\n            WHERE cabinet_id = $1 AND dossier_id = $2\n            ORDER BY id, version DESC\n        )\n        SELECT d.id AS \"id!\", d.version AS \"version!\", d.nom AS \"nom!\",\n               d.definition AS \"definition!\", d.empreinte AS \"empreinte!\",\n               d.cree_par AS \"cree_par!\", d.cree_le AS \"cree_le!\"\n        FROM derniere d\n        WHERE $3::uuid IS NULL\n           OR (d.nom, d.id) > (SELECT c.nom, c.id FROM derniere c WHERE c.id = $3)\n        ORDER BY d.nom, d.id\n        LIMIT $4\n        ",
   "describe": {
     "columns": [
       {
@@ -84,7 +84,9 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -97,5 +99,5 @@
       false
     ]
   },
-  "hash": "7b03f532d880a8c583605725c3a05a7517cac491a9968a123a4abc195a36770a"
+  "hash": "38945eba0d7a29e75884377b1d1ee02b410e047d96ecaa92d325babb2d27d398"
 }

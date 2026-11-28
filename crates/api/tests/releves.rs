@@ -172,8 +172,9 @@ async fn profil_versionne_en_ajout_seul() {
         Some(b.c.collaborateur),
     )
     .await;
-    assert_eq!(liste.json().as_array().unwrap().len(), 1);
-    assert_eq!(liste.json()[0]["version"], 2);
+    assert_eq!(liste.json()["profils"].as_array().unwrap().len(), 1);
+    assert_eq!(liste.json()["profils"][0]["version"], 2);
+    assert_eq!(liste.json()["suivant"], Value::Null);
     let apres: (String, Vec<u8>) = sqlx::query_as(
         "SELECT definition, empreinte FROM profil_releve WHERE id = $1 AND version = 1",
     )
@@ -258,6 +259,7 @@ async fn nombre_de_profils_borne() {
     let b = &banc_de_test;
     let mut reglages = Reglages::new(ORIGINE.to_owned());
     reglages.releves.profils_max = 2;
+    reglages.releves.versions_max = 2;
     let routeur = routeur(&application_base(&b.env, reglages));
     let creer = |nom: &'static str| {
         let routeur = routeur.clone();
@@ -288,6 +290,54 @@ async fn nombre_de_profils_borne() {
     )
     .await;
     assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+    // Versions d'un profil bornées (409 typé, avec la borne) ; la version 2 reste la dernière.
+    let r = envoyer(
+        &routeur,
+        &format!(
+            "{}/profils/{}/versions",
+            base(b),
+            p2.json()["id"].as_str().unwrap()
+        ),
+        Some(b.valideur),
+        &corps_profil("P2 ter"),
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT);
+    assert_eq!(
+        r.json(),
+        json!({"erreur": "releve_profil_versions_max", "nombre": 2})
+    );
+    // Liste paginée par nom : P1, puis P2 bis (dernière version de P2).
+    let page = lire(
+        &routeur,
+        &format!("{}/profils?limite=1", base(b)),
+        Some(b.auditeur),
+    )
+    .await;
+    assert_eq!(page.statut, StatusCode::OK, "{}", page.texte());
+    let page = page.json();
+    assert_eq!(page["profils"].as_array().unwrap().len(), 1);
+    assert_eq!(page["profils"][0]["nom"], "P1");
+    let suivant = page["suivant"].as_str().unwrap();
+    let page = lire(
+        &routeur,
+        &format!("{}/profils?limite=1&apres={suivant}", base(b)),
+        Some(b.auditeur),
+    )
+    .await
+    .json();
+    assert_eq!(page["profils"][0]["nom"], "P2 bis");
+    assert_eq!(page["profils"][0]["version"], 2);
+    for p in ["?limite=0", "?limite=101", "?apres=x"] {
+        let r = lire(
+            &routeur,
+            &format!("{}/profils{p}", base(b)),
+            Some(b.auditeur),
+        )
+        .await;
+        assert_eq!(r.statut, StatusCode::BAD_REQUEST, "{p}");
+    }
 }
 
 #[tokio::test]
@@ -792,4 +842,186 @@ async fn rls_et_ecritures_croisees_refusees() {
     .await
     .unwrap_err();
     assert_eq!(code_sql(&e).as_deref(), Some("23514"), "{e}");
+}
+
+/// Objets du stockage partagé dont le contenu est `octets`.
+fn objets_de(octets: &[u8]) -> usize {
+    commun::pieces::StockageMemoire::partage()
+        .0
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|v| v.as_slice() == octets)
+        .count()
+}
+
+#[tokio::test]
+async fn depots_concurrents_du_meme_fichier_un_seul_objet() {
+    let banc_de_test = banc().await;
+    let b = &banc_de_test;
+    let compte = caisse(b).await;
+    let fichier = releve(&format!("concurrence {}", Uuid::new_v4()));
+    // Deux dépôts simultanés du même fichier : le verrou du dossier les sérialise ; un seul crée
+    // le dépôt et l'objet WORM, l'autre est signalé en doublon.
+    let (r1, r2) = tokio::join!(
+        deposer(b, b.c.administrateur, compte, fichier.as_bytes()),
+        deposer(b, b.c.collaborateur, compte, fichier.as_bytes()),
+    );
+    let mut statuts = [r1.statut, r2.statut];
+    statuts.sort();
+    assert_eq!(statuts, [StatusCode::OK, StatusCode::CREATED]);
+    assert_eq!(compter(b, "depot_releve").await, 1);
+    assert_eq!(objets_de(fichier.as_bytes()), 1);
+    // Un doublon séquentiel n'écrit pas non plus de second objet.
+    let r = deposer(b, b.valideur, compte, fichier.as_bytes()).await;
+    assert_eq!(r.json()["doublon"], true);
+    assert_eq!(objets_de(fichier.as_bytes()), 1);
+    assert_eq!(compter(b, "depot_releve").await, 1);
+}
+
+#[tokio::test]
+async fn analyse_refusee_pour_une_piece_ecartee() {
+    let banc_de_test = banc().await;
+    let b = &banc_de_test;
+    let compte = caisse(b).await;
+    let profil = creer_profil(b, &corps_profil("Banque")).await;
+    let r = deposer(b, b.c.collaborateur, compte, releve("écart").as_bytes()).await;
+    assert_eq!(r.statut, StatusCode::CREATED);
+    let depot = r.json();
+    let r = envoyer(
+        &b.routeur,
+        &format!(
+            "/api/cabinets/{}/dossiers/{}/pieces/{}/ecart",
+            b.c.cabinet,
+            b.c.dossier,
+            depot["piece"].as_str().unwrap()
+        ),
+        Some(b.c.administrateur),
+        r#"{"motif":"Mauvais relevé"}"#,
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let avant = etat_de_la_base(b).await;
+    let r = analyser(
+        b,
+        b.c.collaborateur,
+        depot["id"].as_str().unwrap(),
+        profil["id"].as_str().unwrap(),
+        "",
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::CONFLICT);
+    assert_eq!(code(&r), "piece_ecartee");
+    assert_eq!(etat_de_la_base(b).await, avant);
+    // La pièce écartée ne compte plus comme doublon : le même fichier se redépose.
+    let r = deposer(b, b.c.collaborateur, compte, releve("écart").as_bytes()).await;
+    assert_eq!(r.statut, StatusCode::CREATED, "{}", r.texte());
+}
+
+#[tokio::test]
+async fn cles_etrangeres_composites_et_versions() {
+    let banc_de_test = banc().await;
+    let b = &banc_de_test;
+    let compte = caisse(b).await;
+    let profil = creer_profil(b, &corps_profil("Banque")).await;
+    let profil = Uuid::parse_str(profil["id"].as_str().unwrap()).unwrap();
+    let r = deposer(b, b.c.collaborateur, compte, releve("clés").as_bytes()).await;
+    assert_eq!(r.statut, StatusCode::CREATED);
+    // Pièce texte libre (sans dépôt) du dossier : seule sa clé composite est en jeu.
+    let piece =
+        commun::releves::piece_texte(&b.env.admin, b.c.cabinet, b.c.dossier, b.c.administrateur)
+            .await;
+    // Un compte de trésorerie et une pièce texte réels dans l'AUTRE dossier du cabinet.
+    commun::referentiel::doter(
+        &b.env.application,
+        b.c.cabinet,
+        b.c.autre_dossier,
+        b.c.administrateur,
+    )
+    .await;
+    let compte_autre = commun::tresorerie::doter(
+        &b.env.admin,
+        b.c.cabinet,
+        b.c.autre_dossier,
+        b.c.administrateur,
+    )
+    .await;
+    let (_, depot_autre) = commun::releves::doter(
+        &b.env.admin,
+        b.c.cabinet,
+        b.c.autre_dossier,
+        b.c.administrateur,
+        compte_autre,
+    )
+    .await;
+    let piece_autre: Uuid = sqlx::query_scalar("SELECT piece_id FROM depot_releve WHERE id = $1")
+        .bind(depot_autre)
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+
+    let depot = "INSERT INTO depot_releve (cabinet_id, dossier_id, id, compte_tresorerie_id, \
+                 piece_id, depose_par, depose_le) \
+                 VALUES ($1, $2, gen_random_uuid(), $3, $4, $5, now())";
+    let version = "INSERT INTO profil_releve (cabinet_id, dossier_id, id, version, nom, \
+                   definition, empreinte, cree_par, cree_le) \
+                   VALUES ($1, $2, $3, $4, 'v', '{}', sha256('v'), $5, now())";
+    // (requête, compte ou profil, pièce ou version, SQLSTATE attendu) : chaque clé composite seule.
+    let cas: [(&str, Uuid, Value, &str); 5] = [
+        // Compte de trésorerie d'un autre dossier, sous son propre dossier.
+        (depot, compte_autre, json!(piece.to_string()), "23503"),
+        // Pièce d'un autre dossier, sous son propre dossier.
+        (depot, compte, json!(piece_autre.to_string()), "23503"),
+        // Version 3 sans version 2.
+        (version, profil, json!(3), "23503"),
+        // Version 1 dupliquée.
+        (version, profil, json!(1), "23505"),
+        // Version 0 : hors domaine.
+        (version, profil, json!(0), "23514"),
+    ];
+    for (requete, cible, valeur, sqlstate) in cas {
+        let mut tx = ouvrir_transaction(
+            &b.env.application,
+            ContexteTenant::cabinet(b.c.cabinet, b.c.administrateur),
+        )
+        .await
+        .unwrap();
+        tx.restreindre_au_dossier(b.c.dossier).await.unwrap();
+        let q = sqlx::query(requete)
+            .bind(b.c.cabinet.uuid())
+            .bind(b.c.dossier.uuid())
+            .bind(cible);
+        let q = match valeur.as_i64() {
+            Some(n) => q.bind(i32::try_from(n).unwrap()),
+            None => q.bind(Uuid::parse_str(valeur.as_str().unwrap()).unwrap()),
+        };
+        let erreur = q
+            .bind(b.c.administrateur.uuid())
+            .execute(tx.connexion())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            code_sql(&erreur).as_deref(),
+            Some(sqlstate),
+            "{requete} {valeur} : {erreur}"
+        );
+    }
+    // Contrôle : la version 2 suivant la version 1 passe (rôle applicatif, même dossier).
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::cabinet(b.c.cabinet, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    tx.restreindre_au_dossier(b.c.dossier).await.unwrap();
+    sqlx::query(version)
+        .bind(b.c.cabinet.uuid())
+        .bind(b.c.dossier.uuid())
+        .bind(profil)
+        .bind(2_i32)
+        .bind(b.c.administrateur.uuid())
+        .execute(tx.connexion())
+        .await
+        .unwrap();
 }

@@ -710,7 +710,9 @@ les propositions de brouillon sont de la PR 12b.
   par `formats` (422 `releve_profil_*` : encodage hors liste, format de date sans année,
   colonnes de montant incohérentes…), stocké sous forme canonique avec son SHA-256. **Ajout
   seul** : la création publie la version 1, `…/versions` la suivante ; une version publiée ne
-  change jamais. Au plus `profils_max` profils par dossier (409 `releve_profils_max`).
+  change jamais. Au plus `profils_max` profils par dossier (409 `releve_profils_max`) et
+  `versions_max` versions par profil (50, comme l'ADR 0030 : 409 `releve_profil_versions_max`) ;
+  liste paginée (`apres=`, `limite=` de 1 à 100).
 - **Dépôt** : le corps est le fichier, borné **pendant la réception** à `taille_fichier` (413).
   Type « texte » reconnu par le contenu (signatures PDF, JPEG, PNG refusées, aucun octet nul ni
   caractère de contrôle, décodable dans un encodage de la liste fermée : 415 `type_non_admis` ;
@@ -724,14 +726,15 @@ les propositions de brouillon sont de la PR 12b.
   hors de la boucle asynchrone ; colonnes du profil, premières lignes (`lignes=`, 20 par défaut,
   100 au plus) avec leurs alertes (`libelle_formule`, `caractere_bidirectionnel`), totaux en
   décimal exact, dates extrêmes, premier et dernier soldes lus. Refus : 422 `releve_*` avec la
-  ligne fautive. **Aucune écriture**, pas même d'audit.
+  ligne fautive ; pièce écartée : 409 `piece_ecartee`. **Aucune écriture** de lignes ni d'audit,
+  sauf l'alerte d'une pièce relue altérée ou absente (500 et entrée d'audit, F3.1).
 - **Réglages d'instance** (`Reglages::releves`, valeurs initiales de l'ADR 0034 point 6) : 5 Mio,
   20 000 lignes, 50 colonnes, 64 Kio par ligne, 1 000 caractères par cellule, 20 profils par
   dossier ; délai du dépôt : celui des pièces.
 
 | Route | Cedar |
 |---|---|
-| `GET …/releves/profils`, `GET …/releves/profils/{profil}[?version=]` | `ConsulterTresorerie` |
+| `GET …/releves/profils[?apres=&limite=]`, `GET …/releves/profils/{profil}[?version=]` | `ConsulterTresorerie` |
 | `POST …/releves/profils`, `POST …/releves/profils/{profil}/versions` | `ParametrerReleves` |
 | `POST …/releves/comptes/{compte_tresorerie}/depots[?nom=&empreinte=]` | `DeposerReleve` |
 | `GET …/releves/depots[?compte=]`, `GET …/releves/depots/{depot}` | `ConsulterTresorerie` |
