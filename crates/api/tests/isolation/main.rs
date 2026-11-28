@@ -159,6 +159,10 @@ async fn monde(admin: &PgPool) -> Monde {
             // Une condition de règlement (L3, PR 8), sous-ressource `{condition}`.
             let condition = commun::echeancier::doter(admin, c.cabinet, dossier).await;
             inscrire_sous_ressource(dossier, "condition", condition);
+            // Un lettrage réel (L3, PR 9a), sous-ressource `{lettrage}`.
+            let lettrage =
+                commun::lettrage::doter(admin, c.cabinet, dossier, c.administrateur, f.tiers).await;
+            inscrire_sous_ressource(dossier, "lettrage", lettrage);
             fixtures.insert(dossier, f);
         }
     }
