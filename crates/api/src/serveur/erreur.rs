@@ -249,11 +249,18 @@ pub enum MotifConflit {
     EcheanceSoldee,
     /// Révision concurrente de la même ligne (rang déjà pris) : relire puis réessayer (L3-17).
     EcheanceRevisionConcurrente,
+    /// Dé-lettrage refusé : la date de l'opération de lettrage tombe dans un exercice clos (ADR
+    /// 0032 point 5, B2 option 1 ; spec §10.1).
+    LettrageExerciceClos,
+    /// Lettrage déjà rompu (au plus une rupture par lettrage ; re-lettrer crée un lettrage).
+    LettrageDejaRompu,
+    /// Ligne déjà entièrement lettrée (résiduel nul).
+    LettrageLigneSoldee,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 52] = [
+    pub const TOUS: [Self; 55] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -306,6 +313,9 @@ impl MotifConflit {
         Self::ConditionReglementCodeDejaUtilise,
         Self::EcheanceSoldee,
         Self::EcheanceRevisionConcurrente,
+        Self::LettrageExerciceClos,
+        Self::LettrageDejaRompu,
+        Self::LettrageLigneSoldee,
     ];
 
     /// Code du corps de la réponse.
@@ -364,6 +374,9 @@ impl MotifConflit {
             Self::ConditionReglementCodeDejaUtilise => "condition_reglement_code_deja_utilise",
             Self::EcheanceSoldee => "echeance_soldee",
             Self::EcheanceRevisionConcurrente => "echeance_revision_concurrente",
+            Self::LettrageExerciceClos => "lettrage_exercice_clos",
+            Self::LettrageDejaRompu => "lettrage_deja_rompu",
+            Self::LettrageLigneSoldee => "lettrage_ligne_soldee",
         }
     }
 }
@@ -611,11 +624,29 @@ pub enum MotifValidation {
     /// Motif de révision d'échéance vide, de plus de 400 octets ou avec un caractère de contrôle
     /// ou de format (ADR 0033 point 2).
     EcheanceMotifInvalide,
+    /// Lettrage : ligne inconnue du dossier (écriture validée absente, ou d'un autre dossier).
+    LettrageLigneInconnue,
+    /// Lettrage : lignes de comptes différents (un lettrage porte sur un seul compte).
+    LettrageComptesDifferents,
+    /// Lettrage : compte non marqué lettrable dans les données de `syscohada`.
+    LettrageCompteNonLettrable,
+    /// Lettrage : ligne citée deux fois.
+    LettrageLigneEnDouble,
+    /// Lettrage : aucune ligne au débit, ou aucune au crédit.
+    LettrageSensManquant,
+    /// Lettrage : lignes de tiers (résolus) différents (Tryton `move.py:676-682`).
+    LettrageTiersDifferents,
+    /// Lettrage en devise étrangère hors de L3 (écarts de change : L6, ADR 0032 point 1).
+    LettrageDeviseEtrangere,
+    /// Motif de rupture vide, trop long ou avec un caractère de contrôle ou de format.
+    LettrageMotifInvalide,
+    /// Lettrage de trop de lignes en un appel.
+    LettrageTropDeLignes,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 54] = [
+    pub const TOUS: [Self; 63] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -670,6 +701,15 @@ impl MotifValidation {
         Self::TiersTropDeComptesBancaires,
         Self::ConditionReglementInvalide,
         Self::EcheanceMotifInvalide,
+        Self::LettrageLigneInconnue,
+        Self::LettrageComptesDifferents,
+        Self::LettrageCompteNonLettrable,
+        Self::LettrageLigneEnDouble,
+        Self::LettrageSensManquant,
+        Self::LettrageTiersDifferents,
+        Self::LettrageDeviseEtrangere,
+        Self::LettrageMotifInvalide,
+        Self::LettrageTropDeLignes,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -747,6 +787,15 @@ impl MotifValidation {
             Self::TiersTropDeComptesBancaires => "tiers_trop_de_comptes_bancaires",
             Self::ConditionReglementInvalide => "condition_reglement_invalide",
             Self::EcheanceMotifInvalide => "echeance_motif_invalide",
+            Self::LettrageLigneInconnue => "lettrage_ligne_inconnue",
+            Self::LettrageComptesDifferents => "lettrage_comptes_differents",
+            Self::LettrageCompteNonLettrable => "lettrage_compte_non_lettrable",
+            Self::LettrageLigneEnDouble => "lettrage_ligne_en_double",
+            Self::LettrageSensManquant => "lettrage_sens_manquant",
+            Self::LettrageTiersDifferents => "lettrage_tiers_differents",
+            Self::LettrageDeviseEtrangere => "lettrage_devise_etrangere",
+            Self::LettrageMotifInvalide => "lettrage_motif_invalide",
+            Self::LettrageTropDeLignes => "lettrage_trop_de_lignes",
         }
     }
 }

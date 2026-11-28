@@ -836,6 +836,8 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     let mut profil = uuid::Uuid::nil();
     // Échéancier (L3, PR 8) : `{condition}` est une condition fixe.
     let condition = commun::echeancier::doter(&env.admin, c.cabinet, c.dossier).await;
+    // Lettrage (L3, PR 9a) : `{lettrage}` est celui que crée la route de lettrage, rompu ensuite.
+    let mut lettrage = uuid::Uuid::nil();
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -863,6 +865,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "compte_tresorerie" => caisse,
                 "profil" => profil,
                 "condition" => condition,
+                "lettrage" => lettrage,
                 autre => fixtures.sous_ressource(autre),
             },
         );
@@ -1040,6 +1043,27 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             )
             .await
         } else if route.cas_usage
+            == CasUsage::Lettrage(api::serveur::routes::lettrage::Cas::Lettrer)
+        {
+            // Deux lignes validées lettrables du tiers fixe (le corps d'exemple cite des lignes
+            // inexistantes).
+            let mut ecritures = Vec::new();
+            for sens in ["debit", "credit"] {
+                ecritures.push(
+                    commun::lettrage::ecriture_lettrable(
+                        &env.admin,
+                        c.cabinet,
+                        c.dossier,
+                        c.administrateur,
+                        fixtures.tiers,
+                        sens,
+                    )
+                    .await,
+                );
+            }
+            let corps = commun::lettrage::corps_lettrer(ecritures[0], ecritures[1]);
+            commun::serveur::envoyer(&routeur, &chemin, Some(c.administrateur), &corps, None).await
+        } else if route.cas_usage
             == CasUsage::Organisation(api::serveur::routes::organisation::Cas::ModifierContexte)
         {
             // Une modification qui change vraiment le contexte (sinon : 409 « aucun changement »).
@@ -1086,6 +1110,10 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             == CasUsage::Releves(api::serveur::routes::releves::Cas::CreerProfil)
         {
             profil = reponse.json()["id"].as_str().unwrap().parse().unwrap();
+        } else if route.cas_usage
+            == CasUsage::Lettrage(api::serveur::routes::lettrage::Cas::Lettrer)
+        {
+            lettrage = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         } else if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
             piece = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         }

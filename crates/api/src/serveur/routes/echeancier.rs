@@ -492,7 +492,8 @@ fn texte_decimal(d: Decimal) -> String {
 }
 
 /// Échéance d'une ligne validée reconstituée pour `compta-core` (révisions dans l'ordre du rang).
-fn echeance_de(
+/// Lue aussi par le lettrage (ordre d'imputation, ADR 0032 point 1).
+pub(crate) fn echeance_de(
     date_comptable: Date,
     ligne: &LigneTiersValidee,
     revisions: &[RevisionLue],
@@ -932,6 +933,11 @@ async fn reviser(
         motif: MotifValidation::EcheanceMotifInvalide,
         ligne: None,
     })?;
+    // Verrou du compte de la ligne (compteur de lettrage `FOR UPDATE`, rang 7 ; ADR 0033 point 2)
+    // **avant** de relire l'écriture, ses révisions et le résiduel : une révision, un lettrage et
+    // une rupture concurrents du même compte se suivent. Ligne absente : le refus vient plus bas.
+    let id = id_chemin(requete.chemin, "ecriture")?;
+    crate::base::lettrage::verrouiller_compte_de_ligne(tx, id, c.position).await?;
     let (id, ecriture) = ecriture_du_chemin(tx, requete).await?;
     // Une échéance est portée par une ligne de tiers (ADR 0033 point 1) : une ligne sans tiers,
     // ou absente de l'écriture, n'en a pas.
@@ -943,7 +949,7 @@ async fn reviser(
             refus: RefusSaisie::EcheanceSansTiers,
             ligne: u32::try_from(c.position).ok(),
         })?;
-    // Résiduel relu par l'interface du lettrage, qui prendra le verrou du compte (PR 9a).
+    // Résiduel relu sous le verrou du compte, par l'interface du lettrage.
     let residuel = residuel_de(tx, id, ligne).await?;
     let mut echeance = echeance_de(ecriture.date_comptable, ligne, &ecriture.revisions)?;
     let instant = requete.horloge.maintenant();

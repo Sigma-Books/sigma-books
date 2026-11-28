@@ -90,6 +90,12 @@ Un cas d'usage qui prend les rangs 7 et 8 les prend dans cet ordre. Aucune trans
 - **Les dates des opérations** (lettrage et rupture) **n'interviennent pas dans les états à une date** : elles servent à l'audit, à l'ordre du rejeu et au refus d'une rupture après clôture (point 5). Une rupture vaut à toute date, comme la suppression chez les moteurs : tenir pour actif à D un lettrage rompu après D le compterait en même temps que le lettrage qui l'a remplacé (une facture relettrée avec un autre règlement serait imputée deux fois). Même règle que l'état de rapprochement (ADR 0034, amendement du point 9).
 - La « conséquence assumée » du point 3 et l'alternative écartée « date du lettrage = plus haute date des lignes » sont remplacées par ce qui précède. Une édition à une date passée change donc si un lettrage est fait ou rompu ensuite, comme chez les moteurs.
 
+### Précisions de la PR 9a (2026-11-28)
+- **Point 5, exercice « en clôture »** : seul le statut **clos** (`cloture`) refuse la rupture ; un exercice `en_cloture` ne la refuse pas (la spec §10.1 dit « tant que l'exercice n'est pas clôturé »).
+- **Point 5, date de la rupture** : une rupture ne précède jamais son lettrage. Si le jour du dossier est antérieur à la date du lettrage (fuseau du dossier changé entre-temps, ADR 0027), la rupture prend la date du lettrage ; l'audit garde le jour du dossier (`jour_du_dossier`). Aucun refus : la spec et les moteurs n'en prévoient pas.
+- **Point 1, devise** : le refus d'une ligne en devise étrangère hors du cas admis a pour code `lettrage_devise_etrangere` (422) ; le nom `lettrage_devise_hors_l3` n'est pas admis par la liste fermée des codes de l'API (minuscules et `_`, sans chiffre).
+- **Point 8, seconde barrière** : retenue. Le déclencheur `lettrage_lien_controle` (migration `0520`) prend lui-même le compteur du compte `FOR UPDATE` et contrôle sens, compte, même tiers et résiduel ; il reste correct sans le verrou de l'API.
+
 ## Conséquences
 - `compta-core` porte le lettrage pur (PR 3a) : invariants, résiduels, imputation, propositions ; propriétés `proptest` : un lettrage ne change aucun solde, débits imputés = crédits imputés, le dé-lettrage rétablit les résiduels, lettrer puis rompre puis relettrer redonne les mêmes résiduels, les propositions sont déterministes.
 - Le tiers « résolu » est lu en un seul endroit (ADR 0031) ; la balance âgée et le lettrage s'accordent (ADR 0033).

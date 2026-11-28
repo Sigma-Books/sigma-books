@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT derniere_lettre, dernier_rang FROM compteur_lettrage WHERE cabinet_id = $1 AND dossier_id = $2 AND compte_id = $3 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "derniere_lettre",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "compteur_lettrage",
+            "name": "derniere_lettre"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "dernier_rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "compteur_lettrage",
+            "name": "dernier_rang"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "967486e638f191df3a2caf4806f44a54f8b7447f962770bea2aa066afcb27856"
+}

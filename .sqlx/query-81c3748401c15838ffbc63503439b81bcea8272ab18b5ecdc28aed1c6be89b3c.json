@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.ecriture_id, l.position,\n                  (l.montant - COALESCE((\n                      SELECT sum(k.montant) FROM lettrage_lien k\n                       WHERE k.cabinet_id = l.cabinet_id AND k.dossier_id = l.dossier_id\n                         AND ((k.debit_ecriture_id = l.ecriture_id\n                               AND k.debit_position = l.position)\n                              OR (k.credit_ecriture_id = l.ecriture_id\n                                  AND k.credit_position = l.position))\n                         AND NOT EXISTS (\n                             SELECT 1 FROM lettrage_rupture x\n                              WHERE x.cabinet_id = k.cabinet_id AND x.dossier_id = k.dossier_id\n                                AND x.lettrage_id = k.lettrage_id)), 0))::text AS \"residuel!\"\n             FROM (SELECT DISTINCT * FROM unnest($3::uuid[], $4::int2[])) AS r (ecriture_id, position)\n             JOIN ecriture_validee_ligne l\n               ON l.cabinet_id = $1 AND l.dossier_id = $2\n              AND l.ecriture_id = r.ecriture_id AND l.position = r.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ecriture_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "ecriture_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "residuel!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray",
+        "Int2Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "81c3748401c15838ffbc63503439b81bcea8272ab18b5ecdc28aed1c6be89b3c"
+}

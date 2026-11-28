@@ -79,7 +79,7 @@ Sous-plages de la voie L3 (réservées par la PR 2 du lot ; une PR n'écrit que 
 |---|---|
 | `0500`–`0509` | Tiers : fiche, identifiants, contacts, adresses, banques, fusion, anonymisation (PR 7a : `0500`–`0504`) |
 | `0510`–`0519` | Conditions de règlement, `brouillon_ligne.date_echeance`, `echeance_ligne`, `echeance_report` (PR 8 : `0510`–`0514`) |
-| `0520`–`0539` | Lettrage : `lettrage`, `lettrage_lien`, `lettrage_rupture`, `compteur_lettrage`, règles (PR 9a : `0520`–`0529`) |
+| `0520`–`0539` | Lettrage : `lettrage`, `lettrage_lien`, `lettrage_rupture`, `compteur_lettrage`, règles (PR 9a : `0520`–`0529`, dont `0520` `lettrage` ; PR 9b : `0530`–`0539`) |
 | `0540`–`0559` | Comptes de trésorerie (PR 11 : `0540` `compte_tresorerie`, `0541` `arrete_caisse` ; `0542`–`0549` libres) |
 | `0560`–`0579` | Profils, relevés importés, lignes de relevé, règles et propositions (PR 12a : `0560`–`0569`, dont `0560` type `text/csv` de `piece`, `0561` `profil_releve`, `0562` `depot_releve` ; PR 12b : `0570`–`0579`) |
 | `0580`–`0589` | Pointage, `etat_rapprochement` (PR 13a : `0580`–`0584`) |
@@ -739,6 +739,43 @@ les propositions de brouillon sont de la PR 12b.
 | `POST …/releves/comptes/{compte_tresorerie}/depots[?nom=&empreinte=]` | `DeposerReleve` |
 | `GET …/releves/depots[?compte=]`, `GET …/releves/depots/{depot}` | `ConsulterTresorerie` |
 | `GET …/releves/depots/{depot}/analyse/{profil}[?version=&lignes=]` | `ImporterReleve` |
+
+## Lettrage (L3-18, PR 9a ; ADR 0032)
+
+Code : `src/serveur/routes/lettrage.rs` (cas d'usage), `src/base/lettrage.rs` (tables), migration
+`0520_lettrage.sql`, catalogue `lettrage.toml`. Règles : crate pur `compta_core::lettrage`, que
+l'API **utilise** (registre du compte rebâti de la base, opérations rejouées par **rang
+d'opération** persisté, `imputer`, `rompre`).
+
+- **Ajout seul** : `lettrage` (opération : lettre, rang, date de l'opération, origine, auteur),
+  `lettrage_lien` (lien partiel débit-crédit, montant `NUMERIC`), `lettrage_rupture` (dé-lettrage :
+  date, auteur, motif) ; aucune écriture validée n'est modifiée. Résiduel calculé, jamais stocké.
+  `compteur_lettrage` (dernière lettre, dernier rang) est l'état dérivé pris `FOR UPDATE`.
+- **Conditions** (Tryton `move.py:646-690`) : lignes validées du dossier, même compte, compte
+  lettrable selon les données de `syscohada`, même tiers résolu, au moins un débit et un crédit,
+  non soldées ; aucun contrôle de période au lettrage. Un appel lettre N lignes (200 au plus),
+  imputées du plus ancien au plus récent.
+- **Dé-lettrage** : rupture en ajout seul, refusée (409 `lettrage_exercice_clos`) si la date de
+  l'opération de lettrage tombe dans un exercice clos (B2, option 1) ; un lettrage fait dans un
+  exercice déjà clos reçoit l'avertissement `lettrage_non_rompable`. Une rupture ne précède jamais
+  son lettrage (date recadrée sur celle du lettrage, jour du dossier gardé dans l'audit).
+- **Verrous** (ADR 0032 point 8) : lettrage, compte puis tiers `FOR SHARE` puis compteur ;
+  rupture, calendrier `FOR SHARE` puis compteur. Seconde barrière **autonome** : le déclencheur
+  `lettrage_lien_controle` prend lui-même le compteur `FOR UPDATE`, puis contrôle sens, compte,
+  même tiers et résiduel jamais négatif.
+- **Tiers résolu** : `base::lettrage::tiers_resolus` et `tiers_rattaches`, seul point de lecture
+  (identité tant que la fusion de la PR 7b n'est pas fusionnée).
+- **Raccord avec l'échéancier** (ADR 0033 point 2) : `base::echeancier::residuel` lit le résiduel
+  réel (`base::lettrage::residuels`, agrégat des liens non rompus) ; la révision d'une échéance
+  prend d'abord le compteur du compte de la ligne (`verrouiller_compte_de_ligne`), la lecture de
+  l'échéancier non. L'imputation au kilomètre suit l'échéance effective au jour de l'opération
+  (`routes::echeancier::echeance_de`), à défaut la date comptable.
+
+| Route | Cedar |
+|---|---|
+| `POST …/lettrage/lettrages` : `{"lignes":[{"ecriture":…,"position":…},…]}` | `Lettrer` |
+| `POST …/lettrage/lettrages/{lettrage}/rupture` : `{"motif":…}` | `Delettrer` |
+| `GET …/lettrage/tiers/{tiers}`, `GET …/lettrage/comptes/{compte}` `[?apres=<rang>-<position>&limite=<1…5000>]` : lignes (page de 1 000 par défaut, curseur `suivant`), résiduels, lettres, lettrages et ruptures | `ConsulterEditionsTiers` |
 
 ## Travailler en voies parallèles
 

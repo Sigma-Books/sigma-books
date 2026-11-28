@@ -46,6 +46,7 @@ pub mod evenement;
 pub mod facteurs;
 pub mod integrite;
 pub mod jetons;
+pub mod lettrage;
 pub mod liens;
 pub mod organisation;
 pub mod parametres_fiscaux;

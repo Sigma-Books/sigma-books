@@ -681,7 +681,7 @@ impl RegistreLettrage {
         let liens = self.imputer(selection)?;
         let lettre = self.prochaine_lettre()?;
         let rang = self.prochain_rang()?;
-        self.inscrire(rang, lettre, date, origine, liens)
+        self.inscrire(rang, lettre, date, origine, liens, Historique::Non)
     }
 
     fn prochain_rang(&self) -> Result<u64, ErreurLettrage> {
@@ -721,13 +721,15 @@ impl RegistreLettrage {
             return Err(ErreurLettrage::SensManquant(Sens::Credit));
         }
         let liens = imputer_tries(debits, credits);
-        self.controler(&liens)?;
+        self.controler(&liens, Historique::Non)?;
         Ok(liens)
     }
 
     /// Rejoue des opérations relues de la persistance, **dans l'ordre de leur rang** (l'ordre
     /// de l'itérateur est indifférent), avec les contrôles d'un lettrage et d'une rupture, sauf
-    /// celui de l'exercice clos (historique). Tout ou rien : en cas d'erreur, le registre est
+    /// deux contrôles **historiques** : l'exercice clos, et le **même tiers** (le tiers résolu
+    /// d'une ligne peut changer après le lettrage, par une fusion de tiers ou sa rupture, ADR
+    /// 0031 ; un lettrage inscrit reste lisible). Tout ou rien : en cas d'erreur, le registre est
     /// inchangé.
     ///
     /// # Errors
@@ -758,7 +760,7 @@ impl RegistreLettrage {
                     if lettre < copie.prochaine_lettre()? {
                         return Err(ErreurLettrage::LettreHorsSuite(lettre));
                     }
-                    copie.inscrire(rang, lettre, date, origine, liens)?;
+                    copie.inscrire(rang, lettre, date, origine, liens, Historique::Oui)?;
                 }
                 Operation::Rupture {
                     lettre,
@@ -869,11 +871,12 @@ impl RegistreLettrage {
         date: Date,
         origine: Origine,
         liens: Vec<Lien>,
+        historique: Historique,
     ) -> Result<&Lettrage, ErreurLettrage> {
         if self.lettrages.contains_key(&lettre) {
             return Err(ErreurLettrage::LettreDejaEmployee(lettre));
         }
-        let cumul = self.controler(&liens)?;
+        let cumul = self.controler(&liens, historique)?;
         for (id, montant) in cumul {
             *self.impute.entry(id).or_default() += montant;
         }
@@ -887,8 +890,13 @@ impl RegistreLettrage {
         }))
     }
 
-    /// Contrôle des liens d'un lettrage ; renvoie le montant imputé par ligne.
-    fn controler(&self, liens: &[Lien]) -> Result<BTreeMap<IdLigne, Decimal>, ErreurLettrage> {
+    /// Contrôle des liens d'un lettrage ; renvoie le montant imputé par ligne. Le même tiers n'est
+    /// pas contrôlé pour un lettrage [`Historique::Oui`] (rejeu).
+    fn controler(
+        &self,
+        liens: &[Lien],
+        historique: Historique,
+    ) -> Result<BTreeMap<IdLigne, Decimal>, ErreurLettrage> {
         if liens.is_empty() {
             return Err(ErreurLettrage::SansLien);
         }
@@ -908,7 +916,9 @@ impl RegistreLettrage {
                 }
                 match tiers {
                     None => tiers = Some(&ligne.tiers),
-                    Some(t) if t != &ligne.tiers => return Err(ErreurLettrage::TiersDifferents),
+                    Some(t) if t != &ligne.tiers && historique == Historique::Non => {
+                        return Err(ErreurLettrage::TiersDifferents);
+                    }
                     Some(_) => {}
                 }
                 let total = cumul.entry(id).or_default();
@@ -957,6 +967,14 @@ impl RegistreLettrage {
         }
         Ok(())
     }
+}
+
+/// Lettrage relu de la persistance (rejeu) ou nouveau : un lettrage relu ne repasse pas les
+/// contrôles qui dépendent d'un état postérieur (tiers résolu).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Historique {
+    Oui,
+    Non,
 }
 
 /// Imputation « au kilomètre » de deux côtés déjà résiduels : tri par clé, puis appariement

@@ -392,6 +392,28 @@ fn rejeu_controle() {
 }
 
 #[test]
+fn rejeu_d_un_lettrage_dont_le_tiers_resolu_a_change() {
+    // Lettré quand les deux lignes avaient le même tiers résolu ; relu après une fusion de tiers
+    // rompue (ADR 0031) : le lettrage historique reste lisible, un nouveau lettrage est refusé.
+    let mut r = registre([
+        ligne(1, Sens::Debit, 100, Some("T1"), 0),
+        ligne(2, Sens::Credit, 100, Some("T2"), 0),
+        ligne(3, Sens::Credit, 50, Some("T2"), 0),
+    ]);
+    let lien = Lien::nouveau(id(1), id(2), d(60)).unwrap();
+    r.rejouer([(1, op_lettrage("A", vec![lien]))]).unwrap();
+    assert_eq!(r.residuel(id(1)), Some(d(40)));
+    assert_eq!(
+        r.lettrer(&[id(1), id(3)], jour(2), Origine::Manuelle).err(),
+        Some(ErreurLettrage::TiersDifferents)
+    );
+    assert_eq!(
+        r.imputer(&[id(1), id(3)]),
+        Err(ErreurLettrage::TiersDifferents)
+    );
+}
+
+#[test]
 fn rejeu_d_un_lettrage_rompu_puis_relettre_le_meme_jour() {
     let lignes = [
         ligne(1, Sens::Debit, 100, None, 0),

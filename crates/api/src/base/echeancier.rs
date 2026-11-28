@@ -487,27 +487,29 @@ pub async fn lire_ecriture(
     }))
 }
 
-/// **Interface du lettrage** (ADR 0032, PR 9a) : résiduel de la ligne `(ecriture, position)`, de
-/// montant `montant`, en valeur absolue. Le lettrage n'est pas encore livré : aucune ligne n'a de
-/// lien, le résiduel est le montant entier (ligne ouverte).
-///
-/// À brancher par la PR 9a : prendre d'abord le `compteur_lettrage` du compte `FOR UPDATE`
-/// (rang 7 de l'ordre des verrous, ADR 0032 point 8 ; ADR 0033 point 2), puis rendre le montant
-/// moins les liens des lettrages non rompus de la ligne. La révision appelle cette fonction
-/// avant de décider ; la lecture de l'échéancier aussi.
+/// **Interface du lettrage** (ADR 0032, branchée par la PR 9a) : résiduel de la ligne
+/// `(ecriture, position)`, de montant `montant` : le montant moins les liens des lettrages non
+/// rompus qui la citent ([`super::lettrage::residuels`]). Lecture simple : la **révision** prend
+/// d'abord le verrou du compte de la ligne ([`super::lettrage::verrouiller_compte_de_ligne`],
+/// ADR 0033 point 2) ; la lecture de l'échéancier ne le prend pas.
 ///
 /// # Errors
-/// Contexte sans dossier (et, avec le lettrage, erreur de PostgreSQL).
-#[allow(clippy::unused_async)] // Signature de l'interface : le lettrage (PR 9a) lira la base.
+/// Contexte sans dossier, ligne absente ou résiduel hors de `[0, |montant|]` (donnée
+/// incohérente), erreur de PostgreSQL.
 pub async fn residuel(
     tx: &mut TransactionTenant,
     ecriture: Uuid,
     position: i16,
     montant: Decimal,
 ) -> Result<Decimal, ErreurBase> {
-    contexte(tx)?;
-    let _ = (ecriture, position);
-    Ok(montant.abs())
+    let incoherent = || ErreurBase::Donnee("résiduel d'une ligne de tiers");
+    let lus = super::lettrage::residuels(tx, &[(ecriture, position)]).await?;
+    let texte = lus.get(&(ecriture, position)).ok_or_else(incoherent)?;
+    let residuel = Decimal::from_str_exact(texte).map_err(|_| incoherent())?;
+    if residuel.is_sign_negative() || residuel > montant.abs() {
+        return Err(incoherent());
+    }
+    Ok(residuel)
 }
 
 /// Nouvelle révision à inscrire.
