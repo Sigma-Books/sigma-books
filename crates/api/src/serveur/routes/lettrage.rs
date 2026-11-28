@@ -394,6 +394,9 @@ async fn charger(
             devise: l.devise.clone(),
             tiers: l.tiers,
             etiquette: None,
+            // Reconstitution d'une ligne validée pour `compta-core` : l'échéance n'y entre pas
+            // (l'ordre d'imputation par échéance sera branché avec l'échéancier, PR 8).
+            date_echeance: None,
         };
         let ligne = ligne_depuis_stockee(&stockee, None, tenue)?;
         let resolu = l
