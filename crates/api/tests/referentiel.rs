@@ -53,7 +53,23 @@ async fn les_tables_du_referentiel_n_accordent_ni_delete_ni_update_de_table() {
         // Transitions de statut (PR 11b, `0201_periodes.sql`).
         ("exercice", &["statut"]),
         ("periode", &["motif", "statut", "statut_le", "statut_par"]),
-        ("tiers", &["actif", "nom"]),
+        // Fiche du tiers (lot L3, `0500_tiers_fiche.sql`) : code immuable ; type et compte collectif
+        // modifiables avant le premier mouvement (contrôle de l'API).
+        (
+            "tiers",
+            &[
+                "actif",
+                "archive_le",
+                "archive_par",
+                "assujetti_tva",
+                "compte_collectif",
+                "devise",
+                "motif_archivage",
+                "nom",
+                "soumis_retenue",
+                "type",
+            ],
+        ),
     ];
     for (table, colonnes) in attendues {
         let (rls, forcee): (bool, bool) = sqlx::query_as(
@@ -345,14 +361,6 @@ async fn aller_retour_du_plan_officiel_complet_enrichi() {
             Some(n(&format!("{banque}-EUR"))),
             &etat.plan,
         )?)?;
-        etat.tiers.insert(
-            tiers,
-            Tiers::nouveau(
-                t("Fournisseur"),
-                TypeTiers::Fournisseur,
-                k.fournisseur.clone(),
-            ),
-        );
         Ok(())
     };
     attendu
@@ -360,12 +368,36 @@ async fn aller_retour_du_plan_officiel_complet_enrichi() {
         .ajouter_sous_compte(sous_compte_fixe(), t("Sous-compte fixe"))
         .unwrap();
     operations(&mut attendu).unwrap();
+    // Le tiers s'écrit par `base::tiers` (lot L3), sous le même verrou et le même contrôle.
+    attendu.tiers.insert(
+        tiers,
+        Tiers::nouveau(
+            t("Fournisseur"),
+            TypeTiers::Fournisseur,
+            k.fournisseur.clone(),
+        ),
+    );
 
     let contexte = ContexteTenant::dossier(c.cabinet, c.dossier, c.administrateur);
     let mut tx = ouvrir_transaction(&env.application, contexte)
         .await
         .unwrap();
     muter(&mut tx, |_, etat| operations(etat)).await.unwrap();
+    api::base::tiers::creer(
+        &mut tx,
+        &api::base::tiers::NouveauTiers {
+            id: tiers,
+            code: None,
+            nom: t("Fournisseur"),
+            genre: TypeTiers::Fournisseur,
+            compte_collectif: k.fournisseur.clone(),
+            devise: None,
+            assujetti_tva: false,
+            soumis_retenue: false,
+        },
+    )
+    .await
+    .unwrap();
     tx.confirmer().await.unwrap();
 
     let mut tx = ouvrir_transaction(&env.application, contexte)
@@ -614,8 +646,9 @@ async fn controle_des_journaux(b: &Banc) {
 async fn controle_des_tiers(b: &Banc) {
     let Banc { env, c, f, routeur } = b;
     let k = comptes();
-    // Tiers : compte non collectif refusé ; le collectif d'un tiers actif ne se désactive
-    // pas ; une fois le tiers désactivé, il le peut, et le tiers ne se réactive plus.
+    // Tiers (routes du module `tiers` depuis le lot L3, même contrôle croisé) : compte non
+    // collectif refusé ; le collectif d'un tiers actif ne se désactive pas ; une fois le tiers
+    // archivé, il le peut, et le tiers ne se désarchive plus.
     muter_par_route(
         env,
         routeur,
@@ -672,8 +705,8 @@ async fn controle_des_tiers(b: &Banc) {
         env,
         routeur,
         c,
-        &format!("tiers/{}/modification", f.tiers),
-        r#"{"actif":false}"#,
+        &format!("tiers/{}/archivage", f.tiers),
+        r#"{"motif":"Fin de relation"}"#,
         OK,
     )
     .await;
@@ -690,8 +723,8 @@ async fn controle_des_tiers(b: &Banc) {
         env,
         routeur,
         c,
-        &format!("tiers/{}/modification", f.tiers),
-        r#"{"actif":true}"#,
+        &format!("tiers/{}/desarchivage", f.tiers),
+        "{}",
         REFUS,
     )
     .await;
@@ -807,8 +840,8 @@ async fn le_verrou_du_referentiel_serialise_les_mutations_sans_bloquer_les_inser
         .await
         .unwrap();
     sqlx::query(
-        "INSERT INTO tiers (cabinet_id, dossier_id, id, nom, type, compte_collectif, actif) \
-         VALUES ($1, $2, $3, 'Tiers', 'autre', $4, true)",
+        "INSERT INTO tiers (cabinet_id, dossier_id, id, code, nom, type, compte_collectif, actif) \
+         VALUES ($1, $2, $3, 'LIBRE', 'Tiers', 'autre', $4, true)",
     )
     .bind(c.cabinet.uuid())
     .bind(c.dossier.uuid())

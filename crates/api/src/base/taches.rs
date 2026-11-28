@@ -77,6 +77,9 @@ pub enum SujetNotification {
     ConnexionSecours,
     /// Code de récupération utilisé (ADR 0012, F1.12) ; objet : l'utilisateur.
     CodeRecuperationUtilise,
+    /// Coordonnée bancaire d'un tiers ajoutée, modifiée ou retirée (ADR 0031 point 3, F1.26) ;
+    /// dossier : celui du tiers. Aucune donnée du tiers.
+    CoordonneesBancairesTiers,
 }
 
 impl SujetNotification {
@@ -96,11 +99,12 @@ impl SujetNotification {
             Self::SeparationDesactivee => "separation_desactivee",
             Self::ConnexionSecours => "connexion_secours",
             Self::CodeRecuperationUtilise => "code_recuperation_utilise",
+            Self::CoordonneesBancairesTiers => "coordonnees_bancaires_tiers",
         }
     }
 
     /// Tous les sujets.
-    pub const TOUS: [Self; 12] = [
+    pub const TOUS: [Self; 13] = [
         Self::ExportAuditCabinet,
         Self::ExportAuditDossier,
         Self::ExportIntegrite,
@@ -113,6 +117,7 @@ impl SujetNotification {
         Self::SeparationDesactivee,
         Self::ConnexionSecours,
         Self::CodeRecuperationUtilise,
+        Self::CoordonneesBancairesTiers,
     ];
 
     /// Relit un nom stocké.

@@ -11,8 +11,8 @@
 use std::sync::OnceLock;
 
 use api::base::referentiel::{
-    EtatReferentiel, Instanciation, Modele, Ouverture, Tiers, TypeTiers, charger, instancier,
-    muter, types_de_tiers_admis,
+    EtatReferentiel, Instanciation, Modele, Ouverture, TypeTiers, charger, instancier, muter,
+    types_de_tiers_admis,
 };
 use api::base::{ContexteTenant, IdCabinet, IdDossier, IdUtilisateur, ouvrir_transaction};
 use compta_core::{Compte, NumeroCompte, TexteCourt};
@@ -143,17 +143,19 @@ pub async fn doter_repris(
     .changements[0]
         .id;
     let tiers = Uuid::new_v4();
-    muter(&mut tx, |_, etat: &mut EtatReferentiel| {
-        etat.tiers.insert(
-            tiers,
-            Tiers::nouveau(
-                TexteCourt::parse("Tiers fixe").unwrap(),
-                TypeTiers::Client,
-                comptes().collectif.clone(),
-            ),
-        );
-        Ok(())
-    })
+    api::base::tiers::creer(
+        &mut tx,
+        &api::base::tiers::NouveauTiers {
+            id: tiers,
+            code: None,
+            nom: TexteCourt::parse("Tiers fixe").unwrap(),
+            genre: TypeTiers::Client,
+            compte_collectif: comptes().collectif.clone(),
+            devise: None,
+            assujetti_tva: false,
+            soumis_retenue: false,
+        },
+    )
     .await
     .unwrap();
     let relu = charger(&mut tx).await.unwrap().unwrap();
@@ -187,7 +189,6 @@ pub fn corps(cas: api::serveur::routes::referentiel::Cas) -> &'static str {
     use api::serveur::routes::referentiel::Cas;
     static COMPTE: OnceLock<String> = OnceLock::new();
     static JOURNAL: OnceLock<String> = OnceLock::new();
-    static TIERS: OnceLock<String> = OnceLock::new();
     match cas {
         Cas::CreerCompte => COMPTE.get_or_init(|| {
             format!(
@@ -202,19 +203,12 @@ pub fn corps(cas: api::serveur::routes::referentiel::Cas) -> &'static str {
                 comptes().banque
             )
         }),
-        Cas::CreerTiers => TIERS.get_or_init(|| {
-            format!(
-                r#"{{"nom":"Client du test","type":"client","compte_collectif":"{}"}}"#,
-                comptes().collectif
-            )
-        }),
-        Cas::ModifierTiers => r#"{"nom":"Tiers renommé"}"#,
         Cas::DesactiverCompte
         | Cas::ReactiverCompte
         | Cas::VerrouillerPeriode
         | Cas::OuvrirExerciceSuivant => "{}",
         Cas::DeverrouillerPeriode => r#"{"motif":"Correction d'une erreur de saisie"}"#,
         Cas::CloturerPeriode => r#"{"confirmation":"irreversible"}"#,
-        Cas::ListerComptes | Cas::ListerJournaux | Cas::ListerTiers | Cas::ListerExercices => "",
+        Cas::ListerComptes | Cas::ListerJournaux | Cas::ListerExercices => "",
     }
 }

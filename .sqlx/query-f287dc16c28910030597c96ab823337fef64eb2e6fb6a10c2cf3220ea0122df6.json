@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.type AS \"type!\", array_agg(DISTINCT a.tiers_id ORDER BY a.tiers_id) AS \"autres!\"\n           FROM tiers_identifiant i\n           JOIN tiers_identifiant a\n             ON a.cabinet_id = i.cabinet_id AND a.dossier_id = i.dossier_id\n            AND a.type = i.type AND a.valeur_normalisee = i.valeur_normalisee\n            AND a.tiers_id <> i.tiers_id\n           WHERE i.cabinet_id = $1 AND i.dossier_id = $2 AND i.tiers_id = $3\n           GROUP BY i.type ORDER BY i.type",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "type!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tiers_identifiant",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "autres!",
+        "type_info": "UuidArray",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "f287dc16c28910030597c96ab823337fef64eb2e6fb6a10c2cf3220ea0122df6"
+}

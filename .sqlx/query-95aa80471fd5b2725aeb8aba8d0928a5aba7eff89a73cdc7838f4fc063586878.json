@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tiers SET actif = false, motif_archivage = $4, archive_le = now(), archive_par = $5 WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "95aa80471fd5b2725aeb8aba8d0928a5aba7eff89a73cdc7838f4fc063586878"
+}

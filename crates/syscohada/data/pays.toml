@@ -167,6 +167,32 @@ code = "AUTRE"
 libelle = "Autre identifiant"
 source = "Type générique : identifiant d'un pays dont le type propre n'est pas encore sourcé (ADR 0027)"
 
+# --- Types d'identifiants bancaires des tiers (ADR 0031 point 3) ----------------------------
+# Type de la coordonnée bancaire d'un tiers, commun à tous les pays. Aucune règle de forme n'est
+# déclarée : ni la clé RIB de l'UEMOA ou de la CEMAC, ni la vérification de l'IBAN ne sont
+# sourcées dans `references/` (ADR 0030 §5) ; un contrôle (avertissement seulement) n'entrera
+# qu'avec sa source, par une ligne de données.
+
+[[identifiant_bancaire]]
+code = "RIB"
+libelle = "Relevé d'identité bancaire"
+source = "Spec §9.1 (« identifiant (RIB, numéro de portefeuille) ») ; ADR 0031 point 3"
+
+[[identifiant_bancaire]]
+code = "IBAN"
+libelle = "Numéro de compte bancaire international (IBAN)"
+source = "ISO 13616-1 (norme hors du dépôt, type seul, aucune règle de forme reprise) ; ADR 0031 point 3"
+
+[[identifiant_bancaire]]
+code = "PORTEFEUILLE"
+libelle = "Numéro de portefeuille de monnaie électronique"
+source = "Spec §9.1 (« numéro de portefeuille ») ; AUDCIF fiche 55, p. PDF 423 (monnaie électronique) ; ADR 0031 point 3"
+
+[[identifiant_bancaire]]
+code = "AUTRE"
+libelle = "Autre identifiant bancaire"
+source = "Type générique (ADR 0031 point 3)"
+
 # --- Pays ---------------------------------------------------------------------------------
 
 [[pays]]

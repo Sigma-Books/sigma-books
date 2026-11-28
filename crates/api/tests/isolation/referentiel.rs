@@ -1,6 +1,6 @@
 //! Cas d'isolation des routes du module `referentiel` (PR 11a et 11b de `docs/lots/L2.md`) :
-//! plan, journaux, tiers, exercices d'un dossier ; transitions de ses périodes et exercice
-//! suivant.
+//! plan, journaux, exercices d'un dossier (les tiers : `tiers.rs`) ; transitions de ses
+//! périodes et exercice suivant.
 //!
 //! Les routes des périodes s'enchaînent dans l'ordre de la table, sur la première période de
 //! chaque dossier : verrouillée (administrateur sur le second dossier de A, valideur sur le
@@ -107,13 +107,11 @@ fn attentes(route: &Route, m: &Monde) -> Option<Vec<Attendu>> {
     Some(match cas {
         Cas::ListerComptes => lecture("comptes"),
         Cas::ListerJournaux => lecture("journaux"),
-        Cas::ListerTiers => lecture("tiers"),
         Cas::ListerExercices => lecture("exercices"),
-        Cas::CreerCompte | Cas::CreerJournal | Cas::CreerTiers => mutation(&|_| Cree),
+        Cas::CreerCompte | Cas::CreerJournal => mutation(&|_| Cree),
         Cas::RenommerCompte | Cas::DesactiverCompte | Cas::ReactiverCompte => {
             croises(mutation(&|d| Ressource(m.fixtures[&d].compte)))
         }
-        Cas::ModifierTiers => croises(mutation(&|d| Ressource(m.fixtures[&d].tiers))),
         Cas::VerrouillerPeriode | Cas::CloturerPeriode => {
             croises(mutation(&|d| Ressource(m.fixtures[&d].periode)))
         }
@@ -148,7 +146,6 @@ async fn compter(env: &Env, table: &str, dossier: api::base::IdDossier) -> i64 {
     // Noms de tables constants, choisis par le test.
     let sql = match table {
         "compte" => "SELECT count(*) FROM compte WHERE dossier_id = $1 AND actif",
-        "tiers" => "SELECT count(*) FROM tiers WHERE dossier_id = $1 AND actif",
         "exercice" => "SELECT count(*) FROM exercice WHERE dossier_id = $1",
         "ouverte" => {
             "SELECT count(*) FROM periode WHERE dossier_id = $1 AND statut = 'ouverte' \
@@ -183,18 +180,12 @@ pub(super) async fn quand_cedar_se_trompe(
     let etat = || async {
         (
             compter(env, "compte", a.dossier).await,
-            compter(env, "tiers", a.dossier).await,
             compter(env, "audit", a.dossier).await,
             compter(env, "compte", b.dossier).await,
         )
     };
     let avant = etat().await;
-    for cas in [
-        Cas::CreerCompte,
-        Cas::CreerTiers,
-        Cas::DesactiverCompte,
-        Cas::CreerJournal,
-    ] {
+    for cas in [Cas::CreerCompte, Cas::DesactiverCompte, Cas::CreerJournal] {
         let r = route(cas);
         for utilisateur in [a.collaborateur, m.auditeur] {
             let reponse = appel(

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tiers (cabinet_id, dossier_id, id, code, nom, type, compte_collectif, actif, devise, assujetti_tva, soumis_retenue) VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9f33f9d80492d303019825b1075fde651e8ec91a2137a292e0c24b0dd9bc1832"
+}

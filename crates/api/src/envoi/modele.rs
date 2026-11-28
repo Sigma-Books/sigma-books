@@ -225,6 +225,14 @@ pub fn alerte(
              passe et code), non par une passkey. Si ce n'était pas lui, suspendez-le."
                 .to_owned(),
         ),
+        (S::CoordonneesBancairesTiers, _) => (
+            "Sigma Books : coordonnées bancaires d'un tiers modifiées",
+            format!(
+                "Les coordonnées bancaires d'un tiers d'un dossier de votre cabinet viennent \
+                 d'être ajoutées, modifiées ou retirées. Si vous ne reconnaissez pas cette \
+                 modification, consultez l'audit du dossier avant tout règlement.{dossier_texte}"
+            ),
+        ),
         (S::CodeRecuperationUtilise, _) => (
             "Sigma Books : code de récupération utilisé",
             "Un membre de votre cabinet vient d'utiliser un code de récupération. Si ce n'était \

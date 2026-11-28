@@ -18,11 +18,12 @@
 //! ([`Instanciation::preparer`]) avant la première écriture ([`instancier`]).
 //!
 //! # Une seule voie de mutation
-//! Toute modification du plan, des journaux ou des tiers d'un dossier passe par [`muter`] :
+//! Toute modification du plan ou des journaux d'un dossier passe par [`muter`] (celle des tiers,
+//! par [`super::tiers`] depuis le lot L3, sous le même verrou et le même contrôle croisé) :
 //! verrou du référentiel, relecture, mutation pure d'une **copie**, contrôle croisé
 //! ([`verifier`] : `Journaux::verifier_plan`, comptes de trésorerie distincts, comptes
 //! collectifs des tiers), puis enregistrement des **seules différences** entre l'état relu et
-//! la copie. Rien d'autre n'écrit dans ces tables après la création.
+//! la copie. Rien d'autre n'écrit dans le plan et les journaux après la création.
 //!
 //! # Périodes et exercice suivant
 //! Transitions de statut des périodes et ouverture de l'exercice suivant : [`changer_statut`] et
@@ -1272,7 +1273,8 @@ async fn charger_exercices(
     Ok((exercices, ids_exercices, ids_periodes))
 }
 
-/// **Seule voie de mutation** du plan, des journaux et des tiers d'un dossier existant :
+/// **Seule voie de mutation** du plan et des journaux d'un dossier existant (les tiers : module
+/// [`super::tiers`]) :
 /// 1. verrou du référentiel ([`verrouiller`]) ;
 /// 2. relecture ([`charger`]) ;
 /// 3. `mutation`, pure, sur une **copie** de l'état relu ;
@@ -1326,7 +1328,7 @@ async fn enregistrer(
 ) -> Result<Vec<Changement>, ErreurBase> {
     let mut changements = enregistrer_comptes(tx, relu, apres).await?;
     changements.extend(enregistrer_journaux(tx, relu, apres).await?);
-    changements.extend(enregistrer_tiers(tx, relu, apres).await?);
+    enregistrer_tiers(relu, apres)?;
     Ok(changements)
 }
 
@@ -1482,88 +1484,15 @@ async fn enregistrer_journaux(
     Ok(changements)
 }
 
-async fn enregistrer_tiers(
-    tx: &mut TransactionTenant,
-    relu: &ReferentielDossier,
-    apres: &EtatReferentiel,
-) -> Result<Vec<Changement>, ErreurBase> {
-    let (cabinet, dossier) = contexte(tx)?;
-    let mut changements = Vec::new();
-    // Tiers.
-    if relu
-        .etat
-        .tiers
-        .keys()
-        .any(|id| !apres.tiers.contains_key(id))
-    {
-        return Err(immuable());
+/// Les tiers ne s'écrivent plus par [`muter`] (lot L3, PR 7a) : leur fiche a son module,
+/// [`super::tiers`], qui reprend le verrou et le contrôle croisé du référentiel ([`verifier`]).
+/// Une mutation qui changerait un tiers est une erreur interne.
+fn enregistrer_tiers(relu: &ReferentielDossier, apres: &EtatReferentiel) -> Result<(), ErreurBase> {
+    if relu.etat.tiers == apres.tiers {
+        Ok(())
+    } else {
+        Err(immuable())
     }
-    for (id, t) in &apres.tiers {
-        match relu.etat.tiers.get(id) {
-            None => {
-                sqlx::query!(
-                    "INSERT INTO tiers \
-                         (cabinet_id, dossier_id, id, nom, type, compte_collectif, actif) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                    cabinet,
-                    dossier,
-                    id,
-                    t.nom.as_str(),
-                    t.genre.nom(),
-                    t.compte_collectif.as_str(),
-                    t.actif,
-                )
-                .execute(tx.connexion())
-                .await?;
-                changements.push(Changement {
-                    genre: "tiers",
-                    id: *id,
-                    cree: true,
-                    donnees: Vec::new(),
-                    champs: vec![
-                        ("nom", None, Some(t.nom.to_string())),
-                        ("type", None, Some(t.genre.nom().to_owned())),
-                        (
-                            "compte_collectif",
-                            None,
-                            Some(t.compte_collectif.to_string()),
-                        ),
-                    ],
-                });
-            }
-            Some(avant) if avant == t => {}
-            Some(avant) => {
-                if (avant.genre, &avant.compte_collectif) != (t.genre, &t.compte_collectif) {
-                    return Err(immuable());
-                }
-                sqlx::query!(
-                    "UPDATE tiers SET nom = $4, actif = $5 \
-                     WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3",
-                    cabinet,
-                    dossier,
-                    id,
-                    t.nom.as_str(),
-                    t.actif,
-                )
-                .execute(tx.connexion())
-                .await?;
-                changements.push(Changement {
-                    genre: "tiers",
-                    id: *id,
-                    cree: false,
-                    donnees: Vec::new(),
-                    champs: [
-                        champ("nom", &avant.nom, &t.nom),
-                        champ("actif", &avant.actif, &t.actif),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
-                });
-            }
-        }
-    }
-    Ok(changements)
 }
 
 mod periodes;

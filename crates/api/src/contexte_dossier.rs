@@ -79,21 +79,52 @@ pub enum RefusContexte {
     Invalide,
 }
 
-/// Caractères de format bidirectionnels (U+200E, U+200F, U+202A à U+202E, U+2066 à U+2069) :
-/// ils inversent l'affichage d'une valeur saisie (une valeur « retournée » dans une liste ou un
-/// document) et n'ont aucun usage dans un identifiant ou une forme juridique.
-fn est_format_bidirectionnel(c: char) -> bool {
-    matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+/// Caractères de **format** (catégorie générale Unicode `Cf`, Unicode 16.0, liste fermée) : ils
+/// sont invisibles ou changent l'affichage d'une valeur saisie (U+202E retourne un texte, U+200B
+/// ou U+FEFF cachent une différence entre deux numéros) et n'ont aucun usage dans un nom, un
+/// identifiant, une adresse ou un numéro de compte (F11.8). U+00AD (trait d'union conditionnel)
+/// et U+061C (marque de lettre arabe) en font partie.
+#[must_use]
+pub(crate) fn est_caractere_de_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
+    )
 }
 
-/// Longueur en caractères, sans caractère de contrôle ni de format bidirectionnel, non vide après
-/// retrait des blancs.
-fn texte_borne(texte: &str, max: usize) -> bool {
-    !texte.trim().is_empty()
-        && texte.chars().count() <= max
-        && !texte
-            .chars()
-            .any(|c| c.is_control() || est_format_bidirectionnel(c))
+/// Vrai si le texte contient un caractère de contrôle (C0, DEL, C1 : aucun n'est admis dans un
+/// texte court, tabulation et retour à la ligne compris) ou de format ([`est_caractere_de_format`]).
+#[must_use]
+pub(crate) fn a_un_caractere_interdit(texte: &str) -> bool {
+    texte
+        .chars()
+        .any(|c| c.is_control() || est_caractere_de_format(c))
+}
+
+/// Longueur en caractères, sans caractère de contrôle ni de format ([`a_un_caractere_interdit`]),
+/// non vide après retrait des blancs.
+pub(crate) fn texte_borne(texte: &str, max: usize) -> bool {
+    !texte.trim().is_empty() && texte.chars().count() <= max && !a_un_caractere_interdit(texte)
 }
 
 /// Résout le contexte d'un dossier à créer : valeurs par défaut du pays, puis contrôle de

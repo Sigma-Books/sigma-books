@@ -744,9 +744,8 @@ et leurs tests (une matrice par domaine dans `crates/authz/tests/politiques.rs`)
 | 13a, 13b | `rapprochement` | `rapprochement.toml` | `0580`–`0589` | domaine « trésorerie » |
 | 14 | `prelevements` | `prelevements.toml` | aucune prévue | domaine « trésorerie » |
 
-Les routes de tiers de L2 (`referentiel` : `ListerTiers`, `CreerTiers`, `ModifierTiers`, sous
-`AccederDossier` et `ParametrerDossier`) restent en place : la PR 7a les reprend dans `tiers` avec
-les actions de L3 (deux fichiers seulement : `referentiel.rs` et `tiers.rs`, plus leurs cas).
+Les routes de tiers de L2 (`referentiel` : liste, création, modification) sont reprises par la
+PR 7a dans `tiers`, aux mêmes chemins, sous les actions de L3 (section « Tiers » ci-dessous).
 Points communs restants, rarement touchés : `invariants.cedar` (une action de L3 qui exigerait la
 ré-authentification ; déjà fait pour la fusion et l'anonymisation) et `SENSIBLES` dans les tests de
 `authz`. Le corps d'exemple d'une mutation (`corps_de` de `tests/commun/serveur.rs`) est déjà
@@ -755,6 +754,45 @@ délégué à `tests/commun/<module>.rs` (fonction `corps`, réduite à `match c
 `Cargo.lock` se **régénère**, il ne se fusionne pas à la main : en cas de conflit, reprendre la
 version de `main` puis relancer `cargo build` (ou `cargo update -p <crate>` pour la seule
 dépendance ajoutée). De même, `.sqlx/` se régénère par `cargo sqlx prepare --workspace`.
+
+## Tiers (lot L3, PR 7a ; ADR 0031)
+
+Code : `src/serveur/routes/tiers.rs` (routes, contrôles de forme, différences, traces),
+`src/base/tiers.rs` (seul module qui écrit dans `tiers` et ses tables de fiche), migrations `0500`
+à `0504`, types d'identifiants bancaires dans `crates/syscohada/data/pays.toml`
+(`[[identifiant_bancaire]]`). Cedar : `roles/tiers.cedar` ; le rôle est relu en base (défense en
+profondeur).
+
+- `GET …/tiers` (`ConsulterTiers`, quatre rôles) : liste paginée (`apres`, `limite` ≤ 200), triée
+  par nom ; `GET …/tiers/{tiers}` : fiche (en-tête, identifiants, adresses, contacts,
+  `avertissements`), **sans** coordonnées bancaires.
+- `POST …/tiers` (`CreerTiers` : administrateur, valideur) : `nom`, `type`, `compte_collectif`
+  (contrôle croisé du référentiel, comme en L2 : 400), `code` facultatif (`A-Z 0-9 . _ -`, 1 à 20 ;
+  tiré d'office `T` et six chiffres ; unique : 409 `tiers_code_deja_utilise` ; suite épuisée par un
+  code saisi : 409 `tiers_code_tirage_impossible`), `devise`, `assujetti_tva`, `soumis_retenue`.
+  Le code ne change jamais ; `type` et `compte_collectif` se modifient tant qu'aucune ligne
+  (brouillon ou écriture validée) ne cite le tiers (409 `tiers_deja_mouvemente` ensuite ; ADR 0031
+  point 1, amendement du 2026-11-27).
+- `POST …/tiers/{tiers}/modification` (`ModifierTiers` : rôles de saisie) : `nom`, `devise` (`null`
+  l'efface), indicateurs ; `identifiants`, `adresses`, `contacts` : une liste présente **remplace**
+  la liste (ligne gardée par son `id`, ajoutée sans `id`, retirée si absente). Identifiants : types
+  du pack du pays **du dossier**, un par type (422 `tiers_identifiant_type_inconnu`) ; valeurs
+  bornées (422 `tiers_valeur_invalide`), sans caractère de contrôle ni de format Unicode `Cf` (422
+  `tiers_caractere_invalide`) ; rien ne change : 409 `aucun_changement`.
+- `POST …/tiers/{tiers}/archivage` `{motif}` et `…/desarchivage` (`ArchiverTiers`) : archivé, le tiers
+  n'accepte plus de ligne au brouillard (`tiers_inactif`) ; désarchivage sous le contrôle croisé.
+- `GET` et `POST …/tiers/{tiers}/comptes-bancaires` : lecture `ConsulterCoordonneesBancairesTiers`
+  (**auditeur exclu**, VP17), remplacement `ModifierTiers` ; type du pack (422
+  `tiers_compte_bancaire_type_inconnu`), aucune règle de forme ; chaque modification crée la
+  notification `coordonnees_bancaires_tiers` aux administrateurs (F1.26).
+- **Doublons signalés**, jamais refusés : même type et même valeur d'identifiant, même numéro
+  bancaire chez un autre tiers du dossier (comparaison en majuscules, blancs, espaces insécables
+  et caractères de format retirés) ; forme d'un courriel.
+- **Audit** : une trace par changement, au dossier ; opérations, noms de champs, types ; jamais un
+  nom, une adresse, un numéro ni le motif d'archivage.
+- Bornes (limites de sécurité, F2.16, ordres de grandeur) : 10 identifiants, 20 adresses,
+  50 contacts, 20 coordonnées bancaires ; dépassement : 422 `tiers_trop_d_identifiants`,
+  `tiers_trop_d_adresses`, `tiers_trop_de_contacts`, `tiers_trop_de_comptes_bancaires`.
 
 ## Paramètres fiscaux par pays (ADR 0030)
 

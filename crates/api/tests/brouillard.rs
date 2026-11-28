@@ -293,8 +293,8 @@ async fn chaque_refus_de_saisie() {
         .unwrap();
     let tiers_inactif = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO tiers (cabinet_id, dossier_id, id, nom, type, compte_collectif, actif) \
-         VALUES ($1, $2, $3, 'Inactif', 'client', $4, false)",
+        "INSERT INTO tiers (cabinet_id, dossier_id, id, code, nom, type, compte_collectif, actif) \
+         VALUES ($1, $2, $3, 'INACTIF', 'Inactif', 'client', $4, false)",
     )
     .bind(b.c.cabinet.uuid())
     .bind(b.c.dossier.uuid())
@@ -593,8 +593,8 @@ async fn regle_de_la_fiche_du_tiers() {
     assert!(!clients.is_empty());
     let fournisseur = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO tiers (cabinet_id, dossier_id, id, nom, type, compte_collectif, actif) \
-         VALUES ($1, $2, $3, 'Fournisseur', 'fournisseur', $4, true)",
+        "INSERT INTO tiers (cabinet_id, dossier_id, id, code, nom, type, compte_collectif, actif) \
+         VALUES ($1, $2, $3, 'FOURNISSEUR', 'Fournisseur', 'fournisseur', $4, true)",
     )
     .bind(b.c.cabinet.uuid())
     .bind(b.c.dossier.uuid())
