@@ -50,6 +50,7 @@ pub mod organisation;
 pub mod parametres_fiscaux;
 pub mod passkeys;
 pub mod referentiel;
+pub mod releves;
 pub mod session;
 pub mod taches;
 pub mod tiers;

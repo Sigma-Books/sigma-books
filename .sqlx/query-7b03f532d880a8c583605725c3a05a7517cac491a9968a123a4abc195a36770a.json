@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT d.id AS \"id!\", d.version AS \"version!\", d.nom AS \"nom!\",\n               d.definition AS \"definition!\", d.empreinte AS \"empreinte!\",\n               d.cree_par AS \"cree_par!\", d.cree_le AS \"cree_le!\"\n        FROM (SELECT DISTINCT ON (id) id, version, nom, definition, empreinte, cree_par, cree_le\n              FROM profil_releve\n              WHERE cabinet_id = $1 AND dossier_id = $2\n              ORDER BY id, version DESC) d\n        ORDER BY d.nom, d.id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "version!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "definition!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "definition"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "empreinte!",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "empreinte"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "cree_par!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "cree_par"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "cree_le!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7b03f532d880a8c583605725c3a05a7517cac491a9968a123a4abc195a36770a"
+}

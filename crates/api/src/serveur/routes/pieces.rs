@@ -191,7 +191,7 @@ fn maintenant() -> OffsetDateTime {
 
 /// Paramètres de l'URL décodés (`%xx`, `+` pour l'espace), en UTF-8 strict ; `admis` liste les
 /// seuls noms acceptés, chacun au plus une fois. Sinon 400, sans écho.
-fn parametres(
+pub(crate) fn parametres(
     texte: Option<&str>,
     admis: &[&'static str],
 ) -> Result<Vec<(&'static str, String)>, ErreurApi> {
@@ -227,14 +227,14 @@ fn decoder(texte: &str) -> Option<String> {
     String::from_utf8(octets).ok()
 }
 
-fn valeur<'a>(lus: &'a [(&'static str, String)], nom: &str) -> Option<&'a str> {
+pub(crate) fn valeur<'a>(lus: &'a [(&'static str, String)], nom: &str) -> Option<&'a str> {
     lus.iter()
         .find_map(|(n, v)| (*n == nom).then_some(v.as_str()))
 }
 
 /// Nom de fichier d'origine admis : 1 à 255 octets UTF-8, sans caractère de contrôle. Il reste
 /// une métadonnée ; le chemin éventuel n'est pas interprété.
-fn nom_origine(texte: &str) -> Result<String, ErreurApi> {
+pub(crate) fn nom_origine(texte: &str) -> Result<String, ErreurApi> {
     if (1..=255).contains(&texte.len()) && crate::pieces::texte_sur(texte) {
         Ok(texte.to_owned())
     } else {
@@ -429,7 +429,7 @@ async fn enregistrer(
             cle: &cle,
             contenu: contenu.octets,
             empreinte: contenu.empreinte,
-            type_contenu: contenu.type_piece.mime(),
+            type_contenu: contenu.type_piece.mime_servi(),
             retenir_jusqu_au: retenir,
         })
         .await
@@ -496,6 +496,79 @@ pub(crate) async fn creer_note(
     let (piece, trace) =
         enregistrer(tx, dossier, pieces, registre, contenu, Some(motif), &[]).await?;
     Ok((piece.id, trace))
+}
+
+/// Relevé CSV déposé par la route des relevés (L3-22 ; ADR 0034 point 4, amendement de l'ADR
+/// 0015) : pièce **externe** de type texte, reconnue par son contenu par l'appelant, stockée et
+/// retenue comme toute pièce externe. Rend la pièce relue et sa trace, **sans le nom d'origine** :
+/// le nom d'un fichier de relevé peut citer un identifiant bancaire, qui n'entre jamais au journal
+/// d'audit (ADR 0034 point 11, F2.11) ; il reste une métadonnée de la pièce.
+pub(crate) async fn deposer_releve(
+    tx: &mut TransactionTenant,
+    dossier: &DossierAutorise,
+    requete: &Requete<'_>,
+    octets: &[u8],
+    empreinte: Empreinte,
+    nom_origine: Option<String>,
+) -> Result<(Piece, Trace), ErreurApi> {
+    let pieces = service(requete)?;
+    let contenu = Contenu {
+        octets,
+        type_piece: TypePiece::Texte,
+        empreinte,
+        nature: Nature::Externe,
+        nom_origine,
+    };
+    let registre = requete.registre_fiscal()?;
+    let (piece, mut trace) = enregistrer(tx, dossier, pieces, registre, contenu, None, &[]).await?;
+    trace.champs.retain(|(nom, _, _)| *nom != "nom");
+    Ok((piece, trace))
+}
+
+/// Contenu d'une pièce, relu en entier dans sa version écrite, son empreinte **recalculée**
+/// (F3.1). `Ok(Err(resultat))` : objet altéré, remplacé ou absent ; le résultat porte le refus
+/// (500), l'alerte au journal technique et l'entrée d'audit, validée malgré le refus.
+pub(crate) async fn relire(
+    dossier: &DossierAutorise,
+    requete: &Requete<'_>,
+    piece: &Piece,
+) -> Result<Result<Vec<u8>, Resultat>, ErreurApi> {
+    let pieces = service(requete)?;
+    let taille =
+        usize::try_from(piece.taille).map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
+    let lu = pieces
+        .stockage()
+        .lire(&piece.cle, &piece.version, taille)
+        .await;
+    let (alerte, empreinte_lue) = match lu {
+        Ok(octets) => {
+            let lue = Empreinte::calculer(&octets);
+            if lue == piece.empreinte && octets.len() == taille {
+                return Ok(Ok(octets));
+            }
+            ("piece_alteree", Some(lue))
+        }
+        Err(crate::pieces::ErreurStockage::Absent) => ("piece_absente", None),
+        Err(crate::pieces::ErreurStockage::TropGrand) => ("piece_alteree", None),
+        Err(_) => return Err(ErreurApi::Interne(CategorieErreur::Stockage)),
+    };
+    tracing::error!(
+        target: CIBLE,
+        alerte,
+        "alerte de sécurité : pièce justificative non conforme à son empreinte"
+    );
+    let mut trace = Trace::new(PorteeAudit::Dossier(dossier.id()), "piece", piece.id);
+    trace.donnees.push(("alerte", alerte.to_owned()));
+    trace
+        .donnees
+        .push(("empreinte_attendue", piece.empreinte.to_string()));
+    if let Some(lue) = empreinte_lue {
+        trace.donnees.push(("empreinte_lue", lue.to_string()));
+    }
+    Ok(Err(Resultat {
+        reponse: ErreurApi::Interne(CategorieErreur::Stockage).into_response(),
+        traces: vec![trace],
+    }))
 }
 
 /// Corps de la création d'une pièce interne.
@@ -593,58 +666,27 @@ async fn piece_du_chemin(
     lire_piece(tx, id).await?.ok_or(ErreurApi::Introuvable)
 }
 
-/// Téléchargement : la version écrite de l'objet, relue en entier, son empreinte **recalculée**.
-/// Écart (objet altéré, remplacé ou absent) : refus, alerte au journal technique et entrée au
-/// journal d'audit, validée malgré le refus (F3.1).
+/// Téléchargement : la version écrite de l'objet, relue en entier, son empreinte **recalculée**
+/// ([`relire`]). Écart (objet altéré, remplacé ou absent) : refus, alerte au journal technique et
+/// entrée au journal d'audit, validée malgré le refus (F3.1).
 async fn telecharger(
     tx: &mut TransactionTenant,
     dossier: &DossierAutorise,
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
-    let pieces = service(requete)?;
     parametres(requete.parametres, &[])?;
     let piece = piece_du_chemin(tx, requete).await?;
-    let taille =
-        usize::try_from(piece.taille).map_err(|_| ErreurApi::Interne(CategorieErreur::Donnee))?;
-    let lu = pieces
-        .stockage()
-        .lire(&piece.cle, &piece.version, taille)
-        .await;
-    let (alerte, empreinte_lue) = match lu {
-        Ok(octets) => {
-            let lue = Empreinte::calculer(&octets);
-            if lue == piece.empreinte && octets.len() == taille {
-                return Ok(Resultat {
-                    reponse: piece_jointe(&piece, octets),
-                    traces: Vec::new(),
-                });
-            }
-            ("piece_alteree", Some(lue))
-        }
-        Err(crate::pieces::ErreurStockage::Absent) => ("piece_absente", None),
-        Err(crate::pieces::ErreurStockage::TropGrand) => ("piece_alteree", None),
-        Err(_) => return Err(ErreurApi::Interne(CategorieErreur::Stockage)),
-    };
-    tracing::error!(
-        target: CIBLE,
-        alerte,
-        "alerte de sécurité : pièce justificative non conforme à son empreinte"
-    );
-    let mut trace = Trace::new(PorteeAudit::Dossier(dossier.id()), "piece", piece.id);
-    trace.donnees.push(("alerte", alerte.to_owned()));
-    trace
-        .donnees
-        .push(("empreinte_attendue", piece.empreinte.to_string()));
-    if let Some(lue) = empreinte_lue {
-        trace.donnees.push(("empreinte_lue", lue.to_string()));
-    }
-    Ok(Resultat {
-        reponse: ErreurApi::Interne(CategorieErreur::Stockage).into_response(),
-        traces: vec![trace],
+    Ok(match relire(dossier, requete, &piece).await? {
+        Ok(octets) => Resultat {
+            reponse: piece_jointe(&piece, octets),
+            traces: Vec::new(),
+        },
+        Err(alerte) => alerte,
     })
 }
 
-/// Réponse de téléchargement : toujours en pièce jointe (RFC 6266), type de la signature,
+/// Réponse de téléchargement : toujours en pièce jointe (RFC 6266), type de la signature
+/// (`application/octet-stream` pour un relevé texte, jamais rendu : ADR 0034 point 4),
 /// `nosniff` ; la CSP `sandbox; default-src 'none'` de l'API est posée par
 /// [`crate::serveur::entetes`].
 fn piece_jointe(piece: &Piece, octets: Vec<u8>) -> Response {
@@ -656,7 +698,7 @@ fn piece_jointe(piece: &Piece, octets: Vec<u8>) -> Response {
     let entetes = reponse.headers_mut();
     entetes.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static(piece.type_piece.mime()),
+        HeaderValue::from_static(piece.type_piece.mime_servi()),
     );
     if let Ok(valeur) = HeaderValue::from_str(&disposition(&nom)) {
         entetes.insert(header::CONTENT_DISPOSITION, valeur);
@@ -683,6 +725,7 @@ fn nom_telecharge(nom: &str, type_piece: TypePiece) -> String {
         TypePiece::Pdf => &[".pdf"],
         TypePiece::Png => &[".png"],
         TypePiece::NoteOd => &[".txt"],
+        TypePiece::Texte => &[".csv"],
     };
     if admises.iter().any(|e| minuscule.ends_with(e)) {
         nom.to_owned()
