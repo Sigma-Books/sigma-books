@@ -1182,3 +1182,159 @@ async fn revision_d_echeance_et_lettrage_concurrents_se_suivent() {
             .is_none()
     );
 }
+
+// --- Raccord avec l'échéancier (ADR 0033 point 2 ; PR 8, #266) --------------------------------
+
+fn chemin_echeances(b: &Banc, ecriture: Uuid) -> String {
+    format!(
+        "/api/cabinets/{}/dossiers/{}/echeances/{ecriture}",
+        b.c.cabinet, b.c.dossier
+    )
+}
+
+/// Révision de l'échéance de la ligne 1 de `ecriture`, par la route de l'échéancier.
+async fn reviser_echeance(b: &Banc, ecriture: Uuid, jours: i64) -> Reponse {
+    let nouvelle = commun::brouillard::texte_date(
+        commun::brouillard::aujourd_hui() + time::Duration::days(jours),
+    );
+    envoyer(
+        &b.routeur,
+        &format!("{}/revisions", chemin_echeances(b, ecriture)),
+        Some(b.c.collaborateur),
+        &json!({"position": 1, "nouvelle_echeance": nouvelle, "motif": "Report accordé"})
+            .to_string(),
+        None,
+    )
+    .await
+}
+
+async fn echeance_lue(b: &Banc, ecriture: Uuid) -> Value {
+    let r = lire(&b.routeur, &chemin_echeances(b, ecriture), Some(b.auditeur)).await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    r.json()["lignes"][0].clone()
+}
+
+#[tokio::test]
+async fn l_echeancier_lit_le_residuel_reel_du_lettrage() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let f = facture(&b, t, "1000").await;
+    let r = reglement(&b, t, "400").await;
+    assert_eq!(echeance_lue(&b, f).await["statut"], "ouverte");
+    let a = lettrer(&b, &[(f, 1), (r, 1)]).await;
+    let ligne = echeance_lue(&b, f).await;
+    assert_eq!(ligne["residuel"], "600");
+    assert_eq!(ligne["statut"], "partiellement_reglee");
+    let r2 = reglement(&b, t, "600").await;
+    lettrer(&b, &[(f, 1), (r2, 1)]).await;
+    assert_eq!(echeance_lue(&b, f).await["statut"], "soldee");
+    // Une échéance soldée ne se révise plus (ADR 0033 point 2).
+    let rep = reviser_echeance(&b, f, 30).await;
+    assert_eq!(rep.statut, StatusCode::CONFLICT, "{}", rep.texte());
+    assert_eq!(code(&rep), "echeance_soldee");
+    // La rupture rétablit le résiduel lu par l'échéancier.
+    assert_eq!(
+        rompre(&b, a["id"].as_str().unwrap()).await.statut,
+        StatusCode::CREATED
+    );
+    assert_eq!(echeance_lue(&b, f).await["residuel"], "400");
+}
+
+#[tokio::test]
+async fn imputation_dans_l_ordre_des_echeances_effectives() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    // La première facture (rang de chaîne inférieur) voit son échéance reportée : la seconde,
+    // échue plus tôt, est imputée d'abord (ADR 0032 point 1 ; Tryton `move.py:1873-1874`).
+    let f1 = facture(&b, t, "1000").await;
+    let f2 = facture(&b, t, "1000").await;
+    let rep = reviser_echeance(&b, f1, 60).await;
+    assert_eq!(rep.statut, StatusCode::CREATED, "{}", rep.texte());
+    let r = reglement(&b, t, "1000").await;
+    let a = lettrer(&b, &[(f1, 1), (f2, 1), (r, 1)]).await;
+    assert_eq!(residuel(&a["lignes"], f2, 1), "0");
+    assert_eq!(residuel(&a["lignes"], f1, 1), "1000");
+}
+
+#[tokio::test]
+async fn revision_reelle_et_lettrage_concurrents_se_suivent() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let collectif: Uuid =
+        sqlx::query_scalar("SELECT id FROM compte WHERE dossier_id = $1 AND numero = $2")
+            .bind(b.c.dossier.uuid())
+            .bind(comptes().collectif.to_string())
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+
+    // 1. Un lettrage en cours tient le verrou du compte (inscrit, non validé) : la révision de la
+    // facture est observée bloquée, puis relit le résiduel **après** le lettrage : soldée.
+    let f = facture(&b, t, "1000").await;
+    let r = reglement(&b, t, "1000").await;
+    let (mut h, pid) = tenir_le_compte(&b, f).await;
+    let lettrage = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO lettrage (cabinet_id, dossier_id, id, compte_id, lettre, rang, \
+         date_operation, origine, auteur, cree_le) \
+         VALUES ($1, $2, $3, $4, 'A', 1, current_date, 'manuelle', $5, now())",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .bind(lettrage)
+    .bind(collectif)
+    .bind(b.c.administrateur.uuid())
+    .execute(h.connexion())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO lettrage_lien (cabinet_id, dossier_id, lettrage_id, position, \
+         debit_ecriture_id, debit_position, credit_ecriture_id, credit_position, montant) \
+         VALUES ($1, $2, $3, 1, $4, 1, $5, 1, 1000)",
+    )
+    .bind(b.c.cabinet.uuid())
+    .bind(b.c.dossier.uuid())
+    .bind(lettrage)
+    .bind(f)
+    .bind(r)
+    .execute(h.connexion())
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE compteur_lettrage SET derniere_lettre = 'A', dernier_rang = 1 \
+         WHERE compte_id = $1",
+    )
+    .bind(collectif)
+    .execute(h.connexion())
+    .await
+    .unwrap();
+    let (rep, ()) = tokio::join!(reviser_echeance(&b, f, 30), async {
+        attendre_bloques(&b, pid, 1).await;
+        h.confirmer().await.unwrap();
+    });
+    assert_eq!(rep.statut, StatusCode::CONFLICT, "{}", rep.texte());
+    assert_eq!(code(&rep), "echeance_soldee");
+
+    // 2. Révision et lettrage par les routes, chevauchés (un verrou tenu les retient ensemble) :
+    // ils se suivent, dans un ordre ou dans l'autre, sans état incohérent.
+    let f2 = facture(&b, t, "500").await;
+    let r2 = reglement(&b, t, "500").await;
+    let s2 = [(f2, 1), (r2, 1)];
+    let (h, pid) = tenir_le_compte(&b, f2).await;
+    let (revision, lettre, ()) = tokio::join!(
+        reviser_echeance(&b, f2, 30),
+        lettrer_par(&b, b.c.collaborateur, &s2),
+        async {
+            attendre_bloques(&b, pid, 2).await;
+            h.confirmer().await.unwrap();
+        }
+    );
+    assert_eq!(lettre.statut, StatusCode::CREATED, "{}", lettre.texte());
+    if revision.statut == StatusCode::CONFLICT {
+        // Lettrage d'abord : la révision a relu une échéance soldée.
+        assert_eq!(code(&revision), "echeance_soldee");
+    } else {
+        assert_eq!(revision.statut, StatusCode::CREATED, "{}", revision.texte());
+    }
+    assert_eq!(echeance_lue(&b, f2).await["statut"], "soldee");
+}

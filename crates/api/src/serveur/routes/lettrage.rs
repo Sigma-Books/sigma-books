@@ -343,12 +343,14 @@ fn id_ligne(l: &LigneLue) -> Result<IdLigne, ErreurApi> {
 }
 
 /// Rebâtit le registre du compte `numero` à partir des lignes `initiales` (toutes sur ce compte).
+#[allow(clippy::too_many_lines)]
 async fn charger(
     tx: &mut TransactionTenant,
     tenue: &DeviseTenue,
     numero: &NumeroCompte,
     compte_id: Uuid,
     initiales: Vec<LigneLue>,
+    echeances: &BTreeMap<RefLigne, Date>,
 ) -> Result<Charge, ErreurApi> {
     let lettrable = officiel()?.est_lettrable(numero);
     let mut registre =
@@ -406,7 +408,8 @@ async fn charger(
                 IdTiers::parse(&r.to_string()).map_err(|_| donnee())
             })
             .transpose()?;
-        let lettrable = LigneLettrable::nouvelle(id, &ligne, l.date, resolu, None, None)
+        let echeance = echeances.get(&l.reference()).copied();
+        let lettrable = LigneLettrable::nouvelle(id, &ligne, l.date, resolu, echeance, None)
             .map_err(|_| donnee())?;
         registre.ajouter_ligne(lettrable).map_err(|e| refus(&e))?;
         ids.insert(l.reference(), id);
@@ -455,6 +458,36 @@ async fn charger(
         lignes,
         lettrages,
     })
+}
+
+/// Échéance effective à la date `date` (ADR 0033 : initiale copiée à la validation, puis
+/// révisions) de chaque ligne de tiers de `lignes` ; une ligne sans tiers n'a pas d'échéance
+/// (l'imputation prend alors sa date comptable).
+async fn echeances_effectives(
+    tx: &mut TransactionTenant,
+    lignes: &[LigneLue],
+    date: Date,
+) -> Result<BTreeMap<RefLigne, Date>, ErreurApi> {
+    let ecritures: BTreeSet<Uuid> = lignes
+        .iter()
+        .filter(|l| l.tiers.is_some())
+        .map(|l| l.ecriture_id)
+        .collect();
+    let voulues: BTreeSet<RefLigne> = lignes.iter().map(LigneLue::reference).collect();
+    let mut echeances = BTreeMap::new();
+    for ecriture in ecritures {
+        let lue = crate::base::echeancier::lire_ecriture(tx, ecriture)
+            .await?
+            .ok_or_else(donnee)?;
+        for ligne in &lue.lignes {
+            if voulues.contains(&(ecriture, ligne.position)) {
+                let echeance =
+                    super::echeancier::echeance_de(lue.date_comptable, ligne, &lue.revisions)?;
+                echeances.insert((ecriture, ligne.position), echeance.effective(date));
+            }
+        }
+    }
+    Ok(echeances)
 }
 
 /// Le compteur relu sous verrou couvre les opérations relues ; sinon la base est incohérente.
@@ -706,8 +739,11 @@ async fn lettrer(
     verrouiller_comptes_et_tiers(tx, std::slice::from_ref(&compte), &tiers).await?;
     let compteur = base::verrouiller_compteur(tx, compte_id).await?;
 
-    // 3. Relecture après les verrous : lettrages qui citent les lignes, tiers résolus.
-    let mut charge = charger(tx, &tenue, &numero, compte_id, lues).await?;
+    // 3. Relecture après les verrous : lettrages qui citent les lignes, tiers résolus, échéances
+    // effectives au jour de l'opération (ordre d'imputation, ADR 0032 point 1).
+    let date = jour_du_dossier(dossier, requete)?;
+    let echeances = echeances_effectives(tx, &lues, date).await?;
+    let mut charge = charger(tx, &tenue, &numero, compte_id, lues, &echeances).await?;
     controler_compteur(&compteur, &charge)?;
     let selection: Vec<IdLigne> = refs
         .iter()
@@ -724,7 +760,6 @@ async fn lettrer(
             .map_err(|_| donnee())?,
     };
     let rang = compteur.dernier_rang.checked_add(1).ok_or_else(donnee)?;
-    let date = jour_du_dossier(dossier, requete)?;
     charge
         .registre
         .rejouer([(
@@ -876,7 +911,7 @@ async fn rompre(
         .into_iter()
         .collect();
     let lignes = base::lignes(tx, &refs).await?;
-    let mut charge = charger(tx, &tenue, &numero, compte_id, lignes).await?;
+    let mut charge = charger(tx, &tenue, &numero, compte_id, lignes, &BTreeMap::new()).await?;
     controler_compteur(&compteur, &charge)?;
     let referentiel = crate::base::referentiel::charger(tx)
         .await?
@@ -1036,7 +1071,7 @@ async fn vues_par_compte(
             continue;
         }
         let affichees: Vec<RefLigne> = lignes.iter().map(LigneLue::reference).collect();
-        let charge = charger(tx, tenue, &numero, compte_id, lignes).await?;
+        let charge = charger(tx, tenue, &numero, compte_id, lignes, &BTreeMap::new()).await?;
         vues.push(vue_compte(&charge, compte_id, &numero, &affichees)?);
     }
     Ok(vues)

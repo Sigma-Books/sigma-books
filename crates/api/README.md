@@ -765,10 +765,11 @@ d'opération** persisté, `imputer`, `rompre`).
   même tiers et résiduel jamais négatif.
 - **Tiers résolu** : `base::lettrage::tiers_resolus` et `tiers_rattaches`, seul point de lecture
   (identité tant que la fusion de la PR 7b n'est pas fusionnée).
-- **Interface de l'échéancier** (ADR 0033 point 2) : `base::lettrage::residuels` (résiduel par
-  agrégat des liens non rompus, lecture simple) et `verrouiller_compte_de_ligne` (compteur du
-  compte de la ligne `FOR UPDATE`, à prendre par la révision d'une échéance avant de lire le
-  résiduel).
+- **Raccord avec l'échéancier** (ADR 0033 point 2) : `base::echeancier::residuel` lit le résiduel
+  réel (`base::lettrage::residuels`, agrégat des liens non rompus) ; la révision d'une échéance
+  prend d'abord le compteur du compte de la ligne (`verrouiller_compte_de_ligne`), la lecture de
+  l'échéancier non. L'imputation au kilomètre suit l'échéance effective au jour de l'opération
+  (`routes::echeancier::echeance_de`), à défaut la date comptable.
 
 | Route | Cedar |
 |---|---|
