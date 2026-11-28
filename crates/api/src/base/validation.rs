@@ -416,6 +416,25 @@ pub async fn inserer(tx: &mut TransactionTenant, i: &Inscription) -> Result<(), 
         .execute(tx.connexion())
         .await?;
     }
+    // Échéances des lignes de tiers (ADR 0033 point 1 ; L3-17) : copiées du brouillon validé
+    // (même identifiant, mêmes positions), **hors du contenu haché** et de la chaîne, avant la
+    // suppression du brouillon. Une contre-passation (`origine`) n'a pas de brouillon : elle ne
+    // recopie aucune échéance (repli sur sa date comptable).
+    if i.origine.is_none() {
+        sqlx::query!(
+            "INSERT INTO echeance_ligne \
+                 (cabinet_id, dossier_id, ecriture_id, position, date_echeance) \
+             SELECT cabinet_id, dossier_id, brouillon_id, position, date_echeance \
+             FROM brouillon_ligne \
+             WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 \
+               AND date_echeance IS NOT NULL",
+            cabinet.uuid(),
+            dossier.uuid(),
+            i.id,
+        )
+        .execute(tx.connexion())
+        .await?;
+    }
     for (indice, (piece, role)) in i.pieces.iter().enumerate() {
         let position = i16::try_from(indice + 1).map_err(|_| ErreurBase::Donnee("position"))?;
         sqlx::query!(
@@ -674,6 +693,7 @@ pub async fn lire(
             devise,
             tiers: l.tiers_id,
             etiquette,
+            date_echeance: None,
         });
     }
     let liens = sqlx::query!(

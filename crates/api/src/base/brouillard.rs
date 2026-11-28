@@ -132,6 +132,9 @@ pub enum RefusSaisie {
     /// Étiquette fiscale sans aucune version des paramètres fiscaux du pays à la date comptable
     /// (écriture antérieure à la première version, ou pays sans paquet) : ADR 0030.
     ParametresFiscauxAbsents,
+    /// Échéance sur une ligne sans tiers : l'échéance est portée par une ligne de tiers (ADR 0033
+    /// point 1).
+    EcheanceSansTiers,
 }
 
 impl RefusSaisie {
@@ -166,11 +169,12 @@ impl RefusSaisie {
             Self::EtiquetteExigibiliteManquante => "etiquette_exigibilite_manquante",
             Self::EtiquetteExigibiliteNonAdmise => "etiquette_exigibilite_non_admise",
             Self::ParametresFiscauxAbsents => "parametres_fiscaux_absents",
+            Self::EcheanceSansTiers => "echeance_sans_tiers",
         }
     }
 
     /// Tous les motifs (test de l'unicité des codes).
-    pub const TOUS: [Self; 27] = [
+    pub const TOUS: [Self; 28] = [
         Self::JournalInconnu,
         Self::JournalSansSaisie,
         Self::DateHorsExercice,
@@ -198,6 +202,7 @@ impl RefusSaisie {
         Self::EtiquetteExigibiliteManquante,
         Self::EtiquetteExigibiliteNonAdmise,
         Self::ParametresFiscauxAbsents,
+        Self::EcheanceSansTiers,
     ];
 }
 
@@ -262,6 +267,10 @@ pub struct LigneStockee {
     pub tiers: Option<Uuid>,
     /// Étiquette fiscale.
     pub etiquette: Option<EtiquetteStockee>,
+    /// Échéance d'une ligne de tiers saisie au brouillard (ADR 0033 point 1), **hors du contenu
+    /// haché** : `compta-core` ne la voit pas, la validation la copie dans `echeance_ligne`.
+    /// Toujours `None` pour une ligne relue d'une écriture validée (l'échéance y est à part).
+    pub date_echeance: Option<Date>,
 }
 
 /// Valeur stable d'un sens.
@@ -311,6 +320,7 @@ impl LigneStockee {
                 exigibilite: e.exigibilite().map(|x| x.code().to_owned()),
                 motif: e.motif().map(|m| m.as_str().to_owned()),
             }),
+            date_echeance: None,
         })
     }
 
@@ -337,6 +347,9 @@ impl LigneStockee {
                 }
             }
             parties.push(fiscal);
+        }
+        if let Some(d) = self.date_echeance {
+            parties.push(format!("echeance={d}"));
         }
         parties.join(" ")
     }
@@ -548,10 +561,10 @@ async fn inserer_lignes(
                 (cabinet_id, dossier_id, brouillon_id, position, compte_numero, sens, montant,
                  devise, montant_devise, cours, tiers_id,
                  fiscal_nature, fiscal_sens, fiscal_regime, fiscal_taux, fiscal_exigibilite,
-                 fiscal_motif)
+                 fiscal_motif, date_echeance)
             VALUES ($1, $2, $3, $4, $5, $6, $7::text::numeric,
                     $8, $9::text::numeric, $10::text::numeric, $11,
-                    $12, $13, $14, $15::text::numeric, $16, $17)
+                    $12, $13, $14, $15::text::numeric, $16, $17, $18)
             "#,
             cabinet.uuid(),
             dossier.uuid(),
@@ -570,6 +583,7 @@ async fn inserer_lignes(
             l.etiquette.as_ref().and_then(|e| e.taux.as_deref()),
             l.etiquette.as_ref().and_then(|e| e.exigibilite.as_deref()),
             l.etiquette.as_ref().and_then(|e| e.motif.as_deref()),
+            l.date_echeance,
         )
         .execute(tx.connexion())
         .await?;
@@ -1034,7 +1048,7 @@ pub async fn lire(
         SELECT compte_numero, sens, montant::text AS "montant!", devise,
                montant_devise::text AS montant_devise, cours::text AS cours, tiers_id,
                fiscal_nature, fiscal_sens, fiscal_regime, fiscal_taux::text AS fiscal_taux,
-               fiscal_exigibilite, fiscal_motif
+               fiscal_exigibilite, fiscal_motif, date_echeance
         FROM brouillon_ligne
         WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3
         ORDER BY position
@@ -1076,6 +1090,7 @@ pub async fn lire(
             devise,
             tiers: l.tiers_id,
             etiquette,
+            date_echeance: l.date_echeance,
         });
     }
     let pieces = liens_du_brouillon(tx, id).await?;
