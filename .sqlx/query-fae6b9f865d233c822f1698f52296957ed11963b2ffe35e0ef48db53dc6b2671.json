@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT compte_numero, sens, montant::text AS \"montant!\", devise,\n               montant_devise::text AS montant_devise, cours::text AS cours, tiers_id,\n               fiscal_nature, fiscal_sens, fiscal_regime, fiscal_taux::text AS fiscal_taux,\n               fiscal_exigibilite, fiscal_motif\n        FROM brouillon_ligne\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3\n        ORDER BY position\n        ",
+  "query": "\n        SELECT compte_numero, sens, montant::text AS \"montant!\", devise,\n               montant_devise::text AS montant_devise, cours::text AS cours, tiers_id,\n               fiscal_nature, fiscal_sens, fiscal_regime, fiscal_taux::text AS fiscal_taux,\n               fiscal_exigibilite, fiscal_motif, date_echeance\n        FROM brouillon_ligne\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3\n        ORDER BY position\n        ",
   "describe": {
     "columns": [
       {
@@ -125,6 +125,17 @@
             "name": "fiscal_motif"
           }
         }
+      },
+      {
+        "ordinal": 13,
+        "name": "date_echeance",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "brouillon_ligne",
+            "name": "date_echeance"
+          }
+        }
       }
     ],
     "parameters": {
@@ -147,8 +158,9 @@
       true,
       null,
       true,
+      true,
       true
     ]
   },
-  "hash": "91a848ba64b269c182fb917f720a4915cfdc921e38c7982f5372c83f1801e12d"
+  "hash": "fae6b9f865d233c822f1698f52296957ed11963b2ffe35e0ef48db53dc6b2671"
 }

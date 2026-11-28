@@ -111,7 +111,7 @@ async fn termes_de(
 
 fn assembler(
     entetes: Vec<(Uuid, String, String, bool)>,
-    termes: Vec<(Uuid, TermeStocke)>,
+    termes: &[(Uuid, TermeStocke)],
 ) -> Vec<ConditionLue> {
     entetes
         .into_iter()
@@ -150,7 +150,7 @@ pub async fn lister_conditions(
     .collect();
     let ids: Vec<Uuid> = entetes.iter().map(|e| e.0).collect();
     let termes = termes_de(tx, &ids).await?;
-    Ok(assembler(entetes, termes))
+    Ok(assembler(entetes, &termes))
 }
 
 /// La condition `id` du dossier du contexte.
@@ -175,7 +175,7 @@ pub async fn lire_condition(
         return Ok(None);
     };
     let termes = termes_de(tx, &[id]).await?;
-    Ok(assembler(vec![(l.id, l.code, l.libelle, l.actif)], termes).pop())
+    Ok(assembler(vec![(l.id, l.code, l.libelle, l.actif)], &termes).pop())
 }
 
 /// Verrouille la condition `id` (`FOR NO KEY UPDATE` : la clé étrangère d'un tiers qui la cite
@@ -301,6 +301,35 @@ pub async fn modifier_condition(
 }
 
 // --- Échéances des lignes validées -----------------------------------------------------------
+
+/// Copie les échéances des lignes du brouillon `brouillon` dans `echeance_ligne`, sous le même
+/// identifiant (celui de l'écriture validée) et aux mêmes positions : **un `INSERT … SELECT`**,
+/// appelé par [`super::validation::inserer`] dans la transaction de validation, avant la
+/// suppression du brouillon. Rien n'entre dans le contenu haché ni dans la chaîne (ADR 0033
+/// point 1). Une ligne sans échéance n'est pas copiée.
+///
+/// # Errors
+/// Contexte sans dossier, contrainte refusée par PostgreSQL.
+pub async fn copier_echeances(
+    tx: &mut TransactionTenant,
+    brouillon: Uuid,
+) -> Result<(), ErreurBase> {
+    let (cabinet, dossier) = contexte(tx)?;
+    sqlx::query!(
+        "INSERT INTO echeance_ligne \
+             (cabinet_id, dossier_id, ecriture_id, position, date_echeance) \
+         SELECT cabinet_id, dossier_id, brouillon_id, position, date_echeance \
+         FROM brouillon_ligne \
+         WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 \
+           AND date_echeance IS NOT NULL",
+        cabinet,
+        dossier,
+        brouillon,
+    )
+    .execute(tx.connexion())
+    .await?;
+    Ok(())
+}
 
 /// Ligne de tiers d'une écriture validée, avec son échéance initiale.
 #[derive(Debug, Clone, PartialEq, Eq)]

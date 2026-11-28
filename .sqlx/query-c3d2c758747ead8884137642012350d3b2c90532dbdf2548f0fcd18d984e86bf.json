@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, code, libelle, actif FROM condition_reglement WHERE cabinet_id = $1 AND dossier_id = $2 ORDER BY code",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "actif",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "condition_reglement",
+            "name": "actif"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c3d2c758747ead8884137642012350d3b2c90532dbdf2548f0fcd18d984e86bf"
+}

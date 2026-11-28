@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, code, nom, type, compte_collectif, actif, devise, assujetti_tva, soumis_retenue, motif_archivage, archive_le FROM tiers WHERE cabinet_id = $1 AND dossier_id = $2 AND ($3::text IS NULL OR (nom, id) > ($3, $4::uuid)) ORDER BY nom, id LIMIT $5",
+  "query": "SELECT id, code, nom, type, compte_collectif, actif, devise, assujetti_tva, soumis_retenue, motif_archivage, archive_le, condition_reglement_id FROM tiers WHERE cabinet_id = $1 AND dossier_id = $2 AND ($3::text IS NULL OR (nom, id) > ($3, $4::uuid)) ORDER BY nom, id LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -123,6 +123,17 @@
             "name": "archive_le"
           }
         }
+      },
+      {
+        "ordinal": 11,
+        "name": "condition_reglement_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "tiers",
+            "name": "condition_reglement_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -145,8 +156,9 @@
       false,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "ddd9c0d5b3d0fd5eb9dc5bb7cc5500b8b98fec242d2854c09d2e13f8023d33b9"
+  "hash": "a95a68b56beacde9f31c7ebd8143775e39b402f40458d9b17b53dabea2e42637"
 }

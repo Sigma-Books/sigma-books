@@ -361,6 +361,9 @@ impl MotifConflit {
             Self::TiersDejaMouvemente => "tiers_deja_mouvemente",
             Self::ProfilsReleveMax => "releve_profils_max",
             Self::ProfilVersionsMax => "releve_profil_versions_max",
+            Self::ConditionReglementCodeDejaUtilise => "condition_reglement_code_deja_utilise",
+            Self::EcheanceSoldee => "echeance_soldee",
+            Self::EcheanceRevisionConcurrente => "echeance_revision_concurrente",
         }
     }
 }

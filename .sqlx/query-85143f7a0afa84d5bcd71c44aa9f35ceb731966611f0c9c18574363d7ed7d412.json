@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT position, rang, nouvelle_echeance, date_operation, motif, auteur, cree_le FROM echeance_report WHERE cabinet_id = $1 AND dossier_id = $2 AND ecriture_id = $3 ORDER BY position, rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "echeance_report",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rang",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "echeance_report",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nouvelle_echeance",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "echeance_report",
+            "name": "nouvelle_echeance"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_operation",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "echeance_report",
+            "name": "date_operation"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "motif",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "echeance_report",
+            "name": "motif"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "auteur",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "echeance_report",
+            "name": "auteur"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "echeance_report",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "85143f7a0afa84d5bcd71c44aa9f35ceb731966611f0c9c18574363d7ed7d412"
+}

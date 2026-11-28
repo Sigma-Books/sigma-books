@@ -807,8 +807,8 @@ async fn modifier_condition(
 
 /// Total à répartir : montant de la ligne de tiers dans la devise de tenue, signé (un avoir est
 /// négatif), à l'échelle de la devise (comme la saisie : 422 `montant_echelle_devise_tenue`).
-fn montant_demande(texte: &str, tenue: &DeviseTenue) -> Result<Montant, ErreurApi> {
-    Montant::parse_tenue(texte, tenue).map_err(|e| match e {
+fn montant_demande(texte: &str, tenue: DeviseTenue) -> Result<Montant, ErreurApi> {
+    Montant::parse_tenue(texte, &tenue).map_err(|e| match e {
         ErreurMontant::EchelleExcessive { .. } => ErreurApi::Saisie {
             refus: RefusSaisie::MontantEchelleTenue,
             ligne: None,
@@ -835,7 +835,7 @@ async fn calculer(
     let tenue = dossier.contexte().tenue()?;
     let total = montant_demande(
         parametre(&lus, "montant").ok_or(ErreurApi::RequeteInvalide)?,
-        &tenue,
+        tenue,
     )?;
     let calcules = condition
         .repartir(total, date, &tenue)
@@ -1220,6 +1220,6 @@ mod tests {
         assert!(parametres(Some("date=1&date=2"), &["date"]).is_err());
         assert!(parametres(Some("autre=1"), &["date"]).is_err());
         assert!(parametres(Some("date"), &["date"]).is_err());
-        assert!(parametres(None, &[]).unwrap().is_empty());
+        assert_eq!(parametres(None, &[]).unwrap(), Vec::<(&str, &str)>::new());
     }
 }
