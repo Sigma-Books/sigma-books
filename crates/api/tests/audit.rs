@@ -831,6 +831,9 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     // Trésorerie (L3, PR 11) : `{compte_tresorerie}` est une caisse fixe.
     let caisse =
         commun::tresorerie::doter(&env.admin, c.cabinet, c.dossier, c.administrateur).await;
+    // Relevés (L3, PR 12a) : `{profil}` est celui que crée la route de création, qui précède
+    // celle de la nouvelle version.
+    let mut profil = uuid::Uuid::nil();
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -856,6 +859,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "reinitialisation" => reinitialisation,
                 "ecriture" => validee,
                 "compte_tresorerie" => caisse,
+                "profil" => profil,
                 autre => fixtures.sous_ressource(autre),
             },
         );
@@ -1053,6 +1057,10 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
             == CasUsage::Administration(api::serveur::routes::administration::Cas::Reinitialiser)
         {
             reinitialisation = reponse.json()["id"].as_str().unwrap().parse().unwrap();
+        } else if route.cas_usage
+            == CasUsage::Releves(api::serveur::routes::releves::Cas::CreerProfil)
+        {
+            profil = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         } else if route.chemin.contains("/pieces") && reponse.statut == StatusCode::CREATED {
             piece = reponse.json()["id"].as_str().unwrap().parse().unwrap();
         }

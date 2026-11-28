@@ -706,6 +706,7 @@ async fn traiter_requete(
         chemin: &parametres,
         pieces: etat.pieces(),
         fiscal: etat.registre_fiscal(),
+        releves: &etat.reglages.releves,
     };
     let resultat = executer(route.cas_usage, &mut tx, &garde, &requete).await?;
     // Une réponse d'erreur du cas d'usage (409 d'un lot refusé, par exemple) n'écrit rien : la
@@ -1015,9 +1016,9 @@ mod tests {
             .iter()
             .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
             .collect();
-        // 38 en L2 et à la PR 6 de L3, plus les 3 de la trésorerie (PR 11) et les 3 des tiers
-        // (PR 7a).
-        assert_eq!(mutations.len(), 44);
+        // 38 en L2 et à la PR 6 de L3, plus les 3 de la trésorerie (PR 11), les 3 des tiers
+        // (PR 7a) et les 3 des relevés (PR 12a : profil, version, dépôt).
+        assert_eq!(mutations.len(), 47);
         for route in mutations {
             assert_eq!(
                 exiger_traces(route, &[]),

@@ -207,6 +207,11 @@ pub enum TypePiece {
     Png,
     /// Note d'opérations diverses, forme canonique de [`interne`] (pièce interne seulement).
     NoteOd,
+    /// Relevé CSV (type « texte » de l'ADR 0034 point 4, amendement de l'ADR 0015) : sans
+    /// signature, reconnu par son **contenu** et seulement par la route de dépôt de relevé
+    /// (`routes::releves`), jamais par [`TypePiece::reconnaitre`]. Jamais rendu : servi en
+    /// `application/octet-stream` ([`TypePiece::mime_servi`]).
+    Texte,
 }
 
 /// Signatures des types externes admis, dans l'ordre d'essai.
@@ -221,7 +226,7 @@ const SIGNATURES: [(&[u8], TypePiece); 3] = [
 
 impl TypePiece {
     /// Tous les types, dans l'ordre de la contrainte de la table `piece`.
-    pub const TOUS: [Self; 4] = [Self::Pdf, Self::Jpeg, Self::Png, Self::NoteOd];
+    pub const TOUS: [Self; 5] = [Self::Pdf, Self::Jpeg, Self::Png, Self::NoteOd, Self::Texte];
 
     /// Type d'un fichier déposé, d'après ses **seuls premiers octets** (au plus 8), à
     /// l'offset 0 ; `None` pour tout autre contenu. Ni l'extension, ni le nom, ni le type annoncé
@@ -234,8 +239,7 @@ impl TypePiece {
             .map(|(_, type_piece)| *type_piece)
     }
 
-    /// Type MIME : valeur de la colonne `type_contenu` et de l'en-tête `Content-Type` du
-    /// téléchargement.
+    /// Type MIME : valeur de la colonne `type_contenu`.
     #[must_use]
     pub const fn mime(self) -> &'static str {
         match self {
@@ -243,6 +247,18 @@ impl TypePiece {
             Self::Jpeg => "image/jpeg",
             Self::Png => "image/png",
             Self::NoteOd => "text/plain; charset=utf-8",
+            Self::Texte => "text/csv",
+        }
+    }
+
+    /// Type annoncé au téléchargement (`Content-Type`) et au stockage objet : celui de la
+    /// colonne, sauf pour le type texte, **jamais rendu** (ADR 0034 point 4) :
+    /// `application/octet-stream`.
+    #[must_use]
+    pub const fn mime_servi(self) -> &'static str {
+        match self {
+            Self::Texte => "application/octet-stream",
+            autre => autre.mime(),
         }
     }
 
@@ -260,6 +276,7 @@ impl TypePiece {
             Self::Jpeg => "jpg",
             Self::Png => "png",
             Self::NoteOd => "txt",
+            Self::Texte => "csv",
         }
     }
 }
@@ -328,6 +345,10 @@ mod tests {
             assert_eq!(TypePiece::depuis_mime(t.mime()), Some(t));
         }
         assert_eq!(TypePiece::depuis_mime("text/html"), None);
+        assert_eq!(TypePiece::Texte.mime_servi(), "application/octet-stream");
+        assert_eq!(TypePiece::Pdf.mime_servi(), "application/pdf");
+        // Le type texte n'a pas de signature : le dépôt général ne le reconnaît jamais.
+        assert_eq!(TypePiece::reconnaitre(b"Date;Montant\n"), None);
         assert_eq!(Nature::depuis_nom("externe"), Some(Nature::Externe));
         assert_eq!(Nature::depuis_nom("interne"), Some(Nature::Interne));
         assert_eq!(Nature::depuis_nom("autre"), None);

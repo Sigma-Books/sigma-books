@@ -58,6 +58,15 @@ pub enum ErreurApi {
         /// Ligne concernée.
         ligne: Option<u32>,
     },
+    /// 422 : relevé ou profil d'import refusé (L3-22 ; ADR 0034 point 6) : motif stable et, pour
+    /// un fichier, ligne physique fautive (à partir de 1). Ni libellé, ni montant, ni valeur lue
+    /// (F2.11).
+    Releve {
+        /// Motif, code du corps.
+        motif: MotifReleve,
+        /// Ligne physique du fichier.
+        ligne: Option<u32>,
+    },
     /// 429 : limite de débit atteinte ; délai en secondes avant de réessayer.
     TropDeRequetes {
         /// Valeur de `Retry-After`, en secondes.
@@ -228,11 +237,17 @@ pub enum MotifConflit {
     /// Type ou compte collectif d'un tiers déjà cité par une ligne (brouillon ou écriture
     /// validée) : figés dès le premier mouvement (ADR 0031 point 1, amendement du 2026-11-27).
     TiersDejaMouvemente,
+    /// Nombre maximal de profils d'import de relevé du dossier atteint (ADR 0034 point 6 : 20,
+    /// réglage d'instance).
+    ProfilsReleveMax,
+    /// Nombre maximal de versions d'un profil d'import atteint (50, comme les versions de
+    /// paramètres fiscaux, ADR 0030).
+    ProfilVersionsMax,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 47] = [
+    pub const TOUS: [Self; 49] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -280,6 +295,8 @@ impl MotifConflit {
         Self::TiersCodeDejaUtilise,
         Self::TiersCodeTirageImpossible,
         Self::TiersDejaMouvemente,
+        Self::ProfilsReleveMax,
+        Self::ProfilVersionsMax,
     ];
 
     /// Code du corps de la réponse.
@@ -333,6 +350,128 @@ impl MotifConflit {
             Self::TiersCodeDejaUtilise => "tiers_code_deja_utilise",
             Self::TiersCodeTirageImpossible => "tiers_code_tirage_impossible",
             Self::TiersDejaMouvemente => "tiers_deja_mouvemente",
+            Self::ProfilsReleveMax => "releve_profils_max",
+            Self::ProfilVersionsMax => "releve_profil_versions_max",
+        }
+    }
+}
+
+/// Motif d'un refus de relevé ou de profil d'import (422 ; L3-22, ADR 0034 point 6). Les motifs
+/// d'un fichier reprennent ceux de `formats::releve::ErreurReleve`, préfixés `releve_` ; ceux d'un
+/// profil, les refus de `formats::releve::ErreurProfil`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotifReleve {
+    /// Fichier plus grand que la limite d'analyse (limite abaissée après le dépôt).
+    FichierTropGrand,
+    /// Octet nul.
+    OctetNul,
+    /// Octets non décodables dans l'encodage du profil.
+    EncodageInvalide,
+    /// Caractère de contrôle hors tabulation et fins de ligne.
+    CaractereDeControle,
+    /// Ligne physique plus longue que la limite.
+    LigneTropLongue,
+    /// Plus de lignes que la limite.
+    TropDeLignes,
+    /// Plus de colonnes que la limite.
+    TropDeColonnes,
+    /// Cellule plus longue que la limite.
+    CelluleTropLongue,
+    /// Guillemet non fermé en fin de fichier (fichier tronqué).
+    GuillemetNonFerme,
+    /// Ligne de titres absente alors que le profil nomme ses colonnes.
+    TitresAbsents,
+    /// Titre de colonne du profil introuvable.
+    TitreIntrouvable,
+    /// Colonne du profil absente d'une ligne.
+    ColonneAbsente,
+    /// Date illisible avec le format du profil.
+    DateInvalide,
+    /// Nombre illisible avec les séparateurs du profil.
+    NombreInvalide,
+    /// Profil illisible (forme JSON).
+    ProfilIllisible,
+    /// Encodage hors de la liste fermée.
+    ProfilEncodage,
+    /// Délimiteur invalide.
+    ProfilDelimiteur,
+    /// Guillemet invalide.
+    ProfilGuillemet,
+    /// Séparateur décimal ou de milliers invalide.
+    ProfilSeparateur,
+    /// Format de date invalide ou trop long.
+    ProfilFormatDate,
+    /// Format de date sans année (OCA complète par l'horloge : non repris).
+    ProfilDateSansAnnee,
+    /// Colonnes de montant incohérentes (montant signé, ou débit et crédit).
+    ProfilColonnesMontant,
+    /// Titre de colonne vide, trop long, ou sans ligne d'en-tête.
+    ProfilTitre,
+    /// Profil trop grand.
+    ProfilTropGrand,
+    /// Nom de profil vide, trop long ou avec un caractère interdit.
+    ProfilNom,
+}
+
+impl MotifReleve {
+    /// Tous les motifs.
+    pub const TOUS: [Self; 25] = [
+        Self::FichierTropGrand,
+        Self::OctetNul,
+        Self::EncodageInvalide,
+        Self::CaractereDeControle,
+        Self::LigneTropLongue,
+        Self::TropDeLignes,
+        Self::TropDeColonnes,
+        Self::CelluleTropLongue,
+        Self::GuillemetNonFerme,
+        Self::TitresAbsents,
+        Self::TitreIntrouvable,
+        Self::ColonneAbsente,
+        Self::DateInvalide,
+        Self::NombreInvalide,
+        Self::ProfilIllisible,
+        Self::ProfilEncodage,
+        Self::ProfilDelimiteur,
+        Self::ProfilGuillemet,
+        Self::ProfilSeparateur,
+        Self::ProfilFormatDate,
+        Self::ProfilDateSansAnnee,
+        Self::ProfilColonnesMontant,
+        Self::ProfilTitre,
+        Self::ProfilTropGrand,
+        Self::ProfilNom,
+    ];
+
+    /// Code du corps de la réponse.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::FichierTropGrand => "releve_fichier_trop_grand",
+            Self::OctetNul => "releve_octet_nul",
+            Self::EncodageInvalide => "releve_encodage_invalide",
+            Self::CaractereDeControle => "releve_caractere_de_controle",
+            Self::LigneTropLongue => "releve_ligne_trop_longue",
+            Self::TropDeLignes => "releve_trop_de_lignes",
+            Self::TropDeColonnes => "releve_trop_de_colonnes",
+            Self::CelluleTropLongue => "releve_cellule_trop_longue",
+            Self::GuillemetNonFerme => "releve_guillemet_non_ferme",
+            Self::TitresAbsents => "releve_titres_absents",
+            Self::TitreIntrouvable => "releve_titre_introuvable",
+            Self::ColonneAbsente => "releve_colonne_absente",
+            Self::DateInvalide => "releve_date_invalide",
+            Self::NombreInvalide => "releve_nombre_invalide",
+            Self::ProfilIllisible => "releve_profil_illisible",
+            Self::ProfilEncodage => "releve_profil_encodage",
+            Self::ProfilDelimiteur => "releve_profil_delimiteur",
+            Self::ProfilGuillemet => "releve_profil_guillemet",
+            Self::ProfilSeparateur => "releve_profil_separateur",
+            Self::ProfilFormatDate => "releve_profil_format_date",
+            Self::ProfilDateSansAnnee => "releve_profil_date_sans_annee",
+            Self::ProfilColonnesMontant => "releve_profil_colonnes_montant",
+            Self::ProfilTitre => "releve_profil_titre",
+            Self::ProfilTropGrand => "releve_profil_trop_grand",
+            Self::ProfilNom => "releve_profil_nom",
         }
     }
 }
@@ -642,7 +781,9 @@ impl ErreurApi {
             Self::Conflit { .. } => StatusCode::CONFLICT,
             Self::CorpsTropGrand => StatusCode::PAYLOAD_TOO_LARGE,
             Self::TypeNonAdmis => StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            Self::Refus(_) | Self::Saisie { .. } => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::Refus(_) | Self::Saisie { .. } | Self::Releve { .. } => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
             Self::Validation { motif, .. } => motif.statut(),
             Self::TropDeRequetes { .. } => StatusCode::TOO_MANY_REQUESTS,
             Self::Interne(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -665,6 +806,7 @@ impl ErreurApi {
             Self::Refus(motif) => motif.code(),
             Self::Saisie { refus, .. } => refus.code(),
             Self::Validation { motif, .. } => motif.code(),
+            Self::Releve { motif, .. } => motif.code(),
             Self::TropDeRequetes { .. } => "trop_de_requetes",
             Self::Interne(_) => "erreur_interne",
             Self::DelaiDepasse => "delai_depasse",
@@ -777,7 +919,9 @@ impl IntoResponse for ErreurApi {
                     _ => None,
                 },
                 ligne: match self {
-                    Self::Saisie { ligne, .. } | Self::Validation { ligne, .. } => ligne,
+                    Self::Saisie { ligne, .. }
+                    | Self::Validation { ligne, .. }
+                    | Self::Releve { ligne, .. } => ligne,
                     _ => None,
                 },
             }),
@@ -830,6 +974,7 @@ mod tests {
         toutes.extend(
             MotifValidation::TOUS.map(|motif| ErreurApi::Validation { motif, ligne: None }),
         );
+        toutes.extend(MotifReleve::TOUS.map(|motif| ErreurApi::Releve { motif, ligne: None }));
         toutes.extend(MotifConflit::TOUS.map(|motif| ErreurApi::Conflit {
             motif,
             nombre: None,

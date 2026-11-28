@@ -5,3 +5,21 @@
 # Squelette posé par la PR 6 (L3-14) : aucune table encore. La PR 12a et 12b déclare ici les siennes
 # (tables en ajout seul du modèle de données de `docs/lots/L3.md`, avec leur justification), sans
 # éditer le fichier d'une autre voie.
+#
+# PR 12a (migrations `0560` à `0562`) : `0560` admet le type `text/csv` dans `piece` (table de la
+# voie pièces, inchangée par ailleurs) ; la fonction de déclencheur `depot_releve_piece_texte` est
+# ordinaire (droits de l'appelant, sous RLS), sans `SECURITY DEFINER`, `EXECUTE` retiré à PUBLIC.
+
+[[ajout_seul]]
+nom = "profil_releve"
+justification = """
+Profil d'import de relevé du dossier (ADR 0034 point 6, migration 0561) : versionné en ajout seul, \
+comme les versions de paramètres fiscaux (ADR 0030). Une version publiée ne change jamais : un \
+import cite le profil et sa version ; tout changement est une nouvelle version."""
+
+[[ajout_seul]]
+nom = "depot_releve"
+justification = """
+Dépôt de relevé (ADR 0034 points 4 et 5, migration 0562) : rattache une pièce externe WORM au \
+compte de trésorerie visé, avec l'auteur et l'instant ; statut probant « importé, non certifié » \
+(D3). La pièce est conservée dix ans au moins : le dépôt ne se modifie ni ne se supprime."""

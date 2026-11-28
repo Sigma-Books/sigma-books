@@ -1,0 +1,103 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, version, nom, definition, empreinte, cree_par, cree_le\n        FROM profil_releve\n        WHERE cabinet_id = $1 AND dossier_id = $2 AND id = $3\n          AND ($4::integer IS NULL OR version = $4)\n        ORDER BY version DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "definition",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "definition"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "empreinte",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "empreinte"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "cree_par",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "cree_par"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "profil_releve",
+            "name": "cree_le"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8f17b977df018fe4b368518bbe80cbce171acb3142ea5da235ce105f5fc78706"
+}
