@@ -20,7 +20,7 @@
 //! sont posées sur la connexion par [`servir`].
 //!
 //! Taille du corps et délai de traitement valent ceux des [`Reglages`], sauf pour une route qui
-//! a les siens ([`Application::limites`] : le dépôt d'une pièce, ADR 0015). Les étapes 5, 6 et
+//! a les siens ([`Application::limites`] : le dépôt d'une pièce, ADR 0015 ; d'un relevé, ADR 0034). Les étapes 5, 6 et
 //! 8 retrouvent la route d'après le modèle de chemin reconnu et la méthode.
 //!
 //! # Limites connues
@@ -116,6 +116,9 @@ pub struct Reglages {
     /// Nombre maximal d'écritures lues pour une édition (PR 14) ; au-delà, 409
     /// `edition_trop_volumineuse`.
     pub editions_ecritures_max: i64,
+    /// Relevés importés (L3-22, ADR 0034 point 6) : limites des fichiers et des profils, passées
+    /// à `formats` (valeurs initiales de l'ADR, ajustables par l'instance).
+    pub releves: routes::releves::ReglagesReleves,
 }
 
 impl Reglages {
@@ -144,6 +147,7 @@ impl Reglages {
             sessions: DureesSession::default(),
             facteurs: facteurs::ReglagesFacteurs::default(),
             editions_ecritures_max: crate::base::editions::ECRITURES_MAX,
+            releves: routes::releves::ReglagesReleves::default(),
         }
     }
 }
@@ -303,6 +307,10 @@ impl Application {
             // Voie pièces (PR 12) : le dépôt d'une pièce.
             routes::CasUsage::Pieces(cas) => {
                 routes::pieces::limites(cas, self.pieces()).unwrap_or(defaut)
+            }
+            // Lot L3, PR 12a : le dépôt d'un relevé (5 Mio, ADR 0034 point 4).
+            routes::CasUsage::Releves(cas) => {
+                routes::releves::limites(cas, &self.reglages.releves).unwrap_or(defaut)
             }
             _ => defaut,
         }

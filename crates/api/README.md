@@ -81,7 +81,7 @@ Sous-plages de la voie L3 (réservées par la PR 2 du lot ; une PR n'écrit que 
 | `0510`–`0519` | Conditions de règlement, `brouillon_ligne.date_echeance`, `echeance_ligne`, `echeance_report` (PR 8 : `0510`–`0514`) |
 | `0520`–`0539` | Lettrage : `lettrage`, `lettrage_lien`, `lettrage_rupture`, `compteur_lettrage`, règles (PR 9a : `0520`–`0529`) |
 | `0540`–`0559` | Comptes de trésorerie (PR 11 : `0540` `compte_tresorerie`, `0541` `arrete_caisse` ; `0542`–`0549` libres) |
-| `0560`–`0579` | Profils, relevés importés, lignes de relevé, règles et propositions (PR 12a : `0560`–`0569`) |
+| `0560`–`0579` | Profils, relevés importés, lignes de relevé, règles et propositions (PR 12a : `0560`–`0569`, dont `0560` type `text/csv` de `piece`, `0561` `profil_releve`, `0562` `depot_releve` ; PR 12b : `0570`–`0579`) |
 | `0580`–`0589` | Pointage, `etat_rapprochement` (PR 13a : `0580`–`0584`) |
 | `0590`–`0599` | Alertes de L3 (nouveaux sujets de `tache`, PR 15 : `0590`), correctifs |
 
@@ -698,6 +698,44 @@ migrations `0540_compte_tresorerie.sql` et `0541_arrete_caisse.sql`, catalogue `
 | `POST …/tresorerie/comptes/{compte_tresorerie}/modification` | `ParametrerTresorerie` |
 | `GET …/tresorerie/virements-internes` | `ConsulterTresorerie` |
 | `POST …/tresorerie/comptes/{compte_tresorerie}/arretes`, `GET` (100 derniers) | `ArreterCaisse`, `ConsulterTresorerie` |
+
+## Relevés : profils, dépôt, analyse (L3-22, PR 12a ; ADR 0034 points 4 à 6)
+
+Code : `src/serveur/routes/releves.rs` (cas d'usage), `src/base/releves.rs` (tables), analyseur
+pur `crates/formats` (profil, type texte, limites, alertes), migrations `0560` à `0562`, catalogue
+`releves.toml`. L'import des lignes, les doublons de lignes, le contrôle des soldes, les règles et
+les propositions de brouillon sont de la PR 12b.
+
+- **Profil d'import** (`{"nom", "profil"}`, forme `formats::releve::ProfilBrut` en JSON) : validé
+  par `formats` (422 `releve_profil_*` : encodage hors liste, format de date sans année,
+  colonnes de montant incohérentes…), stocké sous forme canonique avec son SHA-256. **Ajout
+  seul** : la création publie la version 1, `…/versions` la suivante ; une version publiée ne
+  change jamais. Au plus `profils_max` profils par dossier (409 `releve_profils_max`).
+- **Dépôt** : le corps est le fichier, borné **pendant la réception** à `taille_fichier` (413).
+  Type « texte » reconnu par le contenu (signatures PDF, JPEG, PNG refusées, aucun octet nul ni
+  caractère de contrôle, décodable dans un encodage de la liste fermée : 415 `type_non_admis` ;
+  ligne trop longue : 422 `releve_ligne_trop_longue` avec `ligne`). Pièce **externe** `text/csv`
+  (WORM, empreinte, rétention du pays), servie en `application/octet-stream` en pièce jointe ;
+  statut probant `importe_non_certifie` (D3). Compte de trésorerie archivé : 409
+  `compte_tresorerie_archive`. Fichier identique déjà déposé dans le dossier : 200
+  `{"doublon":true,"depots":[…]}`, rien de stocké. Audit : identifiants, empreinte, taille ; ni le
+  nom du fichier, ni un libellé, ni un identifiant bancaire.
+- **Analyse** (aperçu) : relecture de la pièce (empreinte recalculée), `formats::releve::analyser`
+  hors de la boucle asynchrone ; colonnes du profil, premières lignes (`lignes=`, 20 par défaut,
+  100 au plus) avec leurs alertes (`libelle_formule`, `caractere_bidirectionnel`), totaux en
+  décimal exact, dates extrêmes, premier et dernier soldes lus. Refus : 422 `releve_*` avec la
+  ligne fautive. **Aucune écriture**, pas même d'audit.
+- **Réglages d'instance** (`Reglages::releves`, valeurs initiales de l'ADR 0034 point 6) : 5 Mio,
+  20 000 lignes, 50 colonnes, 64 Kio par ligne, 1 000 caractères par cellule, 20 profils par
+  dossier ; délai du dépôt : celui des pièces.
+
+| Route | Cedar |
+|---|---|
+| `GET …/releves/profils`, `GET …/releves/profils/{profil}[?version=]` | `ConsulterTresorerie` |
+| `POST …/releves/profils`, `POST …/releves/profils/{profil}/versions` | `ParametrerReleves` |
+| `POST …/releves/comptes/{compte_tresorerie}/depots[?nom=&empreinte=]` | `DeposerReleve` |
+| `GET …/releves/depots[?compte=]`, `GET …/releves/depots/{depot}` | `ConsulterTresorerie` |
+| `GET …/releves/depots/{depot}/analyse/{profil}[?version=&lignes=]` | `ImporterReleve` |
 
 ## Travailler en voies parallèles
 

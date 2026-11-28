@@ -397,6 +397,8 @@ pub struct Requete<'a> {
     /// Registre des paramètres fiscaux par pays (ADR 0030) ; absent seulement si les données
     /// embarquées sont invalides (le serveur refuse alors de démarrer).
     pub fiscal: Option<&'a fiscal::Registre>,
+    /// Limites des relevés et des profils d'import (L3-22, réglage d'instance).
+    pub releves: &'a releves::ReglagesReleves,
 }
 
 impl Requete<'_> {
