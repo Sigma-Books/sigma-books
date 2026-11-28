@@ -151,6 +151,11 @@ async fn monde(admin: &PgPool) -> Monde {
             let caisse =
                 commun::tresorerie::doter(admin, c.cabinet, dossier, c.administrateur).await;
             inscrire_sous_ressource(dossier, "compte_tresorerie", caisse);
+            // Un profil et un dépôt de relevé réels (L3, PR 12a), `{profil}` et `{depot}`.
+            let (profil, depot) =
+                commun::releves::doter(admin, c.cabinet, dossier, c.administrateur, caisse).await;
+            inscrire_sous_ressource(dossier, "profil", profil);
+            inscrire_sous_ressource(dossier, "depot", depot);
             fixtures.insert(dossier, f);
         }
     }
