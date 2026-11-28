@@ -401,7 +401,8 @@ pub async fn lire_ecriture(
         return Ok(None);
     };
     let lignes = sqlx::query!(
-        r#"SELECT l.position, l.compte_numero, l.sens, l.montant::text AS "montant!",
+        r#"SELECT l.position AS "position!", l.compte_numero AS "compte_numero!",
+                  l.sens AS "sens!", l.montant::text AS "montant!",
                   l.tiers_id AS "tiers_id!", e.date_echeance AS "initiale?"
            FROM ecriture_validee_ligne l
            LEFT JOIN echeance_ligne e
