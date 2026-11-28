@@ -139,8 +139,10 @@ pub const ROUTES: &[Route] = &[
 /// Lignes au plus dans un lettrage (borne de la requête, F2.16 ; une écriture a au plus 200
 /// lignes).
 pub const LIGNES_MAX: usize = 200;
-/// Lignes au plus rendues par une lecture (au-delà : 409 `edition_trop_volumineuse`).
+/// Lignes au plus par page de lecture (F2.16 : pagination imposée, curseur `apres`).
 pub const LIGNES_LUES_MAX: usize = 5_000;
+/// Lignes par page de lecture sans paramètre `limite`.
+pub const LIGNES_LUES_DEFAUT: usize = 1_000;
 
 /// Rôles admis à lettrer et dé-lettrer (spec §20 « Lettrer / délettrer »).
 const ROLES_LETTRAGE: &[Role] = &[Role::Administrateur, Role::Valideur, Role::Collaborateur];
@@ -265,7 +267,6 @@ fn refus(e: &ErreurLettrage) -> ErreurApi {
         }
         ErreurLettrage::ExerciceClos(_) => conflit(MotifConflit::LettrageExerciceClos),
         ErreurLettrage::DejaRompu(_) => conflit(MotifConflit::LettrageDejaRompu),
-        ErreurLettrage::RuptureAnterieure(_) => conflit(MotifConflit::LettrageRuptureAnterieure),
         _ => donnee(),
     }
 }
@@ -878,7 +879,12 @@ async fn rompre(
         .await?
         .ok_or(ErreurApi::Introuvable)?;
     let lettre = Lettre::parse(&lu.lettre).map_err(|_| donnee())?;
-    let date = jour_du_dossier(dossier, requete)?;
+    // Une rupture ne précède jamais son lettrage : si le jour du dossier est antérieur à la date
+    // du lettrage (fuseau du dossier changé entre-temps, ADR 0027), la rupture prend la date du
+    // lettrage ; l'audit garde le jour du dossier (aucun refus : contrôle absent de la spec et des
+    // moteurs).
+    let jour = jour_du_dossier(dossier, requete)?;
+    let date = jour.max(lu.date);
     charge
         .registre
         .rompre(lettre, date, motif.clone(), referentiel.exercices())
@@ -913,6 +919,9 @@ async fn rompre(
     trace.donnees.push(("compte", compte_id.to_string()));
     trace.donnees.push(("lettre", lu.lettre.clone()));
     trace.donnees.push(("rang", rang.to_string()));
+    if jour != date {
+        trace.donnees.push(("jour_du_dossier", interne::date(jour)));
+    }
     let vue = VueRuptureCreee {
         id: id.to_string(),
         lettrage: lu.id.to_string(),
@@ -940,6 +949,66 @@ struct VueLecture {
     /// Identifiant du tiers ou du compte lu.
     id: String,
     comptes: Vec<VueCompte>,
+    /// Curseur de la page suivante (`apres=<rang>-<position>`), absent sur la dernière page.
+    suivant: Option<String>,
+}
+
+/// Page demandée : clé stable (rang de chaîne, position) après laquelle lire, et taille.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Page {
+    apres: (i64, i16),
+    limite: usize,
+}
+
+/// Paramètres des lectures : `apres=<rang>-<position>` (curseur rendu par la page précédente) et
+/// `limite=<1…5000>` (défaut 1 000), chacun au plus une fois. Tout autre paramètre : 400.
+fn page(parametres: Option<&str>) -> Result<Page, ErreurApi> {
+    let mut apres = None;
+    let mut limite = None;
+    for paire in parametres
+        .unwrap_or("")
+        .split('&')
+        .filter(|p| !p.is_empty())
+    {
+        match paire.split_once('=') {
+            Some(("apres", v)) if apres.is_none() => {
+                let (rang, position) = v.split_once('-').ok_or(ErreurApi::RequeteInvalide)?;
+                let rang: i64 = rang.parse().map_err(|_| ErreurApi::RequeteInvalide)?;
+                let position: i16 = position.parse().map_err(|_| ErreurApi::RequeteInvalide)?;
+                if rang < 0 || position < 0 {
+                    return Err(ErreurApi::RequeteInvalide);
+                }
+                apres = Some((rang, position));
+            }
+            Some(("limite", v)) if limite.is_none() => {
+                let n: usize = v.parse().map_err(|_| ErreurApi::RequeteInvalide)?;
+                if !(1..=LIGNES_LUES_MAX).contains(&n) {
+                    return Err(ErreurApi::RequeteInvalide);
+                }
+                limite = Some(n);
+            }
+            _ => return Err(ErreurApi::RequeteInvalide),
+        }
+    }
+    Ok(Page {
+        apres: apres.unwrap_or((0, 0)),
+        limite: limite.unwrap_or(LIGNES_LUES_DEFAUT),
+    })
+}
+
+/// Coupe la page : `limite` lignes au plus, et le curseur de la suivante si une ligne de plus a
+/// été lue.
+fn couper(mut lues: Vec<LigneLue>, limite: usize) -> (Vec<LigneLue>, Option<String>) {
+    if lues.len() <= limite {
+        return (lues, None);
+    }
+    lues.truncate(limite);
+    let suivant = lues.last().map(|l| format!("{}-{}", l.rang, l.position));
+    (lues, suivant)
+}
+
+fn limite_sql(p: Page) -> Result<i64, ErreurApi> {
+    i64::try_from(p.limite + 1).map_err(|_| donnee())
 }
 
 /// Vues par compte lettrable des lignes lues (les comptes non lettrables sont omis), dans l'ordre
@@ -949,9 +1018,6 @@ async fn vues_par_compte(
     tenue: &DeviseTenue,
     lues: Vec<LigneLue>,
 ) -> Result<Vec<VueCompte>, ErreurApi> {
-    if lues.len() > LIGNES_LUES_MAX {
-        return Err(conflit(MotifConflit::EditionTropVolumineuse));
-    }
     let mut par_compte: BTreeMap<String, (Uuid, Vec<LigneLue>)> = BTreeMap::new();
     for l in lues {
         par_compte
@@ -973,28 +1039,26 @@ async fn vues_par_compte(
     Ok(vues)
 }
 
-fn limite_lecture() -> Result<i64, ErreurApi> {
-    i64::try_from(LIGNES_LUES_MAX + 1).map_err(|_| donnee())
-}
-
 async fn lire_tiers(
     tx: &mut TransactionTenant,
     dossier: &DossierAutorise,
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
-    sans_parametres(requete)?;
+    let p = page(requete.parametres)?;
     let id = id_chemin(requete.chemin, "tiers")?;
     crate::base::tiers::lire_entete(tx, id)
         .await?
         .ok_or(ErreurApi::Introuvable)?;
     let tenue = dossier.contexte().tenue()?;
     let rattaches = base::tiers_rattaches(tx, id).await?;
-    let lues = base::lignes_des_tiers(tx, &rattaches, limite_lecture()?).await?;
+    let lues = base::lignes_des_tiers(tx, &rattaches, p.apres, limite_sql(p)?).await?;
+    let (lues, suivant) = couper(lues, p.limite);
     let comptes = vues_par_compte(tx, &tenue, lues).await?;
     Ok(Resultat::lecture(
         Json(VueLecture {
             id: id.to_string(),
             comptes,
+            suivant,
         })
         .into_response(),
     ))
@@ -1005,7 +1069,7 @@ async fn lire_compte(
     dossier: &DossierAutorise,
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
-    sans_parametres(requete)?;
+    let p = page(requete.parametres)?;
     let id = id_chemin(requete.chemin, "compte")?;
     let numero = base::numero_du_compte(tx, id)
         .await?
@@ -1015,12 +1079,14 @@ async fn lire_compte(
         return Err(validation(MotifValidation::LettrageCompteNonLettrable));
     }
     let tenue = dossier.contexte().tenue()?;
-    let lues = base::lignes_du_compte(tx, id, limite_lecture()?).await?;
+    let lues = base::lignes_du_compte(tx, id, p.apres, limite_sql(p)?).await?;
+    let (lues, suivant) = couper(lues, p.limite);
     let comptes = vues_par_compte(tx, &tenue, lues).await?;
     Ok(Resultat::lecture(
         Json(VueLecture {
             id: id.to_string(),
             comptes,
+            suivant,
         })
         .into_response(),
     ))
@@ -1058,10 +1124,7 @@ mod tests {
                 "lettrage_exercice_clos",
             ),
             (ErreurLettrage::DejaRompu(lettre), "lettrage_deja_rompu"),
-            (
-                ErreurLettrage::RuptureAnterieure(lettre),
-                "lettrage_rupture_anterieure",
-            ),
+            (ErreurLettrage::RuptureAnterieure(lettre), "erreur_interne"),
             (ErreurLettrage::SansLien, "erreur_interne"),
             (ErreurLettrage::RangOperationInvalide(3), "erreur_interne"),
         ] {
@@ -1112,6 +1175,40 @@ mod tests {
             }),
             Err(ErreurApi::RequeteInvalide)
         );
+    }
+
+    #[test]
+    fn page_stricte() {
+        assert_eq!(
+            page(None),
+            Ok(Page {
+                apres: (0, 0),
+                limite: LIGNES_LUES_DEFAUT
+            })
+        );
+        assert_eq!(
+            page(Some("apres=12-3&limite=50")),
+            Ok(Page {
+                apres: (12, 3),
+                limite: 50
+            })
+        );
+        for invalide in [
+            "limite=0",
+            "limite=5001",
+            "apres=12",
+            "apres=a-1",
+            "apres=-1-2",
+            "apres=1-2&apres=1-2",
+            "x=1",
+            "limite",
+        ] {
+            assert_eq!(
+                page(Some(invalide)),
+                Err(ErreurApi::RequeteInvalide),
+                "{invalide}"
+            );
+        }
     }
 
     #[test]

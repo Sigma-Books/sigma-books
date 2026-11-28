@@ -132,14 +132,15 @@ pub async fn lignes(
     Ok(lues.into_iter().map(|l| ligne_lue!(l)).collect())
 }
 
-/// Lignes validées dont le tiers est l'un de `tiers`, par rang de chaîne puis position, au plus
-/// `limite`.
+/// Lignes validées dont le tiers est l'un de `tiers`, par rang de chaîne puis position,
+/// strictement après la clé `apres` (rang, position ; pagination stable), au plus `limite`.
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
 pub async fn lignes_des_tiers(
     tx: &mut TransactionTenant,
     tiers: &[Uuid],
+    apres: (i64, i16),
     limite: i64,
 ) -> Result<Vec<LigneLue>, ErreurBase> {
     let (cabinet, dossier) = contexte(tx)?;
@@ -156,11 +157,14 @@ pub async fn lignes_des_tiers(
                ON c.cabinet_id = l.cabinet_id AND c.dossier_id = l.dossier_id
               AND c.numero = l.compte_numero
             WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.tiers_id = ANY($3::uuid[])
+              AND (e.rang, l.position) > ($4, $5)
             ORDER BY e.rang, l.position
-            LIMIT $4"#,
+            LIMIT $6"#,
         cabinet,
         dossier,
         tiers,
+        apres.0,
+        apres.1,
         limite,
     )
     .fetch_all(tx.connexion())
@@ -168,13 +172,15 @@ pub async fn lignes_des_tiers(
     Ok(lues.into_iter().map(|l| ligne_lue!(l)).collect())
 }
 
-/// Lignes validées du compte `compte_id`, par rang de chaîne puis position, au plus `limite`.
+/// Lignes validées du compte `compte_id`, par rang de chaîne puis position, strictement après la
+/// clé `apres` (rang, position ; pagination stable), au plus `limite`.
 ///
 /// # Errors
 /// Contexte sans dossier, erreur de PostgreSQL.
 pub async fn lignes_du_compte(
     tx: &mut TransactionTenant,
     compte_id: Uuid,
+    apres: (i64, i16),
     limite: i64,
 ) -> Result<Vec<LigneLue>, ErreurBase> {
     let (cabinet, dossier) = contexte(tx)?;
@@ -191,11 +197,14 @@ pub async fn lignes_du_compte(
                ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id
               AND e.id = l.ecriture_id
             WHERE c.cabinet_id = $1 AND c.dossier_id = $2 AND c.id = $3
+              AND (e.rang, l.position) > ($4, $5)
             ORDER BY e.rang, l.position
-            LIMIT $4"#,
+            LIMIT $6"#,
         cabinet,
         dossier,
         compte_id,
+        apres.0,
+        apres.1,
         limite,
     )
     .fetch_all(tx.connexion())

@@ -163,6 +163,17 @@ pub async fn doter(
     .execute(admin)
     .await
     .unwrap();
+    // Compteur d'abord : le déclencheur du lien le prend (et le créerait sinon).
+    sqlx::query(
+        "INSERT INTO compteur_lettrage (cabinet_id, dossier_id, compte_id, derniere_lettre, \
+         dernier_rang) VALUES ($1, $2, $3, 'A', 1)",
+    )
+    .bind(cabinet.uuid())
+    .bind(dossier.uuid())
+    .bind(compte)
+    .execute(admin)
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO lettrage_lien (cabinet_id, dossier_id, lettrage_id, position, \
          debit_ecriture_id, debit_position, credit_ecriture_id, credit_position, montant) \
@@ -173,16 +184,6 @@ pub async fn doter(
     .bind(id)
     .bind(debit)
     .bind(credit)
-    .execute(admin)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO compteur_lettrage (cabinet_id, dossier_id, compte_id, derniere_lettre, \
-         dernier_rang) VALUES ($1, $2, $3, 'A', 1)",
-    )
-    .bind(cabinet.uuid())
-    .bind(dossier.uuid())
-    .bind(compte)
     .execute(admin)
     .await
     .unwrap();

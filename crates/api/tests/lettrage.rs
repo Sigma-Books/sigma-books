@@ -560,60 +560,368 @@ async fn rupture_acceptee_avant_cloture() {
     assert_eq!(rep.statut, StatusCode::CREATED, "{}", rep.texte());
 }
 
+/// Transaction du rôle applicatif dans le dossier du banc, et le pid de sa connexion.
+async fn transaction(b: &Banc) -> (api::base::TransactionTenant, i32) {
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(tx.connexion())
+        .await
+        .unwrap();
+    (tx, pid)
+}
+
+/// Attend (sans mesure de durée) que `n` connexions au moins attendent, directement ou par une
+/// file d'attente, un verrou tenu par la connexion `pid`.
+async fn attendre_bloques(b: &Banc, pid: i32, n: i64) {
+    loop {
+        let bloques: i64 = sqlx::query_scalar(
+            "WITH RECURSIVE bloques (pid) AS ( \
+               SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)) \
+               UNION \
+               SELECT a.pid FROM pg_stat_activity a \
+                 JOIN bloques x ON x.pid = ANY(pg_blocking_pids(a.pid))) \
+             SELECT count(*) FROM bloques",
+        )
+        .bind(pid)
+        .fetch_one(&b.env.admin)
+        .await
+        .unwrap();
+        if bloques >= n {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+}
+
+/// Une transaction tient le verrou du compte de la ligne `(ecriture, 1)` (compteur `FOR
+/// UPDATE`) ; rend la transaction et son pid.
+async fn tenir_le_compte(b: &Banc, ecriture: Uuid) -> (api::base::TransactionTenant, i32) {
+    let (mut tx, pid) = transaction(b).await;
+    assert!(
+        api::base::lettrage::verrouiller_compte_de_ligne(&mut tx, ecriture, 1)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    (tx, pid)
+}
+
+fn tries(x: &Reponse, y: &Reponse) -> [StatusCode; 2] {
+    let mut s = [x.statut, y.statut];
+    s.sort();
+    s
+}
+
 #[tokio::test]
-async fn lettrages_concurrents_sans_double_imputation_ni_lettre_en_double() {
+async fn operations_concurrentes_chevauchees_sur_un_compte() {
     let b = banc().await;
     let t = b.f.tiers;
-    for _ in 0..3 {
-        // Deux règlements concurrents de la même facture : un seul l'impute.
-        let f = facture(&b, t, "1000").await;
-        let r1 = reglement(&b, t, "1000").await;
-        let r2 = reglement(&b, t, "1000").await;
-        let (s1, s2) = ([(f, 1), (r1, 1)], [(f, 1), (r2, 1)]);
-        let (x, y) = tokio::join!(
-            lettrer_par(&b, b.c.collaborateur, &s1),
-            lettrer_par(&b, b.valideur, &s2),
-        );
-        let mut statuts = [x.statut, y.statut];
-        statuts.sort();
-        assert_eq!(
-            statuts,
-            [StatusCode::CREATED, StatusCode::CONFLICT],
-            "{} / {}",
-            x.texte(),
-            y.texte()
-        );
-        // Deux lettrages concurrents de lignes distinctes du même compte : deux lettres.
-        let (f1, f2) = (facture(&b, t, "10").await, facture(&b, t, "20").await);
-        let (g1, g2) = (reglement(&b, t, "10").await, reglement(&b, t, "20").await);
-        let (s1, s2) = ([(f1, 1), (g1, 1)], [(f2, 1), (g2, 1)]);
-        let (x, y) = tokio::join!(
-            lettrer_par(&b, b.c.collaborateur, &s1),
-            lettrer_par(&b, b.valideur, &s2),
-        );
-        assert_eq!(x.statut, StatusCode::CREATED, "{}", x.texte());
-        assert_eq!(y.statut, StatusCode::CREATED, "{}", y.texte());
-        assert_ne!(x.json()["lettre"], y.json()["lettre"]);
-    }
-    // Suite continue, sans doublon : A, B, … ; aucun résiduel négatif.
+
+    // Chaque scénario : une transaction tient le verrou du compte, les deux requêtes sont
+    // observées **bloquées ensemble** (`pg_blocking_pids`), puis le verrou est relâché : elles se
+    // sont bien chevauchées, et se suivent sous le compteur.
+
+    // 1. Lettrage / lettrage de la même facture : une seule imputation.
+    let f = facture(&b, t, "1000").await;
+    let (r1, r2) = (
+        reglement(&b, t, "1000").await,
+        reglement(&b, t, "1000").await,
+    );
+    let (s1, s2) = ([(f, 1), (r1, 1)], [(f, 1), (r2, 1)]);
+    let (h, pid) = tenir_le_compte(&b, f).await;
+    let (x, y, ()) = tokio::join!(
+        lettrer_par(&b, b.c.collaborateur, &s1),
+        lettrer_par(&b, b.valideur, &s2),
+        async {
+            attendre_bloques(&b, pid, 2).await;
+            h.confirmer().await.unwrap();
+        }
+    );
+    assert_eq!(
+        tries(&x, &y),
+        [StatusCode::CREATED, StatusCode::CONFLICT],
+        "{} / {}",
+        x.texte(),
+        y.texte()
+    );
+    let refus = if x.statut == StatusCode::CONFLICT {
+        &x
+    } else {
+        &y
+    };
+    assert_eq!(code(refus), "lettrage_ligne_soldee");
+
+    // 2. Lettrage / lettrage de lignes distinctes du même compte : deux lettres distinctes.
+    let (f1, f2) = (facture(&b, t, "10").await, facture(&b, t, "20").await);
+    let (g1, g2) = (reglement(&b, t, "10").await, reglement(&b, t, "20").await);
+    let (s1, s2) = ([(f1, 1), (g1, 1)], [(f2, 1), (g2, 1)]);
+    let (h, pid) = tenir_le_compte(&b, f1).await;
+    let (x, y, ()) = tokio::join!(
+        lettrer_par(&b, b.c.collaborateur, &s1),
+        lettrer_par(&b, b.valideur, &s2),
+        async {
+            attendre_bloques(&b, pid, 2).await;
+            h.confirmer().await.unwrap();
+        }
+    );
+    assert_eq!(x.statut, StatusCode::CREATED, "{}", x.texte());
+    assert_eq!(y.statut, StatusCode::CREATED, "{}", y.texte());
+    assert_ne!(x.json()["lettre"], y.json()["lettre"]);
+
+    // 3. Rupture / lettrage de la même facture : l'ordre du verrou décide, jamais de double
+    // imputation.
+    let f3 = facture(&b, t, "500").await;
+    let (g3, h3) = (reglement(&b, t, "500").await, reglement(&b, t, "500").await);
+    let a = lettrer(&b, &[(f3, 1), (g3, 1)]).await;
+    let id = a["id"].as_str().unwrap().to_owned();
+    let s3 = [(f3, 1), (h3, 1)];
+    let (h, pid) = tenir_le_compte(&b, f3).await;
+    let (x, y, ()) = tokio::join!(
+        rompre(&b, &id),
+        lettrer_par(&b, b.c.collaborateur, &s3),
+        async {
+            attendre_bloques(&b, pid, 2).await;
+            h.confirmer().await.unwrap();
+        }
+    );
+    assert_eq!(x.statut, StatusCode::CREATED, "{}", x.texte());
+    let attendus = if y.statut == StatusCode::CREATED {
+        ["0", "500", "0"]
+    } else {
+        assert_eq!(code(&y), "lettrage_ligne_soldee");
+        ["500", "500", "500"]
+    };
+    assert_eq!(
+        residuels_base(&b, &[(f3, 1), (g3, 1), (h3, 1)]).await,
+        attendus
+    );
+
+    // 4. Rupture / rupture du même lettrage : une seule rupture.
+    let f4 = facture(&b, t, "300").await;
+    let g4 = reglement(&b, t, "300").await;
+    let a = lettrer(&b, &[(f4, 1), (g4, 1)]).await;
+    let id = a["id"].as_str().unwrap().to_owned();
+    let (h, pid) = tenir_le_compte(&b, f4).await;
+    let (x, y, ()) = tokio::join!(rompre(&b, &id), rompre(&b, &id), async {
+        attendre_bloques(&b, pid, 2).await;
+        h.confirmer().await.unwrap();
+    });
+    assert_eq!(tries(&x, &y), [StatusCode::CREATED, StatusCode::CONFLICT]);
+    let refus = if x.statut == StatusCode::CONFLICT {
+        &x
+    } else {
+        &y
+    };
+    assert_eq!(code(refus), "lettrage_deja_rompu");
+    assert_eq!(b.compter("lettrage_rupture").await, 2);
+
+    // Suite de lettres continue, sans doublon ; aucun résiduel négatif.
     let lettres: Vec<String> =
         sqlx::query_scalar("SELECT lettre FROM lettrage WHERE dossier_id = $1 ORDER BY rang")
             .bind(b.c.dossier.uuid())
             .fetch_all(&b.env.admin)
             .await
             .unwrap();
-    assert_eq!(lettres, ["A", "B", "C", "D", "E", "F", "G", "H", "I"]);
+    let n = lettres.len();
+    let suite: Vec<String> = (0..n)
+        .map(|i| char::from(b'A' + u8::try_from(i).unwrap()).to_string())
+        .collect();
+    assert_eq!(lettres, suite);
     let depasses: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM ecriture_validee_ligne l WHERE l.dossier_id = $1 AND l.montant < \
          (SELECT COALESCE(sum(k.montant), 0) FROM lettrage_lien k WHERE k.dossier_id = l.dossier_id \
           AND ((k.debit_ecriture_id, k.debit_position) = (l.ecriture_id, l.position) \
-               OR (k.credit_ecriture_id, k.credit_position) = (l.ecriture_id, l.position)))",
+               OR (k.credit_ecriture_id, k.credit_position) = (l.ecriture_id, l.position)) \
+          AND NOT EXISTS (SELECT 1 FROM lettrage_rupture x WHERE x.lettrage_id = k.lettrage_id))",
     )
     .bind(b.c.dossier.uuid())
     .fetch_one(&b.env.admin)
     .await
     .unwrap();
     assert_eq!(depasses, 0);
+}
+
+#[tokio::test]
+async fn seconde_barriere_autonome_sous_concurrence_et_meme_tiers() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let f = facture(&b, t, "1000").await;
+    let r = reglement(&b, t, "600").await;
+    let a = lettrer(&b, &[(f, 1), (r, 1)]).await;
+    let lettrage: Uuid = a["id"].as_str().unwrap().parse().unwrap();
+    let r2 = reglement(&b, t, "1000").await;
+    let (cab, dos) = (b.c.cabinet.uuid(), b.c.dossier.uuid());
+    let inserer = "INSERT INTO lettrage_lien (cabinet_id, dossier_id, lettrage_id, position, \
+                   debit_ecriture_id, debit_position, credit_ecriture_id, credit_position, \
+                   montant) VALUES ($1, $2, $3, $4, $5, 1, $6, 1, $7::numeric)";
+
+    // Deux insertions directes concurrentes (sans l'API ni son verrou) de 300 chacune sur la
+    // facture, à qui il reste 400 : la seconde attend le compteur pris par le déclencheur de la
+    // première, puis voit son lien et refuse le résiduel négatif.
+    let (mut t1, pid1) = transaction(&b).await;
+    sqlx::query(inserer)
+        .bind(cab)
+        .bind(dos)
+        .bind(lettrage)
+        .bind(9_i16)
+        .bind(f)
+        .bind(r2)
+        .bind("300")
+        .execute(t1.connexion())
+        .await
+        .unwrap();
+    let (mut t2, _) = transaction(&b).await;
+    let (second, ()) = tokio::join!(
+        async {
+            sqlx::query(inserer)
+                .bind(cab)
+                .bind(dos)
+                .bind(lettrage)
+                .bind(10_i16)
+                .bind(f)
+                .bind(r2)
+                .bind("300")
+                .execute(t2.connexion())
+                .await
+        },
+        async {
+            attendre_bloques(&b, pid1, 1).await;
+            t1.confirmer().await.unwrap();
+        }
+    );
+    let e = second.unwrap_err();
+    assert!(e.to_string().contains("résiduel négatif"), "{e}");
+    drop(t2);
+
+    // Même tiers, en base : une ligne d'un autre tiers dans le lien, ou un lien d'un autre tiers
+    // dans un lettrage déjà commencé.
+    let autre = autre_tiers(&b).await;
+    let fa = facture(&b, autre, "100").await;
+    let ra = reglement(&b, autre, "100").await;
+    for (debit, credit) in [(f, ra), (fa, ra)] {
+        let (mut tx, _) = transaction(&b).await;
+        let e = sqlx::query(inserer)
+            .bind(cab)
+            .bind(dos)
+            .bind(lettrage)
+            .bind(11_i16)
+            .bind(debit)
+            .bind(credit)
+            .bind("1")
+            .execute(tx.connexion())
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("tiers différents"), "{e}");
+    }
+}
+
+#[tokio::test]
+async fn un_lettrage_historique_reste_lisible_si_le_tiers_resolu_change() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let f = facture(&b, t, "1000").await;
+    let r = reglement(&b, t, "1000").await;
+    lettrer(&b, &[(f, 1), (r, 1)]).await;
+    // Simulation de la rupture d'une fusion de tiers (ADR 0031, PR 7b) : le tiers résolu du
+    // règlement n'est plus celui de la facture.
+    let autre = autre_tiers(&b).await;
+    sqlx::query(
+        "UPDATE ecriture_validee_ligne SET tiers_id = $1 WHERE ecriture_id = $2 AND position = 1",
+    )
+    .bind(autre)
+    .bind(r)
+    .execute(&b.env.admin)
+    .await
+    .unwrap();
+    let lu = lire_tiers(&b, t).await;
+    assert_eq!(residuel(&lu["comptes"][0]["lignes"], f, 1), "0");
+    let lu = lire_tiers(&b, autre).await;
+    assert_eq!(residuel(&lu["comptes"][0]["lignes"], r, 1), "0");
+}
+
+#[tokio::test]
+async fn lecture_paginee_par_curseur_stable() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let mut ecritures = Vec::new();
+    for montant in ["100", "200", "300"] {
+        ecritures.push(facture(&b, t, montant).await);
+    }
+    let page = |parametres: String| {
+        let chemin = chemin(&b, &format!("/tiers/{t}{parametres}"));
+        let routeur = b.routeur.clone();
+        let auditeur = b.auditeur;
+        async move {
+            let r = lire(&routeur, &chemin, Some(auditeur)).await;
+            assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+            r.json()
+        }
+    };
+    let premiere = page("?limite=2".to_owned()).await;
+    let lignes = premiere["comptes"][0]["lignes"].as_array().unwrap().clone();
+    assert_eq!(lignes.len(), 2);
+    let suivant = premiere["suivant"].as_str().unwrap().to_owned();
+    let seconde = page(format!("?limite=2&apres={suivant}")).await;
+    let reste = seconde["comptes"][0]["lignes"].as_array().unwrap().clone();
+    assert_eq!(reste.len(), 1);
+    assert_eq!(seconde["suivant"], Value::Null);
+    let vues: Vec<String> = lignes
+        .iter()
+        .chain(reste.iter())
+        .map(|l| l["ecriture"].as_str().unwrap().to_owned())
+        .collect();
+    let attendues: Vec<String> = ecritures.iter().map(ToString::to_string).collect();
+    assert_eq!(vues, attendues);
+    // Sans paramètre : une page de 1 000 au plus, ici tout.
+    let tout = page(String::new()).await;
+    assert_eq!(tout["comptes"][0]["lignes"].as_array().unwrap().len(), 3);
+    assert_eq!(tout["suivant"], Value::Null);
+    let r = lire(
+        &b.routeur,
+        &chemin(&b, &format!("/tiers/{t}?limite=5001")),
+        Some(b.auditeur),
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn une_rupture_ne_precede_jamais_son_lettrage() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let f = facture(&b, t, "1000").await;
+    let r = reglement(&b, t, "1000").await;
+    let a = lettrer(&b, &[(f, 1), (r, 1)]).await;
+    let id = a["id"].as_str().unwrap();
+    // Le fuseau du dossier a changé depuis le lettrage : son jour est postérieur à celui du
+    // dossier au moment de la rupture.
+    sqlx::query("UPDATE lettrage SET date_operation = date_operation + 1 WHERE id = $1")
+        .bind(Uuid::parse_str(id).unwrap())
+        .execute(&b.env.admin)
+        .await
+        .unwrap();
+    let demain =
+        commun::brouillard::texte_date(commun::brouillard::aujourd_hui() + time::Duration::days(1));
+    let rep = rompre(&b, id).await;
+    assert_eq!(rep.statut, StatusCode::CREATED, "{}", rep.texte());
+    assert_eq!(rep.json()["date"], demain);
+    let entree: String = sqlx::query_scalar(
+        "SELECT contenu FROM audit_dossier WHERE dossier_id = $1 \
+         AND contenu LIKE '%ressource=lettrage_rupture:%'",
+    )
+    .bind(b.c.dossier.uuid())
+    .fetch_one(&b.env.admin)
+    .await
+    .unwrap();
+    assert!(
+        entree.contains(&format!("jour_du_dossier\nvaleur={}", aujourd())),
+        "{entree}"
+    );
 }
 
 #[tokio::test]

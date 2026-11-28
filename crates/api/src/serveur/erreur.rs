@@ -256,13 +256,11 @@ pub enum MotifConflit {
     LettrageDejaRompu,
     /// Ligne déjà entièrement lettrée (résiduel nul).
     LettrageLigneSoldee,
-    /// Rupture datée avant le lettrage (jour du dossier antérieur à celui du lettrage).
-    LettrageRuptureAnterieure,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 56] = [
+    pub const TOUS: [Self; 55] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -318,7 +316,6 @@ impl MotifConflit {
         Self::LettrageExerciceClos,
         Self::LettrageDejaRompu,
         Self::LettrageLigneSoldee,
-        Self::LettrageRuptureAnterieure,
     ];
 
     /// Code du corps de la réponse.
@@ -380,7 +377,6 @@ impl MotifConflit {
             Self::LettrageExerciceClos => "lettrage_exercice_clos",
             Self::LettrageDejaRompu => "lettrage_deja_rompu",
             Self::LettrageLigneSoldee => "lettrage_ligne_soldee",
-            Self::LettrageRuptureAnterieure => "lettrage_rupture_anterieure",
         }
     }
 }

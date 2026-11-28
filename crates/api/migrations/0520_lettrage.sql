@@ -178,24 +178,73 @@ CREATE POLICY lettrage_rupture_tenant ON lettrage_rupture
 GRANT SELECT, INSERT ON lettrage_rupture TO sigma_application;
 
 -- Seconde barrière (ADR 0032 point 8, comme le déclencheur de `0352` pour les pièces), derrière
--- `compta-core` et le verrou du compteur : un lien cite une ligne au débit et une ligne au crédit
--- du compte de son lettrage, et ne rend jamais négatif le résiduel d'une ligne (somme des liens
--- non rompus). Fonction ordinaire (droits de l'appelant, sous RLS : elle ne voit que le dossier du
--- contexte), `EXECUTE` retiré à PUBLIC. Une ligne absente laisse la clé étrangère refuser le lien.
+-- `compta-core` et le verrou de l'API, **autonome** : elle prend elle-même le compteur du compte
+-- `FOR UPDATE` (créé à la demande, rang 7 de l'ordre des verrous), puis relit les liens, chaque
+-- requête de la fonction ayant son propre instantané en READ COMMITTED : deux insertions
+-- concurrentes sur le même compte se suivent, la seconde voit les liens validés de la première.
+-- Un lien cite une ligne au débit et une ligne au crédit du compte de son lettrage, du **même
+-- tiers** que les autres lignes du lettrage (Tryton `move.py:676-682` ; tiers résolu de l'ADR
+-- 0031 : l'identité tant que la fusion n'existe pas, la PR 7b remplacera la comparaison par une
+-- migration de numéro supérieur), et ne rend jamais négatif le résiduel d'une ligne (somme des
+-- liens non rompus). Fonction ordinaire (droits de l'appelant, sous RLS : elle ne voit que le
+-- dossier du contexte), `EXECUTE` retiré à PUBLIC. Une ligne absente laisse la clé étrangère
+-- refuser le lien.
 CREATE FUNCTION lettrage_lien_controle() RETURNS trigger
     LANGUAGE plpgsql
     SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
+    compte uuid;
     numero text;
+    tiers_debit uuid;
+    tiers_credit uuid;
+    tiers_lettrage uuid;
+    debit_lu boolean;
+    credit_lu boolean;
+    deja boolean;
     cote record;
 BEGIN
-    SELECT c.numero INTO numero
+    SELECT t.compte_id, c.numero INTO compte, numero
       FROM public.lettrage t
       JOIN public.compte c ON c.cabinet_id = t.cabinet_id AND c.dossier_id = t.dossier_id
                           AND c.id = t.compte_id
      WHERE t.cabinet_id = NEW.cabinet_id AND t.dossier_id = NEW.dossier_id
        AND t.id = NEW.lettrage_id;
+    IF compte IS NULL THEN
+        -- Lettrage absent : la clé étrangère refuse le lien.
+        RETURN NEW;
+    END IF;
+    INSERT INTO public.compteur_lettrage (cabinet_id, dossier_id, compte_id, dernier_rang)
+         VALUES (NEW.cabinet_id, NEW.dossier_id, compte, 0)
+    ON CONFLICT DO NOTHING;
+    PERFORM 1 FROM public.compteur_lettrage
+      WHERE cabinet_id = NEW.cabinet_id AND dossier_id = NEW.dossier_id AND compte_id = compte
+        FOR UPDATE;
+
+    SELECT true, l.tiers_id INTO debit_lu, tiers_debit FROM public.ecriture_validee_ligne l
+     WHERE l.cabinet_id = NEW.cabinet_id AND l.dossier_id = NEW.dossier_id
+       AND l.ecriture_id = NEW.debit_ecriture_id AND l.position = NEW.debit_position;
+    SELECT true, l.tiers_id INTO credit_lu, tiers_credit FROM public.ecriture_validee_ligne l
+     WHERE l.cabinet_id = NEW.cabinet_id AND l.dossier_id = NEW.dossier_id
+       AND l.ecriture_id = NEW.credit_ecriture_id AND l.position = NEW.credit_position;
+    IF debit_lu IS NULL OR credit_lu IS NULL THEN
+        -- Ligne absente du dossier : la clé étrangère refuse le lien.
+        RETURN NEW;
+    END IF;
+    SELECT true, l.tiers_id INTO deja, tiers_lettrage
+      FROM public.lettrage_lien k
+      JOIN public.ecriture_validee_ligne l
+        ON l.cabinet_id = k.cabinet_id AND l.dossier_id = k.dossier_id
+       AND l.ecriture_id = k.debit_ecriture_id AND l.position = k.debit_position
+     WHERE k.cabinet_id = NEW.cabinet_id AND k.dossier_id = NEW.dossier_id
+       AND k.lettrage_id = NEW.lettrage_id
+     LIMIT 1;
+    IF tiers_debit IS DISTINCT FROM tiers_credit
+       OR (deja AND tiers_debit IS DISTINCT FROM tiers_lettrage) THEN
+        RAISE EXCEPTION 'lien de lettrage : tiers différents'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
     FOR cote IN
         SELECT l.ecriture_id, l.position, l.sens, l.compte_numero, l.montant, v.sens_attendu
           FROM (VALUES (NEW.debit_ecriture_id, NEW.debit_position, 'debit'),

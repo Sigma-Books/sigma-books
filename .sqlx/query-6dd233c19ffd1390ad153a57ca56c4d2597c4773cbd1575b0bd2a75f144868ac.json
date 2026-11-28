@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT l.ecriture_id, l.position, e.rang, e.numero, e.date_comptable,\n                  c.id AS compte_id, l.compte_numero, l.sens, l.montant::text AS \"montant!\",\n                  l.devise, l.montant_devise::text AS montant_devise, l.cours::text AS cours,\n                  l.tiers_id\n             FROM ecriture_validee_ligne l\n             JOIN ecriture_validee e\n               ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id\n              AND e.id = l.ecriture_id\n             JOIN compte c\n               ON c.cabinet_id = l.cabinet_id AND c.dossier_id = l.dossier_id\n              AND c.numero = l.compte_numero\n            WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.tiers_id = ANY($3::uuid[])\n            ORDER BY e.rang, l.position\n            LIMIT $4",
+  "query": "SELECT l.ecriture_id, l.position, e.rang, e.numero, e.date_comptable,\n                  c.id AS compte_id, l.compte_numero, l.sens, l.montant::text AS \"montant!\",\n                  l.devise, l.montant_devise::text AS montant_devise, l.cours::text AS cours,\n                  l.tiers_id\n             FROM compte c\n             JOIN ecriture_validee_ligne l\n               ON l.cabinet_id = c.cabinet_id AND l.dossier_id = c.dossier_id\n              AND l.compte_numero = c.numero\n             JOIN ecriture_validee e\n               ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id\n              AND e.id = l.ecriture_id\n            WHERE c.cabinet_id = $1 AND c.dossier_id = $2 AND c.id = $3\n              AND (e.rang, l.position) > ($4, $5)\n            ORDER BY e.rang, l.position\n            LIMIT $6",
   "describe": {
     "columns": [
       {
@@ -136,7 +136,9 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "UuidArray",
+        "Uuid",
+        "Int8",
+        "Int2",
         "Int8"
       ]
     },
@@ -156,5 +158,5 @@
       true
     ]
   },
-  "hash": "82a222fa5c28364f0317f6c4c4d3f9f270d87f52c5361da68260bcaf7132f043"
+  "hash": "6dd233c19ffd1390ad153a57ca56c4d2597c4773cbd1575b0bd2a75f144868ac"
 }

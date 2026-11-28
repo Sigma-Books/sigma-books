@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT l.ecriture_id, l.position, e.rang, e.numero, e.date_comptable,\n                  c.id AS compte_id, l.compte_numero, l.sens, l.montant::text AS \"montant!\",\n                  l.devise, l.montant_devise::text AS montant_devise, l.cours::text AS cours,\n                  l.tiers_id\n             FROM compte c\n             JOIN ecriture_validee_ligne l\n               ON l.cabinet_id = c.cabinet_id AND l.dossier_id = c.dossier_id\n              AND l.compte_numero = c.numero\n             JOIN ecriture_validee e\n               ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id\n              AND e.id = l.ecriture_id\n            WHERE c.cabinet_id = $1 AND c.dossier_id = $2 AND c.id = $3\n            ORDER BY e.rang, l.position\n            LIMIT $4",
+  "query": "SELECT l.ecriture_id, l.position, e.rang, e.numero, e.date_comptable,\n                  c.id AS compte_id, l.compte_numero, l.sens, l.montant::text AS \"montant!\",\n                  l.devise, l.montant_devise::text AS montant_devise, l.cours::text AS cours,\n                  l.tiers_id\n             FROM ecriture_validee_ligne l\n             JOIN ecriture_validee e\n               ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id\n              AND e.id = l.ecriture_id\n             JOIN compte c\n               ON c.cabinet_id = l.cabinet_id AND c.dossier_id = l.dossier_id\n              AND c.numero = l.compte_numero\n            WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.tiers_id = ANY($3::uuid[])\n              AND (e.rang, l.position) > ($4, $5)\n            ORDER BY e.rang, l.position\n            LIMIT $6",
   "describe": {
     "columns": [
       {
@@ -136,7 +136,9 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Uuid",
+        "UuidArray",
+        "Int8",
+        "Int2",
         "Int8"
       ]
     },
@@ -156,5 +158,5 @@
       true
     ]
   },
-  "hash": "b2f44b374aecaec40d74950bd9d559cf0d2cec1bf32bfceb17e148c2b3ea3636"
+  "hash": "ee9b6c79d47cdea06a7ef0806687cb684d2a5ba1d28b96512a3b348808226b8a"
 }

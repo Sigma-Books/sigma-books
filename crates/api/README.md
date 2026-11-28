@@ -757,10 +757,12 @@ d'opération** persisté, `imputer`, `rompre`).
   imputées du plus ancien au plus récent.
 - **Dé-lettrage** : rupture en ajout seul, refusée (409 `lettrage_exercice_clos`) si la date de
   l'opération de lettrage tombe dans un exercice clos (B2, option 1) ; un lettrage fait dans un
-  exercice déjà clos reçoit l'avertissement `lettrage_non_rompable`.
+  exercice déjà clos reçoit l'avertissement `lettrage_non_rompable`. Une rupture ne précède jamais
+  son lettrage (date recadrée sur celle du lettrage, jour du dossier gardé dans l'audit).
 - **Verrous** (ADR 0032 point 8) : lettrage, compte puis tiers `FOR SHARE` puis compteur ;
-  rupture, calendrier `FOR SHARE` puis compteur. Seconde barrière : déclencheur
-  `lettrage_lien_controle` (sens, compte, résiduel jamais négatif).
+  rupture, calendrier `FOR SHARE` puis compteur. Seconde barrière **autonome** : le déclencheur
+  `lettrage_lien_controle` prend lui-même le compteur `FOR UPDATE`, puis contrôle sens, compte,
+  même tiers et résiduel jamais négatif.
 - **Tiers résolu** : `base::lettrage::tiers_resolus` et `tiers_rattaches`, seul point de lecture
   (identité tant que la fusion de la PR 7b n'est pas fusionnée).
 - **Interface de l'échéancier** (ADR 0033 point 2) : `base::lettrage::residuels` (résiduel par
@@ -772,7 +774,7 @@ d'opération** persisté, `imputer`, `rompre`).
 |---|---|
 | `POST …/lettrage/lettrages` : `{"lignes":[{"ecriture":…,"position":…},…]}` | `Lettrer` |
 | `POST …/lettrage/lettrages/{lettrage}/rupture` : `{"motif":…}` | `Delettrer` |
-| `GET …/lettrage/tiers/{tiers}`, `GET …/lettrage/comptes/{compte}` : lignes, résiduels, lettres, lettrages et ruptures (5 000 lignes au plus) | `ConsulterEditionsTiers` |
+| `GET …/lettrage/tiers/{tiers}`, `GET …/lettrage/comptes/{compte}` `[?apres=<rang>-<position>&limite=<1…5000>]` : lignes (page de 1 000 par défaut, curseur `suivant`), résiduels, lettres, lettrages et ruptures | `ConsulterEditionsTiers` |
 
 ## Travailler en voies parallèles
 
