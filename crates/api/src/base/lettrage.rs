@@ -631,3 +631,83 @@ pub async fn dans_un_exercice_clos(
     .fetch_one(tx.connexion())
     .await?)
 }
+
+// --- Interface de l'échéancier (ADR 0033 point 2 ; PR 8) -----------------------------------------
+
+/// Résiduel de chaque ligne de `refs` : montant moins la somme des liens des lettrages **non
+/// rompus** qui la citent (ADR 0032 point 1), en décimal canonique, calculé par agrégat (jamais
+/// stocké). Une référence d'un autre dossier ou inexistante est absente du résultat. Lecture
+/// simple, sans verrou : pour une décision (révision d'échéance), prendre d'abord
+/// [`verrouiller_compte_de_ligne`]. Même résultat que `compta_core::RegistreLettrage::residuel`
+/// sur un registre rejoué (test `residuels_par_agregat_egaux_a_ceux_du_registre`).
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn residuels(
+    tx: &mut TransactionTenant,
+    refs: &[RefLigne],
+) -> Result<BTreeMap<RefLigne, String>, ErreurBase> {
+    let (cabinet, dossier) = contexte(tx)?;
+    let (ecritures, positions) = colonnes(refs);
+    let lus = sqlx::query!(
+        r#"SELECT l.ecriture_id, l.position,
+                  (l.montant - COALESCE((
+                      SELECT sum(k.montant) FROM lettrage_lien k
+                       WHERE k.cabinet_id = l.cabinet_id AND k.dossier_id = l.dossier_id
+                         AND ((k.debit_ecriture_id = l.ecriture_id
+                               AND k.debit_position = l.position)
+                              OR (k.credit_ecriture_id = l.ecriture_id
+                                  AND k.credit_position = l.position))
+                         AND NOT EXISTS (
+                             SELECT 1 FROM lettrage_rupture x
+                              WHERE x.cabinet_id = k.cabinet_id AND x.dossier_id = k.dossier_id
+                                AND x.lettrage_id = k.lettrage_id)), 0))::text AS "residuel!"
+             FROM (SELECT DISTINCT * FROM unnest($3::uuid[], $4::int2[])) AS r (ecriture_id, position)
+             JOIN ecriture_validee_ligne l
+               ON l.cabinet_id = $1 AND l.dossier_id = $2
+              AND l.ecriture_id = r.ecriture_id AND l.position = r.position"#,
+        cabinet,
+        dossier,
+        &ecritures,
+        &positions,
+    )
+    .fetch_all(tx.connexion())
+    .await?;
+    Ok(lus
+        .into_iter()
+        .map(|l| ((l.ecriture_id, l.position), decimal_canonique(&l.residuel)))
+        .collect())
+}
+
+/// Verrou du compte de la ligne `(ecriture, position)` : son compteur de lettrage `FOR UPDATE`
+/// (rang 7 de l'ordre des verrous, ADR 0032 point 8), créé à la demande. Pris par la **révision
+/// d'une échéance** (ADR 0033 point 2) avant de lire le résiduel ([`residuels`]) : un lettrage ou
+/// une rupture concurrents du même compte attendent la fin de la révision, et inversement.
+/// `None` si la ligne n'existe pas dans le dossier du contexte.
+///
+/// # Errors
+/// Contexte sans dossier, erreur de PostgreSQL.
+pub async fn verrouiller_compte_de_ligne(
+    tx: &mut TransactionTenant,
+    ecriture: Uuid,
+    position: i16,
+) -> Result<Option<Compteur>, ErreurBase> {
+    let (cabinet, dossier) = contexte(tx)?;
+    let compte = sqlx::query_scalar!(
+        "SELECT c.id FROM ecriture_validee_ligne l \
+         JOIN compte c ON c.cabinet_id = l.cabinet_id AND c.dossier_id = l.dossier_id \
+                      AND c.numero = l.compte_numero \
+         WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.ecriture_id = $3 \
+           AND l.position = $4",
+        cabinet,
+        dossier,
+        ecriture,
+        position,
+    )
+    .fetch_optional(tx.connexion())
+    .await?;
+    match compte {
+        None => Ok(None),
+        Some(id) => Ok(Some(verrouiller_compteur(tx, id).await?)),
+    }
+}

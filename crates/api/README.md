@@ -763,6 +763,10 @@ d'opération** persisté, `imputer`, `rompre`).
   `lettrage_lien_controle` (sens, compte, résiduel jamais négatif).
 - **Tiers résolu** : `base::lettrage::tiers_resolus` et `tiers_rattaches`, seul point de lecture
   (identité tant que la fusion de la PR 7b n'est pas fusionnée).
+- **Interface de l'échéancier** (ADR 0033 point 2) : `base::lettrage::residuels` (résiduel par
+  agrégat des liens non rompus, lecture simple) et `verrouiller_compte_de_ligne` (compteur du
+  compte de la ligne `FOR UPDATE`, à prendre par la révision d'une échéance avant de lire le
+  résiduel).
 
 | Route | Cedar |
 |---|---|

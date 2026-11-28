@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id FROM ecriture_validee_ligne l JOIN compte c ON c.cabinet_id = l.cabinet_id AND c.dossier_id = l.dossier_id AND c.numero = l.compte_numero WHERE l.cabinet_id = $1 AND l.dossier_id = $2 AND l.ecriture_id = $3 AND l.position = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "007dd119008e10db9d2fb1fefc8d31057af80e05e71bdba296403d3d2af58fd2"
+}

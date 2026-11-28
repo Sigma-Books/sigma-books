@@ -745,3 +745,132 @@ async fn audit_chaine_sans_valeur_personnelle() {
     assert_eq!(rep.statut, StatusCode::OK, "{}", rep.texte());
     assert_eq!(rep.json()["integre"], true);
 }
+
+/// Résiduels de l'interface de l'échéancier (`base::lettrage::residuels`), dans le dossier.
+async fn residuels_base(b: &Banc, refs: &[(Uuid, i16)]) -> Vec<String> {
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    let lus = api::base::lettrage::residuels(&mut tx, refs).await.unwrap();
+    refs.iter().map(|r| lus[r].clone()).collect()
+}
+
+#[tokio::test]
+async fn residuels_par_agregat_egaux_a_ceux_du_registre() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let f = facture(&b, t, "1000").await;
+    let r1 = reglement(&b, t, "250").await;
+    let r2 = reglement(&b, t, "100").await;
+    let refs = [(f, 1), (r1, 1), (r2, 1)];
+    assert_eq!(residuels_base(&b, &refs).await, ["1000", "250", "100"]);
+    let a = lettrer(&b, &[(f, 1), (r1, 1)]).await;
+    lettrer(&b, &[(f, 1), (r2, 1)]).await;
+    let lu = lire_tiers(&b, t).await;
+    let lignes = &lu["comptes"][0]["lignes"];
+    let du_registre: Vec<String> = refs
+        .iter()
+        .map(|(e, p)| residuel(lignes, *e, i64::from(*p)))
+        .collect();
+    assert_eq!(du_registre, ["650", "0", "0"]);
+    assert_eq!(residuels_base(&b, &refs).await, du_registre);
+    // La rupture rétablit le résiduel, des deux côtés.
+    let rep = rompre(&b, a["id"].as_str().unwrap()).await;
+    assert_eq!(rep.statut, StatusCode::CREATED);
+    assert_eq!(residuels_base(&b, &refs).await, ["900", "250", "0"]);
+    // Une ligne d'un autre dossier ou inexistante est absente.
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    assert!(
+        api::base::lettrage::residuels(&mut tx, &[(Uuid::new_v4(), 1)])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn revision_d_echeance_et_lettrage_concurrents_se_suivent() {
+    let b = banc().await;
+    let t = b.f.tiers;
+    let f = facture(&b, t, "1000").await;
+    let r = reglement(&b, t, "1000").await;
+    // Une révision d'échéance (ADR 0033 point 2) tient le verrou du compte de la ligne et lit son
+    // résiduel sous ce verrou.
+    let mut revision = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(revision.connexion())
+        .await
+        .unwrap();
+    assert!(
+        api::base::lettrage::verrouiller_compte_de_ligne(&mut revision, f, 1)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let lu = api::base::lettrage::residuels(&mut revision, &[(f, 1)])
+        .await
+        .unwrap();
+    assert_eq!(lu[&(f, 1)], "1000");
+    let selection = [(f, 1), (r, 1)];
+    let lettrage = lettrer_par(&b, b.c.collaborateur, &selection);
+    let revision_terminee = async {
+        // Le lettrage attend le verrou tenu par la révision (constaté, sans mesure de durée),
+        // puis la révision se termine sur le résiduel lu.
+        loop {
+            let bloques: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+            )
+            .bind(pid)
+            .fetch_one(&b.env.admin)
+            .await
+            .unwrap();
+            if bloques > 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let relu = api::base::lettrage::residuels(&mut revision, &[(f, 1)])
+            .await
+            .unwrap();
+        assert_eq!(relu[&(f, 1)], "1000");
+        revision.confirmer().await.unwrap();
+    };
+    let (rep, ()) = tokio::join!(lettrage, revision_terminee);
+    assert_eq!(rep.statut, StatusCode::CREATED, "{}", rep.texte());
+    // Une révision suivante voit la ligne soldée.
+    let mut suivante = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    assert!(
+        api::base::lettrage::verrouiller_compte_de_ligne(&mut suivante, f, 1)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let lu = api::base::lettrage::residuels(&mut suivante, &[(f, 1)])
+        .await
+        .unwrap();
+    assert_eq!(lu[&(f, 1)], "0");
+    assert!(
+        api::base::lettrage::verrouiller_compte_de_ligne(&mut suivante, Uuid::new_v4(), 1)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
