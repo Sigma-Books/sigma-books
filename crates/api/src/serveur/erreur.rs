@@ -243,11 +243,17 @@ pub enum MotifConflit {
     /// Nombre maximal de versions d'un profil d'import atteint (50, comme les versions de
     /// paramètres fiscaux, ADR 0030).
     ProfilVersionsMax,
+    /// Code de condition de règlement déjà pris dans le dossier (L3-17 ; ADR 0033 point 3).
+    ConditionReglementCodeDejaUtilise,
+    /// Révision d'une échéance dont le résiduel est nul (ADR 0033 point 2).
+    EcheanceSoldee,
+    /// Révision concurrente de la même ligne (rang déjà pris) : relire puis réessayer (L3-17).
+    EcheanceRevisionConcurrente,
 }
 
 impl MotifConflit {
     /// Tous les motifs.
-    pub const TOUS: [Self; 49] = [
+    pub const TOUS: [Self; 52] = [
         Self::PeriodeDejaCloturee,
         Self::PeriodeNonOuverte,
         Self::PeriodeNonVerrouillee,
@@ -297,6 +303,9 @@ impl MotifConflit {
         Self::TiersDejaMouvemente,
         Self::ProfilsReleveMax,
         Self::ProfilVersionsMax,
+        Self::ConditionReglementCodeDejaUtilise,
+        Self::EcheanceSoldee,
+        Self::EcheanceRevisionConcurrente,
     ];
 
     /// Code du corps de la réponse.
@@ -592,11 +601,18 @@ pub enum MotifValidation {
     TiersTropDeContacts,
     /// Plus de coordonnées bancaires que la limite (vingt).
     TiersTropDeComptesBancaires,
+    /// Condition de règlement invalide : code, libellé, terme (valeur, délai), dernier terme
+    /// autre que le solde, pourcentages de 100 ou plus, plus de 50 termes (L3-17 ; ADR 0033
+    /// point 3).
+    ConditionReglementInvalide,
+    /// Motif de révision d'échéance vide, de plus de 400 octets ou avec un caractère de contrôle
+    /// ou de format (ADR 0033 point 2).
+    EcheanceMotifInvalide,
 }
 
 impl MotifValidation {
     /// Tous les motifs.
-    pub const TOUS: [Self; 52] = [
+    pub const TOUS: [Self; 54] = [
         Self::PeriodeVerrouillee,
         Self::PeriodeCloturee,
         Self::ExerciceCloture,
@@ -649,6 +665,8 @@ impl MotifValidation {
         Self::TiersTropDAdresses,
         Self::TiersTropDeContacts,
         Self::TiersTropDeComptesBancaires,
+        Self::ConditionReglementInvalide,
+        Self::EcheanceMotifInvalide,
     ];
 
     /// Statut HTTP : 409 pour l'état du dossier, 422 pour l'écriture invalide.
@@ -724,6 +742,8 @@ impl MotifValidation {
             Self::TiersTropDAdresses => "tiers_trop_d_adresses",
             Self::TiersTropDeContacts => "tiers_trop_de_contacts",
             Self::TiersTropDeComptesBancaires => "tiers_trop_de_comptes_bancaires",
+            Self::ConditionReglementInvalide => "condition_reglement_invalide",
+            Self::EcheanceMotifInvalide => "echeance_motif_invalide",
         }
     }
 }

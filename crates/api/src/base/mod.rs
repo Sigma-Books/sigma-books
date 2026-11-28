@@ -40,6 +40,7 @@ pub mod administration;
 pub mod audit;
 pub mod brouillard;
 pub mod config;
+pub mod echeancier;
 pub mod editions;
 pub mod evenement;
 pub mod facteurs;

@@ -156,6 +156,9 @@ async fn monde(admin: &PgPool) -> Monde {
                 commun::releves::doter(admin, c.cabinet, dossier, c.administrateur, caisse).await;
             inscrire_sous_ressource(dossier, "profil", profil);
             inscrire_sous_ressource(dossier, "depot", depot);
+            // Une condition de règlement (L3, PR 8), sous-ressource `{condition}`.
+            let condition = commun::echeancier::doter(admin, c.cabinet, dossier).await;
+            inscrire_sous_ressource(dossier, "condition", condition);
             fixtures.insert(dossier, f);
         }
     }

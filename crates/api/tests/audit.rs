@@ -834,6 +834,8 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
     // Relevés (L3, PR 12a) : `{profil}` est celui que crée la route de création, qui précède
     // celle de la nouvelle version.
     let mut profil = uuid::Uuid::nil();
+    // Échéancier (L3, PR 8) : `{condition}` est une condition fixe.
+    let condition = commun::echeancier::doter(&env.admin, c.cabinet, c.dossier).await;
     for route in ROUTES
         .iter()
         .filter(|r| r.methode == Methode::Post && r.portee.du_cabinet())
@@ -860,6 +862,7 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                 "ecriture" => validee,
                 "compte_tresorerie" => caisse,
                 "profil" => profil,
+                "condition" => condition,
                 autre => fixtures.sous_ressource(autre),
             },
         );
@@ -1011,6 +1014,28 @@ async fn chaque_mutation_produit_des_traces_sur_sa_portee() {
                     r#"{{"date_effet":"{}","motif":"Test d'audit","taux":{{"normal":"19"}}}}"#,
                     (time::OffsetDateTime::now_utc().date() + time::Duration::days(30))
                 ),
+                None,
+            )
+            .await
+        } else if route.cas_usage
+            == CasUsage::Echeancier(api::serveur::routes::echeancier::Cas::ReviserEcheance)
+        {
+            // Révision de la ligne 1 d'une écriture validée fixe à ligne de tiers, créée ici
+            // (celle de la route de validation n'a pas de tiers), après les routes d'intégrité.
+            let ecriture = commun::echeancier::doter_ecriture_tiers(
+                &env.admin,
+                c.cabinet,
+                c.dossier,
+                c.administrateur,
+                fixtures.tiers,
+                1000,
+            )
+            .await;
+            commun::serveur::envoyer(
+                &routeur,
+                &chemin.replace(&validee.to_string(), &ecriture.to_string()),
+                Some(c.administrateur),
+                commun::serveur::corps_de(route),
                 None,
             )
             .await

@@ -9,7 +9,9 @@
 //!   tiers**, figés ensuite (ADR 0031 point 1, amendement du 2026-11-27 : Tryton et Odoo laissent
 //!   changer le compte du tiers ; contrôle croisé du référentiel comme à la création) ;
 //!   code auxiliaire unique dans le dossier et immuable (tiré d'office s'il n'est pas fourni),
-//!   devise par défaut, indicateurs `assujetti_tva` et `soumis_retenue` sans effet comptable.
+//!   devise par défaut, indicateurs `assujetti_tva` et `soumis_retenue` sans effet comptable,
+//!   condition de règlement par défaut (`condition_reglement`, PR 8 ; ADR 0033) : une condition
+//!   du dossier, sinon 404.
 //! - **Identifiants légaux** : types du pack du pays **du dossier** (ADR 0027 ; aucune règle de
 //!   pays dans le code), au plus un par type, valeur libre bornée : aucun format n'est sourcé, donc
 //!   aucun avertissement de forme (ADR 0031 point 2).
@@ -217,6 +219,8 @@ struct VueEntete {
     devise: Option<String>,
     assujetti_tva: bool,
     soumis_retenue: bool,
+    /// Condition de règlement par défaut de saisie (ADR 0033).
+    condition_reglement: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -310,6 +314,7 @@ fn vue_entete(e: &EnteteTiers) -> VueEntete {
         devise: e.devise.clone(),
         assujetti_tva: e.assujetti_tva,
         soumis_retenue: e.soumis_retenue,
+        condition_reglement: e.condition_reglement.map(|c| c.to_string()),
     }
 }
 
@@ -425,6 +430,7 @@ struct CorpsCreation {
     assujetti_tva: bool,
     #[serde(default)]
     soumis_retenue: bool,
+    condition_reglement: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -472,6 +478,9 @@ struct CorpsModification {
     devise: ChampTexte,
     assujetti_tva: Option<bool>,
     soumis_retenue: Option<bool>,
+    /// Condition de règlement par défaut : `null` l'efface.
+    #[serde(default)]
+    condition_reglement: ChampTexte,
     identifiants: Option<Vec<CorpsIdentifiant>>,
     adresses: Option<Vec<CorpsAdresse>>,
     contacts: Option<Vec<CorpsContact>>,
@@ -485,6 +494,7 @@ impl CorpsModification {
             && self.devise == ChampTexte::Absent
             && self.assujetti_tva.is_none()
             && self.soumis_retenue.is_none()
+            && self.condition_reglement == ChampTexte::Absent
             && self.identifiants.is_none()
             && self.adresses.is_none()
             && self.contacts.is_none()
@@ -590,6 +600,17 @@ fn pays(valeur: &str) -> Result<String, ErreurApi> {
         Ok(valeur.to_owned())
     } else {
         Err(invalide())
+    }
+}
+
+/// Condition de règlement citée : un UUID (sinon 400) d'une condition **du dossier du contexte**
+/// (sinon 404 : celle d'un autre dossier est absente).
+async fn condition_citee(tx: &mut TransactionTenant, valeur: &str) -> Result<Uuid, ErreurApi> {
+    let id = Uuid::try_parse(valeur).map_err(|_| ErreurApi::RequeteInvalide)?;
+    if crate::base::echeancier::condition_existe(tx, id).await? {
+        Ok(id)
+    } else {
+        Err(ErreurApi::Introuvable)
     }
 }
 
@@ -1025,7 +1046,14 @@ async fn creer(
         assujetti_tva: c.assujetti_tva,
         soumis_retenue: c.soumis_retenue,
     };
+    let condition = match c.condition_reglement.as_deref() {
+        Some(v) => Some(condition_citee(tx, v).await?),
+        None => None,
+    };
     tiers::creer(tx, &nouveau).await.map_err(erreur_tiers)?;
+    if condition.is_some() {
+        tiers::changer_condition_reglement(tx, nouveau.id, condition).await?;
+    }
     let mut t = trace(dossier.id(), "tiers", nouveau.id);
     t.donnees.push(("operation", "creation".to_owned()));
     t.donnees.push(("type", genre.nom().to_owned()));
@@ -1037,6 +1065,7 @@ async fn creer(
         ("devise", c.devise.is_some()),
         ("assujetti_tva", c.assujetti_tva),
         ("soumis_retenue", c.soumis_retenue),
+        ("condition_reglement", condition.is_some()),
     ]);
     t.donnees.push(("champs", renseignes.join(",")));
     let vue = fiche(tx, nouveau.id).await?;
@@ -1077,6 +1106,11 @@ async fn modifier(
         ChampTexte::Absent => None,
         ChampTexte::Efface => Some(None),
         ChampTexte::Valeur(v) => Some(Some(devise(v)?)),
+    };
+    let condition_demandee = match &c.condition_reglement {
+        ChampTexte::Absent => None,
+        ChampTexte::Efface => Some(None),
+        ChampTexte::Valeur(v) => Some(Some(condition_citee(tx, v).await?)),
     };
     let identifiants_demandes = c
         .identifiants
@@ -1161,7 +1195,10 @@ async fn modifier(
     if let Some(s) = c.soumis_retenue {
         entete.soumis_retenue = s;
     }
-    let champs: Vec<&'static str> = [
+    if let Some(condition) = condition_demandee {
+        entete.condition_reglement = condition;
+    }
+    let mut champs: Vec<&'static str> = [
         ("nom", entete.nom != avant.entete.nom),
         ("devise", entete.devise != avant.entete.devise),
         (
@@ -1176,6 +1213,10 @@ async fn modifier(
     .into_iter()
     .filter_map(|(n, change)| change.then_some(n))
     .collect();
+    if entete.condition_reglement != avant.entete.condition_reglement {
+        tiers::changer_condition_reglement(tx, id, entete.condition_reglement).await?;
+        champs.push("condition_reglement");
+    }
     if !champs.is_empty() {
         tiers::modifier_entete(tx, &entete).await?;
         let mut t = trace(dossier.id(), "tiers", id);

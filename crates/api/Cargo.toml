@@ -47,8 +47,8 @@ http-body-util.workspace = true
 hyper = { workspace = true, features = ["client"] }
 hyper-util.workspace = true
 rusty-s3.workspace = true
-# Totaux de l'aperçu d'un relevé, en décimal exact (montants lus par `formats` ; déjà dépendance
-# de `compta-core` et de `formats`, aucune nouvelle crate au graphe).
+# Totaux de l'aperçu d'un relevé, conditions de règlement et résiduels de l'échéancier, en décimal
+# exact (déjà dépendance de `compta-core` et de `formats`, aucune nouvelle crate au graphe).
 rust_decimal.workspace = true
 serde.workspace = true
 # État des passkeys et des cérémonies WebAuthn, stocké en JSON (`webauthn-rs` le sérialise ainsi).
