@@ -44,7 +44,7 @@ pub struct TermeStocke {
 pub struct ConditionLue {
     /// Identifiant.
     pub id: Uuid,
-    /// Code stable, unique dans le dossier.
+    /// Code (texte borné), unique dans le dossier, immuable.
     pub code: String,
     /// Libellé.
     pub libelle: String,
@@ -303,32 +303,60 @@ pub async fn modifier_condition(
 // --- Échéances des lignes validées -----------------------------------------------------------
 
 /// Copie les échéances des lignes du brouillon `brouillon` dans `echeance_ligne`, sous le même
-/// identifiant (celui de l'écriture validée) et aux mêmes positions : **un `INSERT … SELECT`**,
-/// appelé par [`super::validation::inserer`] dans la transaction de validation, avant la
-/// suppression du brouillon. Rien n'entre dans le contenu haché ni dans la chaîne (ADR 0033
-/// point 1). Une ligne sans échéance n'est pas copiée.
+/// identifiant (celui de l'écriture validée) : **un `INSERT … SELECT`**, appelé par
+/// [`super::validation::inserer`] dans la transaction de validation (unitaire et par lot), après
+/// l'insertion des lignes validées et avant la suppression du brouillon. Rien n'entre dans le
+/// contenu haché ni dans la chaîne (ADR 0033 point 1). Une ligne sans échéance n'est pas copiée.
+///
+/// Chaque échéance n'est copiée que sur la ligne validée **de même position, même compte, même
+/// sens, même montant et même tiers** que sa ligne de brouillon ; si une seule ne trouve pas sa
+/// ligne (positions divergentes), la copie échoue et la validation entière est annulée (tout ou
+/// rien), au lieu de porter l'échéance sur une autre ligne.
 ///
 /// # Errors
-/// Contexte sans dossier, contrainte refusée par PostgreSQL.
+/// Contexte sans dossier ; [`ErreurBase::Donnee`] si une échéance n'a pas sa ligne validée ;
+/// contrainte refusée par PostgreSQL.
 pub async fn copier_echeances(
     tx: &mut TransactionTenant,
     brouillon: Uuid,
 ) -> Result<(), ErreurBase> {
     let (cabinet, dossier) = contexte(tx)?;
-    sqlx::query!(
+    let attendues = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "n!" FROM brouillon_ligne
+           WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3
+             AND date_echeance IS NOT NULL"#,
+        cabinet,
+        dossier,
+        brouillon,
+    )
+    .fetch_one(tx.connexion())
+    .await?;
+    let copiees = sqlx::query!(
         "INSERT INTO echeance_ligne \
              (cabinet_id, dossier_id, ecriture_id, position, date_echeance) \
-         SELECT cabinet_id, dossier_id, brouillon_id, position, date_echeance \
-         FROM brouillon_ligne \
-         WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3 \
-           AND date_echeance IS NOT NULL",
+         SELECT b.cabinet_id, b.dossier_id, b.brouillon_id, b.position, b.date_echeance \
+         FROM brouillon_ligne b \
+         JOIN ecriture_validee_ligne v \
+           ON v.cabinet_id = b.cabinet_id AND v.dossier_id = b.dossier_id \
+          AND v.ecriture_id = b.brouillon_id AND v.position = b.position \
+          AND v.compte_numero = b.compte_numero AND v.sens = b.sens \
+          AND v.montant = b.montant AND v.tiers_id = b.tiers_id \
+         WHERE b.cabinet_id = $1 AND b.dossier_id = $2 AND b.brouillon_id = $3 \
+           AND b.date_echeance IS NOT NULL",
         cabinet,
         dossier,
         brouillon,
     )
     .execute(tx.connexion())
-    .await?;
-    Ok(())
+    .await?
+    .rows_affected();
+    if i64::try_from(copiees).ok() == Some(attendues) {
+        Ok(())
+    } else {
+        Err(ErreurBase::Donnee(
+            "échéance de brouillon sans ligne validée correspondante",
+        ))
+    }
 }
 
 /// Ligne de tiers d'une écriture validée, avec son échéance initiale.

@@ -72,6 +72,43 @@ pub async fn doter_ecriture_tiers(
 ) -> Uuid {
     let id = Uuid::new_v4();
     let c = comptes();
+    inserer_ecriture_validee(
+        admin,
+        (cabinet, dossier, utilisateur),
+        id,
+        &[
+            (c.collectif.as_str(), "debit", Some(tiers)),
+            (c.caisse.as_str(), "credit", None),
+        ],
+        rang,
+    )
+    .await;
+    let fin_d_annee =
+        time::Date::from_calendar_date(aujourd_hui().year(), time::Month::December, 31).unwrap();
+    sqlx::query(
+        "INSERT INTO echeance_ligne (cabinet_id, dossier_id, ecriture_id, position, \
+         date_echeance) VALUES ($1, $2, $3, 1, $4)",
+    )
+    .bind(cabinet.uuid())
+    .bind(dossier.uuid())
+    .bind(id)
+    .bind(fin_d_annee)
+    .execute(admin)
+    .await
+    .unwrap();
+    id
+}
+
+/// Insère, par le super-utilisateur, l'écriture validée minimale `id` (lecture seule : contenu
+/// canonique et empreintes fictifs) du jour, lignes de 1 000 aux comptes, sens et tiers donnés,
+/// dans l'ordre des positions ; rang de chaîne `rang`.
+pub async fn inserer_ecriture_validee(
+    admin: &PgPool,
+    (cabinet, dossier, utilisateur): (IdCabinet, IdDossier, IdUtilisateur),
+    id: Uuid,
+    lignes: &[(&str, &str, Option<Uuid>)],
+    rang: i64,
+) {
     let code = journal_de_saisie();
     let journal: Uuid =
         sqlx::query_scalar("SELECT id FROM journal WHERE dossier_id = $1 AND code = $2")
@@ -111,10 +148,7 @@ pub async fn doter_ecriture_tiers(
     .execute(admin)
     .await
     .unwrap();
-    for (position, compte, sens, tiers) in [
-        (1i16, c.collectif.as_str(), "debit", Some(tiers)),
-        (2, c.caisse.as_str(), "credit", None),
-    ] {
+    for (indice, (compte, sens, tiers)) in lignes.iter().enumerate() {
         sqlx::query(
             "INSERT INTO ecriture_validee_ligne (cabinet_id, dossier_id, ecriture_id, position, \
              compte_numero, sens, montant, tiers_id) VALUES ($1, $2, $3, $4, $5, $6, 1000, $7)",
@@ -122,26 +156,12 @@ pub async fn doter_ecriture_tiers(
         .bind(cabinet.uuid())
         .bind(dossier.uuid())
         .bind(id)
-        .bind(position)
-        .bind(compte)
-        .bind(sens)
-        .bind(tiers)
+        .bind(i16::try_from(indice + 1).unwrap())
+        .bind(*compte)
+        .bind(*sens)
+        .bind(*tiers)
         .execute(admin)
         .await
         .unwrap();
     }
-    let fin_d_annee =
-        time::Date::from_calendar_date(aujourd_hui().year(), time::Month::December, 31).unwrap();
-    sqlx::query(
-        "INSERT INTO echeance_ligne (cabinet_id, dossier_id, ecriture_id, position, \
-         date_echeance) VALUES ($1, $2, $3, 1, $4)",
-    )
-    .bind(cabinet.uuid())
-    .bind(dossier.uuid())
-    .bind(id)
-    .bind(fin_d_annee)
-    .execute(admin)
-    .await
-    .unwrap();
-    id
 }

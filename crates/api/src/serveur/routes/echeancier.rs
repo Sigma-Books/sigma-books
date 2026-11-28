@@ -5,7 +5,8 @@
 //! dans ce module (P6). Migrations `0510` à `0514`.
 //!
 //! # Conditions de règlement (ADR 0033 point 3)
-//! Configuration du dossier, modifiable et journalisée : code stable (unique, immuable), libellé,
+//! Configuration du dossier, modifiable et journalisée : code (texte borné, unique ; immuable par
+//! choix de Sigma Books, l'ADR ne l'exigeant pas), libellé,
 //! activité, termes (pourcentage du total, montant fixe ou solde ; délai parmi les quatre types
 //! d'Odoo). Le dernier terme est le solde, la somme des pourcentages reste sous 100 : contrôlé par
 //! `compta-core` (Tryton `payment_term.py:40-47`, Odoo `account_payment_term.py:156-162`,
@@ -167,6 +168,8 @@ const ROLES_PARAMETRAGE: &[Role] = &[Role::Administrateur, Role::Valideur];
 pub const TERMES_MAX: usize = 50;
 /// Longueur maximale du libellé d'une condition (migration `0510`).
 const LIBELLE_MAX: usize = 100;
+/// Longueur maximale du code d'une condition, en caractères (migration `0510`).
+const CODE_MAX: usize = 20;
 /// Chiffres entiers au plus d'un montant fixe (`numeric` < 10^20, comme les lignes).
 const CHIFFRES_ENTIERS_MAX: usize = 20;
 
@@ -728,11 +731,8 @@ async fn creer_condition(
     requete: &Requete<'_>,
 ) -> Result<Resultat, ErreurApi> {
     let c: CorpsCreation = corps(requete.corps)?;
-    let code_valide = (1..=20).contains(&c.code.len())
-        && c.code
-            .bytes()
-            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b"._-".contains(&b));
-    if !code_valide {
+    // Code : texte borné, comme un nom (aucun format imposé : Tryton et Odoo n'ont qu'un nom).
+    if !texte_borne(&c.code, CODE_MAX) {
         return Err(invalide());
     }
     let condition = ConditionLue {
@@ -1031,12 +1031,7 @@ mod tests {
         for (code, libelle, termes) in MODELES_D_USAGE {
             assert!(codes.insert(*code), "{code} en double");
             assert!(texte_borne(libelle, LIBELLE_MAX), "{libelle}");
-            assert!(
-                code.len() <= 20
-                    && code.bytes().all(|b| b.is_ascii_uppercase()
-                        || b.is_ascii_digit()
-                        || b"._-".contains(&b))
-            );
+            assert!(texte_borne(code, CODE_MAX), "{code}");
             condition_pure(&termes_du_modele(termes)).unwrap();
         }
     }

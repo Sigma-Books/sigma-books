@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"n!\" FROM brouillon_ligne\n           WHERE cabinet_id = $1 AND dossier_id = $2 AND brouillon_id = $3\n             AND date_echeance IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "99303da3f0f413e16d9f574be49ed97a7a34a72a601508f60a46364764aa2aba"
+}

@@ -842,7 +842,9 @@ Code : `src/serveur/routes/echeancier.rs` (routes, modèles d'usage, conversions
 `src/base/echeancier.rs` (tables), migrations `0510` à `0514`, catalogue `echeancier.toml`.
 
 - **Conditions de règlement** (`condition_reglement`, `condition_reglement_terme`, configuration) :
-  code stable (`A-Z 0-9 . _ -`, 1 à 20, unique : 409 `condition_reglement_code_deja_utilise`),
+  code (texte de 1 à 20 caractères sans caractère de contrôle ni de format, unique dans le dossier :
+  409 `condition_reglement_code_deja_utilise` ; immuable, choix de Sigma Books non exigé par
+  l'ADR 0033),
   libellé, activité, 1 à 50 termes (`valeur` : `pourcentage` du total, `fixe` ou `solde` ;
   `delai` : `jours`, `fin_de_mois`, `fin_du_mois_suivant`, `jour_du_mois_suivant` avec `jour` 0 à
   31 ; `jours` signé). Dernier terme = solde, pourcentages sous 100 : contrôles de `compta-core`
@@ -855,9 +857,10 @@ Code : `src/serveur/routes/echeancier.rs` (routes, modèles d'usage, conversions
   l'échelle de la devise de tenue (422 `montant_echelle_devise_tenue`) ; aucune écriture.
 - **Saisie** : `date_echeance` facultative sur une ligne de brouillon, **ligne de tiers seulement**
   (422 `echeance_sans_tiers`, contrainte en seconde barrière) ; aucune autre règle (Tryton et Odoo
-  admettent toute date). **Validation** (unitaire, lot) : `base::validation::inserer` copie ces dates
-  dans `echeance_ligne` (un `INSERT … SELECT`), hors du contenu haché ; la contre-passation n'en
-  copie aucune. Colonne exemptée du fil-piège du brouillard (`brouillard_colonne_non_comptable` du
+  admettent toute date). **Validation** (unitaire, lot) : `base::validation::inserer` appelle
+  `base::echeancier::copier_echeances` (un `INSERT … SELECT`), hors du contenu haché ; chaque
+  échéance va sur la ligne validée de même position, compte, sens, montant et tiers, sinon la
+  validation échoue entière (500, tout ou rien) ; la contre-passation n'en copie aucune. Colonne exemptée du fil-piège du brouillard (`brouillard_colonne_non_comptable` du
   catalogue : date non comptable, type `date` contrôlé).
 - **Échéances** `GET …/echeances/{ecriture}[?au=AAAA-MM-JJ]` : lignes de tiers, échéance
   initiale, révisions, échéance effective à `au` (défaut : jour du dossier ; repli sur la date
@@ -872,6 +875,9 @@ Code : `src/serveur/routes/echeancier.rs` (routes, modèles d'usage, conversions
   prend le `compteur_lettrage` du compte `FOR UPDATE` (ADR 0032 point 8) et retire les liens.
 - **Audit** : condition (opération, code, champs, nombre de termes), révision (position, rang, dates) ;
   jamais le motif ni le libellé.
+- **Rôles relus en base** (défense en profondeur) : constantes du module, recopiées des politiques
+  Cedar ; `tests/echeancier.rs` (`les_roles_relus_en_base_suivent_cedar`) vérifie, Cedar forcé,
+  qu'ils refusent exactement les rôles que Cedar refuse.
 
 | Route | Cedar |
 |---|---|

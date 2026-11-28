@@ -619,3 +619,199 @@ async fn modeles_d_usage_crees_avec_le_dossier() {
     .unwrap();
     assert!(entree.contains("conditions_reglement"), "{entree}");
 }
+
+#[tokio::test]
+async fn validation_par_lot_copie_les_echeances() {
+    let b = banc().await;
+    let (premier, v1) = b.pret_avec(&facture(&b, Some(ECHEANCE))).await;
+    let (second, v2) = b.pret_avec(&facture(&b, Some("2099-09-30"))).await;
+    let (sans, v3) = b.pret_avec(&facture(&b, None)).await;
+    let liste: Vec<String> = [(premier, v1), (second, v2), (sans, v3)]
+        .iter()
+        .map(|(id, v)| format!(r#"{{"ecriture":"{id}","version":{v}}}"#))
+        .collect();
+    // Session fraîche (ré-authentification exigée par le lot).
+    let r = envoyer(
+        &b.routeur,
+        &format!("{}/validation-par-lot", b.base()),
+        Some(b.valideur),
+        &format!(r#"{{"ecritures":[{}]}}"#, liste.join(",")),
+        None,
+    )
+    .await;
+    assert_eq!(r.statut, StatusCode::OK, "{}", r.texte());
+    let copiees: Vec<(Uuid, i16, time::Date)> = sqlx::query_as(
+        "SELECT ecriture_id, position, date_echeance FROM echeance_ligne \
+         WHERE dossier_id = $1 ORDER BY date_echeance",
+    )
+    .bind(b.c.dossier.uuid())
+    .fetch_all(&b.env.admin)
+    .await
+    .unwrap();
+    assert_eq!(
+        copiees
+            .iter()
+            .map(|(e, p, d)| (*e, *p, texte_date(*d)))
+            .collect::<Vec<_>>(),
+        [
+            (premier, 1, ECHEANCE.to_owned()),
+            (second, 1, "2099-09-30".to_owned()),
+        ]
+    );
+    for (_, _, texte, _, _) in b.chaine().await {
+        assert!(!texte.contains("2099"), "{texte}");
+    }
+    assert!(b.chaine_valide().await);
+}
+
+#[tokio::test]
+async fn une_echeance_sans_sa_ligne_validee_annule_la_copie() {
+    let b = banc().await;
+    let k = comptes();
+    // Brouillon : ligne 1 du tiers avec échéance, ligne 2 caisse.
+    let id = b.creer(&facture(&b, Some(ECHEANCE))).await;
+    // Écriture validée du même identifiant dont les positions divergent (caisse en 1, tiers en
+    // 2) : l'échéance ne doit pas aller sur la ligne de caisse.
+    commun::echeancier::inserer_ecriture_validee(
+        &b.env.admin,
+        (b.c.cabinet, b.c.dossier, b.c.administrateur),
+        id,
+        &[
+            (k.caisse.as_str(), "credit", None),
+            (k.collectif.as_str(), "debit", Some(b.f.tiers)),
+        ],
+        1,
+    )
+    .await;
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    let e = api::base::echeancier::copier_echeances(&mut tx, id)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, api::base::ErreurBase::Donnee(_)), "{e:?}");
+    drop(tx);
+    assert_eq!(b.compter("echeance_ligne").await, 0);
+    // Positions concordantes : la copie réussit.
+    let id = b.creer(&facture(&b, Some(ECHEANCE))).await;
+    commun::echeancier::inserer_ecriture_validee(
+        &b.env.admin,
+        (b.c.cabinet, b.c.dossier, b.c.administrateur),
+        id,
+        &[
+            (k.collectif.as_str(), "debit", Some(b.f.tiers)),
+            (k.caisse.as_str(), "credit", None),
+        ],
+        2,
+    )
+    .await;
+    let mut tx = ouvrir_transaction(
+        &b.env.application,
+        ContexteTenant::dossier(b.c.cabinet, b.c.dossier, b.c.administrateur),
+    )
+    .await
+    .unwrap();
+    api::base::echeancier::copier_echeances(&mut tx, id)
+        .await
+        .unwrap();
+    tx.confirmer().await.unwrap();
+    assert_eq!(b.compter("echeance_ligne").await, 1);
+}
+
+#[tokio::test]
+async fn code_de_condition_texte_borne() {
+    let b = banc().await;
+    let base = format!("{}/conditions-reglement", racine(&b));
+    let creer = |code: &str| {
+        let corps = json!({
+            "code": code,
+            "libelle": "Libellé",
+            "termes": [{"valeur": "solde", "delai": "jours", "jours": 30}]
+        })
+        .to_string();
+        let (routeur, chemin, qui) = (b.routeur.clone(), base.clone(), b.c.administrateur);
+        async move { envoyer(&routeur, &chemin, Some(qui), &corps, None).await }
+    };
+    // Aucun format imposé (Tryton et Odoo n'ont qu'un nom) : minuscules, espaces, accents admis.
+    for valeur in ["30 j fin de mois", "échéance-A", "x"] {
+        assert_eq!(creer(valeur).await.statut, StatusCode::CREATED, "{valeur}");
+    }
+    for valeur in ["", "   ", "a\tb", "a\u{202E}b", &"x".repeat(21)] {
+        let r = creer(valeur).await;
+        assert_eq!(r.statut, StatusCode::UNPROCESSABLE_ENTITY, "{valeur:?}");
+        assert_eq!(code(&r), "condition_reglement_invalide");
+    }
+    assert_eq!(creer("x").await.statut, StatusCode::CONFLICT);
+}
+
+/// Les rôles relus en base par le module (défense en profondeur) refusent exactement ce que les
+/// politiques Cedar refusent : Cedar forcé à « autorisé », une route renvoie 403 pour un rôle si
+/// et seulement si Cedar lui-même le refuse (constantes recopiées de Cedar : contrôle de dérive).
+#[tokio::test]
+async fn les_roles_relus_en_base_suivent_cedar() {
+    use std::sync::Arc;
+
+    use api::serveur::routes::{CasUsage, ROUTES};
+    use api::serveur::{Application, Reglages, routeur};
+    use commun::serveur::{AuthentificationTest, ORIGINE, ToujoursAutorise, appeler_route};
+
+    let b = banc().await;
+    let force = routeur(&Application::new(
+        b.env.application.clone(),
+        b.env.lecture_audit.clone(),
+        Arc::new(ToujoursAutorise),
+        Arc::new(AuthentificationTest::default()),
+        Reglages::new(ORIGINE.to_owned()),
+    ));
+    let condition = commun::echeancier::doter(&b.env.admin, b.c.cabinet, b.c.dossier).await;
+    let ecriture = commun::echeancier::doter_ecriture_tiers(
+        &b.env.admin,
+        b.c.cabinet,
+        b.c.dossier,
+        b.c.administrateur,
+        b.f.tiers,
+        50,
+    )
+    .await;
+    let roles = [
+        ("administrateur", b.c.administrateur),
+        ("valideur", b.valideur),
+        ("collaborateur", b.c.collaborateur),
+        ("auditeur", b.auditeur),
+    ];
+    let mut vus = 0;
+    for route in ROUTES
+        .iter()
+        .filter(|r| matches!(r.cas_usage, CasUsage::Echeancier(_)))
+    {
+        let chemin = commun::chemin_concret(
+            route.chemin,
+            b.c.cabinet.uuid(),
+            b.c.dossier.uuid(),
+            |nom| match nom {
+                "condition" => condition,
+                "ecriture" => ecriture,
+                autre => panic!("sous-ressource {autre}"),
+            },
+        );
+        for (nom, qui) in roles {
+            let cedar = appeler_route(&b.routeur, route, &chemin, Some(qui)).await;
+            let base = appeler_route(&force, route, &chemin, Some(qui)).await;
+            assert_eq!(
+                cedar.statut == StatusCode::FORBIDDEN,
+                base.statut == StatusCode::FORBIDDEN,
+                "{} {} ({nom}) : Cedar {}, rôle relu en base {} {}",
+                route.methode.nom(),
+                route.chemin,
+                cedar.statut,
+                base.statut,
+                base.texte()
+            );
+            vus += 1;
+        }
+    }
+    assert_eq!(vus, 7 * 4);
+}

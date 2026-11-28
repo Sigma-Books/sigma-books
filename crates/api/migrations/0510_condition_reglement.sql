@@ -2,9 +2,12 @@
 --
 -- Voie « tiers et trésorerie », sous-plage 0510 à 0519 (crates/api/README.md, « Migrations »).
 --
--- Configuration modifiable et journalisée (régime « C » du plan) : une condition a un code stable
--- (unique dans le dossier, immuable : hors du droit d'`UPDATE`), un libellé et un indicateur
--- d'activité ; ses termes se **remplacent** en bloc à la modification (suppression puis insertion,
+-- Configuration modifiable et journalisée (régime « C » du plan) : une condition a un code (texte
+-- borné de 1 à 20 caractères sans caractère de contrôle, comme un nom ; les caractères de format
+-- Unicode sont refusés par l'API), unique dans le dossier, un libellé et un indicateur d'activité.
+-- Le code est **immuable** (hors du droit d'`UPDATE`) : choix de Sigma Books, non exigé par
+-- l'ADR 0033 (Tryton et Odoo n'ont qu'un nom, modifiable), pour que l'audit qui le cite reste
+-- lisible ; le libellé, lui, se modifie ; ses termes se **remplacent** en bloc à la modification (suppression puis insertion,
 -- comme les lignes d'un brouillon). Aucune condition ne se supprime : un tiers peut la citer.
 -- Les échéances déjà copiées (`echeance_ligne`, `0513`) sont des **dates** : modifier une
 -- condition ne change aucune échéance existante (Tryton et Odoo : idem, le terme est recalculé à
@@ -19,7 +22,9 @@ CREATE TABLE condition_reglement (
     cabinet_id uuid NOT NULL,
     dossier_id uuid NOT NULL,
     id uuid NOT NULL,
-    code text NOT NULL CHECK (code ~ '^[A-Z0-9._-]{1,20}$'),
+    code text NOT NULL CHECK (
+        length(code) <= 20 AND length(btrim(code)) >= 1 AND code !~ '[[:cntrl:]]'
+    ),
     libelle text NOT NULL CHECK (
         length(libelle) <= 100 AND length(btrim(libelle)) >= 1 AND libelle !~ '[[:cntrl:]]'
     ),
