@@ -92,6 +92,11 @@ Chaque mutation (création de compte de trésorerie, profil, import, confirmatio
 - **585** : marque de données `virement_interne` (`crates/syscohada/data/comptes.toml`, fiche 58 p. PDF 430), héritée par les sous-comptes ; avertissement `virement_interne_non_solde` à la demande, l'alerte périodique restant à la PR 15. 588 n'est pas marqué (la spec §9.3 et §15.1 ne citent que 585).
 - **Identifiant typé** (point 1) : non livré par la PR 11, faute de types d'identifiants bancaires dans le pack (ils arrivent avec les coordonnées bancaires des tiers, PR 7a) ; une migration de la sous-plage `0542`–`0549` l'ajoutera.
 
+### Précision du 2026-11-27 (PR 12a, L3-22 ; points 1, 4 et 7)
+- **Dépôt d'un fichier déjà déposé** dans le dossier (même SHA-256, pièce non écartée) : 200 `{"doublon":true,"depots":[…]}`, rien n'est stocké (aucun second objet WORM), comme le doublon de pièce de L2 et la spec §9.3. Le 409 `releve_deja_importe` du point 7 (couche 1) est **réservé à l'import des lignes** (PR 12b) d'un fichier déjà importé.
+- **Dépôt sur un compte de trésorerie archivé** : 409 `compte_tresorerie_archive`, comme l'arrêté de caisse (PR 11) et comme Odoo et Tryton, qui n'offrent pas un journal désactivé à la saisie.
+- **Dépôt dont la pièce est écartée** (dépôt erroné, ADR 0015) : l'analyse est refusée (409 `piece_ecartee`) ; l'import de la PR 12b fera de même.
+
 ## Conséquences
 - **ADR 0015 amendé** : le type « texte », sa limite de taille, la lecture par l'analyseur pur ; ses autres décisions (WORM, empreinte serveur, téléchargement isolé) sont inchangées. Une note renvoie ici depuis l'ADR 0015.
 - **ADR 0030 §7** : le prélèvement et la taxe sont traités en L3, non « en L5 et suivants » (la spec §26 point 2 les affecte à L3) : une note de correction y renvoie ; l'ADR 0030 reste valable (ajout de fichiers de version).
