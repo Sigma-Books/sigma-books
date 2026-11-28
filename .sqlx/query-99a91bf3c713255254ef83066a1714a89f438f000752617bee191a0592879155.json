@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT k.lettrage_id AS \"id!\"\n             FROM unnest($3::uuid[], $4::int2[]) AS r (ecriture_id, position)\n             JOIN lettrage_lien k\n               ON k.cabinet_id = $1 AND k.dossier_id = $2\n              AND k.debit_ecriture_id = r.ecriture_id AND k.debit_position = r.position\n           UNION\n           SELECT k.lettrage_id\n             FROM unnest($3::uuid[], $4::int2[]) AS r (ecriture_id, position)\n             JOIN lettrage_lien k\n               ON k.cabinet_id = $1 AND k.dossier_id = $2\n              AND k.credit_ecriture_id = r.ecriture_id AND k.credit_position = r.position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray",
+        "Int2Array"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "99a91bf3c713255254ef83066a1714a89f438f000752617bee191a0592879155"
+}

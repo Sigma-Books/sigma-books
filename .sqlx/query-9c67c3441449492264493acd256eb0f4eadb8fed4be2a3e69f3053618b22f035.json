@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM exercice\n                           WHERE cabinet_id = $1 AND dossier_id = $2\n                             AND debut <= $3 AND fin >= $3 AND statut = 'cloture') AS \"clos!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "clos!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9c67c3441449492264493acd256eb0f4eadb8fed4be2a3e69f3053618b22f035"
+}

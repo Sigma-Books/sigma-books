@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.ecriture_id, l.position, e.rang, e.numero, e.date_comptable,\n                  c.id AS compte_id, l.compte_numero, l.sens, l.montant::text AS \"montant!\",\n                  l.devise, l.montant_devise::text AS montant_devise, l.cours::text AS cours,\n                  l.tiers_id\n             FROM compte c\n             JOIN ecriture_validee_ligne l\n               ON l.cabinet_id = c.cabinet_id AND l.dossier_id = c.dossier_id\n              AND l.compte_numero = c.numero\n             JOIN ecriture_validee e\n               ON e.cabinet_id = l.cabinet_id AND e.dossier_id = l.dossier_id\n              AND e.id = l.ecriture_id\n            WHERE c.cabinet_id = $1 AND c.dossier_id = $2 AND c.id = $3\n            ORDER BY e.rang, l.position\n            LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ecriture_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "ecriture_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "position"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "date_comptable",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee",
+            "name": "date_comptable"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "compte_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "compte",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "compte_numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "compte_numero"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "sens",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "sens"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "montant!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "devise",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "devise"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "montant_devise",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "cours",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "tiers_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "ecriture_validee_ligne",
+            "name": "tiers_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      true,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "b2f44b374aecaec40d74950bd9d559cf0d2cec1bf32bfceb17e148c2b3ea3636"
+}

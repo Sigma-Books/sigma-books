@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, compte_id, lettre, rang, date_operation, origine, auteur FROM lettrage WHERE cabinet_id = $1 AND dossier_id = $2 AND id = ANY($3::uuid[]) ORDER BY compte_id, rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "lettrage",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "compte_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "lettrage",
+            "name": "compte_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "lettre",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lettrage",
+            "name": "lettre"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rang",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "lettrage",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "date_operation",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "lettrage",
+            "name": "date_operation"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "origine",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lettrage",
+            "name": "origine"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "auteur",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "lettrage",
+            "name": "auteur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "926e2acd4ec163d2a8cf9443c7649ede9c70e0611caf899217acecda85dd3ee3"
+}
