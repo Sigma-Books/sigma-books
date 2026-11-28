@@ -1,7 +1,33 @@
-# Catalogue « echeancier » (lot L3, PR 8 ; migrations `0510` à `0519`) : exceptions du test de catalogue
-# (ADR 0011 ; crates/api/tests/catalogue.rs). Voir `socle.toml` pour le format ; toute modification
-# passe par la revue de l'équipe core.
+# Catalogue « echeancier » (lot L3, PR 8 ; migrations `0510` à `0514`) : exceptions du test de
+# catalogue (ADR 0011 ; crates/api/tests/catalogue.rs). Voir `socle.toml` pour le format ; toute
+# modification passe par la revue de l'équipe core.
 #
-# Squelette posé par la PR 6 (L3-14) : aucune table encore. La PR 8 déclare ici les siennes
-# (tables en ajout seul du modèle de données de `docs/lots/L3.md`, avec leur justification), sans
-# éditer le fichier d'une autre voie.
+# `condition_reglement` et `condition_reglement_terme` (migration 0510) sont des tables de dossier
+# ordinaires (régime « C » du plan : configuration modifiable et journalisée) : `UPDATE` du libellé
+# et de l'activité, termes remplacés en bloc (`DELETE` sur la seule table des termes), jamais de
+# suppression d'une condition. Aucune fonction `SECURITY DEFINER`.
+
+[[ajout_seul]]
+nom = "echeance_ligne"
+justification = """
+Échéance initiale d'une ligne d'écriture validée (ADR 0033 point 1, migration 0513), copiée du \
+brouillon par la validation dans la même transaction. Hors du contenu haché : sa protection est \
+l'ajout seul (ni UPDATE ni DELETE pour le rôle applicatif) ; elle se révise par echeance_report."""
+
+[[ajout_seul]]
+nom = "echeance_report"
+justification = """
+Révision d'échéance (ADR 0033 point 2, migration 0514) : une ligne par révision (rang, nouvelle \
+échéance, date d'opération, motif, auteur), jamais modifiée ni supprimée ; une révision se corrige \
+par une nouvelle. Écart nécessaire avec Tryton et Odoo, qui modifient la date en place (P3)."""
+
+# Fil-piège du brouillard (`brouillard.toml`) : `brouillon_ligne` est exemptée parce qu'elle n'a
+# aucune date comptable propre. L'échéance d'une ligne de tiers (migration 0512) est une date, mais
+# **pas** une date comptable : la clôture d'une période lit la date de l'en-tête, jamais celle-ci.
+[[brouillard_colonne_non_comptable]]
+table = "brouillon_ligne"
+colonne = "date_echeance"
+justification = """
+Échéance facultative d'une ligne de tiers (ADR 0033 point 1) : date de règlement attendue, hors \
+du contenu haché, sans effet sur la période de l'écriture. Un brouillon daté dans la période \
+empêche la clôture quelle que soit l'échéance de ses lignes (date de l'en-tête, déjà lue)."""
