@@ -5,3 +5,28 @@
 # Squelette posé par la PR 6 (L3-14) : aucune table encore. La PR 9a et 9b déclare ici les siennes
 # (tables en ajout seul du modèle de données de `docs/lots/L3.md`, avec leur justification), sans
 # éditer le fichier d'une autre voie.
+#
+# Migration 0520 (PR 9a, L3-18) : `lettrage`, `lettrage_lien`, `lettrage_rupture` en ajout seul
+# (régime « A » du plan) ; `compteur_lettrage` est un état dérivé (régime « D ») : `UPDATE` de ses
+# seules colonnes de compteur, que PostgreSQL exige pour `SELECT … FOR UPDATE`, jamais `DELETE`
+# (comme `chaine_tete`). La fonction de déclencheur `lettrage_lien_controle` est ordinaire (droits
+# de l'appelant, sous RLS), sans `SECURITY DEFINER`, `EXECUTE` retiré à PUBLIC.
+
+[[ajout_seul]]
+nom = "lettrage"
+justification = """
+Opération de lettrage (ADR 0032 point 1 ; P3) : lettre, rang d'opération, date, origine, auteur. \
+Ni UPDATE ni DELETE pour le rôle applicatif : le dé-lettrage est une ligne de `lettrage_rupture`, \
+re-lettrer crée un nouveau lettrage avec une nouvelle lettre."""
+
+[[ajout_seul]]
+nom = "lettrage_lien"
+justification = """
+Liens partiels débit-crédit d'un lettrage (ADR 0032 point 1, B1) : montant imputé figé. Ni UPDATE \
+ni DELETE (F2.15) : un lien ne cesse de compter que par la rupture de son lettrage."""
+
+[[ajout_seul]]
+nom = "lettrage_rupture"
+justification = """
+Dé-lettrage (ADR 0032 point 5, B2) : rupture datée, avec auteur et motif, au plus une par \
+lettrage. Ni UPDATE ni DELETE : une rupture ne s'annule pas, on re-lettre."""
